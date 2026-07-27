@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [2.3.66] - 2026-07-27
+
+### Added
+- **Issue #68 — Additional resolution options** — Added wider resolution options to the width picker (1280, 1536, 1920, 2048) and height picker (704, 864, 1080, 1152). A warning is shown when selecting resolutions above the 768×512 training size, noting increased generation time, higher memory usage, potential OOM errors, and that quality may not improve beyond the model's native resolution.
+
 ## [2.3.65] - 2026-07-27
 
 ### Fixed

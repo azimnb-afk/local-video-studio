@@ -303,6 +303,7 @@ struct HistoryDetailView: View {
     let result: GenerationResult
     let onAddAudio: (GenerationResult) -> Void
     @State private var player: AVPlayer?
+    @State private var endObserver: NSObjectProtocol?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -442,13 +443,28 @@ struct HistoryDetailView: View {
         .onChange(of: result.id) { _, _ in
             loadPlayer()
         }
+        .onDisappear {
+            if let observer = endObserver {
+                NotificationCenter.default.removeObserver(observer)
+                endObserver = nil
+            }
+            player?.pause()
+            player = nil
+        }
     }
     
     private func loadPlayer() {
+        // Clean up previous observer/player if reloading
+        if let observer = endObserver {
+            NotificationCenter.default.removeObserver(observer)
+            endObserver = nil
+        }
+        player?.pause()
+        
         player = AVPlayer(url: result.videoURL)
         
         // Loop playback
-        NotificationCenter.default.addObserver(
+        endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: player?.currentItem,
             queue: .main

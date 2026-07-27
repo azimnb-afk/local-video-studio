@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [2.3.65] - 2026-07-27
+
+### Fixed
+- **Issue #75 — Video archive playback stuck in endless loop** — When navigating away from the video archive while a video was still playing, the `AVPlayer` kept looping silently in the background with no UI indication and no way to stop it without force-quitting the app. The `NotificationCenter` observer for loop playback was never removed on view disappear. Now the observer is tracked, removed on `onDisappear`, and the player is paused and nilled out.
+
 ## [2.3.64] - 2026-07-27
 
 ### Fixed

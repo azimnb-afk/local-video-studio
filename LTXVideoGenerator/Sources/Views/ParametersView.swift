@@ -136,11 +136,15 @@ struct ParametersView: View {
                                     Text("768").tag(768)
                                     Text("896").tag(896)
                                     Text("1024").tag(1024)
+                                    Text("1280").tag(1280)
+                                    Text("1536").tag(1536)
+                                    Text("1920").tag(1920)
+                                    Text("2048").tag(2048)
                                 }
                                 .labelsHidden()
                                 .frame(width: 80)
                             }
-                            
+
                             VStack(alignment: .leading) {
                                 Text("Height")
                                     .font(.caption)
@@ -150,7 +154,11 @@ struct ParametersView: View {
                                     Text("384").tag(384)
                                     Text("512").tag(512)
                                     Text("576").tag(576)
+                                    Text("704").tag(704)
                                     Text("768").tag(768)
+                                    Text("864").tag(864)
+                                    Text("1080").tag(1080)
+                                    Text("1152").tag(1152)
                                 }
                                 .labelsHidden()
                                 .frame(width: 80)
@@ -167,6 +175,17 @@ struct ParametersView: View {
                                     RoundedRectangle(cornerRadius: 6)
                                         .fill(Color(nsColor: .controlBackgroundColor))
                                 )
+                        }
+
+                        if parameters.width * parameters.height > 768 * 512 {
+                            HStack(alignment: .top, spacing: 6) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                Text("Higher resolutions significantly increase generation time and memory usage. LTX-2 models are trained at 768×512; larger outputs may not improve quality and can cause Metal OOM errors. Reduce frame count or use aggressive VAE tiling if you hit memory limits.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.top, 4)
                         }
                     }
                     

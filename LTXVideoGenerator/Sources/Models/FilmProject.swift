@@ -258,6 +258,11 @@ struct FilmProject: Codable, Equatable, Identifiable {
     var updatedAt: Date = Date()
     /// nil means a legacy/manual storyboard project.
     var workflowMode: String?
+    /// Planning provenance. Optional fields preserve schema-v1 compatibility.
+    var directorProvider: String?
+    var directorModel: String?
+    var planningMode: String?
+    var fallbackReason: String?
     var settings: ProjectSettings = ProjectSettings()
     var storyBible: StoryBible = StoryBible()
     var characterBible: CharacterBible = CharacterBible()

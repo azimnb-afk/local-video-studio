@@ -9,6 +9,33 @@ import Foundation
 /// resident at once), and it is terminated before any rendering begins.
 final class StoryboardDirector {
 
+    enum FailureStage: String, Codable, Equatable {
+        case ollamaRequestFailed
+        case noResponse
+        case jsonExtractionFailed
+        case jsonSyntaxInvalid
+        case codableDecodeFailed
+        case schemaValidationFailed
+        case semanticValidationFailed
+        case repairFailed
+        case retryFailed
+        case templateFallback
+    }
+
+    struct Diagnostic: Equatable {
+        var stage: FailureStage
+        var provider: String
+        var attempt: Int
+        var message: String
+    }
+
+    struct ParseResult {
+        var draft: StoryboardDraft?
+        var failureStage: FailureStage?
+        var message: String
+        var deterministicRepairAttempted: Bool
+    }
+
     struct ShotPlanDraft: Codable, Equatable {
         var title: String
         var summary: String
@@ -45,7 +72,8 @@ final class StoryboardDirector {
                        "props":[],"propOwner":{},"wetness":{},"injuries":{},"dialogueState":"","storyState":""},
       "shots": [
         {"title":"...","summary":"present-tense visible action","durationSeconds":5,
-         "shotScale":"wide|medium|close-up","angle":"low|eye-level|high","movement":"static|pan|dolly|track",
+         "shotScale":"extreme-wide|wide|medium-wide|medium|medium-close-up|close-up|extreme-close-up",
+         "angle":"low|eye-level|high|overhead","movement":"static|pan|tilt|dolly|track|handheld",
          "lighting":"...","dialogue":[{"speaker":"Name","text":"line"}],"audioCues":["..."],
          "explicitChanges":["location=...","outfit:Name=...","prop+:item"]}
       ]
@@ -58,7 +86,12 @@ final class StoryboardDirector {
     """
 
     private let providers: [DirectorProvider]
-    private let maxRepairAttempts = 2
+    /// One original request plus one bounded LLM repair request.
+    private let maxRepairAttempts = 1
+    private(set) var diagnostics: [Diagnostic] = []
+    private(set) var lastProviderModel: String?
+    private(set) var lastPlanningMode: String?
+    private(set) var lastFallbackReason: String?
 
     init(providers: [DirectorProvider]? = nil) {
         self.providers = providers ?? [OllamaDirectorProvider(), TemplateStoryboardProvider()]
@@ -66,16 +99,40 @@ final class StoryboardDirector {
 
     /// Brief → validated storyboard draft. Provider terminated before return.
     func draft(brief: String) async throws -> (draft: StoryboardDraft, providerName: String) {
+        diagnostics = []
+        lastProviderModel = nil
+        lastPlanningMode = nil
+        lastFallbackReason = nil
         var lastError: Error = DirectorError.noProviderAvailable
+        var precedingProviderFailed = false
         for provider in providers {
-            guard await provider.isAvailable() else { continue }
+            if let model = provider.modelIdentifier { lastProviderModel = model }
+            guard await provider.isAvailable() else {
+                record(.ollamaRequestFailed, provider: provider.name, attempt: 0,
+                       message: "provider unavailable")
+                precedingProviderFailed = true
+                continue
+            }
+            if precedingProviderFailed, provider.isFallbackProvider {
+                lastFallbackReason = diagnostics.reversed().first {
+                    $0.stage != .repairFailed && $0.stage != .retryFailed
+                }?.stage.rawValue
+                record(.templateFallback, provider: provider.name, attempt: 0,
+                       message: "using deterministic template after structured planning failed")
+            }
             do {
                 let draft = try await draftWithProvider(provider, brief: brief)
                 await provider.terminate()
+                lastPlanningMode = provider.isFallbackProvider ? "fallback" : "ai"
+                if !provider.isFallbackProvider {
+                    lastProviderModel = provider.modelIdentifier
+                    lastFallbackReason = nil
+                }
                 return (draft, provider.name)
             } catch {
                 await provider.terminate()
                 lastError = error
+                precedingProviderFailed = true
             }
         }
         throw lastError
@@ -84,14 +141,58 @@ final class StoryboardDirector {
     private func draftWithProvider(_ provider: DirectorProvider, brief: String) async throws -> StoryboardDraft {
         var prompt = "BRIEF: \(brief)"
         var lastFailure = ""
-        for _ in 0...maxRepairAttempts {
-            let response = try await provider.complete(system: Self.storyboardSystemPrompt, prompt: prompt)
-            if let draft = Self.parseDraft(from: response) {
+        for attempt in 0...maxRepairAttempts {
+            let response: String
+            do {
+                response = try await provider.complete(system: Self.storyboardSystemPrompt, prompt: prompt)
+            } catch {
+                let stage: FailureStage
+                if case DirectorError.noResponse = error {
+                    stage = .noResponse
+                } else {
+                    stage = .ollamaRequestFailed
+                }
+                record(stage, provider: provider.name, attempt: attempt, message: error.localizedDescription)
+                if attempt < maxRepairAttempts {
+                    prompt = """
+                    The previous request returned no usable response (\(error.localizedDescription)). \
+                    Respond with ONLY the JSON object described in the system prompt.
+                    BRIEF: \(brief)
+                    """
+                    continue
+                }
+                record(.retryFailed, provider: provider.name, attempt: attempt,
+                       message: error.localizedDescription)
+                throw error
+            }
+            appendDebugRawResponse(response, provider: provider.name, attempt: attempt)
+
+            let parsed = Self.parseDraftDetailed(from: response, brief: brief)
+            if var draft = parsed.draft {
+                let repair = Self.repairSemantics(draft, brief: brief)
+                draft = repair.draft
                 let issues = Self.validate(draft)
                 if issues.isEmpty { return draft }
                 lastFailure = issues.joined(separator: ", ")
+                record(.semanticValidationFailed, provider: provider.name, attempt: attempt,
+                       message: lastFailure)
+                if repair.changed {
+                    record(.repairFailed, provider: provider.name, attempt: attempt,
+                           message: "deterministic semantic repair did not produce a valid draft")
+                }
             } else {
-                lastFailure = "response was not valid JSON"
+                lastFailure = parsed.message
+                record(parsed.failureStage ?? .codableDecodeFailed, provider: provider.name,
+                       attempt: attempt, message: parsed.message)
+                if parsed.deterministicRepairAttempted {
+                    record(.repairFailed, provider: provider.name, attempt: attempt,
+                           message: "deterministic JSON/schema repair did not decode")
+                }
+            }
+            if attempt == maxRepairAttempts {
+                record(.retryFailed, provider: provider.name, attempt: attempt,
+                       message: lastFailure)
+                break
             }
             prompt = """
             Your previous response was invalid (\(lastFailure)). \
@@ -103,14 +204,79 @@ final class StoryboardDirector {
     }
 
     static func parseDraft(from response: String) -> StoryboardDraft? {
-        if let data = response.data(using: .utf8),
-           let draft = try? JSONDecoder().decode(StoryboardDraft.self, from: data) {
-            return draft
+        parseDraftDetailed(from: response, brief: "").draft
+    }
+
+    /// Direct decode → balanced JSON extraction → deterministic syntax/schema
+    /// repair. Semantic repair/validation remains a separate stage.
+    static func parseDraftDetailed(from response: String, brief: String) -> ParseResult {
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return ParseResult(draft: nil, failureStage: .noResponse,
+                               message: "provider returned empty completion text",
+                               deterministicRepairAttempted: false)
         }
-        guard let start = response.firstIndex(of: "{"),
-              let end = response.lastIndex(of: "}"), start < end,
-              let data = String(response[start...end]).data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(StoryboardDraft.self, from: data)
+
+        var candidates = [trimmed]
+        if let extracted = extractJSONObject(from: trimmed), extracted != trimmed {
+            candidates.append(extracted)
+        } else if !trimmed.hasPrefix("{") {
+            return ParseResult(draft: nil, failureStage: .jsonExtractionFailed,
+                               message: "no balanced JSON object found in response",
+                               deterministicRepairAttempted: false)
+        }
+
+        var lastStage: FailureStage = .jsonSyntaxInvalid
+        var lastMessage = "response was not valid JSON"
+        var repairAttempted = false
+
+        for candidate in candidates {
+            let repairedSyntax = removingTrailingCommas(from: candidate)
+            repairAttempted = repairAttempted || repairedSyntax != candidate
+            guard let data = repairedSyntax.data(using: .utf8) else { continue }
+            let object: Any
+            do {
+                object = try JSONSerialization.jsonObject(with: data)
+            } catch {
+                lastStage = .jsonSyntaxInvalid
+                lastMessage = "JSON syntax invalid: \(error.localizedDescription)"
+                continue
+            }
+            guard let dictionary = object as? [String: Any] else {
+                lastStage = .schemaValidationFailed
+                lastMessage = "top-level JSON value must be an object"
+                continue
+            }
+            do {
+                return ParseResult(
+                    draft: try JSONDecoder().decode(StoryboardDraft.self, from: data),
+                    failureStage: nil,
+                    message: "",
+                    deterministicRepairAttempted: repairAttempted
+                )
+            } catch {
+                let classified = classifyDecodingError(error)
+                lastStage = classified.stage
+                lastMessage = classified.message
+            }
+
+            let normalized = normalizeSchema(dictionary, brief: brief)
+            if !NSDictionary(dictionary: dictionary).isEqual(to: normalized) {
+                repairAttempted = true
+                do {
+                    let normalizedData = try JSONSerialization.data(withJSONObject: normalized)
+                    let draft = try JSONDecoder().decode(StoryboardDraft.self, from: normalizedData)
+                    return ParseResult(draft: draft, failureStage: nil, message: "",
+                                       deterministicRepairAttempted: true)
+                } catch {
+                    let classified = classifyDecodingError(error)
+                    lastStage = classified.stage
+                    lastMessage = classified.message
+                }
+            }
+        }
+        return ParseResult(draft: nil, failureStage: lastStage, message: lastMessage,
+                           deterministicRepairAttempted: repairAttempted)
     }
 
     static func validate(_ draft: StoryboardDraft) -> [String] {
@@ -129,6 +295,172 @@ final class StoryboardDirector {
         return issues
     }
 
+    private static func repairSemantics(_ input: StoryboardDraft, brief: String) -> (draft: StoryboardDraft, changed: Bool) {
+        var draft = input
+        var changed = false
+        if draft.logline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !brief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            draft.logline = brief.trimmingCharacters(in: .whitespacesAndNewlines)
+            changed = true
+        }
+        for index in draft.shots.indices {
+            if draft.shots[index].title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                draft.shots[index].title = "Shot \(index + 1)"
+                changed = true
+            }
+            if let duration = draft.shots[index].durationSeconds, duration < 1 || duration > 10 {
+                draft.shots[index].durationSeconds = min(6, max(1, duration))
+                changed = true
+            }
+        }
+        return (draft, changed)
+    }
+
+    private static func normalizeSchema(_ source: [String: Any], brief: String) -> [String: Any] {
+        var root = source
+        for wrapper in ["storyboard", "plan"] {
+            if root["shots"] == nil, let wrapped = root[wrapper] as? [String: Any] {
+                root = wrapped
+            }
+        }
+        if root["shots"] == nil { root["shots"] = root["shotList"] ?? root["scenes"] }
+        if (root["logline"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            root["logline"] = root["storyline"] ?? root["synopsis"] ?? brief
+        }
+        if let rawShots = root["shots"] as? [[String: Any]] {
+            root["shots"] = rawShots.enumerated().map { index, sourceShot in
+                var shot = sourceShot
+                if shot["title"] == nil { shot["title"] = shot["name"] ?? "Shot \(index + 1)" }
+                if shot["summary"] == nil { shot["summary"] = shot["action"] ?? shot["description"] }
+                if shot["durationSeconds"] == nil { shot["durationSeconds"] = shot["duration"] }
+                if let text = shot["durationSeconds"] as? String, let value = Double(text) {
+                    shot["durationSeconds"] = value
+                }
+                if shot["shotScale"] == nil { shot["shotScale"] = shot["scale"] }
+                if shot["angle"] == nil { shot["angle"] = shot["cameraAngle"] }
+                if shot["movement"] == nil { shot["movement"] = shot["cameraMovement"] }
+                if shot["audioCues"] == nil { shot["audioCues"] = shot["audio"] }
+                return shot
+            }
+        }
+        return root
+    }
+
+    private static func classifyDecodingError(_ error: Error) -> (stage: FailureStage, message: String) {
+        switch error {
+        case DecodingError.keyNotFound(let key, let context):
+            return (.schemaValidationFailed,
+                    "required field '\(key.stringValue)' missing at \(codingPath(context.codingPath))")
+        case DecodingError.typeMismatch(_, let context):
+            return (.codableDecodeFailed,
+                    "field type mismatch at \(codingPath(context.codingPath)): \(context.debugDescription)")
+        case DecodingError.valueNotFound(_, let context):
+            return (.schemaValidationFailed,
+                    "required value missing at \(codingPath(context.codingPath))")
+        case DecodingError.dataCorrupted(let context):
+            return (.codableDecodeFailed,
+                    "invalid Codable value at \(codingPath(context.codingPath)): \(context.debugDescription)")
+        default:
+            return (.codableDecodeFailed, error.localizedDescription)
+        }
+    }
+
+    private static func codingPath(_ path: [CodingKey]) -> String {
+        path.isEmpty ? "<root>" : path.map(\.stringValue).joined(separator: ".")
+    }
+
+    /// Finds the first balanced JSON object, ignoring braces inside strings.
+    private static func extractJSONObject(from text: String) -> String? {
+        var start: String.Index?
+        var depth = 0
+        var inString = false
+        var escaped = false
+        for index in text.indices {
+            let character = text[index]
+            if inString {
+                if escaped { escaped = false }
+                else if character == "\\" { escaped = true }
+                else if character == "\"" { inString = false }
+                continue
+            }
+            if character == "\"" { inString = true; continue }
+            if character == "{" {
+                if depth == 0 { start = index }
+                depth += 1
+            } else if character == "}", depth > 0 {
+                depth -= 1
+                if depth == 0, let start {
+                    return String(text[start...index])
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Repairs only trailing commas outside JSON strings.
+    private static func removingTrailingCommas(from text: String) -> String {
+        let characters = Array(text)
+        var output = ""
+        var inString = false
+        var escaped = false
+        for index in characters.indices {
+            let character = characters[index]
+            if inString {
+                output.append(character)
+                if escaped { escaped = false }
+                else if character == "\\" { escaped = true }
+                else if character == "\"" { inString = false }
+                continue
+            }
+            if character == "\"" { inString = true; output.append(character); continue }
+            if character == "," {
+                var next = index + 1
+                while next < characters.count, characters[next].isWhitespace { next += 1 }
+                if next < characters.count, characters[next] == "}" || characters[next] == "]" { continue }
+            }
+            output.append(character)
+        }
+        return output
+    }
+
+    private func record(_ stage: FailureStage, provider: String, attempt: Int, message: String) {
+        diagnostics.append(Diagnostic(stage: stage, provider: provider, attempt: attempt, message: message))
+        #if DEBUG
+        appendDebugLine("stage=\(stage.rawValue) provider=\(provider) attempt=\(attempt) message=\(message)")
+        #endif
+    }
+
+    /// Raw completions are written only by Debug builds to a temporary file;
+    /// Release builds retain no prompt/response content.
+    private func appendDebugRawResponse(_ response: String, provider: String, attempt: Int) {
+        #if DEBUG
+        appendDebugLine("RAW provider=\(provider) attempt=\(attempt) chars=\(response.count)\n\(response)")
+        #endif
+    }
+
+    #if DEBUG
+    private static var debugLogURL: URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("LTXVideoGenerator-storyboard-director-debug.log")
+    }
+
+    private func appendDebugLine(_ text: String) {
+        let entry = "\n=== \(Date()) ===\n\(text)\n"
+        guard let data = entry.data(using: .utf8) else { return }
+        let url = Self.debugLogURL
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let size = attributes[.size] as? NSNumber, size.intValue > 512_000 {
+            try? data.write(to: url, options: .atomic)
+        } else if let handle = try? FileHandle(forWritingTo: url) {
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+            try? handle.close()
+        } else {
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+    #endif
+
     /// Materializes a FilmProject: continuity chain, per-shot compiled prompts,
     /// monotony/continuity validation results attached as notes.
     func makeProject(
@@ -140,6 +472,10 @@ final class StoryboardDirector {
 
         var project = FilmProject(title: title)
         project.settings = settings
+        project.directorProvider = providerName
+        project.directorModel = lastProviderModel
+        project.planningMode = lastPlanningMode
+        project.fallbackReason = lastFallbackReason
         project.storyBible = StoryBible(
             logline: draft.logline,
             synopsis: draft.synopsis ?? "",
@@ -219,6 +555,7 @@ final class StoryboardDirector {
 /// Deterministic no-LLM storyboard fallback: single shot from the brief.
 final class TemplateStoryboardProvider: DirectorProvider {
     let name = "template"
+    let isFallbackProvider = true
 
     func isAvailable() async -> Bool { true }
 

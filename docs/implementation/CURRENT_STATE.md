@@ -3,7 +3,7 @@
 Updated: 2026-08-09
 
 ## Current Phase
-Preset/Quality and text-encoder propagation hardening is complete and has passed a real cached-model Storyboard/Hybrid GUI E2E, including mixed-resolution final assembly and cancellation.
+Preset/Quality and text-encoder propagation hardening is complete. Pure Storyboard structured output is also hardened and has passed a real local-Ollama multi-shot GUI acceptance; the previously verified cached-model Storyboard/Hybrid render, mixed-resolution final assembly, and cancellation paths were not changed.
 
 ## Completed
 - Source acquisition: cloned `james-see/ltx-video-mac` (MIT) @ `a441dc2` → branch `director-extensions`.
@@ -28,9 +28,12 @@ Preset/Quality and text-encoder propagation hardening is complete and has passed
 - Render cancellation: Cancel terminates the active Swift-launched Python wrapper, and the wrapper forwards termination to its `mlx_video.generate_av` child before exiting.
 - Cancellation persistence: a cancelled project request is now saved as a cancelled Take and Job, shown as cancelled in the Storyboard UI, and does not surface a failure alert.
 - Real GUI E2E (2026-08-09): cached Official Q4 + Gemma 12B 4-bit rendered three sequential Quick Preview shots, retained a Quick take while adding/selecting one High Quality take, normalized the mixed 512×320/768×512 sources into a playable 768×512 final MP4 with audio, and left no generation process behind.
+- Pure Storyboard planning closure (2026-08-09): `qwen3.6-claw-fast:latest` returned valid three-shot schema JSON in Ollama's `thinking` envelope field while `response` was empty. The provider now requests `think:false`, retains a compatibility fallback for non-empty `thinking`, and distinguishes no response from request, extraction, syntax, decode, schema, semantic, repair, retry, and template-fallback stages.
+- Structured-output recovery is bounded: direct decode, balanced-object extraction, conservative deterministic repair, one LLM repair request, then the existing Basic/template fallback. Debug builds may retain raw responses only in a rotating temporary log; Release builds do not persist them.
+- New projects persist planning provenance (`directorProvider`, `directorModel`, `planningMode`, optional `fallbackReason`) and the Storyboard UI identifies Local AI versus Basic Fallback.
 
 ## In Progress
-- Director planning quality: the configured local Ollama model responded but did not satisfy the strict Storyboard JSON schema, so Director used its documented template fallback. The pure new Storyboard still proved 4-bit settings inheritance; the deterministic three-shot Hybrid fallback was used for the multi-shot production/assembly acceptance.
+- No open item in the Storyboard structured-output repair scope. Optional broader planning-quality evaluation remains separate from schema transport and validation correctness.
 
 ## Build Status
 - `swift build` clean (final GUI implementation).
@@ -102,7 +105,7 @@ Record the three provenance values with the GUI acceptance result: `git_head`, `
 Builds created with a custom path such as `-derivedDataPath /tmp/...` are disposable test artifacts. They must not be treated as the normal development app or used to claim final GUI acceptance. Multiple old Debug apps with bundle id `com.ltxvideo.generator` may coexist, so bundle-name lookup is always ambiguous; `open -a LTXVideoGenerator` is prohibited for GUI verification.
 
 ## Test Status
-- `swift run LTXTests`: **335 checks, 0 failures** (including new-project text-encoder inheritance, Hybrid request propagation, and cancelled Take/Job persistence).
+- `swift run LTXTests`: **368 checks, 0 failures** (including structured-output extraction/repair/failure-stage coverage, planning metadata migration, new-project text-encoder inheritance, Hybrid request propagation, and cancelled Take/Job persistence).
 - Final concrete comparison on Mac16,11/48 GB, same prompt/model/seed 4242/target 5 s/audio ON: Quick=C3 512×320/121f/24fps/15 steps; Standard=S0 768×512/121f/24fps/25 steps; High=H0 768×512/121f/24fps/30 steps.
 
 ## 2026-08-09 Real Storyboard / Hybrid GUI E2E
@@ -114,6 +117,14 @@ Builds created with a custom path such as `-derivedDataPath /tmp/...` are dispos
 - Only Shot 3 was regenerated at High Quality. It resolved High / H0, 768×512, 121 frames at 24 fps, 30 steps, auto tiling, the same model/4-bit encoder/audio, and completed in 278.47 s. Its actual MP4 was 768×512, approximately 5.01 s, H.264 + AAC. The original Shot 3 Quick take remained stored and the High take became selected.
 - Final selected order was Shot 1 Quick, Shot 2 Quick, Shot 3 High. Final file: `/Users/azimnb/Library/Application Support/LTXVideoGenerator/Projects/2B81DA40-9886-4733-A4AC-4E8879FC44DD_final.mp4`; 2,249,897 bytes; H.264 768×512; 15.060667 s container duration; AAC stereo 48 kHz. QuickTime playback advanced through the timeline and ended normally.
 - Cancellation probe from the final canonical app used `textEncoderRepo=mlx-community/gemma-3-12b-it-4bit`. Cancel terminated wrapper PID 52241 and child PID 52243. Project `F466A6E9-9C02-4AC4-8AC8-6FE27B87816B` persisted both Take and Job as `cancelled`, displayed the cancelled UI state, showed no error alert, and left no Python/MLX/download process.
+
+## 2026-08-09 Pure Storyboard Local AI Acceptance
+- Pre-fix raw response, captured before parser changes with the exact sea-side brief and `qwen3.6-claw-fast:latest`: Ollama returned an empty `response` plus valid exact-schema three-shot JSON in `thinking`. It had no fence, preamble, trailing comma, missing field, invalid enum, or semantic error. The failure was envelope extraction before JSON/schema validation, not strict schema rejection.
+- Provider fix: send Ollama `format:"json"` and `think:false`; prefer non-empty `response`, use non-empty `thinking` only for compatibility, and report an explicit no-response failure if both are empty. No model-name-specific hack was added.
+- Canonical Debug app: `/Users/azimnb/Library/Developer/Xcode/DerivedData/LTXVideoGenerator-amthplfqixfwzxgnoumxohoqainn/Build/Products/Debug/LTXVideoGenerator.app`; executable mtime `2026-08-09 08:11:28 +0900`; running PID 58415 resolved to that exact executable path. Acceptance source was base HEAD `7302c67` plus the reviewed structured-output worktree that becomes the local `fix: harden storyboard director structured output` checkpoint.
+- Project `2274CB69-B651-4C1F-A9B5-2BF975E00023` was created from the same Japanese sea-side brief. GUI reported `Planned 3 shots via Local AI Director (ollama)` and displayed `Director: Local AI qwen3.6-claw-fast:latest`.
+- The saved plan has three 5-second shots (`The Walk`, `The Pause`, `The Smile`), non-empty compiled prompts, propagated continuity state, and `directorProvider=ollama`, `directorModel=qwen3.6-claw-fast:latest`, `planningMode=ai`, `fallbackReason=null`.
+- Project render settings remained `modelID=ltx23_distilled_q4` and `textEncoderID=gemma3_12b_4bit`. No BF16 selection or model download occurred. Ollama was no longer serving a model after planning. A new LTX render was intentionally not queued because downstream Quick/High generation, queue, retake, assembly, and cancellation had already passed the immediately preceding real E2E and were outside this Planning-only fix.
 
 ## Known Blockers / Remaining Human Actions
 1. ~~No Xcode.app~~ → RESOLVED: Xcode 26.6 installed; unsigned dev .app builds and runs. Remaining: Developer ID signing + notarization for distribution (needs credentials).
@@ -138,7 +149,8 @@ GUI-first defaults (D-007): modelRegistryV1 / autoQualityV1 / directorV1 / filmP
 - Preferences → Models & Features: Adult Content Mode + all flags + Compatibility Lab status
 
 ## Last Known Good Commit
-- `3b5782b` on `director-extensions`: encoder inheritance/child termination checkpoint `a32e93f` plus cancelled Take/Job persistence. Verified with 335 tests, Xcode Debug build, canonical-app GUI E2E and real MP4 playback. No push was performed.
+- Previous downstream checkpoint: `7302c67` on `director-extensions` (`docs: record storyboard 4bit e2e acceptance`).
+- This document is included in the local `fix: harden storyboard director structured output` checkpoint, verified with 368 tests, Xcode Debug build, and canonical-app pure Storyboard GUI acceptance. No push was performed.
 
 ## Exact Resume Action
 `cd /Users/azimnb/ltx23appdev/ltx-video-mac && git status && swift run LTXTests && xcodebuild -project LTXVideoGenerator/LTXVideoGenerator.xcodeproj -scheme LTXVideoGenerator -configuration Debug CODE_SIGNING_ALLOWED=NO build`.

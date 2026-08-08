@@ -49,6 +49,23 @@ The affected project still has its original persisted BF16 snapshot and was not 
 - [x] Final cancellation probe: wrapper PID 52241 and child PID 52243 stopped; GUI showed cancelled without an error alert; project `F466A6E9-9C02-4AC4-8AC8-6FE27B87816B` persisted Take and Job as `cancelled`; residual generation/download process: **NO**.
 - [x] Final validation: `swift build`; `swift run LTXTests` = 335 passed / 0 failed; Xcode Debug `BUILD SUCCEEDED`; `git diff --check` clean.
 
+## 2026-08-09 Pure Storyboard structured-output acceptance
+
+- [x] Reproduced the original response before parser changes with the exact sea-side Brief and `qwen3.6-claw-fast:latest`: Ollama `response` was empty and `thinking` contained valid exact-schema JSON for three shots.
+- [x] Classified the original failure as Ollama envelope extraction/no-response handling, before JSON extraction, Codable decode, schema validation, or semantic validation.
+- [x] Ollama requests now use `format: json` plus `think: false`; non-empty `thinking` remains a compatibility fallback, without a qwen/model-name-specific branch.
+- [x] Direct JSON, fenced JSON, prose prefix/suffix, balanced-object extraction, conservative trailing-comma/field-alias repair, missing required fields, invalid syntax, no response, bounded repair success, bounded repair failure, provider unavailability, and Basic fallback are covered by tests.
+- [x] Failure diagnostics distinguish request, no response, extraction, syntax, Codable decode, schema, semantic, deterministic repair, retry, and template fallback stages.
+- [x] New project `2274CB69-B651-4C1F-A9B5-2BF975E00023` was planned from the same Brief by Local AI, not Basic fallback: `directorProvider=ollama`, `directorModel=qwen3.6-claw-fast:latest`, `planningMode=ai`, `fallbackReason=null`.
+- [x] GUI displayed `Director: Local AI qwen3.6-claw-fast:latest` and exactly three 5-second shots: The Walk, The Pause, The Smile.
+- [x] Every shot had a non-empty compiled prompt; continuity carried the same character/outfit/location/time and propagated explicit position changes across shot boundaries.
+- [x] Project retained `ltx23_distilled_q4` + `gemma3_12b_4bit`; no BF16 selection and no model download occurred.
+- [x] Ollama had no loaded model after planning. Existing Basic/template fallback remains available when Ollama is absent or repair fails.
+- [x] Canonical app provenance: executable mtime `2026-08-09 08:11:28 +0900`; PID 58415 executable `/Users/azimnb/Library/Developer/Xcode/DerivedData/LTXVideoGenerator-amthplfqixfwzxgnoumxohoqainn/Build/Products/Debug/LTXVideoGenerator.app/Contents/MacOS/LTXVideoGenerator`.
+- [x] Final automated validation: `swift build`; `swift run LTXTests` = 368 passed / 0 failed; Xcode Debug `BUILD SUCCEEDED`; `git diff --check` clean.
+
+No new LTX render was queued for this Planning-only acceptance. The same downstream 4-bit Quick/High queue, retake, mixed-resolution assembly, and cancellation paths had already passed real E2E immediately before this fix and were deliberately left unchanged.
+
 ---
 
 ## A. Regression — 全flag OFF = 従来動作（最優先）

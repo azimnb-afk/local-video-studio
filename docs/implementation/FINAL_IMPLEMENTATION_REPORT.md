@@ -65,7 +65,7 @@ modelRegistryV1 · autoQualityV1 · directorV1 · filmProjectV1 · storyboardV1 
 Automated acceptance against the running .app: API v1 socket-level security suite passed (401/401/403/400, loopback-only lsof, no CORS) and a full E2E job (POST /v1/jobs, quality=compact) ran a real generation through the GUI app's queue — Auto Quality applied C2 (512×320/65f), completed with actual ffprobe metadata (2.708 s), output re-verified on disk. Remaining distribution step: Developer ID signing + notarization (credentials required).
 
 ## 9. Test Results
-`swift run LTXTests`: **331 checks, 0 failures** (breakdown: TEST_MATRIX.md). Includes exact Quick/Standard/High final-request comparison, history cap/fallback policy, duration survival for One Shot/Storyboard/Hybrid/API, Custom frame precedence, metadata migration, Preset mapping, Project Settings persistence, Preview Take retention, Hybrid orchestration, live syscall checks, real-MP4 MediaProbe, and real ffmpeg concat assembly.
+`swift run LTXTests`: **368 checks, 0 failures**. Includes exact Quick/Standard/High final-request comparison, history cap/fallback policy, duration survival for One Shot/Storyboard/Hybrid/API, Custom frame precedence, metadata migration, Preset mapping, Project Settings persistence, Preview Take retention, Hybrid orchestration, Storyboard structured-output extraction/repair/failure-stage coverage, live syscall checks, real-MP4 MediaProbe, and real ffmpeg concat assembly.
 
 ## 10. Regression Results
 Same seed/settings re-render after all changes produced a **byte-identical MP4** (MD5 bf8020b1f55f73a62c075f2df1c65a8d = Phase 0 baseline). Peak memory 23.46 GB ≤ baseline 23.66 GB. Official fast path: 0% regression.
@@ -104,10 +104,10 @@ Post-Xcode human GUI acceptance checklist: [GUI_ACCEPTANCE_CHECKLIST.md](GUI_ACC
 2. Decide whether to download 10Eros weights (license acceptance + tens of GB) → then run the Compatibility Lab workflow in MODEL_COMPATIBILITY.md.
 3. Run `scripts/queue_soak.sh 20` (~17 min) for the full soak record.
 4. On a 16GB Mac: run `scripts/lowram_bench.sh` and record results before enabling lowRAMAdapterV1.
-5. Optionally install Ollama + a small model to upgrade Director planning beyond the deterministic template fallback.
+5. Optionally evaluate additional local Ollama models for creative planning quality. `qwen3.6-claw-fast:latest` is installed and now passes the pure Storyboard structured-output path; deterministic template fallback remains available.
 
 ## 18. Exact Resume Prompt
-> /Users/azimnb/ltx23appdev/ltx-video-mac の docs/implementation/CURRENT_STATE.md と FINAL_IMPLEMENTATION_REPORT.md を読んでください。branch は director-extensions、テストは `swift run LTXTests`（331 checks）です。Remaining Human Actions のうち完了したものを教えるので、対応する Runtime Verification（10Eros compat lab / 16GB lowram bench / full queue soak / post-fix real Preset comparison）を進め、結果を Compatibility Lab・BENCHMARK_RESULTS.md・TEST_MATRIX.md へ記録してください。Official fast path の regression 判定は同一 seed の MD5 比較（bf8020b1f55f73a62c075f2df1c65a8d）を基準にしてください。
+> /Users/azimnb/ltx23appdev/ltx-video-mac の docs/implementation/CURRENT_STATE.md と FINAL_IMPLEMENTATION_REPORT.md を読んでください。branch は director-extensions、テストは `swift run LTXTests`（368 checks）です。Remaining Human Actions のうち完了したものを教えるので、対応する Runtime Verification（10Eros compat lab / 16GB lowram bench / full queue soak / post-fix real Preset comparison）を進め、結果を Compatibility Lab・BENCHMARK_RESULTS.md・TEST_MATRIX.md へ記録してください。Official fast path の regression 判定は同一 seed の MD5 比較（bf8020b1f55f73a62c075f2df1c65a8d）を基準にしてください。
 
 ## 19. Preset / Quality propagation root-cause closure
 
@@ -147,3 +147,40 @@ The final app's Archive and persisted history reproduced the reported regression
 | High Quality | H0 | 768×512, 5.01 s | 121 / 30 | 274.95 s |
 
 A new post-fix render was not started because the Debug app reported `MLX Environment Not Ready` and the sandboxed Python probe reported no Metal device. This is an environment limitation, not a claimed pass. The required final-request comparison, unit/integration tests, persisted real-output inspection, final xcodebuild and GUI checks all completed.
+
+## 20. Pure Storyboard structured-output root-cause closure
+
+### Reproduction and root cause
+Before changing the parser, the exact Japanese sea-side Brief was sent to the configured local model `qwen3.6-claw-fast:latest` using the app's existing Storyboard system prompt and JSON format request. Ollama returned:
+
+- an empty outer `response` field;
+- valid, exact-schema JSON for three 5-second shots in the outer `thinking` field;
+- no Markdown fence, prose prefix/suffix, trailing comma, missing required field, invalid enum, type mismatch, or semantic violation.
+
+`OllamaDirectorProvider` only read `response`. The valid plan was therefore converted into an empty string before Storyboard JSON extraction or strict validation ran. Retries repeated the same envelope mistake, and the preserved Basic/template fallback created one shot. The root cause was Ollama thinking-envelope handling, not schema strictness.
+
+### Minimal Planning-layer fix
+- Ollama Storyboard requests retain `format:"json"` and now send `think:false`, so thinking-capable models put structured output in `response`.
+- Response extraction prefers a non-empty `response`, accepts non-empty `thinking` as a compatibility path, and emits a distinct no-response error if both are empty. There is no model-name-specific branch.
+- The Storyboard pipeline is now: direct decode → balanced first-object extraction → decode → validation → conservative deterministic repair → one LLM repair request → existing Basic/template fallback.
+- Extraction handles JSON-only, fenced JSON, and prose around the first balanced object while respecting braces inside strings. Deterministic repair is deliberately narrow: safe trailing commas, documented wrapper/field aliases, numeric duration strings, empty logline/title repair, and abnormal duration clamping. It does not invent story content.
+- Diagnostics identify request, no response, extraction, syntax, Codable decode, schema, semantic, deterministic repair, retry, and template fallback stages. Debug-only raw responses use a size-bounded temporary log; Release does not retain them.
+- FilmProject adds optional backward-compatible planning metadata: provider, model, AI/fallback mode, and fallback reason. Storyboard UI surfaces `Director: Local AI` or `Director: Basic Fallback` without exposing raw prompt/response content.
+
+No LTX inference, Preset, GenerationSettingsResolver, text-encoder propagation, Take queue, retake, Final Assembly, or cancel implementation was changed.
+
+### Pure Storyboard GUI evidence
+Canonical app: `/Users/azimnb/Library/Developer/Xcode/DerivedData/LTXVideoGenerator-amthplfqixfwzxgnoumxohoqainn/Build/Products/Debug/LTXVideoGenerator.app`. Executable mtime: `2026-08-09 08:11:28 +0900`. Running PID 58415 resolved to that exact executable path.
+
+Project `2274CB69-B651-4C1F-A9B5-2BF975E00023` used the same Brief and persisted:
+
+- `directorProvider=ollama`
+- `directorModel=qwen3.6-claw-fast:latest`
+- `planningMode=ai`
+- `fallbackReason=null`
+- `modelID=ltx23_distilled_q4`
+- `textEncoderID=gemma3_12b_4bit`
+
+The GUI reported `Planned 3 shots via Local AI Director (ollama)` and displayed three 5-second shots: The Walk, The Pause, and The Smile. All compiled prompts were non-empty and continuity state propagated the same character, outfit, beach, dusk timing, and explicit position changes. No BF16 encoder was selected, no model was downloaded, and Ollama was unloaded/stopped after planning.
+
+A new video render was intentionally omitted: this task changed only Planning, while the same cached Q4/4-bit downstream queue, retake, mixed-resolution assembly, and cancellation paths had already passed real E2E at the immediately preceding checkpoint.

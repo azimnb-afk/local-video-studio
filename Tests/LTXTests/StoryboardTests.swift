@@ -14,6 +14,133 @@ func runStoryboardTests(_ t: TestKit) {
                      "new Storyboard inherits selected text encoder")
     }
 
+    t.suite("Storyboard structured-output parsing") {
+        let minimal = """
+        {"logline":"A quiet walk.","shots":[{"title":"Walk","summary":"A woman walks beside the sea.","durationSeconds":5}]}
+        """
+        let fenced = "Here is the storyboard:\n```json\n\(minimal)\n```\nDone."
+        t.checkEqual(StoryboardDirector.parseDraft(from: fenced)?.shots.count, 1,
+                     "balanced extraction handles fenced JSON and surrounding prose")
+
+        let trailingCommas = """
+        {"logline":"A quiet walk.","shots":[{"title":"Walk","summary":"A woman walks.",},],}
+        """
+        t.checkEqual(StoryboardDirector.parseDraft(from: trailingCommas)?.shots.first?.title, "Walk",
+                     "deterministic syntax repair removes trailing commas")
+
+        let aliases = """
+        {"synopsis":"A quiet walk.","scenes":[{"name":"Walk","action":"A woman walks.","duration":"5","scale":"wide","cameraAngle":"eye-level","cameraMovement":"track"}]}
+        """
+        let normalized = StoryboardDirector.parseDraftDetailed(from: aliases, brief: "beach walk")
+        t.checkEqual(normalized.draft?.shots.first?.durationSeconds, 5,
+                     "deterministic schema repair normalizes aliases and numeric strings")
+        t.check(normalized.deterministicRepairAttempted, "schema normalization is reported")
+
+        let typedDuration = """
+        {"logline":"A quiet walk.","shots":[{"title":"Walk","summary":"A woman walks.","durationSeconds":"4.5"}]}
+        """
+        t.checkEqual(StoryboardDirector.parseDraftDetailed(from: typedDuration, brief: "x")
+            .draft?.shots.first?.durationSeconds, 4.5,
+                     "numeric duration string is safely normalized")
+
+        let missingSummary = """
+        {"logline":"A quiet walk.","shots":[{"title":"Walk"}]}
+        """
+        let schemaFailure = StoryboardDirector.parseDraftDetailed(from: missingSummary, brief: "beach walk")
+        t.checkEqual(schemaFailure.failureStage, .schemaValidationFailed,
+                     "missing required field is classified as schema validation")
+        t.check(schemaFailure.message.contains("summary"), "schema diagnostic names the missing field")
+
+        let syntaxFailure = StoryboardDirector.parseDraftDetailed(from: "{not valid JSON}", brief: "x")
+        t.checkEqual(syntaxFailure.failureStage, .jsonSyntaxInvalid,
+                     "invalid JSON syntax is classified separately")
+
+        let extractionFailure = StoryboardDirector.parseDraftDetailed(from: "no object here", brief: "x")
+        t.checkEqual(extractionFailure.failureStage, .jsonExtractionFailed,
+                     "missing JSON object is classified as extraction failure")
+
+        let noResponse = StoryboardDirector.parseDraftDetailed(from: "", brief: "x")
+        t.checkEqual(noResponse.failureStage, .noResponse, "empty completion is classified separately")
+    }
+
+    t.suite("Storyboard repair diagnostics") {
+        let valid = """
+        {"logline":"A quiet walk.","shots":[{"title":"Walk","summary":"A woman walks beside the sea.","durationSeconds":5}]}
+        """
+        let repairing = MockDirectorProvider(responses: ["{broken JSON}", valid])
+        let repairingDirector = StoryboardDirector(providers: [repairing])
+        let repairSemaphore = DispatchSemaphore(value: 0)
+        Task {
+            do {
+                let result = try await repairingDirector.draft(brief: "beach walk")
+                t.checkEqual(result.draft.shots.count, 1, "one bounded LLM repair can recover")
+                t.checkEqual(repairing.completeCalls, 2, "only one repair request is sent")
+                t.check(repairingDirector.diagnostics.contains { $0.stage == .jsonSyntaxInvalid },
+                        "malformed JSON stage is recorded before successful repair")
+            } catch {
+                t.check(false, "Storyboard repair path threw \(error)")
+            }
+            repairSemaphore.signal()
+        }
+        repairSemaphore.wait()
+
+        let alwaysBad = MockDirectorProvider(responses: ["not json", "still not json"])
+        let fallbackDirector = StoryboardDirector(providers: [alwaysBad, TemplateStoryboardProvider()])
+        let fallbackSemaphore = DispatchSemaphore(value: 0)
+        Task {
+            do {
+                let result = try await fallbackDirector.makeProject(title: "Fallback", brief: "beach walk")
+                t.checkEqual(result.providerName, "template", "template remains the final fallback")
+                t.checkEqual(result.project.planningMode, "fallback", "fallback planning mode is persisted")
+                t.checkEqual(result.project.directorProvider, "template", "fallback provider is persisted")
+                t.checkEqual(result.project.fallbackReason, StoryboardDirector.FailureStage.jsonExtractionFailed.rawValue,
+                             "actionable fallback reason is persisted")
+                t.check(fallbackDirector.diagnostics.contains { $0.stage == .jsonExtractionFailed },
+                        "JSON extraction failure is recorded")
+                t.check(fallbackDirector.diagnostics.contains { $0.stage == .retryFailed },
+                        "failed repair retry is recorded")
+                t.check(fallbackDirector.diagnostics.contains { $0.stage == .templateFallback },
+                        "template fallback stage is recorded")
+            } catch {
+                t.check(false, "Storyboard fallback path threw \(error)")
+            }
+            fallbackSemaphore.signal()
+        }
+        fallbackSemaphore.wait()
+
+        let unavailable = MockDirectorProvider(responses: [], available: false)
+        let unavailableDirector = StoryboardDirector(providers: [unavailable, TemplateStoryboardProvider()])
+        let unavailableSemaphore = DispatchSemaphore(value: 0)
+        Task {
+            do {
+                let result = try await unavailableDirector.makeProject(title: "Offline", brief: "beach walk")
+                t.checkEqual(result.providerName, "template", "unavailable AI provider uses Basic fallback")
+                t.check(unavailableDirector.diagnostics.contains { $0.stage == .ollamaRequestFailed },
+                        "unavailable provider failure is diagnosed")
+            } catch {
+                t.check(false, "unavailable Storyboard provider fallback threw \(error)")
+            }
+            unavailableSemaphore.signal()
+        }
+        unavailableSemaphore.wait()
+
+        let missingModel = MockDirectorProvider(responses: [])
+        let missingModelDirector = StoryboardDirector(providers: [missingModel, TemplateStoryboardProvider()])
+        let missingModelSemaphore = DispatchSemaphore(value: 0)
+        Task {
+            do {
+                let result = try await missingModelDirector.makeProject(title: "Missing", brief: "beach walk")
+                t.checkEqual(result.providerName, "template", "provider request failure uses Basic fallback")
+                t.check(missingModelDirector.diagnostics.contains { $0.stage == .retryFailed },
+                        "provider request retry remains bounded")
+            } catch {
+                t.check(false, "missing model fallback threw \(error)")
+            }
+            missingModelSemaphore.signal()
+        }
+        missingModelSemaphore.wait()
+    }
+
     t.suite("Continuity transitions") {
         var state = ContinuitySnapshot()
         state.location = "kitchen"
@@ -120,6 +247,9 @@ func runStoryboardTests(_ t: TestKit) {
                 let (project, violations, providerName) = try await director.makeProject(title: "Rain Run", brief: "courier in rain")
                 t.checkEqual(providerName, "mock", "scripted provider used")
                 t.checkEqual(project.shots.count, 2, "two shots materialized")
+                t.checkEqual(Set(project.shots.map(\.id)).count, 2, "materialized shot IDs are unique")
+                t.checkEqual(project.directorProvider, "mock", "AI provider metadata persisted")
+                t.checkEqual(project.planningMode, "ai", "AI planning mode persisted")
                 t.checkEqual(project.storyBible.logline, "A courier races the rain.", "story bible populated")
                 t.check(project.characterBible.character(named: "Kei") != nil, "character bible seeded")
                 t.checkEqual(project.shots[0].continuityBefore?.location, "street", "shot 1 sees initial state")

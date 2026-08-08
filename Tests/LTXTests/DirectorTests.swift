@@ -43,6 +43,36 @@ func runDirectorTests(_ t: TestKit) {
                 "out-of-range duration rejected")
     }
 
+    t.suite("Ollama response envelope") {
+        do {
+            let standard = try JSONSerialization.data(withJSONObject: [
+                "response": validPlanJSON,
+                "thinking": "ignored",
+            ])
+            t.checkEqual(try OllamaDirectorProvider.completionText(from: standard), validPlanJSON,
+                         "response field is canonical")
+
+            let thinkingCompatibility = try JSONSerialization.data(withJSONObject: [
+                "response": "",
+                "thinking": validPlanJSON,
+            ])
+            t.checkEqual(try OllamaDirectorProvider.completionText(from: thinkingCompatibility), validPlanJSON,
+                         "empty response falls back to thinking content")
+
+            let empty = try JSONSerialization.data(withJSONObject: ["response": "", "thinking": ""])
+            do {
+                _ = try OllamaDirectorProvider.completionText(from: empty)
+                t.check(false, "empty Ollama envelope should fail")
+            } catch {
+                t.checkEqual(error as? DirectorError,
+                             .noResponse("Ollama response contained no completion text"),
+                             "empty Ollama envelope is distinguished from invalid JSON")
+            }
+        } catch {
+            t.check(false, "Ollama envelope test setup threw \(error)")
+        }
+    }
+
     t.suite("Director lifecycle") {
         // Valid on first try.
         let good = MockDirectorProvider(responses: [validPlanJSON])

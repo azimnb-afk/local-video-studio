@@ -155,7 +155,10 @@ struct StoryboardView: View {
                 refresh()
                 let warnings = violations.filter { $0.severity == .warning }.count
                 let errors = violations.filter { $0.severity == .error }.count
-                statusMessage = "Planned \(project.shots.count) shots via \(providerName)"
+                let planningSource = project.planningMode == "fallback"
+                    ? "Basic Director fallback"
+                    : "Local AI Director (\(providerName))"
+                statusMessage = "Planned \(project.shots.count) shots via \(planningSource)"
                     + (mode == .hybrid ? "; queued one take per shot sequentially" : "")
                     + (violations.isEmpty ? "" : " (\(errors) continuity errors, \(warnings) warnings)")
                 showNewProjectSheet = false
@@ -322,6 +325,23 @@ private struct ProjectDetailView: View {
                 Text(project.storyBible.logline)
                     .font(.body)
                     .foregroundStyle(.secondary)
+            }
+            if project.planningMode == "fallback" {
+                Label("Director: Basic Fallback", systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .help(project.fallbackReason.map { "AI planning fallback reason: \($0)" }
+                          ?? "AI planning was unavailable")
+            } else if project.planningMode == "ai" {
+                HStack(spacing: 6) {
+                    Label("Director: Local AI", systemImage: "sparkles")
+                    if let model = project.directorModel {
+                        Text(model)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .font(.caption)
+                .help("Planned by \(project.directorProvider ?? "local AI")")
             }
             ProjectSettingsEditor(project: project) {
                 onChanged()

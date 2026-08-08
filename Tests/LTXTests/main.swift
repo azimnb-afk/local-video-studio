@@ -13,5 +13,6 @@ runCompatLabTests(t)
 runAutoQualityTests(t)
 runDirectorTests(t)
 runFilmProjectTests(t)
+runStoryboardTests(t)
 
 t.finish()

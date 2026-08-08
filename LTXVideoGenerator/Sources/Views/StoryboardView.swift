@@ -702,6 +702,8 @@ private struct TakeRow: View {
             Image(systemName: "clock").foregroundStyle(.orange)
         case .failed:
             Image(systemName: "xmark.circle").foregroundStyle(.red)
+        case .cancelled:
+            Image(systemName: "slash.circle").foregroundStyle(.orange)
         case .interrupted, .planned:
             Image(systemName: "circle.dashed").foregroundStyle(.secondary)
         }

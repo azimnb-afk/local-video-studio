@@ -94,6 +94,13 @@ func runFilmProjectTests(_ t: TestKit) {
                 t.checkEqual(requests.first?.targetDurationSeconds, 3.0, "Storyboard shot duration is carried as target")
                 t.checkEqual(requests.first?.generationSource, "storyboard", "Storyboard source recorded")
                 t.checkEqual(saved.shots[0].takes.first?.preset, GenerationPreset.standard.rawValue, "take snapshot records preset")
+
+                coordinator.recordCancellation(request: requests[1])
+                let afterCancellation = store.project(id: project.id)!
+                t.checkEqual(afterCancellation.shots[0].takes[1].status, .cancelled,
+                             "cancelled request persists cancelled Take state")
+                t.checkEqual(afterCancellation.jobs.first { $0.takeID == requests[1].takeID }?.state, .cancelled,
+                             "cancelled request persists cancelled Job state")
             } catch {
                 t.check(false, "planTakes threw \(error)")
             }

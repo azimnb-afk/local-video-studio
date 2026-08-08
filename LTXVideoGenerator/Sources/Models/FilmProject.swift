@@ -80,6 +80,7 @@ enum TakeStatus: String, Codable {
     case generating
     case completed
     case failed
+    case cancelled
     case interrupted
 }
 

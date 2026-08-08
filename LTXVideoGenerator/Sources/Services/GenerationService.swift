@@ -438,11 +438,9 @@ class GenerationService: ObservableObject {
             statusMessage = "Video saved to \(outputDir)"
             
         } catch where Task.isCancelled {
-            queue[index].status = .cancelled
-            self.error = .cancelled
+            recordCancellation(request: request, at: index)
         } catch is CancellationError {
-            queue[index].status = .cancelled
-            error = .cancelled
+            recordCancellation(request: request, at: index)
         } catch let err as LTXError {
             queue[index].status = .failed
             error = err
@@ -458,6 +456,15 @@ class GenerationService: ObservableObject {
         // Remove completed/failed/cancelled from queue
         queue.removeAll { $0.status != .pending }
 
+    }
+
+    private func recordCancellation(request: GenerationRequest, at index: Int) {
+        queue[index].status = .cancelled
+        if FeatureFlags.isEnabled(.filmProjectV1), request.takeID != nil {
+            TakeGenerationCoordinator().recordCancellation(request: request)
+        }
+        error = nil
+        statusMessage = "Generation cancelled"
     }
 
     /// Copy of a request with a quality profile applied (parameters + audio).

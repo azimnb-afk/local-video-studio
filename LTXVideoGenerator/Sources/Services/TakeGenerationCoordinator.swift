@@ -149,6 +149,24 @@ final class TakeGenerationCoordinator {
         store.save(project)
     }
 
+    /// Mirrors a cancelled GenerationRequest into its persisted Take and Job.
+    func recordCancellation(request: GenerationRequest) {
+        guard let projectID = request.filmProjectID,
+              let shotID = request.shotID,
+              let takeID = request.takeID,
+              var project = store.project(id: projectID),
+              let shotIndex = project.shots.firstIndex(where: { $0.id == shotID }),
+              let takeIndex = project.shots[shotIndex].takes.firstIndex(where: { $0.id == takeID }) else {
+            return
+        }
+        project.shots[shotIndex].takes[takeIndex].status = .cancelled
+        for jobIndex in project.jobs.indices where project.jobs[jobIndex].takeID == takeID {
+            project.jobs[jobIndex].state = .cancelled
+            project.jobs[jobIndex].updatedAt = Date()
+        }
+        store.save(project)
+    }
+
     /// Selects a take for final assembly.
     func selectTake(projectID: UUID, shotID: UUID, takeID: UUID) throws {
         guard var project = store.project(id: projectID),

@@ -39,8 +39,8 @@ Master Promptの原則: 「backendで実際に動作確認できたものだけe
 | P2 | 16GB Compact ladder 実測（C0→C1→C2→audio） | §30 | 16GB実機。`scripts/lowram_bench.sh` |
 | P3 | Low-RAM adapter runtime統合（verified前は意図的に実行拒否） | §30 | P2完了後に `lowRAMBackendVerified` を有効化して統合コードを実装 |
 | P4 | フル20-take queue soak（3-takeは実施済み、peak横ばい） | §47 | `scripts/queue_soak.sh 20`（約17分、人間実行可） |
-| P5 | .appバンドルbuild / 署名 / notarization | §26 | Xcode.app（+Developer ID）。pbxproj登録済み |
-| P6 | REST API socket越しE2E（curl）・non-loopback拒否のsocketレベル確認 | §46 | 実行中のGUIアプリが必要（ロジック層は全unit-tested） |
+| P5 | ~~.appバンドルbuild~~ → **RESOLVED**（Xcode 26.6でBUILD SUCCEEDED・起動確認済み）。残: Developer ID署名+notarization | §26 | Developer ID credentials |
+| P6 | ~~REST API socket越しE2E~~ → **RESOLVED**（実.appに対しcurlで401/403/400/no-CORS/loopback bind確認、実生成E2E完走） | §46 | 完了 |
 | P7 | Ollama providerの実機動作確認（template fallbackは検証済み） | §31(v0.5)/§17 | Ollama+モデルのinstall（ユーザー任意） |
 
 ### Partial — 実装済みだが残作業あり

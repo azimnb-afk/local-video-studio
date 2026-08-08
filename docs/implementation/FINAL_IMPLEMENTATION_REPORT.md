@@ -59,7 +59,9 @@ Local REST API v1 is a thin optional adapter over the same services. Director/St
 modelRegistryV1 · derivedModelsV1 · adultModelsV1 · autoQualityV1 · lowRAMAdapterV1 · directorV1 · filmProjectV1 · storyboardV1 · localAPIv1 — independent, all default OFF; `FeatureFlags.disableAll()` = rollback to legacy path.
 
 ## 8. Build Results
-`swift build`: clean (Swift 6.3.3 / macOS 26.5 SDK / SPM harness). `xcodebuild`: unavailable on this machine (no Xcode.app) — pbxproj prepared and validated.
+`swift build`: clean (Swift 6.3.3 / macOS 26.5 SDK / SPM harness).
+**Update 2026-08-08 (post-Xcode install)**: Xcode 26.6 — `xcodebuild -scheme LTXVideoGenerator -configuration Debug build` → **BUILD SUCCEEDED** with zero source changes needed. Full .app bundle (arm64, deployment target 14.0, bundle id com.ltxvideo.generator, ad-hoc CLI signing — no project settings modified). App launches and runs.
+Automated acceptance against the running .app: API v1 socket-level security suite passed (401/401/403/400, loopback-only lsof, no CORS) and a full E2E job (POST /v1/jobs, quality=compact) ran a real generation through the GUI app's queue — Auto Quality applied C2 (512×320/65f), completed with actual ffprobe metadata (2.708 s), output re-verified on disk. Remaining distribution step: Developer ID signing + notarization (credentials required).
 
 ## 9. Test Results
 `swift run LTXTests`: **242 checks, 0 failures** (breakdown: TEST_MATRIX.md). Includes live syscall checks, real-MP4 MediaProbe, and a real ffmpeg concat assembly.

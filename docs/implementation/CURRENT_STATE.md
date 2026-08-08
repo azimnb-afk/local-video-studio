@@ -21,14 +21,14 @@ Final — all feasible phases implemented; report finalization.
 - FINAL_IMPLEMENTATION_REPORT.md; short queue-soak validation (3 takes).
 
 ## Build Status
-- `swift build` clean (SPM harness; Xcode-only artifacts gated behind !SPM_BUILD).
-- `.xcodeproj` untouched but new sources are NOT yet added to the Xcode project file — see Known Blockers.
+- `swift build` clean (SPM harness).
+- **Xcode 26.6 installed (2026-08-08): `xcodebuild -scheme LTXVideoGenerator -configuration Debug` → BUILD SUCCEEDED.** Full .app bundle produced (arm64, ad-hoc signing via CLI overrides only — no project settings changed; deployment target 14.0, bundle id com.ltxvideo.generator). App launches and runs.
 
 ## Test Status
 - `swift run LTXTests`: **242 checks, 0 failures** (see TEST_MATRIX.md).
 
 ## Known Blockers / Remaining Human Actions
-1. No Xcode.app on this machine → cannot build/sign the .app bundle here. All 26 new source files are already registered in project.pbxproj (plutil-validated); install Xcode and build the existing scheme.
+1. ~~No Xcode.app~~ → RESOLVED: Xcode 26.6 installed; unsigned dev .app builds and runs. Remaining: Developer ID signing + notarization for distribution (needs credentials).
 2. 10Eros weights not downloaded (user authorization required, tens of GB) → lab models stay verified=false. To verify: download weights, run scripts/compat_lab_smoke.sh, record checks in Compatibility Lab.
 3. No 16GB hardware → LowRAM adapter Runtime Verification Pending; run scripts/lowram_bench.sh on a 16GB Mac (a dgrauet/ltx-2-mlx checkout already exists at ~/AI/LTX-MLX/ltx-2-mlx with a Q8 model).
 4. Full 20-take queue soak (scripts/queue_soak.sh 20, ≈17 min) not yet run; 3-take validation done.

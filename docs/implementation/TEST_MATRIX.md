@@ -53,19 +53,20 @@ as a dependency-free executable (Tests/LTXTests/TestKit.swift).
 | FFmpeg normalize+reencode plan (mixed audio) | PASS (plan-level) |
 | Queue soak (3-take short validation) | see BENCHMARK_RESULTS |
 | Queue soak (full 20-take) | HARNESS READY (scripts/queue_soak.sh 20, ≈17 min) |
-| REST API end-to-end over socket | N-A here (needs running app; logic layer fully unit-tested) |
-| App .app bundle build (xcodebuild) | N-A (no Xcode.app — Remaining Human Action) |
+| REST API end-to-end over socket (real .app) | **PASS** (2026-08-08: job POST → auto-quality compact C2 → real generation → completed + actual metadata 512×320/65f/2.708s; ffprobe re-verified) |
+| App .app bundle build (xcodebuild) | **PASS** (Xcode 26.6: BUILD SUCCEEDED, Debug arm64, ad-hoc; app launches & runs) |
 
-## Security
+## Security (socket-level checks 2026-08-08 against the running .app)
 | Test | Status |
 |---|---|
-| Loopback-only bind | ENFORCED in code (requiredLocalEndpoint 127.0.0.1); socket-level check pending app run |
-| Missing/invalid/length-mismatch token | PASS (unit) |
+| Loopback-only bind | **PASS** (lsof: listener bound to 127.0.0.1:8421 only) |
+| Missing token → 401 / invalid token → 401 | **PASS** (curl) + unit |
 | Path traversal / absolute path / invalid assetID | PASS (unit) |
 | Oversized upload caps | ENFORCED (413 path; caps unit-visible) |
 | Arbitrary repo injection | PASS (registry lookup + repo-id charset guard) |
-| Adult model while adultMode OFF (UI/Service/API) | PASS (unit at each layer) |
-| No wildcard CORS in v1 | PASS (no CORS headers emitted) |
+| Adult model while adultMode OFF via API → 403 | **PASS** (curl) + unit at each layer |
+| variations=21 → 400 | **PASS** (curl) + unit |
+| No CORS headers in v1 responses | **PASS** (curl header inspection) |
 
 ## Regression
 | Test | Status |

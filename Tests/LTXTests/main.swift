@@ -11,5 +11,6 @@ t.suite("Catalog") {
 runRegistryTests(t)
 runCompatLabTests(t)
 runAutoQualityTests(t)
+runDirectorTests(t)
 
 t.finish()

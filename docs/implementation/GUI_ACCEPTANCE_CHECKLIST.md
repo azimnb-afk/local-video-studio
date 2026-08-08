@@ -30,9 +30,24 @@ This pass intentionally did not enqueue another heavy LTX render. The existing r
 - [x] Root cause isolated: new Storyboard/Hybrid projects used the `ProjectSettings` schema default (`gemma3_12b_bf16`) instead of the current `selectedTextEncoderID` (`gemma3_12b_4bit`).
 - [x] New Storyboard and Hybrid projects now inherit the same current text-encoder selection used by Generate and One Shot; regression test added.
 - [x] Cancel now terminates the Python wrapper and its `mlx_video.generate_av` child instead of leaving the download/render alive.
-- [ ] Re-run all three Quick Preview Takes, regenerate only the final shot at High Quality, retain/select both final-shot Takes, and assemble the final MP4.
+- [x] Re-ran all three Quick Preview Takes sequentially, regenerated only the final shot at High Quality, retained both final-shot Takes, selected High, and assembled the final MP4.
 
-The affected project still has its original persisted BF16 snapshot and must not be reused. Disk cleanup restored about 66 GiB free while preserving the completed Q4 model and 4-bit encoder caches; the unchecked acceptance will use a newly-created project.
+The affected project still has its original persisted BF16 snapshot and was not reused or migrated. Disk cleanup restored about 66 GiB free while preserving the completed Q4 model and 4-bit encoder caches.
+
+### Real GUI E2E evidence
+
+- [x] Canonical app provenance captured: HEAD `3b5782b652d13bb42a8f771d9451d2d803a9a18b`; app `/Users/azimnb/Library/Developer/Xcode/DerivedData/LTXVideoGenerator-amthplfqixfwzxgnoumxohoqainn/Build/Products/Debug/LTXVideoGenerator.app`; executable mtime `2026-08-09 03:31:30 +0900`; running PID 52199 used that exact executable path.
+- [x] Before/after free disk: 66 GiB / 66 GiB. Cache sizes: Official Q4 about 20 GiB; Gemma 12B 4-bit about 7.5 GiB. BF16 12B download: **NO**. Unexpected large download: **NO**. Remaining `.incomplete`: **none**.
+- [x] A new pure Storyboard (`5EA7ED62-B8D4-4532-BA6A-26DA1C3B56EF`) stored `ltx23_distilled_q4` + `gemma3_12b_4bit`. The configured Ollama model failed strict plan-schema validation, so template fallback produced one shot; it was not used as the three-shot production project.
+- [x] New three-shot Hybrid/Storyboard production project `2B81DA40-9886-4733-A4AC-4E8879FC44DD` used the same shared ProjectSettings, StoryboardDirector, sequential Take queue, regeneration, selection, and assembly paths. Audio ON; target duration 15 s.
+- [x] Generation log resolved `notapalindrome/ltx23-mlx-av-q4` and `mlx-community/gemma-3-12b-it-4bit`; cache snapshot checks completed immediately. No BF16 repo was selected.
+- [x] Quick Shot 1: C3, requested 768×512, effective/actual 512×320, 121f @ 24fps, 15 steps, audio, 5.01 s, 129.48 s generation, seed 1153703474.
+- [x] Quick Shot 2: C3, requested 768×512, effective/actual 512×320, 121f @ 24fps, 15 steps, audio, 5.01 s, 128.79 s generation, seed 1405865902.
+- [x] Quick Shot 3: C3, requested 768×512, effective/actual 512×320, 121f @ 24fps, 15 steps, audio, 5.01 s, 128.68 s generation, seed 1195254423.
+- [x] High Shot 3 only: H0, requested/effective/actual 768×512, 121f @ 24fps, 30 steps, audio, 5.01 s, 278.47 s generation, seed 1924045886. Encoder remained 4-bit. The Quick Shot 3 take remained present and High was selected.
+- [x] Final selection order: Quick / Quick / High. Final MP4 `/Users/azimnb/Library/Application Support/LTXVideoGenerator/Projects/2B81DA40-9886-4733-A4AC-4E8879FC44DD_final.mp4` exists; H.264 768×512; 15.060667 s; AAC stereo 48 kHz. QuickTime playback progressed and ended normally.
+- [x] Final cancellation probe: wrapper PID 52241 and child PID 52243 stopped; GUI showed cancelled without an error alert; project `F466A6E9-9C02-4AC4-8AC8-6FE27B87816B` persisted Take and Job as `cancelled`; residual generation/download process: **NO**.
+- [x] Final validation: `swift build`; `swift run LTXTests` = 335 passed / 0 failed; Xcode Debug `BUILD SUCCEEDED`; `git diff --check` clean.
 
 ---
 
@@ -45,7 +60,7 @@ The affected project still has its original persisted BF16 snapshot and must not
 - [ ] A5. Audio OFF（Generate Audioを無効化）で音声トラック無しのMP4になる（QuickTime/ffprobeで確認）
 - [ ] A6. 旧バージョンで作成したHistory / Preset / CharacterProfileが壊れず読み込める（既存ユーザー環境で起動して確認）
 - [ ] A7. 3 variations / 5 variationsが**1件ずつ順番に**処理される（同時に2つ進行しない）
-- [ ] A8. 生成中のCancelが効き、アプリが正常状態に戻る
+- [x] A8. 生成中のCancelが効き、wrapper/MLX child停止後にアプリが正常状態へ戻る（Storyboard実生成で確認）
 
 ## B. Feature Flags / Preferences
 
@@ -66,13 +81,13 @@ The affected project still has its original persisted BF16 snapshot and must not
 - [x] D1. 生成ボタン付近にPreset（Quick Preview/Standard/High Quality/Custom）が表示され、通常Quality pickerは露出しない
 - [x] D2. 最終request比較: 48GB機のStandardはS0（768×512/25steps）、HighはH0（768×512/30steps）へ明確に分離される
 - [x] D3. Compact成功だけではStandardをCompactへ固定しない。S0の最新失敗がある場合だけ既知safe profileへfallbackし、reasonを保存する
-- [ ] D4. Compact選択→512×320になり、ffprobeの実解像度が512×320
+- [x] D4. Compact選択→512×320になり、ffprobeの実解像度が512×320
 - [ ] D5. Advanced選択→手動パラメータが**一切変更されない**
 - [x] D6. target 5s、同一seed/model/audioで Quick=C3 / Standard=S0 / High=H0、全て121f（duration制約維持）
 - [x] D7. One Shot / Storyboard / Hybrid / APIのdurationがprofile適用後もframesへ反映され、Customは手動framesを保持する
 - [x] D8. History/Take metadataにeffective profile reason、target/requested duration、audio、sourceを保存する
 
-Post-fixの新規実生成は未実施。今回起動したDebug appは `MLX Environment Not Ready`、sandbox内PythonのMetal probeはdevice非検出だった。request比較は必須項目として完了し、旧Quick/Standard/Highの実MP4はArchiveとffprobe metadataで確認済み。
+Post-fixの新規実生成を2026-08-09に実施。Quick C3は3本とも512×320/121f/24fps/15 steps、High H0は最終Shotのみ768×512/121f/24fps/30 stepsとなり、実MP4 metadataとGUI Take metadataが一致した。
 
 ## E. One Shot Director（directorV1 ON）
 

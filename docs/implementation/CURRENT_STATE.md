@@ -3,7 +3,7 @@
 Updated: 2026-08-09
 
 ## Current Phase
-Preset/Quality propagation hardening complete — all production modes now resolve through one concrete settings boundary, with duration and fallback diagnostics preserved.
+Preset/Quality and text-encoder propagation hardening is complete and has passed a real cached-model Storyboard/Hybrid GUI E2E, including mixed-resolution final assembly and cancellation.
 
 ## Completed
 - Source acquisition: cloned `james-see/ltx-video-mac` (MIT) @ `a441dc2` → branch `director-extensions`.
@@ -26,9 +26,11 @@ Preset/Quality propagation hardening complete — all production modes now resol
 - Diagnostics: every render attempt logs final width/height/frames/FPS/steps/audio/target/model/seed; Result/Take/Archive preserve profile reason, source, target/requested duration and audio state.
 - Storyboard/Hybrid encoder inheritance: newly-created projects now snapshot the same current model/text-encoder selections used by Generate and One Shot. Legacy Codable defaults remain unchanged for old project migration.
 - Render cancellation: Cancel terminates the active Swift-launched Python wrapper, and the wrapper forwards termination to its `mlx_video.generate_av` child before exiting.
+- Cancellation persistence: a cancelled project request is now saved as a cancelled Take and Job, shown as cancelled in the Storyboard UI, and does not surface a failure alert.
+- Real GUI E2E (2026-08-09): cached Official Q4 + Gemma 12B 4-bit rendered three sequential Quick Preview shots, retained a Quick take while adding/selecting one High Quality take, normalized the mixed 512×320/768×512 sources into a playable 768×512 final MP4 with audio, and left no generation process behind.
 
 ## In Progress
-- Storyboard real-generation acceptance is in progress after disk cleanup restored about 66 GiB free. It will use the completed 4-bit encoder cache; no BF16 download is required.
+- Director planning quality: the configured local Ollama model responded but did not satisfy the strict Storyboard JSON schema, so Director used its documented template fallback. The pure new Storyboard still proved 4-bit settings inheritance; the deterministic three-shot Hybrid fallback was used for the multi-shot production/assembly acceptance.
 
 ## Build Status
 - `swift build` clean (final GUI implementation).
@@ -100,16 +102,26 @@ Record the three provenance values with the GUI acceptance result: `git_head`, `
 Builds created with a custom path such as `-derivedDataPath /tmp/...` are disposable test artifacts. They must not be treated as the normal development app or used to claim final GUI acceptance. Multiple old Debug apps with bundle id `com.ltxvideo.generator` may coexist, so bundle-name lookup is always ambiguous; `open -a LTXVideoGenerator` is prohibited for GUI verification.
 
 ## Test Status
-- `swift run LTXTests`: **333 checks, 0 failures** (including new-project text-encoder inheritance and propagation into Hybrid `GenerationRequest`).
+- `swift run LTXTests`: **335 checks, 0 failures** (including new-project text-encoder inheritance, Hybrid request propagation, and cancelled Take/Job persistence).
 - Final concrete comparison on Mac16,11/48 GB, same prompt/model/seed 4242/target 5 s/audio ON: Quick=C3 512×320/121f/24fps/15 steps; Standard=S0 768×512/121f/24fps/25 steps; High=H0 768×512/121f/24fps/30 steps.
+
+## 2026-08-09 Real Storyboard / Hybrid GUI E2E
+- Source/build provenance: checkpoint `a32e93f` supplied the encoder inheritance and child-process termination fix; cancellation persistence was verified from `3b5782b652d13bb42a8f771d9451d2d803a9a18b`. Canonical app: `/Users/azimnb/Library/Developer/Xcode/DerivedData/LTXVideoGenerator-amthplfqixfwzxgnoumxohoqainn/Build/Products/Debug/LTXVideoGenerator.app`; executable mtime `2026-08-09 03:31:30 +0900`; running PID 52199 resolved to that exact executable path.
+- Disk/cache: 66 GiB free before and after. Completed caches remained about 20 GiB (Official Q4) and 7.5 GiB (Gemma 12B 4-bit). BF16 12B download: **NO**. Unexpected large model download: **NO**. `.incomplete` files after E2E: **none**.
+- Pure new Storyboard project `5EA7ED62-B8D4-4532-BA6A-26DA1C3B56EF` saved `modelID=ltx23_distilled_q4` and `textEncoderID=gemma3_12b_4bit`. It was not the old BF16 project. The local planner failed schema validation and produced a one-shot template fallback, so this project was used only to verify inheritance.
+- Three-shot production project: Hybrid `2B81DA40-9886-4733-A4AC-4E8879FC44DD`, target 15 s, audio ON. Hybrid uses the same project creation/settings, StoryboardDirector, sequential Take queue, retake, selection, and FinalAssembly code paths.
+- Quick resolved request for every 5 s shot: Quick Preview / Compact / C3, requested 768×512, effective 512×320, 121 frames at 24 fps, 15 steps, aggressive tiling, Official Q4, Gemma 12B 4-bit, audio ON. Generation times were 129.48 s, 128.79 s, and 128.68 s. Actual MP4s were 512×320, approximately 5.01 s, H.264 + AAC stereo audio.
+- Only Shot 3 was regenerated at High Quality. It resolved High / H0, 768×512, 121 frames at 24 fps, 30 steps, auto tiling, the same model/4-bit encoder/audio, and completed in 278.47 s. Its actual MP4 was 768×512, approximately 5.01 s, H.264 + AAC. The original Shot 3 Quick take remained stored and the High take became selected.
+- Final selected order was Shot 1 Quick, Shot 2 Quick, Shot 3 High. Final file: `/Users/azimnb/Library/Application Support/LTXVideoGenerator/Projects/2B81DA40-9886-4733-A4AC-4E8879FC44DD_final.mp4`; 2,249,897 bytes; H.264 768×512; 15.060667 s container duration; AAC stereo 48 kHz. QuickTime playback advanced through the timeline and ended normally.
+- Cancellation probe from the final canonical app used `textEncoderRepo=mlx-community/gemma-3-12b-it-4bit`. Cancel terminated wrapper PID 52241 and child PID 52243. Project `F466A6E9-9C02-4AC4-8AC8-6FE27B87816B` persisted both Take and Job as `cancelled`, displayed the cancelled UI state, showed no error alert, and left no Python/MLX/download process.
 
 ## Known Blockers / Remaining Human Actions
 1. ~~No Xcode.app~~ → RESOLVED: Xcode 26.6 installed; unsigned dev .app builds and runs. Remaining: Developer ID signing + notarization for distribution (needs credentials).
 2. 10Eros weights not downloaded (user authorization required, tens of GB) → lab models stay verified=false. To verify: download weights, run scripts/compat_lab_smoke.sh, record checks in Compatibility Lab.
 3. No 16GB hardware → LowRAM adapter Runtime Verification Pending; run scripts/lowram_bench.sh on a 16GB Mac (a dgrauet/ltx-2-mlx checkout already exists at ~/AI/LTX-MLX/ltx-2-mlx with a Q8 model).
 4. Full 20-take queue soak (scripts/queue_soak.sh 20, ≈17 min) not yet run; 3-take validation done.
-5. A fresh post-fix Quick/High render was not queued in this pass: the Debug app reported `MLX Environment Not Ready`, and the sandboxed Python probe could not access a Metal device. Mandatory final-request comparisons passed; existing real Quick/old-Standard/High outputs were inspected as the regression evidence.
-6. Storyboard real-generation investigation (2026-08-09): Generate and One Shot read `selectedTextEncoderID`, but the shared Storyboard/Hybrid creation sheet previously initialized `ProjectSettings()` and therefore captured the schema default `gemma3_12b_bf16`. The selected and previously benchmarked encoder is `gemma3_12b_4bit`. The project creation path now inherits current selections; Preset resolution continues to preserve `textEncoderId`. The already-created affected project intentionally retains its persisted BF16 snapshot and must not be reused for the post-fix E2E. Disk cleanup subsequently restored about 66 GiB free and the incomplete BF16 cache is no longer present; the completed Q4 model and 4-bit encoder caches remain available.
+5. ~~Fresh post-fix Quick/High real render pending~~ → RESOLVED: the 2026-08-09 canonical-app E2E completed three Quick renders, one High retake, mixed-resolution assembly, QuickTime playback and cancellation using cached Q4 + 4-bit weights.
+6. Storyboard real-generation root cause (resolved): the shared Storyboard/Hybrid creation sheet previously initialized `ProjectSettings()` and captured schema default `gemma3_12b_bf16`; it now inherits the current `gemma3_12b_4bit` selection. Existing projects intentionally retain their stored encoder snapshot. A pre-fix scratch project that was cancelled before cancellation-persistence existed may still contain queued status; there is intentionally no automatic migration of old project intent/state.
 
 ## Feature Flags
 GUI-first defaults (D-007): modelRegistryV1 / autoQualityV1 / directorV1 / filmProjectV1 / storyboardV1 = **ON** by default; derivedModelsV1 / adultModelsV1 / lowRAMAdapterV1 / localAPIv1 = OFF (opt-in). All OFF (Preferences → Models & Features) = byte-identical legacy behavior (proven by MD5-identical regression render). Quality defaults to "Advanced" (= manual parameters untouched).
@@ -126,7 +138,7 @@ GUI-first defaults (D-007): modelRegistryV1 / autoQualityV1 / directorV1 / filmP
 - Preferences → Models & Features: Adult Content Mode + all flags + Compatibility Lab status
 
 ## Last Known Good Commit
-- Pre-fix checkpoint: `31a60d7`. The propagation fix is green with 331 tests, final xcodebuild and running-app GUI acceptance; the task-end local checkpoint contains this documentation.
+- `3b5782b` on `director-extensions`: encoder inheritance/child termination checkpoint `a32e93f` plus cancelled Take/Job persistence. Verified with 335 tests, Xcode Debug build, canonical-app GUI E2E and real MP4 playback. No push was performed.
 
 ## Exact Resume Action
 `cd /Users/azimnb/ltx23appdev/ltx-video-mac && git status && swift run LTXTests && xcodebuild -project LTXVideoGenerator/LTXVideoGenerator.xcodeproj -scheme LTXVideoGenerator -configuration Debug CODE_SIGNING_ALLOWED=NO build`.

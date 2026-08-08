@@ -1,6 +1,6 @@
 # CURRENT_STATE
 
-Updated: 2026-08-08
+Updated: 2026-08-09
 
 ## Current Phase
 Preset/Quality propagation hardening complete — all production modes now resolve through one concrete settings boundary, with duration and fallback diagnostics preserved.
@@ -26,11 +26,76 @@ Preset/Quality propagation hardening complete — all production modes now resol
 - Diagnostics: every render attempt logs final width/height/frames/FPS/steps/audio/target/model/seed; Result/Take/Archive preserve profile reason, source, target/requested duration and audio state.
 
 ## In Progress
-- None. Safe local git checkpoint pending at the end of this task.
+- None.
 
 ## Build Status
 - `swift build` clean (final GUI implementation).
 - **Xcode 26.6 installed (2026-08-08): `xcodebuild -scheme LTXVideoGenerator -configuration Debug` → BUILD SUCCEEDED.** Full .app bundle produced (arm64, ad-hoc signing via CLI overrides only — no project settings changed; deployment target 14.0, bundle id com.ltxvideo.generator). App launches and runs.
+
+## Canonical Development App / GUI Acceptance Preflight
+The canonical development app is the Debug product of `LTXVideoGenerator.xcodeproj` / `LTXVideoGenerator` scheme. Its expected shape is `~/Library/Developer/Xcode/DerivedData/LTXVideoGenerator-*/Build/Products/Debug/LTXVideoGenerator.app`, but the wildcard is descriptive only and must never be used to launch it. The DerivedData hash is intentionally not recorded. Resolve the full path from the active Xcode build settings each time:
+
+```bash
+cd /Users/azimnb/ltx23appdev/ltx-video-mac
+LTX_APP_PATH="$(
+  xcodebuild \
+    -project LTXVideoGenerator/LTXVideoGenerator.xcodeproj \
+    -scheme LTXVideoGenerator \
+    -configuration Debug \
+    -showBuildSettings |
+  awk -F ' = ' '
+    /^[[:space:]]*TARGET_BUILD_DIR = / { targetBuildDir=$2 }
+    /^[[:space:]]*WRAPPER_NAME = / { wrapperName=$2 }
+    END {
+      if (targetBuildDir == "" || wrapperName == "") exit 1
+      print targetBuildDir "/" wrapperName
+    }
+  '
+)"
+test -d "$LTX_APP_PATH"
+printf 'canonical_app=%s\n' "$LTX_APP_PATH"
+```
+
+Before every GUI acceptance pass, build the canonical product and capture source/build provenance. Check the executable timestamp, not only the `.app` directory timestamp, because incremental Xcode builds may leave the wrapper directory timestamp unchanged:
+
+```bash
+LTX_GUI_HEAD="$(git rev-parse HEAD)"
+printf 'git_head=%s\n' "$LTX_GUI_HEAD"
+git status --short
+
+xcodebuild \
+  -project LTXVideoGenerator/LTXVideoGenerator.xcodeproj \
+  -scheme LTXVideoGenerator \
+  -configuration Debug \
+  build
+
+test "$(git rev-parse HEAD)" = "$LTX_GUI_HEAD"
+LTX_APP_EXECUTABLE_NAME="$(
+  /usr/libexec/PlistBuddy \
+    -c 'Print :CFBundleExecutable' \
+    "$LTX_APP_PATH/Contents/Info.plist"
+)"
+LTX_APP_EXECUTABLE_PATH="$LTX_APP_PATH/Contents/MacOS/$LTX_APP_EXECUTABLE_NAME"
+test -x "$LTX_APP_EXECUTABLE_PATH"
+stat -f 'app_executable_mtime=%Sm' \
+  -t '%Y-%m-%d %H:%M:%S %z' \
+  "$LTX_APP_EXECUTABLE_PATH"
+
+# No unexpected LTXVideoGenerator process should be accepted as the test target.
+ps -axo pid=,comm= | rg '[L]TXVideoGenerator.app/Contents/MacOS/LTXVideoGenerator' || true
+
+# Launch this exact product. Do not use open -a, Dock, Spotlight, or a recent item.
+open -n "$LTX_APP_PATH"
+
+# Acceptance starts only after the running executable resolves to the same full path.
+ps -axo pid=,comm= | rg -F "$LTX_APP_EXECUTABLE_PATH"
+```
+
+If the pre-launch process check prints any app instance, quit all existing LTX Video Generator instances and rerun the check before `open -n`; do not continue acceptance against a process that survived the latest build.
+
+Record the three provenance values with the GUI acceptance result: `git_head`, `app_executable_mtime`, and the full running process executable path. If HEAD or tracked source changes after the build, rebuild before acceptance.
+
+Builds created with a custom path such as `-derivedDataPath /tmp/...` are disposable test artifacts. They must not be treated as the normal development app or used to claim final GUI acceptance. Multiple old Debug apps with bundle id `com.ltxvideo.generator` may coexist, so bundle-name lookup is always ambiguous; `open -a LTXVideoGenerator` is prohibited for GUI verification.
 
 ## Test Status
 - `swift run LTXTests`: **331 checks, 0 failures** (see TEST_MATRIX.md).

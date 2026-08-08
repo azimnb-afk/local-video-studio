@@ -181,6 +181,15 @@ struct ProjectSettings: Codable, Equatable {
     var resolvedAudioEnabled: Bool { audioEnabled ?? true }
     var resolvedInferenceSteps: Int { numInferenceSteps ?? 30 }
 
+    /// New GUI projects inherit the user's current model/text-encoder choices.
+    /// Codable defaults above remain stable for legacy project migration.
+    static func usingCurrentSelections(userDefaults: UserDefaults = .standard) -> ProjectSettings {
+        var settings = ProjectSettings()
+        settings.modelID = LTXModelCatalog.selectedModel(userDefaults: userDefaults).id
+        settings.textEncoderID = LTXTextEncoderCatalog.selectedTextEncoder(userDefaults: userDefaults).id
+        return settings
+    }
+
     mutating func applyPreset(_ newPreset: GenerationPreset) {
         preset = newPreset.rawValue
         qualityMode = newPreset.qualityMode.rawValue

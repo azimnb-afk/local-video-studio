@@ -232,7 +232,7 @@ private struct NewStoryboardSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button {
-                    var settings = ProjectSettings()
+                    var settings = ProjectSettings.usingCurrentSelections()
                     let preset = GenerationPreset(rawValue: presetRaw) ?? .standard
                     settings.applyPreset(preset)
                     settings.modelID = modelID

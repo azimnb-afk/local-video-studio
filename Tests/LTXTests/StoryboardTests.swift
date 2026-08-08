@@ -3,6 +3,17 @@ import Foundation
 
 func runStoryboardTests(_ t: TestKit) {
 
+    t.suite("New project settings") {
+        let suiteName = "LTXTests-project-settings-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("gemma3_12b_4bit", forKey: LTXTextEncoderCatalog.selectedTextEncoderIDKey)
+
+        let settings = ProjectSettings.usingCurrentSelections(userDefaults: defaults)
+        t.checkEqual(settings.textEncoderID, "gemma3_12b_4bit",
+                     "new Storyboard inherits selected text encoder")
+    }
+
     t.suite("Continuity transitions") {
         var state = ContinuitySnapshot()
         state.location = "kitchen"
@@ -151,6 +162,7 @@ func runStoryboardTests(_ t: TestKit) {
             do {
                 var settings = ProjectSettings()
                 settings.applyPreset(.quickPreview)
+                settings.textEncoderID = "gemma3_12b_4bit"
                 settings.targetDurationSeconds = 20
                 let (project, _, _) = try await hybrid.makeProject(title: "Hybrid", brief: "a train crosses a valley", settings: settings)
                 t.checkEqual(project.workflowMode, "hybrid", "Hybrid workflow state recorded")
@@ -172,6 +184,8 @@ func runStoryboardTests(_ t: TestKit) {
                     baseSeed: 700
                 )[0]
                 t.checkEqual(request.generationSource, "hybrid", "Hybrid request source recorded")
+                t.checkEqual(request.textEncoderId, "gemma3_12b_4bit",
+                             "Hybrid project encoder is preserved in GenerationRequest")
                 t.checkEqual(request.targetDurationSeconds, project.shots[0].durationSeconds,
                              "Hybrid shot target carried to request")
 

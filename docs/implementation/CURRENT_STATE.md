@@ -24,9 +24,11 @@ Preset/Quality propagation hardening complete — all production modes now resol
 - Duration precedence: profile supplies resolution/FPS/steps/audio; One Shot/Storyboard/Hybrid/API target duration recomputes 8n+1 frames at the resolved FPS; Custom preserves manual frames.
 - Standard Auto policy: a lower-profile success alone no longer caps Standard. On 48 GB, Standard targets S0 while High remains H0; a real latest S0 failure can fall back to known-safe history with an explicit reason.
 - Diagnostics: every render attempt logs final width/height/frames/FPS/steps/audio/target/model/seed; Result/Take/Archive preserve profile reason, source, target/requested duration and audio state.
+- Storyboard/Hybrid encoder inheritance: newly-created projects now snapshot the same current model/text-encoder selections used by Generate and One Shot. Legacy Codable defaults remain unchanged for old project migration.
+- Render cancellation: Cancel terminates the active Swift-launched Python wrapper, and the wrapper forwards termination to its `mlx_video.generate_av` child before exiting.
 
 ## In Progress
-- None.
+- Storyboard real-generation acceptance is in progress after disk cleanup restored about 66 GiB free. It will use the completed 4-bit encoder cache; no BF16 download is required.
 
 ## Build Status
 - `swift build` clean (final GUI implementation).
@@ -98,7 +100,7 @@ Record the three provenance values with the GUI acceptance result: `git_head`, `
 Builds created with a custom path such as `-derivedDataPath /tmp/...` are disposable test artifacts. They must not be treated as the normal development app or used to claim final GUI acceptance. Multiple old Debug apps with bundle id `com.ltxvideo.generator` may coexist, so bundle-name lookup is always ambiguous; `open -a LTXVideoGenerator` is prohibited for GUI verification.
 
 ## Test Status
-- `swift run LTXTests`: **331 checks, 0 failures** (see TEST_MATRIX.md).
+- `swift run LTXTests`: **333 checks, 0 failures** (including new-project text-encoder inheritance and propagation into Hybrid `GenerationRequest`).
 - Final concrete comparison on Mac16,11/48 GB, same prompt/model/seed 4242/target 5 s/audio ON: Quick=C3 512×320/121f/24fps/15 steps; Standard=S0 768×512/121f/24fps/25 steps; High=H0 768×512/121f/24fps/30 steps.
 
 ## Known Blockers / Remaining Human Actions
@@ -107,6 +109,7 @@ Builds created with a custom path such as `-derivedDataPath /tmp/...` are dispos
 3. No 16GB hardware → LowRAM adapter Runtime Verification Pending; run scripts/lowram_bench.sh on a 16GB Mac (a dgrauet/ltx-2-mlx checkout already exists at ~/AI/LTX-MLX/ltx-2-mlx with a Q8 model).
 4. Full 20-take queue soak (scripts/queue_soak.sh 20, ≈17 min) not yet run; 3-take validation done.
 5. A fresh post-fix Quick/High render was not queued in this pass: the Debug app reported `MLX Environment Not Ready`, and the sandboxed Python probe could not access a Metal device. Mandatory final-request comparisons passed; existing real Quick/old-Standard/High outputs were inspected as the regression evidence.
+6. Storyboard real-generation investigation (2026-08-09): Generate and One Shot read `selectedTextEncoderID`, but the shared Storyboard/Hybrid creation sheet previously initialized `ProjectSettings()` and therefore captured the schema default `gemma3_12b_bf16`. The selected and previously benchmarked encoder is `gemma3_12b_4bit`. The project creation path now inherits current selections; Preset resolution continues to preserve `textEncoderId`. The already-created affected project intentionally retains its persisted BF16 snapshot and must not be reused for the post-fix E2E. Disk cleanup subsequently restored about 66 GiB free and the incomplete BF16 cache is no longer present; the completed Q4 model and 4-bit encoder caches remain available.
 
 ## Feature Flags
 GUI-first defaults (D-007): modelRegistryV1 / autoQualityV1 / directorV1 / filmProjectV1 / storyboardV1 = **ON** by default; derivedModelsV1 / adultModelsV1 / lowRAMAdapterV1 / localAPIv1 = OFF (opt-in). All OFF (Preferences → Models & Features) = byte-identical legacy behavior (proven by MD5-identical regression render). Quality defaults to "Advanced" (= manual parameters untouched).

@@ -46,6 +46,7 @@ class GenerationService: ObservableObject {
     }
     
     func cancelCurrent() {
+        bridge.cancelActiveGeneration()
         processingTask?.cancel()
         if var request = currentRequest {
             request.status = .cancelled
@@ -436,6 +437,9 @@ class GenerationService: ObservableObject {
             let outputDir = URL(fileURLWithPath: generationResult.videoPath).deletingLastPathComponent().path
             statusMessage = "Video saved to \(outputDir)"
             
+        } catch where Task.isCancelled {
+            queue[index].status = .cancelled
+            self.error = .cancelled
         } catch is CancellationError {
             queue[index].status = .cancelled
             error = .cancelled

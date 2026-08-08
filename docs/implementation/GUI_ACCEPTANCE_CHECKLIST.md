@@ -23,6 +23,19 @@ This pass intentionally did not enqueue another heavy LTX render. The existing r
 
 ---
 
+## 2026-08-09 Storyboard encoder investigation
+
+- [x] Ollama created a three-shot Storyboard with Quick Preview, Official LTX-2.3 Distilled Q4 and Audio ON.
+- [x] The first queued Take resolved Quick Preview to 512×320 / 121 frames / 24 fps / 15 steps, confirming Preset and duration propagation.
+- [x] Root cause isolated: new Storyboard/Hybrid projects used the `ProjectSettings` schema default (`gemma3_12b_bf16`) instead of the current `selectedTextEncoderID` (`gemma3_12b_4bit`).
+- [x] New Storyboard and Hybrid projects now inherit the same current text-encoder selection used by Generate and One Shot; regression test added.
+- [x] Cancel now terminates the Python wrapper and its `mlx_video.generate_av` child instead of leaving the download/render alive.
+- [ ] Re-run all three Quick Preview Takes, regenerate only the final shot at High Quality, retain/select both final-shot Takes, and assemble the final MP4.
+
+The affected project still has its original persisted BF16 snapshot and must not be reused. Disk cleanup restored about 66 GiB free while preserving the completed Q4 model and 4-bit encoder caches; the unchecked acceptance will use a newly-created project.
+
+---
+
 ## A. Regression — 全flag OFF = 従来動作（最優先）
 
 - [ ] A1. 初回起動: Preferences → Models & Features の全トグルがOFF、Adult Content ModeがOFFであること

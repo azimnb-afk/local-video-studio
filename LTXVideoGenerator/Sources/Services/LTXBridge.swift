@@ -23,6 +23,34 @@ enum LTXError: LocalizedError, Equatable {
     }
 }
 
+private final class ActiveGenerationProcessController: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+
+    func set(_ process: Process) {
+        lock.lock()
+        self.process = process
+        lock.unlock()
+    }
+
+    func clear(_ process: Process) {
+        lock.lock()
+        if self.process === process {
+            self.process = nil
+        }
+        lock.unlock()
+    }
+
+    func cancel() {
+        lock.lock()
+        let process = self.process
+        lock.unlock()
+        if process?.isRunning == true {
+            process?.terminate()
+        }
+    }
+}
+
 // Use subprocess to run MLX-based generation
 class LTXBridge {
     static let shared = LTXBridge()
@@ -79,9 +107,16 @@ class LTXBridge {
     private(set) var isModelLoaded = false
     private var pythonHome: String?
     private var pythonExecutable: String?
+    private let activeGenerationProcess = ActiveGenerationProcessController()
     
     private init() {
         setupPythonPaths()
+    }
+
+    /// Cancels only the outer Python process for the active render. The wrapper
+    /// installs a SIGTERM handler that terminates its mlx_video child first.
+    func cancelActiveGeneration() {
+        activeGenerationProcess.cancel()
     }
     
     private func setupPythonPaths() {
@@ -401,6 +436,19 @@ try:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT
     )
+
+    def terminate_generation(signum, frame):
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        raise SystemExit(130)
+
+    signal.signal(signal.SIGTERM, terminate_generation)
+    signal.signal(signal.SIGINT, terminate_generation)
     
     # Unbuffered read: use os.read() on the raw fd so every line the inner process
     # flushes is available immediately.  process.stdout.read(n) uses Python's
@@ -896,6 +944,7 @@ except Exception as e:
         }
         
         let logFile = "/tmp/ltx_generation.log"
+        let processController = activeGenerationProcess
         
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
@@ -956,6 +1005,8 @@ except Exception as e:
                     try? startLog.write(toFile: logFile, atomically: false, encoding: .utf8)
                     
                     try process.run()
+                    processController.set(process)
+                    defer { processController.clear(process) }
                     process.waitUntilExit()
                     
                     stderrPipe.fileHandleForReading.readabilityHandler = nil

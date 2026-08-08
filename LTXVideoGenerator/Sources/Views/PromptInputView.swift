@@ -34,6 +34,10 @@ struct PromptInputView: View {
     // Music settings (persisted)
     @AppStorage(SessionSettings.musicEnabledKey) private var musicEnabled = false
     @AppStorage(SessionSettings.musicGenreKey) private var selectedMusicGenre: MusicGenre = .cinematicUplifting
+    // Auto Quality (only used when the autoQualityV1 flag is enabled).
+    // "advanced" = user-controlled parameters, identical to legacy behavior.
+    @AppStorage("qualityMode") private var qualityModeRaw = QualityMode.advanced.rawValue
+    @AppStorage(FeatureFlag.autoQualityV1.userDefaultsKey) private var autoQualityEnabled = false
 
     // Audio disable for unified model — persisted (issue #51 explicitly called
     // this out: "Generate Audio is forced to true on launch").
@@ -615,6 +619,19 @@ struct PromptInputView: View {
                         }
                     }
                 
+                // Quality mode (Auto Quality feature flag)
+                if autoQualityEnabled {
+                    Picker("Quality", selection: $qualityModeRaw) {
+                        Text("Auto").tag(QualityMode.auto.rawValue)
+                        Text("High").tag(QualityMode.high.rawValue)
+                        Text("Compact").tag(QualityMode.compact.rawValue)
+                        Text("Advanced").tag(QualityMode.advanced.rawValue)
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 130)
+                    .help("Auto picks the best profile for this Mac from hardware, memory state and past successes. Advanced uses your manual parameters unchanged.")
+                }
+
                 // Add to queue button
                 Button {
                     requestSingleGeneration()
@@ -632,6 +649,12 @@ struct PromptInputView: View {
                     }
                     Button("Generate 5 variations") {
                         requestBatchGeneration(count: 5)
+                    }
+                    Button("Generate 10 variations") {
+                        requestBatchGeneration(count: 10)
+                    }
+                    Button("Generate 20 variations") {
+                        requestBatchGeneration(count: 20)
                     }
                     Divider()
                     Button("Generate with random seeds...") {
@@ -763,7 +786,8 @@ struct PromptInputView: View {
             gemmaTopP: gemmaTopP,
             modelId: selectedModelID,
             textEncoderId: selectedTextEncoderID,
-            parameters: parameters
+            parameters: parameters,
+            qualityMode: autoQualityEnabled ? qualityModeRaw : nil
         )
         generationService.addToQueue(request)
     }
@@ -853,7 +877,8 @@ struct PromptInputView: View {
                     seed: Int.random(in: 0..<Int(Int32.max)),
                     vaeTilingMode: parameters.vaeTilingMode,
                     imageStrength: parameters.imageStrength
-                )
+                ),
+                qualityMode: autoQualityEnabled ? qualityModeRaw : nil
             )
         }
         generationService.addBatch(requests)

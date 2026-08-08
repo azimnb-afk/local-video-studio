@@ -186,35 +186,99 @@ class GenerationService: ObservableObject {
                 }
             }
 
-            let result: (videoPath: String, seed: Int, enhancedPrompt: String?)
             var resolvedDescriptor: ModelDescriptor?
-            if FeatureFlags.isEnabled(.modelRegistryV1) {
-                // Registry path: policy + verification enforced at the service
-                // layer, then routed through the adapter boundary. Official
-                // models still end up in the same LTXBridge fast path.
-                let descriptor: ModelDescriptor
+            let runGeneration: (GenerationRequest) async throws -> (videoPath: String, seed: Int, enhancedPrompt: String?) = { [bridge] req in
+                if FeatureFlags.isEnabled(.modelRegistryV1) {
+                    // Registry path: policy + verification enforced at the service
+                    // layer, then routed through the adapter boundary. Official
+                    // models still end up in the same LTXBridge fast path.
+                    let descriptor: ModelDescriptor
+                    do {
+                        descriptor = try ModelRegistry.shared.validateForGeneration(modelID: req.modelId)
+                    } catch let policyError as ModelPolicyError {
+                        throw LTXError.generationFailed(policyError.userMessage)
+                    }
+                    guard let adapter = AdapterRegistry.shared.adapter(for: descriptor) else {
+                        throw LTXError.generationFailed("No generation adapter supports model '\(descriptor.id)'.")
+                    }
+                    resolvedDescriptor = descriptor
+                    return try await adapter.generate(
+                        request: req,
+                        model: descriptor,
+                        outputPath: outputPath,
+                        progressHandler: progressCallback
+                    )
+                } else {
+                    // Legacy official fast path (all experimental flags OFF).
+                    return try await bridge.generate(
+                        request: req,
+                        outputPath: outputPath,
+                        progressHandler: progressCallback
+                    )
+                }
+            }
+
+            // Auto Quality: resolve a concrete profile and a fallback ladder.
+            var effectiveRequest = request
+            var attemptProfiles: [QualityProfile] = []
+            var autoQualityEngine: AutoQualityEngine?
+            if FeatureFlags.isEnabled(.autoQualityV1),
+               let modeRaw = request.qualityMode,
+               let mode = QualityMode(rawValue: modeRaw), mode != .advanced {
+                let engine = AutoQualityEngine()
+                if let resolution = try? engine.resolve(
+                    mode: mode,
+                    modelID: request.modelId,
+                    snapshot: MemoryMonitor.shared.snapshot(),
+                    audioRequested: !request.disableAudio
+                ) {
+                    autoQualityEngine = engine
+                    attemptProfiles = resolution.attemptLadder
+                    effectiveRequest = Self.applying(profile: resolution.profile, to: request)
+                    statusMessage = "Auto Quality: \(resolution.profile.displayName) — \(resolution.reason)"
+                }
+            }
+
+            var result: (videoPath: String, seed: Int, enhancedPrompt: String?)
+            var attemptIndex = 0
+            while true {
                 do {
-                    descriptor = try ModelRegistry.shared.validateForGeneration(modelID: request.modelId)
-                } catch let policyError as ModelPolicyError {
-                    throw LTXError.generationFailed(policyError.userMessage)
+                    let profileID = attemptProfiles.indices.contains(attemptIndex) ? attemptProfiles[attemptIndex].id : nil
+                    let attemptStart = Date()
+                    result = try await runGeneration(effectiveRequest)
+                    if let engine = autoQualityEngine, let profileID {
+                        engine.recordOutcome(
+                            modelID: request.modelId,
+                            profileID: profileID,
+                            succeeded: true,
+                            wallSeconds: Date().timeIntervalSince(attemptStart)
+                        )
+                    }
+                    break
+                } catch {
+                    // Fallback ladder: memory-related failures step down one
+                    // profile, at most AutoQualityEngine.maxAttempts total. The
+                    // backend subprocess has already exited (memory reclaimed).
+                    if let engine = autoQualityEngine,
+                       attemptProfiles.indices.contains(attemptIndex) {
+                        engine.recordOutcome(
+                            modelID: request.modelId,
+                            profileID: attemptProfiles[attemptIndex].id,
+                            succeeded: false
+                        )
+                    }
+                    let nextIndex = attemptIndex + 1
+                    guard autoQualityEngine != nil,
+                          AutoQualityEngine.isMemoryRelatedFailure(error),
+                          nextIndex < attemptProfiles.count,
+                          nextIndex < AutoQualityEngine.maxAttempts else {
+                        throw error
+                    }
+                    attemptIndex = nextIndex
+                    let lower = attemptProfiles[attemptIndex]
+                    effectiveRequest = Self.applying(profile: lower, to: request)
+                    statusMessage = "Retrying with lower profile: \(lower.displayName)"
                 }
-                guard let adapter = AdapterRegistry.shared.adapter(for: descriptor) else {
-                    throw LTXError.generationFailed("No generation adapter supports model '\(descriptor.id)'.")
-                }
-                resolvedDescriptor = descriptor
-                result = try await adapter.generate(
-                    request: request,
-                    model: descriptor,
-                    outputPath: outputPath,
-                    progressHandler: progressCallback
-                )
-            } else {
-                // Legacy official fast path (all experimental flags OFF).
-                result = try await bridge.generate(
-                    request: request,
-                    outputPath: outputPath,
-                    progressHandler: progressCallback
-                )
             }
 
             GenerationFailureRecovery.clearAfterSuccessfulGeneration()
@@ -231,7 +295,7 @@ class GenerationService: ObservableObject {
                 voiceoverSource: request.voiceoverSource,
                 voiceoverVoice: request.voiceoverVoice,
                 modelId: request.modelId,
-                parameters: request.parameters,
+                parameters: effectiveRequest.parameters,
                 videoPath: result.videoPath,
                 thumbnailPath: nil,
                 audioPath: nil,
@@ -321,8 +385,14 @@ class GenerationService: ObservableObject {
             // Director-extension metadata (backward-compatible optional fields).
             // Applied last so intermediate rebuilds (thumbnail, voiceover, music)
             // cannot drop it.
-            generationResult.effectiveWidth = (request.parameters.width / 64) * 64
-            generationResult.effectiveHeight = (request.parameters.height / 64) * 64
+            generationResult.effectiveWidth = (effectiveRequest.parameters.width / 64) * 64
+            generationResult.effectiveHeight = (effectiveRequest.parameters.height / 64) * 64
+            if let mediaInfo = MediaProbe.probe(path: generationResult.videoPath) {
+                generationResult.actualWidth = mediaInfo.width
+                generationResult.actualHeight = mediaInfo.height
+                generationResult.actualFPS = mediaInfo.fps
+                generationResult.actualDuration = mediaInfo.durationSeconds
+            }
             generationResult.modelRevision = request.modelRevision ?? resolvedDescriptor?.revision
             generationResult.quantization = request.quantization ?? resolvedDescriptor?.quantization
             generationResult.qualityMode = request.qualityMode
@@ -356,6 +426,37 @@ class GenerationService: ObservableObject {
         
         // Remove completed/failed/cancelled from queue
         queue.removeAll { $0.status != .pending }
-        
+
+    }
+
+    /// Copy of a request with a quality profile applied (parameters + audio).
+    /// Prompt, model, IDs and all other fields are preserved.
+    nonisolated static func applying(profile: QualityProfile, to request: GenerationRequest) -> GenerationRequest {
+        GenerationRequest(
+            id: request.id,
+            prompt: request.prompt,
+            negativePrompt: request.negativePrompt,
+            voiceoverText: request.voiceoverText,
+            voiceoverSource: request.voiceoverSource,
+            voiceoverVoice: request.voiceoverVoice,
+            sourceImagePath: request.sourceImagePath,
+            musicEnabled: request.musicEnabled,
+            musicGenre: request.musicGenre,
+            disableAudio: request.disableAudio || !profile.audioEnabled,
+            gemmaRepetitionPenalty: request.gemmaRepetitionPenalty,
+            gemmaTopP: request.gemmaTopP,
+            modelId: request.modelId,
+            textEncoderId: request.textEncoderId,
+            parameters: profile.applied(to: request.parameters),
+            createdAt: request.createdAt,
+            status: request.status,
+            modelRevision: request.modelRevision,
+            quantization: request.quantization,
+            qualityMode: request.qualityMode,
+            adultMode: request.adultMode,
+            filmProjectID: request.filmProjectID,
+            shotID: request.shotID,
+            takeID: request.takeID
+        )
     }
 }

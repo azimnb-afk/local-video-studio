@@ -8,4 +8,6 @@ t.suite("Catalog") {
     t.checkEqual((1080 / 64) * 64, 1024, "64-px floor")
 }
 
+runRegistryTests(t)
+
 t.finish()

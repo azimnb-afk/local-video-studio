@@ -10,7 +10,7 @@ Profile: 512x320, 25 frames, 15 steps, 24 fps, seed 42, cfg 3.0, model ltx23_dis
 | T2V-A-ON | ON | 49 s | 23.66 GB | none (7484M→7484M) | 512x320 h264 24fps + aac 48kHz 2ch, 1.01 s | OK |
 | T2V-A-OFF | OFF | 46 s | 17.23 GB | −405 M | 512x320 h264 24fps, 1.04 s | OK |
 | I2V-A-ON | ON | 48 s | 23.66 GB | none | 512x320 h264 24fps + aac 48kHz 2ch, 1.01 s | OK |
-| I2V-A-OFF | OFF | (see log) | (see log) | | | measured after checkpoint |
+| I2V-A-OFF | OFF | 47 s | 17.23 GB | none | 512x320 h264 24fps, 1.04 s | OK |
 
 Notes:
 - Audio pipeline adds ~6.4 GB peak footprint (23.66 vs 17.23 GB) at this profile.

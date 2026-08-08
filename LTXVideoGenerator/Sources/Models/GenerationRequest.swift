@@ -188,6 +188,14 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
     var parameters: GenerationParameters
     let createdAt: Date
     var status: GenerationStatus
+    // Director-extension metadata (all optional for backward compatibility)
+    var modelRevision: String?         // Pinned model revision used for this request
+    var quantization: String?          // Quantization of the selected model ("q4", "q8", "bf16")
+    var qualityMode: String?           // "auto" / "high" / "compact" / "advanced"
+    var adultMode: Bool                // Adult Content Mode state at submission time
+    var filmProjectID: UUID?
+    var shotID: UUID?
+    var takeID: UUID?
     
     /// True if this is an image-to-video request
     var isImageToVideo: Bool {
@@ -221,7 +229,14 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         textEncoderId: String = LTXTextEncoderCatalog.defaultTextEncoderID,
         parameters: GenerationParameters = .default,
         createdAt: Date = Date(),
-        status: GenerationStatus = .pending
+        status: GenerationStatus = .pending,
+        modelRevision: String? = nil,
+        quantization: String? = nil,
+        qualityMode: String? = nil,
+        adultMode: Bool = false,
+        filmProjectID: UUID? = nil,
+        shotID: UUID? = nil,
+        takeID: UUID? = nil
     ) {
         self.id = id
         self.prompt = prompt
@@ -240,6 +255,13 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         self.parameters = parameters
         self.createdAt = createdAt
         self.status = status
+        self.modelRevision = modelRevision
+        self.quantization = quantization
+        self.qualityMode = qualityMode
+        self.adultMode = adultMode
+        self.filmProjectID = filmProjectID
+        self.shotID = shotID
+        self.takeID = takeID
     }
 
     enum CodingKeys: String, CodingKey {
@@ -260,6 +282,13 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         case parameters
         case createdAt
         case status
+        case modelRevision
+        case quantization
+        case qualityMode
+        case adultMode
+        case filmProjectID
+        case shotID
+        case takeID
     }
 
     init(from decoder: Decoder) throws {
@@ -281,6 +310,13 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         parameters = try container.decode(GenerationParameters.self, forKey: .parameters)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         status = try container.decode(GenerationStatus.self, forKey: .status)
+        modelRevision = try container.decodeIfPresent(String.self, forKey: .modelRevision)
+        quantization = try container.decodeIfPresent(String.self, forKey: .quantization)
+        qualityMode = try container.decodeIfPresent(String.self, forKey: .qualityMode)
+        adultMode = try container.decodeIfPresent(Bool.self, forKey: .adultMode) ?? false
+        filmProjectID = try container.decodeIfPresent(UUID.self, forKey: .filmProjectID)
+        shotID = try container.decodeIfPresent(UUID.self, forKey: .shotID)
+        takeID = try container.decodeIfPresent(UUID.self, forKey: .takeID)
     }
 }
 

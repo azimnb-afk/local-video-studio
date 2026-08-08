@@ -1,0 +1,140 @@
+import Foundation
+@testable import LTXVideoGeneratorCore
+
+func runRegistryTests(_ t: TestKit) {
+    // Isolated defaults so tests never touch the real app settings.
+    let suiteName = "LTXTests.registry.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    t.suite("ModelRegistry seeding") {
+        let registry = ModelRegistry(userDefaults: defaults)
+        for legacy in LTXModelCatalog.all {
+            t.check(registry.descriptor(id: legacy.id) != nil, "official \(legacy.id) registered")
+            t.check(registry.descriptor(id: legacy.id)?.isOfficial == true, "official \(legacy.id) marked official")
+            t.check(registry.descriptor(id: legacy.id)?.runtime.verified == true, "official \(legacy.id) verified")
+        }
+        t.check(registry.descriptor(id: "10eros_v12_q8")?.runtime.verified == false, "10eros v1.2 lab model unverified")
+        t.check(registry.descriptor(id: "10eros_v13_dmd_q4")?.runtime.verified == false, "10eros v1.3 lab model unverified")
+        t.check(registry.descriptor(id: "10eros_v12_q8")?.policy.contentClassification == .adultVerified, "10eros classified adultVerified")
+    }
+
+    t.suite("Adult policy matrix") {
+        let registry = ModelRegistry(userDefaults: defaults)
+        // adultMode=false + general = allowed
+        do {
+            try registry.validatePolicy(modelID: LTXModelCatalog.defaultModelID, adultMode: false)
+            t.check(true, "adult OFF + general allowed")
+        } catch {
+            t.check(false, "adult OFF + general allowed (threw \(error))")
+        }
+        // adultMode=false + adultVerified = reject
+        t.checkThrows(ModelPolicyError.adultModelRequiresAdultMode(modelID: "10eros_v12_q8"),
+                      "adult OFF + adultVerified rejected") {
+            try registry.validatePolicy(modelID: "10eros_v12_q8", adultMode: false)
+        }
+        // adultMode=true + adultVerified = allowed (policy level)
+        do {
+            try registry.validatePolicy(modelID: "10eros_v12_q8", adultMode: true)
+            t.check(true, "adult ON + adultVerified allowed at policy layer")
+        } catch {
+            t.check(false, "adult ON + adultVerified allowed (threw \(error))")
+        }
+        // unregistered model = reject
+        t.checkThrows(ModelPolicyError.modelNotRegistered(modelID: "nonexistent"),
+                      "unregistered model rejected") {
+            try registry.validatePolicy(modelID: "nonexistent", adultMode: true)
+        }
+        // unverified model may never generate even with adult ON
+        t.checkThrows(ModelPolicyError.modelUnverified(modelID: "10eros_v12_q8"),
+                      "unverified model rejected for generation") {
+            _ = try registry.validateForGeneration(modelID: "10eros_v12_q8", adultMode: true)
+        }
+        // official model passes generation gate
+        do {
+            let d = try registry.validateForGeneration(modelID: LTXModelCatalog.defaultModelID, adultMode: false)
+            t.checkEqual(d.id, LTXModelCatalog.defaultModelID, "official model passes generation gate")
+        } catch {
+            t.check(false, "official model passes generation gate (threw \(error))")
+        }
+    }
+
+    t.suite("Selectable models / flags") {
+        let registry = ModelRegistry(userDefaults: defaults)
+        // All flags OFF: only official models visible.
+        FeatureFlags.disableAll(userDefaults: defaults)
+        let officialOnly = registry.selectableModels(adultMode: true)
+        t.checkEqual(officialOnly.count, LTXModelCatalog.all.count, "flags OFF → official models only")
+        // derivedModelsV1 ON but adultModelsV1 OFF: adult lab models still hidden.
+        FeatureFlags.set(.derivedModelsV1, enabled: true, userDefaults: defaults)
+        t.checkEqual(registry.selectableModels(adultMode: true).count, LTXModelCatalog.all.count,
+                     "derived ON, adultModels OFF → adult lab models hidden")
+        // Both flags ON + adult mode ON: lab models appear.
+        FeatureFlags.set(.adultModelsV1, enabled: true, userDefaults: defaults)
+        t.checkEqual(registry.selectableModels(adultMode: true).count, LTXModelCatalog.all.count + 2,
+                     "derived+adult ON + adultMode ON → lab models visible")
+        // Adult mode OFF hides them regardless of flags.
+        t.checkEqual(registry.selectableModels(adultMode: false).count, LTXModelCatalog.all.count,
+                     "adultMode OFF hides adult models despite flags")
+        FeatureFlags.disableAll(userDefaults: defaults)
+    }
+
+    t.suite("Adapter registry") {
+        let registry = ModelRegistry(userDefaults: defaults)
+        let adapters = AdapterRegistry()
+        let official = registry.descriptor(id: LTXModelCatalog.defaultModelID)!
+        t.check(adapters.adapter(for: official) is OfficialMLXAudioAdapter, "official model → OfficialMLXAudioAdapter")
+        let lab = registry.descriptor(id: "10eros_v12_q8")!
+        t.check(adapters.adapter(for: lab) is DerivedModelAdapter, "lab model → DerivedModelAdapter")
+    }
+
+    t.suite("Codable migration") {
+        // Legacy GenerationRequest JSON (pre-extension) must decode.
+        let legacyRequest = """
+        {"id":"11111111-1111-1111-1111-111111111111","prompt":"p","negativePrompt":"","voiceoverText":"","voiceoverSource":"mlx-audio","voiceoverVoice":"af_heart","musicEnabled":false,"disableAudio":false,"gemmaRepetitionPenalty":1.2,"gemmaTopP":0.9,"parameters":{"numInferenceSteps":30,"guidanceScale":3.0,"width":768,"height":512,"numFrames":121,"fps":24,"vaeTilingMode":"auto","imageStrength":1.0},"createdAt":700000000,"status":"pending"}
+        """
+        do {
+            let decoded = try JSONDecoder().decode(GenerationRequest.self, from: Data(legacyRequest.utf8))
+            t.checkEqual(decoded.modelId, LTXModelCatalog.defaultModelID, "legacy request: modelId defaults")
+            t.checkEqual(decoded.adultMode, false, "legacy request: adultMode defaults false")
+            t.check(decoded.modelRevision == nil && decoded.filmProjectID == nil, "legacy request: new fields nil")
+        } catch {
+            t.check(false, "legacy GenerationRequest decodes (threw \(error))")
+        }
+
+        // Legacy GenerationResult JSON must decode.
+        let legacyResult = """
+        {"id":"22222222-2222-2222-2222-222222222222","requestId":"11111111-1111-1111-1111-111111111111","prompt":"p","negativePrompt":"","voiceoverText":"","voiceoverSource":"mlx-audio","voiceoverVoice":"af_heart","modelId":"ltx23_distilled_q4","parameters":{"numInferenceSteps":30,"guidanceScale":3.0,"width":768,"height":512,"numFrames":121,"fps":24,"vaeTilingMode":"auto","imageStrength":1.0},"videoPath":"/tmp/x.mp4","createdAt":700000000,"completedAt":700000100,"duration":100,"seed":42}
+        """
+        do {
+            let decoded = try JSONDecoder().decode(GenerationResult.self, from: Data(legacyResult.utf8))
+            t.checkEqual(decoded.seed, 42, "legacy result decodes")
+            t.check(decoded.actualWidth == nil && decoded.peakMemoryBytes == nil, "legacy result: new fields nil")
+        } catch {
+            t.check(false, "legacy GenerationResult decodes (threw \(error))")
+        }
+
+        // Round-trip with new fields populated.
+        var request = GenerationRequest(prompt: "x", qualityMode: "auto", adultMode: false, filmProjectID: UUID())
+        request.modelRevision = "abc123"
+        do {
+            let data = try JSONEncoder().encode(request)
+            let decoded = try JSONDecoder().decode(GenerationRequest.self, from: data)
+            t.checkEqual(decoded.modelRevision, "abc123", "new request fields round-trip")
+            t.checkEqual(decoded.qualityMode, "auto", "qualityMode round-trips")
+        } catch {
+            t.check(false, "new request fields round-trip (threw \(error))")
+        }
+    }
+
+    t.suite("Feature flags") {
+        FeatureFlags.disableAll(userDefaults: defaults)
+        for flag in FeatureFlag.allCases {
+            t.check(!FeatureFlags.isEnabled(flag, userDefaults: defaults), "\(flag.rawValue) defaults OFF")
+        }
+        FeatureFlags.set(.modelRegistryV1, enabled: true, userDefaults: defaults)
+        t.check(FeatureFlags.isEnabled(.modelRegistryV1, userDefaults: defaults), "flag can be enabled")
+        FeatureFlags.disableAll(userDefaults: defaults)
+        t.check(!FeatureFlags.isEnabled(.modelRegistryV1, userDefaults: defaults), "disableAll rolls back")
+    }
+}

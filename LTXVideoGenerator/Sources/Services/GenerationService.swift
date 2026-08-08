@@ -179,14 +179,42 @@ class GenerationService: ObservableObject {
         let outputPath = outputDir.appendingPathComponent(filename).path
         
         do {
-            let result = try await bridge.generate(
-                request: request,
-                outputPath: outputPath
-            ) { [weak self] prog, message in
+            let progressCallback: (Double, String) -> Void = { [weak self] prog, message in
                 DispatchQueue.main.async {
                     self?.progress = prog
                     self?.statusMessage = message
                 }
+            }
+
+            let result: (videoPath: String, seed: Int, enhancedPrompt: String?)
+            var resolvedDescriptor: ModelDescriptor?
+            if FeatureFlags.isEnabled(.modelRegistryV1) {
+                // Registry path: policy + verification enforced at the service
+                // layer, then routed through the adapter boundary. Official
+                // models still end up in the same LTXBridge fast path.
+                let descriptor: ModelDescriptor
+                do {
+                    descriptor = try ModelRegistry.shared.validateForGeneration(modelID: request.modelId)
+                } catch let policyError as ModelPolicyError {
+                    throw LTXError.generationFailed(policyError.userMessage)
+                }
+                guard let adapter = AdapterRegistry.shared.adapter(for: descriptor) else {
+                    throw LTXError.generationFailed("No generation adapter supports model '\(descriptor.id)'.")
+                }
+                resolvedDescriptor = descriptor
+                result = try await adapter.generate(
+                    request: request,
+                    model: descriptor,
+                    outputPath: outputPath,
+                    progressHandler: progressCallback
+                )
+            } else {
+                // Legacy official fast path (all experimental flags OFF).
+                result = try await bridge.generate(
+                    request: request,
+                    outputPath: outputPath,
+                    progressHandler: progressCallback
+                )
             }
 
             GenerationFailureRecovery.clearAfterSuccessfulGeneration()
@@ -215,7 +243,7 @@ class GenerationService: ObservableObject {
                 duration: completedAt.timeIntervalSince(startTime),
                 seed: result.seed
             )
-            
+
             // Generate thumbnail and update result with path
             if let thumbnailPath = await historyManager.generateThumbnail(for: generationResult) {
                 generationResult = GenerationResult(
@@ -290,6 +318,18 @@ class GenerationService: ObservableObject {
                 }
             }
             
+            // Director-extension metadata (backward-compatible optional fields).
+            // Applied last so intermediate rebuilds (thumbnail, voiceover, music)
+            // cannot drop it.
+            generationResult.effectiveWidth = (request.parameters.width / 64) * 64
+            generationResult.effectiveHeight = (request.parameters.height / 64) * 64
+            generationResult.modelRevision = request.modelRevision ?? resolvedDescriptor?.revision
+            generationResult.quantization = request.quantization ?? resolvedDescriptor?.quantization
+            generationResult.qualityMode = request.qualityMode
+            generationResult.filmProjectID = request.filmProjectID
+            generationResult.shotID = request.shotID
+            generationResult.takeID = request.takeID
+
             // Save to history
             historyManager.addResult(generationResult)
             

@@ -21,7 +21,24 @@ struct GenerationResult: Identifiable, Codable {
     let completedAt: Date
     let duration: TimeInterval
     let seed: Int
-    
+    // Director-extension metadata (all optional for backward compatibility).
+    // requested* comes from parameters; effective* is after the 64-px floor;
+    // actual* is read from the real MP4 via ffprobe (source of truth).
+    var modelRevision: String?
+    var quantization: String?
+    var qualityMode: String?
+    var effectiveWidth: Int?
+    var effectiveHeight: Int?
+    var actualWidth: Int?
+    var actualHeight: Int?
+    var actualFPS: Double?
+    var actualDuration: Double?
+    var peakMemoryBytes: Int64?
+    var swapPeakBytes: Int64?
+    var filmProjectID: UUID?
+    var shotID: UUID?
+    var takeID: UUID?
+
     var videoURL: URL {
         URL(fileURLWithPath: videoPath)
     }
@@ -86,7 +103,21 @@ struct GenerationResult: Identifiable, Codable {
         createdAt: Date,
         completedAt: Date,
         duration: TimeInterval,
-        seed: Int
+        seed: Int,
+        modelRevision: String? = nil,
+        quantization: String? = nil,
+        qualityMode: String? = nil,
+        effectiveWidth: Int? = nil,
+        effectiveHeight: Int? = nil,
+        actualWidth: Int? = nil,
+        actualHeight: Int? = nil,
+        actualFPS: Double? = nil,
+        actualDuration: Double? = nil,
+        peakMemoryBytes: Int64? = nil,
+        swapPeakBytes: Int64? = nil,
+        filmProjectID: UUID? = nil,
+        shotID: UUID? = nil,
+        takeID: UUID? = nil
     ) {
         self.id = id
         self.requestId = requestId
@@ -108,6 +139,20 @@ struct GenerationResult: Identifiable, Codable {
         self.completedAt = completedAt
         self.duration = duration
         self.seed = seed
+        self.modelRevision = modelRevision
+        self.quantization = quantization
+        self.qualityMode = qualityMode
+        self.effectiveWidth = effectiveWidth
+        self.effectiveHeight = effectiveHeight
+        self.actualWidth = actualWidth
+        self.actualHeight = actualHeight
+        self.actualFPS = actualFPS
+        self.actualDuration = actualDuration
+        self.peakMemoryBytes = peakMemoryBytes
+        self.swapPeakBytes = swapPeakBytes
+        self.filmProjectID = filmProjectID
+        self.shotID = shotID
+        self.takeID = takeID
     }
 
     enum CodingKeys: String, CodingKey {
@@ -131,6 +176,20 @@ struct GenerationResult: Identifiable, Codable {
         case completedAt
         case duration
         case seed
+        case modelRevision
+        case quantization
+        case qualityMode
+        case effectiveWidth
+        case effectiveHeight
+        case actualWidth
+        case actualHeight
+        case actualFPS
+        case actualDuration
+        case peakMemoryBytes
+        case swapPeakBytes
+        case filmProjectID
+        case shotID
+        case takeID
     }
 
     init(from decoder: Decoder) throws {
@@ -155,6 +214,20 @@ struct GenerationResult: Identifiable, Codable {
         completedAt = try container.decode(Date.self, forKey: .completedAt)
         duration = try container.decode(TimeInterval.self, forKey: .duration)
         seed = try container.decode(Int.self, forKey: .seed)
+        modelRevision = try container.decodeIfPresent(String.self, forKey: .modelRevision)
+        quantization = try container.decodeIfPresent(String.self, forKey: .quantization)
+        qualityMode = try container.decodeIfPresent(String.self, forKey: .qualityMode)
+        effectiveWidth = try container.decodeIfPresent(Int.self, forKey: .effectiveWidth)
+        effectiveHeight = try container.decodeIfPresent(Int.self, forKey: .effectiveHeight)
+        actualWidth = try container.decodeIfPresent(Int.self, forKey: .actualWidth)
+        actualHeight = try container.decodeIfPresent(Int.self, forKey: .actualHeight)
+        actualFPS = try container.decodeIfPresent(Double.self, forKey: .actualFPS)
+        actualDuration = try container.decodeIfPresent(Double.self, forKey: .actualDuration)
+        peakMemoryBytes = try container.decodeIfPresent(Int64.self, forKey: .peakMemoryBytes)
+        swapPeakBytes = try container.decodeIfPresent(Int64.self, forKey: .swapPeakBytes)
+        filmProjectID = try container.decodeIfPresent(UUID.self, forKey: .filmProjectID)
+        shotID = try container.decodeIfPresent(UUID.self, forKey: .shotID)
+        takeID = try container.decodeIfPresent(UUID.self, forKey: .takeID)
     }
 }
 

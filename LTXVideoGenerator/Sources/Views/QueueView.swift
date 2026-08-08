@@ -169,8 +169,10 @@ struct QueueItemView: View {
     }
 }
 
+#if !SPM_BUILD
 #Preview {
     QueueView()
         .environmentObject(GenerationService(historyManager: HistoryManager()))
         .frame(width: 350, height: 400)
 }
+#endif

@@ -454,6 +454,7 @@ struct MusicSection: View {
     }
 }
 
+#if !SPM_BUILD
 #Preview {
     AddAudioView(
         result: .preview(),
@@ -462,3 +463,4 @@ struct MusicSection: View {
     )
     .environmentObject(HistoryManager())
 }
+#endif

@@ -509,15 +509,19 @@ struct DetailItem: View {
     }
 }
 
+#if !SPM_BUILD
 #Preview {
     HistoryView()
         .environmentObject(HistoryManager())
         .environmentObject(GenerationService(historyManager: HistoryManager()))
         .frame(width: 900, height: 600)
 }
+#endif
 
+#if !SPM_BUILD
 #Preview("Detail View") {
     HistoryDetailView(result: .preview(), onAddAudio: { _ in })
         .environmentObject(HistoryManager())
         .frame(width: 400, height: 600)
 }
+#endif

@@ -814,6 +814,8 @@ struct DetectedPathsView: View {
     }
 }
 
+#if !SPM_BUILD
 #Preview {
     PreferencesView()
 }
+#endif

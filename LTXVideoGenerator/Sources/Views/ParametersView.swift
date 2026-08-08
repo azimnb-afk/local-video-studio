@@ -427,8 +427,10 @@ private func getAvailableVRAM() -> String {
     return String(format: "%.0fGB", gb)
 }
 
+#if !SPM_BUILD
 #Preview {
     ParametersView(parameters: .constant(.default))
         .environmentObject(PresetManager())
         .frame(width: 300, height: 600)
 }
+#endif

@@ -1,6 +1,11 @@
 import SwiftUI
 
+// SPM_BUILD: the CLT/SPM harness builds these sources as a library for
+// compile-checking and unit tests; the @main entry point only exists in the
+// Xcode app build.
+#if !SPM_BUILD
 @main
+#endif
 struct LTXVideoGeneratorApp: App {
     
     init() {

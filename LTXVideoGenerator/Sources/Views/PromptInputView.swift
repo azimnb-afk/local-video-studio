@@ -1022,6 +1022,7 @@ private struct EnhancedPreviewSheet: View {
     }
 }
 
+#if !SPM_BUILD
 #Preview {
     PromptInputView(
         prompt: .constant("A majestic eagle soaring through mountains"),
@@ -1034,3 +1035,4 @@ private struct EnhancedPreviewSheet: View {
     .environmentObject(CharacterProfileManager())
     .frame(width: 500)
 }
+#endif

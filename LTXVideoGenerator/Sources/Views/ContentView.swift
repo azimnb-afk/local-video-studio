@@ -18,7 +18,23 @@ struct ContentView: View {
 
     enum Tab: String, CaseIterable {
         case generate = "Generate"
+        case storyboard = "Storyboard"
         case history = "Video Archive"
+
+        var icon: String {
+            switch self {
+            case .generate: return "wand.and.stars"
+            case .storyboard: return "movieclapper"
+            case .history: return "film.stack"
+            }
+        }
+    }
+
+    /// Storyboard tab appears only while its feature flag is on.
+    private var visibleTabs: [Tab] {
+        Tab.allCases.filter { tab in
+            tab != .storyboard || FeatureFlags.isEnabled(.storyboardV1)
+        }
     }
     
     var body: some View {
@@ -72,10 +88,10 @@ struct ContentView: View {
     
     private var tabSelector: some View {
         VStack(spacing: 4) {
-            ForEach(Tab.allCases, id: \.self) { tab in
+            ForEach(visibleTabs, id: \.self) { tab in
                 SidebarButton(
                     title: tab.rawValue,
-                    icon: tab == .generate ? "wand.and.stars" : "film.stack",
+                    icon: tab.icon,
                     isSelected: selectedTab == tab,
                     badge: tab == .generate ? generationService.queue.count : nil
                 ) {
@@ -96,6 +112,8 @@ struct ContentView: View {
                 voiceoverText: $voiceoverText,
                 parameters: $parameters
             )
+        case .storyboard:
+            StoryboardView()
         case .history:
             HistoryView()
         }

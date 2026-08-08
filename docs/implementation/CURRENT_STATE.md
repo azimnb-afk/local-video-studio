@@ -34,7 +34,13 @@ Final — all feasible phases implemented; report finalization.
 4. Full 20-take queue soak (scripts/queue_soak.sh 20, ≈17 min) not yet run; 3-take validation done.
 
 ## Feature Flags
-modelRegistryV1, derivedModelsV1, adultModelsV1, autoQualityV1, lowRAMAdapterV1, directorV1, filmProjectV1, storyboardV1, localAPIv1 — all default OFF; all OFF = byte-identical legacy behavior (proven by MD5-identical regression render).
+GUI-first defaults (D-007): modelRegistryV1 / autoQualityV1 / directorV1 / filmProjectV1 / storyboardV1 = **ON** by default; derivedModelsV1 / adultModelsV1 / lowRAMAdapterV1 / localAPIv1 = OFF (opt-in). All OFF (Preferences → Models & Features) = byte-identical legacy behavior (proven by MD5-identical regression render). Quality defaults to "Advanced" (= manual parameters untouched).
+
+## GUI (verified in the running .app, 2026-08-08)
+- Generate: Model picker (registry) + Quality picker (Auto/High/Compact/Advanced) + One Shot Director disclosure + Requested→Effective note on 64-px rounding
+- Storyboard tab: project list → New Storyboard (brief) → shots → takes (Generate 1–20 / Retake / Select / Play) → Generate Missing Takes → Assemble Final Video
+- Video Archive: Requested / Effective / Actual (MP4) / Actual Length rows
+- Preferences → Models & Features: Adult Content Mode + all flags + Compatibility Lab status
 
 ## Last Known Good Commit
 - Baseline: `a441dc2` (upstream main). All phase checkpoints on `director-extensions` are green (build + 242 tests).

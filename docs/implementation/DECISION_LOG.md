@@ -15,5 +15,8 @@ Deep Research claims re-verified against a441dc2 code; all key claims confirmed 
 ## D-005 (2026-08-08) Baseline profile choice
 Full-default generation (768x512x121f/30steps) takes very long on Q4+12b-4bit; baseline uses the app's own "Low Memory Preview" profile (512x320/25f/15steps/24fps, seed pinned) with audio ON/OFF as the reproducible reference, matching the master prompt's allowance to take one known-good generation plus a harness for the rest.
 
+## D-007 (2026-08-08) GUI-first feature-flag defaults
+User acceptance of the built .app showed the new features were invisible because every flag defaulted OFF. Per the GUI-first product definition, defaults changed to: modelRegistryV1 / autoQualityV1 / directorV1 / filmProjectV1 / storyboardV1 = ON by default; derivedModelsV1 / adultModelsV1 / lowRAMAdapterV1 / localAPIv1 stay OFF (unverified models, adult content, unverified backends, network listeners remain opt-in). The §45 rollback guarantee is preserved: FeatureFlags.disableAll / Preferences toggles restore the exact legacy path. Quality picker defaults to "Advanced" so default generation parameters are still exactly what the user set manually.
+
 ## D-006 (2026-08-08) useLocalMlxVideoRepo pref is stale
 User pref useLocalMlxVideoRepo=1 but ~/projects/mlx-video-with-audio does not exist; bridge logic falls back to pip package (0.1.36). No action needed; noted for support.

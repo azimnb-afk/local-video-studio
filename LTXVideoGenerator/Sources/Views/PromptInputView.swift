@@ -37,9 +37,10 @@ struct PromptInputView: View {
     // Auto Quality (only used when the autoQualityV1 flag is enabled).
     // "advanced" = user-controlled parameters, identical to legacy behavior.
     @AppStorage("qualityMode") private var qualityModeRaw = QualityMode.advanced.rawValue
-    @AppStorage(FeatureFlag.autoQualityV1.userDefaultsKey) private var autoQualityEnabled = false
+    @AppStorage(FeatureFlag.autoQualityV1.userDefaultsKey) private var autoQualityEnabled = FeatureFlag.autoQualityV1.defaultEnabled
     // One Shot Director (directorV1 flag)
-    @AppStorage(FeatureFlag.directorV1.userDefaultsKey) private var directorEnabled = false
+    @AppStorage(FeatureFlag.directorV1.userDefaultsKey) private var directorEnabled = FeatureFlag.directorV1.defaultEnabled
+    @AppStorage(FeatureFlag.modelRegistryV1.userDefaultsKey) private var modelRegistryEnabled = FeatureFlag.modelRegistryV1.defaultEnabled
     @State private var showDirector = false
     @State private var directorBrief = ""
     @State private var isDirectorPlanning = false
@@ -114,6 +115,25 @@ struct PromptInputView: View {
 
     private var generationActionsDisabled: Bool {
         prompt.isEmpty || generationService.isProcessing || generationService.currentRequest != nil
+    }
+
+    /// Non-nil when the 64-px floor will change the requested dimensions.
+    private var effectiveResolutionNote: String? {
+        let effWidth = (parameters.width / 64) * 64
+        let effHeight = (parameters.height / 64) * 64
+        guard effWidth != parameters.width || effHeight != parameters.height else { return nil }
+        return "Requested \(parameters.width)×\(parameters.height) → Effective \(effWidth)×\(effHeight)"
+    }
+
+    private var qualityOverridesParameters: Bool {
+        autoQualityEnabled && qualityModeRaw != QualityMode.advanced.rawValue
+    }
+
+    private var resolutionSummary: String {
+        if qualityOverridesParameters {
+            return "Quality '\(qualityModeRaw)' picks the profile; manual size is ignored"
+        }
+        return effectiveResolutionNote ?? ""
     }
     
     var body: some View {
@@ -615,6 +635,41 @@ struct PromptInputView: View {
                 )
             }
 
+            // Model + Quality row (model registry / auto quality features)
+            if modelRegistryEnabled || autoQualityEnabled {
+                HStack(spacing: 16) {
+                    if modelRegistryEnabled {
+                        Picker("Model", selection: $selectedModelID) {
+                            ForEach(ModelRegistry.shared.selectableModels()) { model in
+                                Text(model.displayName).tag(model.id)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .help("Models from the registry. Derived/adult models only appear when their features and Adult Content Mode are enabled and the model passed verification.")
+                    }
+                    if autoQualityEnabled {
+                        Picker("Quality", selection: $qualityModeRaw) {
+                            Text("Auto").tag(QualityMode.auto.rawValue)
+                            Text("High").tag(QualityMode.high.rawValue)
+                            Text("Compact").tag(QualityMode.compact.rawValue)
+                            Text("Advanced").tag(QualityMode.advanced.rawValue)
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .help("Auto picks the best profile for this Mac from hardware, memory state and past successes. Advanced uses your manual parameters unchanged.")
+                    }
+                    Spacer()
+                    // Requested vs effective resolution (64-px alignment is never silent).
+                    if effectiveResolutionNote != nil || qualityOverridesParameters {
+                        Text(resolutionSummary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .help("The backend floors dimensions to multiples of 64. Actual output resolution is read from the finished MP4 and shown in the Video Archive.")
+                    }
+                }
+            }
+
             // Quick actions
             HStack(spacing: 12) {
                 // Generate button - changes appearance based on state
@@ -670,19 +725,6 @@ struct PromptInputView: View {
                         }
                     }
                 
-                // Quality mode (Auto Quality feature flag)
-                if autoQualityEnabled {
-                    Picker("Quality", selection: $qualityModeRaw) {
-                        Text("Auto").tag(QualityMode.auto.rawValue)
-                        Text("High").tag(QualityMode.high.rawValue)
-                        Text("Compact").tag(QualityMode.compact.rawValue)
-                        Text("Advanced").tag(QualityMode.advanced.rawValue)
-                    }
-                    .pickerStyle(.menu)
-                    .frame(width: 130)
-                    .help("Auto picks the best profile for this Mac from hardware, memory state and past successes. Advanced uses your manual parameters unchanged.")
-                }
-
                 // Add to queue button
                 Button {
                     requestSingleGeneration()

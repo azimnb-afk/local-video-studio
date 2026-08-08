@@ -46,10 +46,10 @@ Master Promptの原則: 「backendで実際に動作確認できたものだけe
 ### Partial — 実装済みだが残作業あり
 | # | 項目 | Master Prompt節 | 残作業 |
 |---|---|---|---|
-| G1 | Requested / Effective / Actual 解像度の**UI表示** | §31 | metadata記録・API返却は済み。HistoryView/生成画面に3値表示が無く、64-px roundingがUI上はまだsilent |
-| G2 | Resume後の自動再enqueue | §35 | reconcileはstatus=queuedへ戻すが、GenerationServiceへの自動再投入は無し（現状は手動re-plan）。データ整合は保証済み |
+| G1 | ~~Requested / Effective / Actual のUI表示~~ → **RESOLVED**（Generate画面: 丸め発生時にRequested→Effective表示 / Video Archive: Requested・Effective・Actual (MP4)・Actual Length表示） | §31 | 完了 |
+| G2 | Resume後の自動再enqueue | §35 | reconcileはstatus=queuedへ戻すが、GenerationServiceへの自動再投入は無し（StoryboardのGenerate Takesで再投入可能）。データ整合は保証済み |
 | G3 | peakMemory / swapPeak のruntime自記録 | §18/§33 | GenerationResult/Takeにフィールドはあるがbridge非対応でnil（実測はharness側で取得）。bridgeへのtask_info注入は薄い変更で可能だが未実施 |
-| G4 | Storyboard専用workspace UI | §31/§36 | service層+テストは完全。GUIはOne Shot Directorのみで、Storyboard/Shot/Take/選択/AssemblyのGUIが無い（現状はAPI/コード経由） |
+| G4 | ~~Storyboard専用workspace UI~~ → **RESOLVED**（Storyboardタブ: Brief→Create→Shot一覧→Take生成/選択/Retake→Generate Missing Takes→Assemble Final Video。実.appで表示確認済み） | §31/§36 | 完了 |
 | G5 | AI撮影チームの役割分割（Director/Screenwriter/Continuity/Cinematographer/Audio/QC） | §36 | 単一providerの**1回のstoryboard呼び出し**に統合実装。役割ごとの逐次呼び出しには未分割（heavy LLM同時常駐禁止は満たす）。QC相当はContinuityEngine/monotonyがdeterministicに担当 |
 | G6 | Global BGM の Final Assembly 適用 | §38 | `ProjectSettings.globalBGMGenre` フィールドのみ。Assembly後の最終ファイルへのBGM mux未実装（既存AudioService.addMusicToVideoの手動適用は可能）。Shot単位BGM禁止は遵守 |
 | G7 | Take UI（favorite/rating/notes編集） | §33 | データモデル・永続化は完備。編集UIなし |

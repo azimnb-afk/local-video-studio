@@ -1,8 +1,12 @@
 import Foundation
 
 /// Independent on/off switches for the director-extension feature set.
-/// All flags default OFF: with every flag disabled the app behaves exactly like
-/// the legacy official LTX generation path.
+/// GUI-first defaults: user-facing features (registry, auto quality, director,
+/// film projects, storyboard) ship enabled so they are reachable from the GUI
+/// out of the box; anything involving unverified models, adult content,
+/// unverified backends, or network listeners stays opt-in.
+/// Turning every flag OFF (Preferences → Models & Features) always restores
+/// the exact legacy official generation path.
 enum FeatureFlag: String, CaseIterable {
     case modelRegistryV1
     case derivedModelsV1
@@ -15,11 +19,24 @@ enum FeatureFlag: String, CaseIterable {
     case localAPIv1
 
     var userDefaultsKey: String { "featureFlag.\(rawValue)" }
+
+    /// Value used when the user has never touched the flag.
+    var defaultEnabled: Bool {
+        switch self {
+        case .modelRegistryV1, .autoQualityV1, .directorV1, .filmProjectV1, .storyboardV1:
+            return true
+        case .derivedModelsV1, .adultModelsV1, .lowRAMAdapterV1, .localAPIv1:
+            return false
+        }
+    }
 }
 
 enum FeatureFlags {
     static func isEnabled(_ flag: FeatureFlag, userDefaults: UserDefaults = .standard) -> Bool {
-        userDefaults.bool(forKey: flag.userDefaultsKey)
+        if userDefaults.object(forKey: flag.userDefaultsKey) == nil {
+            return flag.defaultEnabled
+        }
+        return userDefaults.bool(forKey: flag.userDefaultsKey)
     }
 
     static func set(_ flag: FeatureFlag, enabled: Bool, userDefaults: UserDefaults = .standard) {

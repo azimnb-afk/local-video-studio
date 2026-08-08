@@ -369,7 +369,17 @@ struct HistoryDetailView: View {
                         GridItem(.flexible()),
                         GridItem(.flexible())
                     ], spacing: 12) {
-                        DetailItem(label: "Resolution", value: "\(result.parameters.width)×\(result.parameters.height)")
+                        DetailItem(label: "Requested", value: "\(result.parameters.width)×\(result.parameters.height)")
+                        if let effWidth = result.effectiveWidth, let effHeight = result.effectiveHeight,
+                           effWidth != result.parameters.width || effHeight != result.parameters.height {
+                            DetailItem(label: "Effective", value: "\(effWidth)×\(effHeight)")
+                        }
+                        if let actualWidth = result.actualWidth, let actualHeight = result.actualHeight {
+                            DetailItem(label: "Actual (MP4)", value: "\(actualWidth)×\(actualHeight)")
+                        }
+                        if let actualDuration = result.actualDuration {
+                            DetailItem(label: "Actual Length", value: String(format: "%.2fs", actualDuration))
+                        }
                         DetailItem(label: "Frames", value: "\(result.parameters.numFrames)")
                         DetailItem(label: "FPS", value: "\(result.parameters.fps)")
                         DetailItem(label: "Steps", value: "\(result.parameters.numInferenceSteps)")

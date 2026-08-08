@@ -26,7 +26,7 @@ used as the Last Known Good Baseline; upstream git history is retained.
 ## 2. Partially Completed
 - **Queue soak**: 3-take validation ran (peak flat, +0.07%); full 20-take soak is harness-ready (`scripts/queue_soak.sh 20`, ≈17 min) but not executed.
 - **REST API socket-level tests**: all logic (auth/validation/sandbox/policy/framing) unit-tested; end-to-end curl requires the running GUI app (needs Xcode build).
-- **UI**: Quality picker, Director panel, Models & Features preferences, 10/20 variation entries added. A dedicated Storyboard workspace/tab was NOT built — Storyboard is fully functional at the service layer (and could be driven via code/API), but has no dedicated GUI yet.
+- **UI (updated 2026-08-08)**: Storyboard workspace tab added (Brief → Create Storyboard → shot list → per-shot takes → Generate 1–20 / Retake / Select / Play → Generate Missing Takes → Assemble Final Video), Model + Quality pickers on the Generate screen, Requested→Effective rounding note, Actual-resolution rows in Video Archive, GUI-first flag defaults (D-007). All verified visible in the running .app via screenshots. Remaining GUI polish: take favorite/rating/notes editing (data model complete).
 
 ## 3. Not Implemented (+ reason)
 - **10Eros runtime verification**: weights are tens of GB and were never downloaded (explicit user authorization required by the spec). Lab, installer, validators, policy and smoke harness are complete; both 10Eros entries remain `verified=false` and cannot generate.

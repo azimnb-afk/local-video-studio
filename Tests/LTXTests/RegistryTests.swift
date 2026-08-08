@@ -128,13 +128,25 @@ func runRegistryTests(_ t: TestKit) {
     }
 
     t.suite("Feature flags") {
-        FeatureFlags.disableAll(userDefaults: defaults)
+        // Untouched defaults: GUI features ON, sensitive features OFF.
+        let freshSuite = "LTXTests.flags.\(UUID().uuidString)"
+        let fresh = UserDefaults(suiteName: freshSuite)!
+        defer { fresh.removePersistentDomain(forName: freshSuite) }
         for flag in FeatureFlag.allCases {
-            t.check(!FeatureFlags.isEnabled(flag, userDefaults: defaults), "\(flag.rawValue) defaults OFF")
+            t.checkEqual(FeatureFlags.isEnabled(flag, userDefaults: fresh), flag.defaultEnabled,
+                         "\(flag.rawValue) untouched default matches defaultEnabled")
         }
-        FeatureFlags.set(.modelRegistryV1, enabled: true, userDefaults: defaults)
-        t.check(FeatureFlags.isEnabled(.modelRegistryV1, userDefaults: defaults), "flag can be enabled")
-        FeatureFlags.disableAll(userDefaults: defaults)
-        t.check(!FeatureFlags.isEnabled(.modelRegistryV1, userDefaults: defaults), "disableAll rolls back")
+        t.check(!FeatureFlag.derivedModelsV1.defaultEnabled, "derived models default OFF")
+        t.check(!FeatureFlag.adultModelsV1.defaultEnabled, "adult models default OFF")
+        t.check(!FeatureFlag.lowRAMAdapterV1.defaultEnabled, "low-RAM adapter default OFF")
+        t.check(!FeatureFlag.localAPIv1.defaultEnabled, "local API default OFF")
+
+        // Explicit rollback always restores the legacy path.
+        FeatureFlags.disableAll(userDefaults: fresh)
+        for flag in FeatureFlag.allCases {
+            t.check(!FeatureFlags.isEnabled(flag, userDefaults: fresh), "\(flag.rawValue) OFF after disableAll")
+        }
+        FeatureFlags.set(.modelRegistryV1, enabled: true, userDefaults: fresh)
+        t.check(FeatureFlags.isEnabled(.modelRegistryV1, userDefaults: fresh), "flag can be re-enabled")
     }
 }

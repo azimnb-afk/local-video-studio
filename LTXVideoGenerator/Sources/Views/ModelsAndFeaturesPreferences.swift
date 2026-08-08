@@ -4,14 +4,14 @@ import SwiftUI
 /// experimental feature flags, and Compatibility Lab status for derived models.
 struct ModelsAndFeaturesPreferences: View {
     @AppStorage(ModelRegistry.adultModeUserDefaultsKey) private var adultContentMode = false
-    @AppStorage(FeatureFlag.modelRegistryV1.userDefaultsKey) private var flagModelRegistry = false
-    @AppStorage(FeatureFlag.derivedModelsV1.userDefaultsKey) private var flagDerivedModels = false
-    @AppStorage(FeatureFlag.adultModelsV1.userDefaultsKey) private var flagAdultModels = false
-    @AppStorage(FeatureFlag.autoQualityV1.userDefaultsKey) private var flagAutoQuality = false
-    @AppStorage(FeatureFlag.directorV1.userDefaultsKey) private var flagDirector = false
-    @AppStorage(FeatureFlag.filmProjectV1.userDefaultsKey) private var flagFilmProject = false
-    @AppStorage(FeatureFlag.storyboardV1.userDefaultsKey) private var flagStoryboard = false
-    @AppStorage(FeatureFlag.localAPIv1.userDefaultsKey) private var flagLocalAPI = false
+    @AppStorage(FeatureFlag.modelRegistryV1.userDefaultsKey) private var flagModelRegistry = FeatureFlag.modelRegistryV1.defaultEnabled
+    @AppStorage(FeatureFlag.derivedModelsV1.userDefaultsKey) private var flagDerivedModels = FeatureFlag.derivedModelsV1.defaultEnabled
+    @AppStorage(FeatureFlag.adultModelsV1.userDefaultsKey) private var flagAdultModels = FeatureFlag.adultModelsV1.defaultEnabled
+    @AppStorage(FeatureFlag.autoQualityV1.userDefaultsKey) private var flagAutoQuality = FeatureFlag.autoQualityV1.defaultEnabled
+    @AppStorage(FeatureFlag.directorV1.userDefaultsKey) private var flagDirector = FeatureFlag.directorV1.defaultEnabled
+    @AppStorage(FeatureFlag.filmProjectV1.userDefaultsKey) private var flagFilmProject = FeatureFlag.filmProjectV1.defaultEnabled
+    @AppStorage(FeatureFlag.storyboardV1.userDefaultsKey) private var flagStoryboard = FeatureFlag.storyboardV1.defaultEnabled
+    @AppStorage(FeatureFlag.localAPIv1.userDefaultsKey) private var flagLocalAPI = FeatureFlag.localAPIv1.defaultEnabled
 
     var body: some View {
         Form {
@@ -36,7 +36,7 @@ struct ModelsAndFeaturesPreferences: View {
                 Toggle("Storyboard", isOn: $flagStoryboard)
                     .disabled(!flagFilmProject)
                 Toggle("Local REST API v1", isOn: $flagLocalAPI)
-                Text("All switches default off. With everything off the app uses exactly the legacy official LTX generation path.")
+                Text("GUI features (registry, auto quality, director, projects, storyboard) are on by default; unverified models, adult content and the local API stay opt-in. Turning everything off restores exactly the legacy official generation path.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

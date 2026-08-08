@@ -35,6 +35,7 @@
 		AA000190 /* MacOSSystemMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000191; };
 		AA000192 /* LTXGenerationLogSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000193; };
 		AA000194 /* GenerationFailureRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000195; };
+		AA000240 /* StoryboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000241; };
 		AA000200 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000201; };
 		AA000202 /* ModelRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000203; };
 		AA000204 /* QualityProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000205; };
@@ -88,6 +89,7 @@
 		AA00002C /* AudioService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioService.swift; sourceTree = "<group>"; };
 		AA00002E /* AddAudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAudioView.swift; sourceTree = "<group>"; };
 		AA000036 /* CharacterProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterProfile.swift; sourceTree = "<group>"; };
+		AA000241 /* StoryboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryboardView.swift; sourceTree = "<group>"; };
 		AA000201 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlags.swift; sourceTree = "<group>"; };
 		AA000203 /* ModelRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelRegistry.swift; sourceTree = "<group>"; };
 		AA000205 /* QualityProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QualityProfile.swift; sourceTree = "<group>"; };
@@ -235,6 +237,7 @@
 				AA00001C /* HistoryView.swift */,
 				AA00001E /* PreferencesView.swift */,
 				AA00002E /* AddAudioView.swift */,
+				AA000241 /* StoryboardView.swift */,
 				AA000233 /* ModelsAndFeaturesPreferences.swift */,
 			);
 			path = Views;
@@ -341,6 +344,7 @@
 				AA000025 /* APIServer.swift in Sources */,
 				AA00002B /* AudioService.swift in Sources */,
 				AA00002D /* AddAudioView.swift in Sources */,
+				AA000240 /* StoryboardView.swift in Sources */,
 				AA000200 /* FeatureFlags.swift in Sources */,
 				AA000202 /* ModelRegistry.swift in Sources */,
 				AA000204 /* QualityProfile.swift in Sources */,

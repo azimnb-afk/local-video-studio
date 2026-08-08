@@ -9,5 +9,6 @@ t.suite("Catalog") {
 }
 
 runRegistryTests(t)
+runCompatLabTests(t)
 
 t.finish()

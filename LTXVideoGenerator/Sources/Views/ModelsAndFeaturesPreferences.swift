@@ -1,0 +1,76 @@
+import SwiftUI
+
+/// Preferences tab for the director-extension feature set: Adult Content Mode,
+/// experimental feature flags, and Compatibility Lab status for derived models.
+struct ModelsAndFeaturesPreferences: View {
+    @AppStorage(ModelRegistry.adultModeUserDefaultsKey) private var adultContentMode = false
+    @AppStorage(FeatureFlag.modelRegistryV1.userDefaultsKey) private var flagModelRegistry = false
+    @AppStorage(FeatureFlag.derivedModelsV1.userDefaultsKey) private var flagDerivedModels = false
+    @AppStorage(FeatureFlag.adultModelsV1.userDefaultsKey) private var flagAdultModels = false
+    @AppStorage(FeatureFlag.autoQualityV1.userDefaultsKey) private var flagAutoQuality = false
+    @AppStorage(FeatureFlag.directorV1.userDefaultsKey) private var flagDirector = false
+    @AppStorage(FeatureFlag.filmProjectV1.userDefaultsKey) private var flagFilmProject = false
+    @AppStorage(FeatureFlag.storyboardV1.userDefaultsKey) private var flagStoryboard = false
+    @AppStorage(FeatureFlag.localAPIv1.userDefaultsKey) private var flagLocalAPI = false
+
+    var body: some View {
+        Form {
+            Section("Adult Content Mode") {
+                Toggle("Adult Content Mode", isOn: $adultContentMode)
+                    .help("Off by default. When off, adult-verified models are never auto-selected and are rejected even when requested explicitly (enforced in the service and API layers, not just here).")
+                Text("Intended solely for consenting-adult use of adult-verified local models. Enabling this never bypasses model or content safety mechanisms.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Experimental Features") {
+                Toggle("Model Registry", isOn: $flagModelRegistry)
+                    .help("Route generation through the model registry and adapter layer. Off = legacy official path.")
+                Toggle("Derived Models (Compatibility Lab)", isOn: $flagDerivedModels)
+                Toggle("Adult-capable Models", isOn: $flagAdultModels)
+                    .disabled(!flagDerivedModels)
+                Toggle("Auto Quality", isOn: $flagAutoQuality)
+                Toggle("One Shot Director", isOn: $flagDirector)
+                Toggle("Film Projects (Shots & Takes)", isOn: $flagFilmProject)
+                    .disabled(!flagModelRegistry)
+                Toggle("Storyboard", isOn: $flagStoryboard)
+                    .disabled(!flagFilmProject)
+                Toggle("Local REST API v1", isOn: $flagLocalAPI)
+                Text("All switches default off. With everything off the app uses exactly the legacy official LTX generation path.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Compatibility Lab") {
+                let lab = CompatibilityLab.shared
+                let labModels = ModelRegistry.shared.descriptors.values
+                    .filter { !$0.isOfficial }
+                    .sorted { $0.id < $1.id }
+                if labModels.isEmpty {
+                    Text("No derived models registered.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(labModels) { model in
+                        let report = lab.report(for: model.id)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Text(model.displayName)
+                                Spacer()
+                                Text(report.allPassed ? "Verified" : "Unverified")
+                                    .font(.caption.bold())
+                                    .foregroundStyle(report.allPassed ? .green : .orange)
+                            }
+                            Text("Gate: \(report.summary) — weights are never downloaded automatically.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Text("Derived models stay unverified until every gate check passes (license, provenance, pinned revision, manifest, backend load, T2V/I2V/audio smoke, unload, memory benchmark, classification evidence). Unverified models cannot generate.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}

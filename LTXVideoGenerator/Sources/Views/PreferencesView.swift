@@ -438,7 +438,13 @@ struct PreferencesView: View {
             .tabItem {
                 Label("Audio", systemImage: "waveform")
             }
-            
+
+            // Models & Features (director extensions)
+            ModelsAndFeaturesPreferences()
+                .tabItem {
+                    Label("Models & Features", systemImage: "square.stack.3d.up")
+                }
+
             // About
             VStack(spacing: 20) {
                 Image(systemName: "film.stack")

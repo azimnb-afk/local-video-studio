@@ -264,6 +264,14 @@ final class ModelRegistry {
         descriptors[id]
     }
 
+    /// Promotes/demotes derived-model verification from Compatibility Lab
+    /// reports. Official models are never demoted here.
+    func refreshVerification(from lab: CompatibilityLab) {
+        for (id, model) in descriptors where !model.isOfficial {
+            descriptors[id]?.runtime.verified = lab.isVerified(modelID: id)
+        }
+    }
+
     /// Models visible for selection given flags and the adult-mode setting.
     /// - Official models are always listed.
     /// - Derived (lab) models require derivedModelsV1; adult-classified ones

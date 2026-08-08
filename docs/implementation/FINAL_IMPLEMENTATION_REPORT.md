@@ -92,6 +92,11 @@ extras/openclaw/README.md (curl examples), job.schema.json, skill-example.md. Ap
 - LocalAPIServer HTTP parsing is minimal by design (loopback, tokened); it is not a hardened public-facing server and must never be bound beyond loopback.
 - `useLocalMlxVideoRepo=1` user pref is stale (no local checkout) — harmless, pip package used.
 
+## 16b. Gap Analysis / GUI Acceptance
+Per-item completion audit vs the Master Implementation Prompt (incl. Phase 8
+per-feature status): [GAP_ANALYSIS.md](GAP_ANALYSIS.md).
+Post-Xcode human GUI acceptance checklist: [GUI_ACCEPTANCE_CHECKLIST.md](GUI_ACCEPTANCE_CHECKLIST.md).
+
 ## 17. Remaining Human Actions
 1. Install Xcode → open LTXVideoGenerator.xcodeproj → build/run the app (all new files already registered). Optionally sign/notarize per scripts/build-local.sh.
 2. Decide whether to download 10Eros weights (license acceptance + tens of GB) → then run the Compatibility Lab workflow in MODEL_COMPATIBILITY.md.

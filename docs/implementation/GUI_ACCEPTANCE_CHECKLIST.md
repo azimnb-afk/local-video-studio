@@ -1,0 +1,86 @@
+# GUI Acceptance Test Checklist（Xcode導入後の人間最終確認）
+
+前提: Xcode.appをインストールし、`LTXVideoGenerator/LTXVideoGenerator.xcodeproj` を開いてbuild/run。
+Python: `~/ltx-venv/bin/python3`（設定済みのはず）。モデル: ltx23_distilled_q4（キャッシュ済み）。
+所要目安: フル実施 約60–90分（生成待ち含む）。各生成は512×320/25f/15stepsなら1分弱。
+
+判定原則: **requested値ではなく実MP4（ffprobe）と実挙動が基準。**
+
+---
+
+## A. Regression — 全flag OFF = 従来動作（最優先）
+
+- [ ] A1. 初回起動: Preferences → Models & Features の全トグルがOFF、Adult Content ModeがOFFであること
+- [ ] A2. T2V生成（prompt任意、seed **42**、512×320/25f/15steps/24fps/audio ON）が完了しHistoryに追加される
+- [ ] A3. 生成物を `md5 <出力mp4>` で確認 → 同一設定のbaseline（`bf8020b1f55f73a62c075f2df1c65a8d`、prompt: "A small red fox walks slowly through a snowy forest clearing, soft morning light, gentle camera pan, cinematic."・negative無し・tiling auto・cfg 3.0の場合）と一致
+- [ ] A4. I2V生成（画像ドロップ→生成）が完了する
+- [ ] A5. Audio OFF（Generate Audioを無効化）で音声トラック無しのMP4になる（QuickTime/ffprobeで確認）
+- [ ] A6. 旧バージョンで作成したHistory / Preset / CharacterProfileが壊れず読み込める（既存ユーザー環境で起動して確認）
+- [ ] A7. 3 variations / 5 variationsが**1件ずつ順番に**処理される（同時に2つ進行しない）
+- [ ] A8. 生成中のCancelが効き、アプリが正常状態に戻る
+
+## B. Feature Flags / Preferences
+
+- [ ] B1. Models & Featuresタブが表示され、9個のflag+Adult Modeトグルが操作できる
+- [ ] B2. Compatibility Lab欄に10Erosの2モデルが「Unverified」「Gate: 0/11 passed」で表示される
+- [ ] B3. 全flagをONにした後、全flagをOFFに戻す → A2同等の生成が引き続き成功する（rollback確認）
+- [ ] B4. Adult Mode OFFのまま何も変わらないこと（modelピッカーにadult modelが現れない）
+
+## C. Model Registry（modelRegistryV1 ON）
+
+- [ ] C1. flag ONで従来どおりT2V生成が成功する（経路: Registry→Adapter→同じLTXBridge）
+- [ ] C2. 生成後のHistory項目にmetadata（quantization: q4等）が記録されている（history.jsonを直接確認可）
+- [ ] C3. derivedModelsV1のみON（adultModelsV1 OFF）→ 10Erosがモデル選択に**出ない**
+- [ ] C4. derived+adult flag ON + Adult Mode ON → 10Erosが選択肢に出るが、生成は「未検証(unverified)」エラーで**拒否**される
+
+## D. Auto Quality（autoQualityV1 ON）
+
+- [ ] D1. 生成ボタン付近にQualityピッカー（Auto/High/Compact/Advanced）が表示される
+- [ ] D2. Auto選択→生成: 48GB機ではHigh相当profile（768×512/121f/30steps）が適用され、ステータスに「Auto Quality: …」が表示される
+- [ ] D3. 同条件で2回目のAuto生成が1回目の成功profileを再選択する（`quality_history.json` に記録が増える）
+- [ ] D4. Compact選択→512×320になり、ffprobeの実解像度が512×320
+- [ ] D5. Advanced選択→手動パラメータが**一切変更されない**
+
+## E. One Shot Director（directorV1 ON）
+
+- [ ] E1. Prompt欄の下に「One Shot Director」disclosureが表示される
+- [ ] E2. Brief入力→「Plan Shot」→ Prompt欄がcompileされた英語フロー記述で置き換わる（Ollama未導入なら「Planned via template」）
+- [ ] E3. 日本語台詞をBriefに含める → compiled promptに台詞が原文のまま残る
+- [ ] E4. Ollama導入済み環境の場合: `ollama ps` でplanning後にモデルがunloadされている（keep_alive:0、LTX render前にメモリ返却）
+
+## F. FilmProject / Take（filmProjectV1 ON）※GUI未実装領域はスキップ可
+
+- [ ] F1. GUI上の専用画面は無い（GAP_ANALYSIS G4）。スモークとして: 生成完了後も従来機能に影響がないこと
+- [ ] F2. （API/コード経由でTakeを作った場合）アプリ再起動で `Projects/*.json` のin-flight takeがqueued/completedへ正しく復元される
+
+## G. Local REST API v1（localAPIv1 ON、要アプリ再起動）
+
+ターミナルで:
+```bash
+TOKEN=$(cat ~/Library/Application\ Support/LTXVideoGenerator/api_token)
+```
+- [ ] G1. `curl -s http://127.0.0.1:8421/v1/models` （token無し）→ **401**
+- [ ] G2. `curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8421/v1/system | jq` → hardware/memory/generatorが返る
+- [ ] G3. `curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8421/v1/models | jq` → officialモデルのみ（flag状態に応じ）
+- [ ] G4. jobs POST（extras/openclaw/README.mdのT2V例）→ 201 + jobID → GUIのQueueに現れ生成される → `GET /v1/jobs/<id>` がcompleted+actual metadata
+- [ ] G5. `variations: 21` を送る → 400
+- [ ] G6. 別マシン/`ifconfig`のLAN IPで `curl http://<LAN-IP>:8421/v1/system` → **接続不可**（loopback bind確認）
+- [ ] G7. adult model IDを指定したjob → **403**（Adult Mode OFF時）
+- [ ] G8. レスポンスヘッダに `Access-Control-Allow-Origin` が**無い**こと（`curl -sI` 相当で確認）
+- [ ] G9. flag OFFで再起動 → 8421が閉じている。GUI生成は正常（API非依存確認）
+
+## H. 生成中ネットワーク監査（Local-only）
+
+- [ ] H1. モデルキャッシュ済み状態でWi-Fiを切って T2V生成 → **成功する**（render時外部通信なしの実機確認）
+- [ ] H2. 生成中に `nettop -p <python pid>` 等で外部宛通信が無いことを目視（任意、H1で代替可）
+
+## I. 安定性
+
+- [ ] I1. 20 variationsを投入 → 全件sequential完了、Activity Monitorでpeakメモリが件数とともに増加し続けないこと（±10%以内）
+- [ ] I2. 生成中にアプリを強制終了→再起動 → クラッシュ/データ破損なし、History整合
+- [ ] I3. Preferencesの全タブを開閉してもクラッシュなし（新規Models & Featuresタブ含む）
+
+## 判定
+- A群（regression）が1つでもFAIL → **リリース不可**。`git diff a441dc2` で原因を特定するか、flags OFFのまま利用
+- B–G群のFAIL → 該当feature flagをOFFにして隔離し、issueとして記録（アプリ全体は出荷可能）
+- 結果はTEST_MATRIX.mdの該当行を PASS/FAIL に更新してcommitすること

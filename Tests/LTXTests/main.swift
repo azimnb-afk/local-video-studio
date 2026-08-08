@@ -12,5 +12,6 @@ runRegistryTests(t)
 runCompatLabTests(t)
 runAutoQualityTests(t)
 runDirectorTests(t)
+runFilmProjectTests(t)
 
 t.finish()

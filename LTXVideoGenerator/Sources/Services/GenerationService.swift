@@ -402,6 +402,11 @@ class GenerationService: ObservableObject {
 
             // Save to history
             historyManager.addResult(generationResult)
+
+            // Film project linkage: mark the corresponding take completed.
+            if FeatureFlags.isEnabled(.filmProjectV1), generationResult.takeID != nil {
+                TakeGenerationCoordinator().recordCompletion(result: generationResult)
+            }
             
             // Update queue
             queue[index].status = .completed

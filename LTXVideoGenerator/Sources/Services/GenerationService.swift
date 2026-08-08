@@ -222,6 +222,7 @@ class GenerationService: ObservableObject {
             var effectiveRequest = request
             var attemptProfiles: [QualityProfile] = []
             var autoQualityEngine: AutoQualityEngine?
+            var effectiveProfile: QualityProfile?
             if FeatureFlags.isEnabled(.autoQualityV1),
                let modeRaw = request.qualityMode,
                let mode = QualityMode(rawValue: modeRaw), mode != .advanced {
@@ -246,6 +247,9 @@ class GenerationService: ObservableObject {
                     let profileID = attemptProfiles.indices.contains(attemptIndex) ? attemptProfiles[attemptIndex].id : nil
                     let attemptStart = Date()
                     result = try await runGeneration(effectiveRequest)
+                    if attemptProfiles.indices.contains(attemptIndex) {
+                        effectiveProfile = attemptProfiles[attemptIndex]
+                    }
                     if let engine = autoQualityEngine, let profileID {
                         engine.recordOutcome(
                             modelID: request.modelId,
@@ -396,6 +400,11 @@ class GenerationService: ObservableObject {
             generationResult.modelRevision = request.modelRevision ?? resolvedDescriptor?.revision
             generationResult.quantization = request.quantization ?? resolvedDescriptor?.quantization
             generationResult.qualityMode = request.qualityMode
+            generationResult.preset = request.preset
+            generationResult.effectiveProfileID = effectiveProfile?.id
+            generationResult.effectiveProfileName = effectiveProfile?.displayName
+            generationResult.requestedWidth = request.parameters.width
+            generationResult.requestedHeight = request.parameters.height
             generationResult.filmProjectID = request.filmProjectID
             generationResult.shotID = request.shotID
             generationResult.takeID = request.takeID
@@ -458,6 +467,7 @@ class GenerationService: ObservableObject {
             modelRevision: request.modelRevision,
             quantization: request.quantization,
             qualityMode: request.qualityMode,
+            preset: request.preset,
             adultMode: request.adultMode,
             filmProjectID: request.filmProjectID,
             shotID: request.shotID,

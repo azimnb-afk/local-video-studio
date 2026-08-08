@@ -7,6 +7,57 @@ enum QualityMode: String, Codable, CaseIterable {
     case advanced   // user-controlled parameters, Auto Quality does not touch them
 }
 
+/// The user-facing generation choice shared by Generate, One Shot,
+/// Storyboard and Hybrid. `QualityMode` remains the internal execution
+/// strategy; views must not duplicate this mapping.
+enum GenerationPreset: String, Codable, CaseIterable, Identifiable {
+    case quickPreview
+    case standard
+    case highQuality
+    case custom
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .quickPreview: return "Quick Preview"
+        case .standard: return "Standard"
+        case .highQuality: return "High Quality"
+        case .custom: return "Custom"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .quickPreview: return "Fast, low-load review render"
+        case .standard: return "Recommended; adapts safely to this Mac"
+        case .highQuality: return "Highest quality with automatic fallback"
+        case .custom: return "Manual resolution, frames, FPS and steps"
+        }
+    }
+
+    var qualityMode: QualityMode {
+        switch self {
+        case .quickPreview: return .compact
+        case .standard: return .auto
+        case .highQuality: return .high
+        case .custom: return .advanced
+        }
+    }
+
+    static func resolving(presetRaw: String?, qualityModeRaw: String?) -> GenerationPreset {
+        if let presetRaw, let preset = GenerationPreset(rawValue: presetRaw) {
+            return preset
+        }
+        switch qualityModeRaw.flatMap(QualityMode.init(rawValue:)) {
+        case .compact: return .quickPreview
+        case .high: return .highQuality
+        case .advanced: return .custom
+        case .auto, .none: return .standard
+        }
+    }
+}
+
 /// A concrete, orderable generation profile. Profiles form a ladder; Auto
 /// Quality walks down the ladder on failure and records successes per
 /// hardware signature.

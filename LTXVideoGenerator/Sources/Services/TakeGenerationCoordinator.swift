@@ -47,7 +47,10 @@ final class TakeGenerationCoordinator {
             params.width = settings.width
             params.height = settings.height
             params.fps = settings.fps
-            params.numFrames = PromptCompiler.frameCount(forSeconds: shot.durationSeconds, fps: settings.fps)
+            params.numFrames = settings.resolvedPreset == .custom
+                ? (settings.numFrames ?? PromptCompiler.frameCount(forSeconds: shot.durationSeconds, fps: settings.fps))
+                : PromptCompiler.frameCount(forSeconds: shot.durationSeconds, fps: settings.fps)
+            params.numInferenceSteps = settings.resolvedInferenceSteps
             params.seed = seed
 
             let take = Take(
@@ -56,20 +59,25 @@ final class TakeGenerationCoordinator {
                 seed: seed,
                 promptSnapshot: shot.compiledPrompt,
                 settingsSnapshot: params,
+                preset: settings.resolvedPreset.rawValue,
+                qualityMode: settings.qualityMode,
+                audioEnabled: settings.resolvedAudioEnabled,
                 requestedWidth: params.width,
                 requestedHeight: params.height,
                 fps: params.fps,
-                requestedDuration: shot.durationSeconds,
+                requestedDuration: Double(params.numFrames) / Double(params.fps),
                 status: .queued
             )
             project.shots[shotIndex].takes.append(take)
 
             let request = GenerationRequest(
                 prompt: shot.compiledPrompt,
+                disableAudio: !settings.resolvedAudioEnabled,
                 modelId: settings.modelID,
                 textEncoderId: settings.textEncoderID,
                 parameters: params,
                 qualityMode: settings.qualityMode,
+                preset: settings.resolvedPreset.rawValue,
                 filmProjectID: projectID,
                 shotID: shotID,
                 takeID: take.id
@@ -111,6 +119,10 @@ final class TakeGenerationCoordinator {
         take.actualDuration = result.actualDuration
         take.modelRevision = result.modelRevision
         take.quantization = result.quantization
+        take.preset = result.preset ?? take.preset
+        take.qualityMode = result.qualityMode ?? take.qualityMode
+        take.effectiveProfileID = result.effectiveProfileID
+        take.effectiveProfileName = result.effectiveProfileName
         take.generationCompletedAt = result.completedAt
         take.generationTime = result.duration
         take.peakMemoryBytes = result.peakMemoryBytes

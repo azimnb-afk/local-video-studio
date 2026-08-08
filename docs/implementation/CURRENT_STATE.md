@@ -3,12 +3,12 @@
 Updated: 2026-08-08
 
 ## Current Phase
-Final — all feasible phases implemented; report finalization.
+Final GUI-first completion — Preset UX, Project Settings, four-mode navigation and Hybrid MVP implemented and verified.
 
 ## Completed
 - Source acquisition: cloned `james-see/ltx-video-mac` (MIT) @ `a441dc2` → branch `director-extensions`.
 - Phase 0: audit + SPM build/test harness + measured baselines (BASELINE.md, BENCHMARK_RESULTS.md).
-- Phase 1: ModelRegistry + VideoGenerationAdapter boundary + backward-compatible metadata + FeatureFlags (all default OFF).
+- Phase 1: ModelRegistry + VideoGenerationAdapter boundary + backward-compatible metadata + rollback-capable FeatureFlags.
 - Phase 2: CompatibilityLab (11-check gate), ManifestValidator, ModelInstaller (no auto-download), Adult Mode + policy at Service/API layers, Preferences "Models & Features" tab.
 - Phase 3: MemoryMonitor/HardwareProfiler/QualityProfile ladder/AutoQualityEngine/HistoricalSuccessStore, fallback retry (max 3), MediaProbe wiring, LowRAMMLXAdapter boundary (Runtime Verification Pending), lowram_bench.sh.
 - Phase 4: One Shot Director (Ollama loopback provider + template fallback, terminate-before-render), OneShotPlan, PromptCompiler, DialogueNormalizer, UI disclosure.
@@ -16,16 +16,20 @@ Final — all feasible phases implemented; report finalization.
 - Phase 6: ContinuityEngine (deterministic directives + validator + monotony rules), StoryboardDirector (hybrid, sequential roles), FinalAssemblyService (stream-copy/normalize+concat) — verified against real MP4s.
 - Phase 7: LocalAPIServer v1 (loopback + token + asset sandbox + policy), extras/openclaw.
 - Regression: same-seed re-run produces **byte-identical MP4** to Phase 0 baseline (MD5 match).
+- GUI completion: shared user-facing Preset (`Quick Preview / Standard / High Quality / Custom`) maps centrally to internal QualityMode (`Compact / Auto / High / Advanced`). Generate no longer exposes Quality as a primary picker; manual parameter edits select Custom.
+- Storyboard Project Settings: Preset, Model, Audio plus Custom Resolution/Frames/FPS/Steps; requested/effective/actual metadata is visible and persisted per Take.
+- Preview → Final workflow: changing Preset preserves project/shot/continuity state; per-shot and multi-shot regeneration append new Takes and keep previews; assembly still uses selected Takes and MediaProbe.
+- Navigation: Generate / One Shot / Storyboard / Director / Hybrid are distinct production modes. Hybrid composes StoryboardDirector + continuity + FilmProject + sequential Take queue and deterministically splits template fallback into 4–6 second shots.
 
 ## In Progress
-- FINAL_IMPLEMENTATION_REPORT.md; short queue-soak validation (3 takes).
+- None. Safe local git checkpoint pending at the end of this task.
 
 ## Build Status
-- `swift build` clean (SPM harness).
+- `swift build` clean (final GUI implementation).
 - **Xcode 26.6 installed (2026-08-08): `xcodebuild -scheme LTXVideoGenerator -configuration Debug` → BUILD SUCCEEDED.** Full .app bundle produced (arm64, ad-hoc signing via CLI overrides only — no project settings changed; deployment target 14.0, bundle id com.ltxvideo.generator). App launches and runs.
 
 ## Test Status
-- `swift run LTXTests`: **242 checks, 0 failures** (see TEST_MATRIX.md).
+- `swift run LTXTests`: **282 checks, 0 failures** (see TEST_MATRIX.md).
 
 ## Known Blockers / Remaining Human Actions
 1. ~~No Xcode.app~~ → RESOLVED: Xcode 26.6 installed; unsigned dev .app builds and runs. Remaining: Developer ID signing + notarization for distribution (needs credentials).
@@ -36,14 +40,17 @@ Final — all feasible phases implemented; report finalization.
 ## Feature Flags
 GUI-first defaults (D-007): modelRegistryV1 / autoQualityV1 / directorV1 / filmProjectV1 / storyboardV1 = **ON** by default; derivedModelsV1 / adultModelsV1 / lowRAMAdapterV1 / localAPIv1 = OFF (opt-in). All OFF (Preferences → Models & Features) = byte-identical legacy behavior (proven by MD5-identical regression render). Quality defaults to "Advanced" (= manual parameters untouched).
 
-## GUI (verified in the running .app, 2026-08-08)
-- Generate: Model picker (registry) + Quality picker (Auto/High/Compact/Advanced) + One Shot Director disclosure + Requested→Effective note on 64-px rounding
-- Storyboard tab: project list → New Storyboard (brief) → shots → takes (Generate 1–20 / Retake / Select / Play) → Generate Missing Takes → Assemble Final Video
+## GUI (verified in the final running .app, 2026-08-08)
+- Sidebar: Generate / One Shot / Storyboard / Director / Hybrid / Video Archive, with concise mode descriptions.
+- Generate: Model + Preset picker; no primary Quality picker; non-Custom shows a preset explanation, Custom restores all legacy manual controls.
+- One Shot: independent Brief / Preset / Model / Target Duration / Audio / Create & Generate screen.
+- Storyboard: Project Settings, Custom resolution controls, Generate Missing, Regenerate Selected Shots, per-shot regeneration, append-only Take review/selection and Final Assembly.
+- Hybrid: Brief / Preset / Model / Audio / Target Duration / Create & Generate sheet; automatic short-shot split and single-flight first-pass queue; same review/retake/assembly workspace.
 - Video Archive: Requested / Effective / Actual (MP4) / Actual Length rows
 - Preferences → Models & Features: Adult Content Mode + all flags + Compatibility Lab status
 
 ## Last Known Good Commit
-- Baseline: `a441dc2` (upstream main). All phase checkpoints on `director-extensions` are green (build + 242 tests).
+- Pre-task checkpoint: `277755b`. This GUI completion working tree is green with build + 282 tests + xcodebuild + running-app acceptance and is checkpointed with this documentation.
 
 ## Exact Resume Action
-`cd /Users/azimnb/ltx23appdev/ltx-video-mac && git log --oneline -12 && swift run LTXTests` — then read FINAL_IMPLEMENTATION_REPORT.md → "Remaining Human Actions".
+`cd /Users/azimnb/ltx23appdev/ltx-video-mac && git status && swift run LTXTests && xcodebuild -project LTXVideoGenerator/LTXVideoGenerator.xcodeproj -scheme LTXVideoGenerator -configuration Debug CODE_SIGNING_ALLOWED=NO build`.

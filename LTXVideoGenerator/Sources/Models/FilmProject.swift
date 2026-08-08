@@ -97,6 +97,11 @@ struct Take: Codable, Equatable, Identifiable {
     var promptSnapshot: String
     var negativePromptSnapshot: String = ""
     var settingsSnapshot: GenerationParameters
+    var preset: String?
+    var qualityMode: String?
+    var effectiveProfileID: String?
+    var effectiveProfileName: String?
+    var audioEnabled: Bool?
 
     var requestedWidth: Int
     var requestedHeight: Int
@@ -154,11 +159,61 @@ struct ProjectSettings: Codable, Equatable {
     var modelID: String = LTXModelCatalog.defaultModelID
     var textEncoderID: String = LTXTextEncoderCatalog.defaultTextEncoderID
     var qualityMode: String = QualityMode.auto.rawValue
+    /// Optional for schema-v1 migration. Missing legacy values resolve from
+    /// qualityMode (normally Standard/Auto).
+    var preset: String?
     var width: Int = 768
     var height: Int = 512
     var fps: Int = 24
+    var numFrames: Int?
+    var numInferenceSteps: Int?
+    var audioEnabled: Bool?
+    var targetDurationSeconds: Double?
     var globalBGMGenre: String?   // project-level BGM (applied at final assembly)
     var japaneseHandling: String = JapaneseDialogueHandling.native.rawValue
+
+    var resolvedPreset: GenerationPreset {
+        GenerationPreset.resolving(presetRaw: preset, qualityModeRaw: qualityMode)
+    }
+
+    var resolvedAudioEnabled: Bool { audioEnabled ?? true }
+    var resolvedInferenceSteps: Int { numInferenceSteps ?? 30 }
+
+    mutating func applyPreset(_ newPreset: GenerationPreset) {
+        preset = newPreset.rawValue
+        qualityMode = newPreset.qualityMode.rawValue
+        switch newPreset {
+        case .custom:
+            numFrames = numFrames ?? 121
+            numInferenceSteps = numInferenceSteps ?? 30
+            audioEnabled = audioEnabled ?? true
+        case .quickPreview:
+            width = GenerationParameters.preview.width
+            height = GenerationParameters.preview.height
+            fps = GenerationParameters.preview.fps
+            numFrames = GenerationParameters.preview.numFrames
+            numInferenceSteps = GenerationParameters.preview.numInferenceSteps
+            audioEnabled = true
+        case .standard:
+            width = GenerationParameters.default.width
+            height = GenerationParameters.default.height
+            fps = GenerationParameters.default.fps
+            numFrames = GenerationParameters.default.numFrames
+            numInferenceSteps = GenerationParameters.default.numInferenceSteps
+            audioEnabled = true
+        case .highQuality:
+            width = GenerationParameters.highQuality.width
+            height = GenerationParameters.highQuality.height
+            fps = GenerationParameters.highQuality.fps
+            numFrames = GenerationParameters.highQuality.numFrames
+            numInferenceSteps = GenerationParameters.highQuality.numInferenceSteps
+            audioEnabled = true
+        }
+    }
+
+    mutating func markCustom() {
+        applyPreset(.custom)
+    }
 }
 
 enum GenerationJobState: String, Codable {
@@ -189,6 +244,8 @@ struct FilmProject: Codable, Equatable, Identifiable {
     var title: String
     var createdAt: Date = Date()
     var updatedAt: Date = Date()
+    /// nil means a legacy/manual storyboard project.
+    var workflowMode: String?
     var settings: ProjectSettings = ProjectSettings()
     var storyBible: StoryBible = StoryBible()
     var characterBible: CharacterBible = CharacterBible()

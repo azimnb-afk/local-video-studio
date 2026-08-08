@@ -3,7 +3,7 @@
 Date: 2026-08-08
 Repo: /Users/azimnb/ltx23appdev/ltx-video-mac (clone of MIT `james-see/ltx-video-mac`)
 Branch: `director-extensions` (baseline: upstream `main` @ `a441dc2`)
-Machine: Mac16,11 / Apple M4 Pro / 48 GB / macOS 26.5.2 — Command Line Tools only (no Xcode.app)
+Machine: Mac16,11 / Apple M4 Pro / 48 GB / macOS 26.5.2 / Xcode 26.6
 
 ---
 
@@ -14,7 +14,7 @@ this machine (docs only + installed DMG 2.3.66). The MIT upstream was cloned and
 used as the Last Known Good Baseline; upstream git history is retained.
 
 - **Phase 0 — Audit/Baseline**: full code+environment audit (BASELINE.md); all Deep-Research hypotheses re-verified against local code; SPM build/test harness for the CLT-only environment; measured baselines for T2V/I2V × audio ON/OFF with the app's exact CLI (BENCHMARK_RESULTS.md); render verified fully offline (HF_HUB_OFFLINE=1).
-- **Phase 1 — Model Registry**: ModelDescriptor/ModelRegistry/ContentClassification/Policy/Runtime/License/Artifacts; `VideoGenerationAdapter` protocol; OfficialMLXAudioAdapter (thin wrapper — LTXBridge untouched); DerivedModelAdapter; AdapterRegistry; 9 feature flags (all default OFF = legacy path); backward-compatible request/result metadata with decodeIfPresent migration.
+- **Phase 1 — Model Registry**: ModelDescriptor/ModelRegistry/ContentClassification/Policy/Runtime/License/Artifacts; `VideoGenerationAdapter` protocol; OfficialMLXAudioAdapter (thin wrapper — LTXBridge untouched); DerivedModelAdapter; AdapterRegistry; 9 rollback-capable feature flags; backward-compatible request/result metadata with decodeIfPresent migration.
 - **Phase 2 — 10Eros Compatibility Lab + Adult Mode**: 11-check verification gate persisted to disk; ManifestValidator (revision pinning, license, classification evidence, repo-id injection guard, snapshot completeness); ModelInstaller (disk preflight, license acknowledgement, never auto-downloads); adult policy matrix enforced at Service and API layers; Preferences "Models & Features" tab.
 - **Phase 3 — Auto Quality + Low-RAM foundation**: MemoryMonitor (vm_statistics64/vm.swapusage/task_vm_info/pressure source/thermal), HardwareProfiler with memory tiers, QualityProfile ladder seeded from measured anchors, HistoricalSuccessStore (per-hardware signature), AutoQualityEngine (history > hardware prior > preflight; ≤3 attempts; memory-failure classification), fallback retry loop in GenerationService, MediaProbe (actual MP4 = source of truth) filling result metadata, LowRAMMLXAdapter boundary + lowram_bench.sh.
 - **Phase 4 — One Shot Director**: OneShotPlan structured JSON with validation; provider abstraction (Ollama on 127.0.0.1 with keep_alive:0 unload; deterministic template fallback so the feature works with zero LLMs installed); bounded JSON repair (≤2); LLM ALWAYS terminated before rendering; PromptCompiler (chronological/present-tense/single-flow; I2V image = visual truth; Japanese native + optional romanization); DialogueNormalizer; UI disclosure.
@@ -22,11 +22,12 @@ used as the Last Known Good Baseline; upstream git history is retained.
 - **Phase 6 — Storyboard/Continuity/Assembly**: deterministic ContinuityEngine (directive grammar, Previous+Changes=Next, contradiction validator, monotony rules); StoryboardDirector (hybrid: one sequential local LLM for all roles, terminated before render; template fallback); FinalAssemblyService (ffprobe-driven: stream-copy when compatible, else normalize+re-encode; hard cuts) — verified by actually concatenating two baseline MP4s.
 - **Phase 7 — Local REST API v1**: loopback-only bind, installation token (0600, constant-time compare), asset sandbox with UUID-indirection (no client paths ever), variations ≤20, request/asset size caps, PNG/JPEG magic check, no CORS headers, adult policy that clients cannot override; endpoints /v1/assets, /v1/jobs (+get/delete), /v1/models, /v1/system, /v1/history; extras/openclaw docs + JSON schema + skill example. Legacy APIServer untouched.
 - **Xcode project**: all 26 new sources registered in project.pbxproj (plutil-validated).
+- **GUI-first completion**: shared Preset architecture; Generate/One Shot/Storyboard/Hybrid use one mapping; Storyboard Project Settings with Custom resolution/frames/FPS/steps/audio; append-only Preview→High Quality regeneration; four production modes; dedicated One Shot; Hybrid target-duration shot splitting and sequential first pass.
 
 ## 2. Partially Completed
 - **Queue soak**: 3-take validation ran (peak flat, +0.07%); full 20-take soak is harness-ready (`scripts/queue_soak.sh 20`, ≈17 min) but not executed.
 - **REST API socket-level tests**: all logic (auth/validation/sandbox/policy/framing) unit-tested; end-to-end curl requires the running GUI app (needs Xcode build).
-- **UI (updated 2026-08-08)**: Storyboard workspace tab added (Brief → Create Storyboard → shot list → per-shot takes → Generate 1–20 / Retake / Select / Play → Generate Missing Takes → Assemble Final Video), Model + Quality pickers on the Generate screen, Requested→Effective rounding note, Actual-resolution rows in Video Archive, GUI-first flag defaults (D-007). All verified visible in the running .app via screenshots. Remaining GUI polish: take favorite/rating/notes editing (data model complete).
+- **UI (updated 2026-08-08)**: complete for the requested GUI-first workflow. Generate uses Preset instead of Quality; One Shot is independent; Storyboard has persistent Project Settings and current-Preset regeneration; Hybrid creates/splits/queues the initial pass; Requested/Effective/Actual metadata is retained. Remaining optional polish: take favorite/rating/notes editing (data model complete).
 
 ## 3. Not Implemented (+ reason)
 - **10Eros runtime verification**: weights are tens of GB and were never downloaded (explicit user authorization required by the spec). Lab, installer, validators, policy and smoke harness are complete; both 10Eros entries remain `verified=false` and cannot generate.
@@ -34,7 +35,7 @@ used as the Last Known Good Baseline; upstream git history is retained.
 - **Low-RAM backend runtime integration**: gated intentionally — the adapter refuses to run until verified on hardware (no fake implementation shipped).
 - **Phase 8 advanced features (LoRA/keyframes/continuation/upscale/…)**: capability flags exist in CapabilitySet, all default false; none enabled because none were runtime-verified on the current backend (spec: capability-driven, no fakes).
 - **Crossfade assembly**: MVP is hard cuts per spec.
-- **Signed/notarized .app**: no Xcode/Developer ID on this machine.
+- **Signed/notarized distribution .app**: Developer ID credentials are not available; local Debug `.app` builds and runs.
 
 ## 4. Files Added
 Models: FeatureFlags, ModelRegistry, QualityProfile, OneShotPlan, FilmProject
@@ -56,7 +57,7 @@ GUI-first: SwiftUI → GenerationService (single-flight) → [flag OFF: LTXBridg
 Local REST API v1 is a thin optional adapter over the same services. Director/Storyboard sit ABOVE generation (LLM terminated before render). Continuity is deterministic state, not LLM judgement.
 
 ## 7. Feature Flags
-modelRegistryV1 · derivedModelsV1 · adultModelsV1 · autoQualityV1 · lowRAMAdapterV1 · directorV1 · filmProjectV1 · storyboardV1 · localAPIv1 — independent, all default OFF; `FeatureFlags.disableAll()` = rollback to legacy path.
+modelRegistryV1 · autoQualityV1 · directorV1 · filmProjectV1 · storyboardV1 default ON for GUI-first use. derivedModelsV1 · adultModelsV1 · lowRAMAdapterV1 · localAPIv1 remain OFF. All are independent; `FeatureFlags.disableAll()` restores the legacy path.
 
 ## 8. Build Results
 `swift build`: clean (Swift 6.3.3 / macOS 26.5 SDK / SPM harness).
@@ -64,7 +65,7 @@ modelRegistryV1 · derivedModelsV1 · adultModelsV1 · autoQualityV1 · lowRAMAd
 Automated acceptance against the running .app: API v1 socket-level security suite passed (401/401/403/400, loopback-only lsof, no CORS) and a full E2E job (POST /v1/jobs, quality=compact) ran a real generation through the GUI app's queue — Auto Quality applied C2 (512×320/65f), completed with actual ffprobe metadata (2.708 s), output re-verified on disk. Remaining distribution step: Developer ID signing + notarization (credentials required).
 
 ## 9. Test Results
-`swift run LTXTests`: **242 checks, 0 failures** (breakdown: TEST_MATRIX.md). Includes live syscall checks, real-MP4 MediaProbe, and a real ffmpeg concat assembly.
+`swift run LTXTests`: **282 checks, 0 failures** (breakdown: TEST_MATRIX.md). Includes Preset mapping, Project Settings persistence, Preview Take retention, Hybrid orchestration, live syscall checks, real-MP4 MediaProbe, and real ffmpeg concat assembly.
 
 ## 10. Regression Results
 Same seed/settings re-render after all changes produced a **byte-identical MP4** (MD5 bf8020b1f55f73a62c075f2df1c65a8d = Phase 0 baseline). Peak memory 23.46 GB ≤ baseline 23.66 GB. Official fast path: 0% regression.
@@ -89,7 +90,6 @@ Compact ladder C0→C1→C2→audio defined (hypothesis anchored to 48GB measure
 extras/openclaw/README.md (curl examples), job.schema.json, skill-example.md. App is 100% functional without OpenClaw.
 
 ## 16. Known Risks
-- Xcode build of the full app has not been executed (no Xcode here); SPM compiles all sources, but Xcode-specific build settings could surface warnings.
 - QualityProfile estimates above 512×320 are Calculated, not Measured — Auto Quality corrects via HistoricalSuccessStore at runtime.
 - LocalAPIServer HTTP parsing is minimal by design (loopback, tokened); it is not a hardened public-facing server and must never be bound beyond loopback.
 - `useLocalMlxVideoRepo=1` user pref is stale (no local checkout) — harmless, pip package used.
@@ -100,11 +100,11 @@ per-feature status): [GAP_ANALYSIS.md](GAP_ANALYSIS.md).
 Post-Xcode human GUI acceptance checklist: [GUI_ACCEPTANCE_CHECKLIST.md](GUI_ACCEPTANCE_CHECKLIST.md).
 
 ## 17. Remaining Human Actions
-1. Install Xcode → open LTXVideoGenerator.xcodeproj → build/run the app (all new files already registered). Optionally sign/notarize per scripts/build-local.sh.
+1. Optionally sign/notarize for distribution (Developer ID credentials required).
 2. Decide whether to download 10Eros weights (license acceptance + tens of GB) → then run the Compatibility Lab workflow in MODEL_COMPATIBILITY.md.
 3. Run `scripts/queue_soak.sh 20` (~17 min) for the full soak record.
 4. On a 16GB Mac: run `scripts/lowram_bench.sh` and record results before enabling lowRAMAdapterV1.
-5. Optionally install Ollama + a small model to upgrade Director planning beyond the template fallback.
+5. Optionally install Ollama + a small model to upgrade Director planning beyond the deterministic template fallback.
 
 ## 18. Exact Resume Prompt
-> /Users/azimnb/ltx23appdev/ltx-video-mac の docs/implementation/CURRENT_STATE.md と FINAL_IMPLEMENTATION_REPORT.md を読んでください。branch は director-extensions、テストは `swift run LTXTests`（242 checks）です。Remaining Human Actions のうち完了したものを教えるので、対応する Runtime Verification（10Eros compat lab / 16GB lowram bench / full queue soak / Xcode build 確認）を進め、結果を Compatibility Lab・BENCHMARK_RESULTS.md・TEST_MATRIX.md へ記録してください。Official fast path の regression 判定は同一 seed の MD5 比較（bf8020b1f55f73a62c075f2df1c65a8d）を基準にしてください。
+> /Users/azimnb/ltx23appdev/ltx-video-mac の docs/implementation/CURRENT_STATE.md と FINAL_IMPLEMENTATION_REPORT.md を読んでください。branch は director-extensions、テストは `swift run LTXTests`（282 checks）です。Remaining Human Actions のうち完了したものを教えるので、対応する Runtime Verification（10Eros compat lab / 16GB lowram bench / full queue soak）を進め、結果を Compatibility Lab・BENCHMARK_RESULTS.md・TEST_MATRIX.md へ記録してください。Official fast path の regression 判定は同一 seed の MD5 比較（bf8020b1f55f73a62c075f2df1c65a8d）を基準にしてください。

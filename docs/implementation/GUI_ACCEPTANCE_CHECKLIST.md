@@ -6,6 +6,19 @@ Python: `~/ltx-venv/bin/python3`（設定済みのはず）。モデル: ltx23_d
 
 判定原則: **requested値ではなく実MP4（ffprobe）と実挙動が基準。**
 
+## 2026-08-08 GUI-first completion verification
+
+- [x] Final Debug `.app` built with Xcode 26.6 and launched.
+- [x] Sidebar shows Generate / One Shot / Storyboard / Director / Hybrid.
+- [x] Generate shows Preset (Quick Preview / Standard / High Quality / Custom) instead of primary Quality picker.
+- [x] One Shot is an independent screen with Brief / Preset / Model / Target Duration / Audio / Create & Generate.
+- [x] Storyboard Project Settings shows Preset / Model / Audio; Custom reveals Resolution / Frames / FPS / Steps and Requested→Effective→Actual text.
+- [x] Storyboard exposes Generate Missing Takes, per-shot current-Preset regeneration, multi-shot regeneration, Take selection and Final Assembly reachability.
+- [x] Hybrid creation sheet shows Brief / Preset / Model / Audio / Target Duration / Create & Generate; orchestration split/state is unit-tested.
+- [x] `swift run LTXTests`: 282 passed, including Preset mapping, Project Settings persistence, Preview Take retention and Hybrid split.
+
+This pass intentionally did not enqueue another heavy LTX render. The existing real-generation/MD5/API/MediaProbe regression evidence below remains the Official fast-path baseline.
+
 ---
 
 ## A. Regression — 全flag OFF = 従来動作（最優先）
@@ -33,9 +46,9 @@ Python: `~/ltx-venv/bin/python3`（設定済みのはず）。モデル: ltx23_d
 - [ ] C3. derivedModelsV1のみON（adultModelsV1 OFF）→ 10Erosがモデル選択に**出ない**
 - [ ] C4. derived+adult flag ON + Adult Mode ON → 10Erosが選択肢に出るが、生成は「未検証(unverified)」エラーで**拒否**される
 
-## D. Auto Quality（autoQualityV1 ON）
+## D. Preset / Auto Quality（autoQualityV1 ON）
 
-- [ ] D1. 生成ボタン付近にQualityピッカー（Auto/High/Compact/Advanced）が表示される
+- [x] D1. 生成ボタン付近にPreset（Quick Preview/Standard/High Quality/Custom）が表示され、通常Quality pickerは露出しない
 - [ ] D2. Auto選択→生成: 48GB機ではHigh相当profile（768×512/121f/30steps）が適用され、ステータスに「Auto Quality: …」が表示される
 - [ ] D3. 同条件で2回目のAuto生成が1回目の成功profileを再選択する（`quality_history.json` に記録が増える）
 - [ ] D4. Compact選択→512×320になり、ffprobeの実解像度が512×320

@@ -226,7 +226,9 @@ struct HistoryView: View {
             musicGenre: result.musicGenre,
             modelId: result.modelId,
             textEncoderId: LTXTextEncoderCatalog.selectedTextEncoder().id,
-            parameters: params
+            parameters: params,
+            qualityMode: result.qualityMode,
+            preset: result.preset
         )
         generationService.addToQueue(request)
     }
@@ -369,9 +371,16 @@ struct HistoryDetailView: View {
                         GridItem(.flexible()),
                         GridItem(.flexible())
                     ], spacing: 12) {
-                        DetailItem(label: "Requested", value: "\(result.parameters.width)×\(result.parameters.height)")
+                        if let preset = result.preset.flatMap(GenerationPreset.init(rawValue:)) {
+                            DetailItem(label: "Preset", value: preset.displayName)
+                        }
+                        if let profile = result.effectiveProfileName ?? result.effectiveProfileID {
+                            DetailItem(label: "Effective Profile", value: profile)
+                        }
+                        DetailItem(label: "Requested", value: "\(result.requestedWidth ?? result.parameters.width)×\(result.requestedHeight ?? result.parameters.height)")
                         if let effWidth = result.effectiveWidth, let effHeight = result.effectiveHeight,
-                           effWidth != result.parameters.width || effHeight != result.parameters.height {
+                           effWidth != (result.requestedWidth ?? result.parameters.width)
+                            || effHeight != (result.requestedHeight ?? result.parameters.height) {
                             DetailItem(label: "Effective", value: "\(effWidth)×\(effHeight)")
                         }
                         if let actualWidth = result.actualWidth, let actualHeight = result.actualHeight {

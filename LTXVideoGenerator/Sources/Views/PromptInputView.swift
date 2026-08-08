@@ -34,9 +34,9 @@ struct PromptInputView: View {
     // Music settings (persisted)
     @AppStorage(SessionSettings.musicEnabledKey) private var musicEnabled = false
     @AppStorage(SessionSettings.musicGenreKey) private var selectedMusicGenre: MusicGenre = .cinematicUplifting
-    // Auto Quality (only used when the autoQualityV1 flag is enabled).
-    // "advanced" = user-controlled parameters, identical to legacy behavior.
-    @AppStorage("qualityMode") private var qualityModeRaw = QualityMode.advanced.rawValue
+    // Shared user-facing preset. QualityMode is derived centrally and remains
+    // an internal execution detail.
+    @AppStorage("generationPreset") private var presetRaw = GenerationPreset.standard.rawValue
     @AppStorage(FeatureFlag.autoQualityV1.userDefaultsKey) private var autoQualityEnabled = FeatureFlag.autoQualityV1.defaultEnabled
     // One Shot Director (directorV1 flag)
     @AppStorage(FeatureFlag.directorV1.userDefaultsKey) private var directorEnabled = FeatureFlag.directorV1.defaultEnabled
@@ -117,6 +117,12 @@ struct PromptInputView: View {
         prompt.isEmpty || generationService.isProcessing || generationService.currentRequest != nil
     }
 
+    private var selectedPreset: GenerationPreset {
+        GenerationPreset(rawValue: presetRaw) ?? .standard
+    }
+
+    private var qualityModeRaw: String { selectedPreset.qualityMode.rawValue }
+
     /// Non-nil when the 64-px floor will change the requested dimensions.
     private var effectiveResolutionNote: String? {
         let effWidth = (parameters.width / 64) * 64
@@ -126,12 +132,12 @@ struct PromptInputView: View {
     }
 
     private var qualityOverridesParameters: Bool {
-        autoQualityEnabled && qualityModeRaw != QualityMode.advanced.rawValue
+        autoQualityEnabled && selectedPreset != .custom
     }
 
     private var resolutionSummary: String {
         if qualityOverridesParameters {
-            return "Quality '\(qualityModeRaw)' picks the profile; manual size is ignored"
+            return "\(selectedPreset.displayName) selects an adaptive profile; Requested → Effective → Actual is recorded"
         }
         return effectiveResolutionNote ?? ""
     }
@@ -649,15 +655,14 @@ struct PromptInputView: View {
                         .help("Models from the registry. Derived/adult models only appear when their features and Adult Content Mode are enabled and the model passed verification.")
                     }
                     if autoQualityEnabled {
-                        Picker("Quality", selection: $qualityModeRaw) {
-                            Text("Auto").tag(QualityMode.auto.rawValue)
-                            Text("High").tag(QualityMode.high.rawValue)
-                            Text("Compact").tag(QualityMode.compact.rawValue)
-                            Text("Advanced").tag(QualityMode.advanced.rawValue)
+                        Picker("Preset", selection: $presetRaw) {
+                            ForEach(GenerationPreset.allCases) { preset in
+                                Text(preset.displayName).tag(preset.rawValue)
+                            }
                         }
                         .pickerStyle(.menu)
                         .fixedSize()
-                        .help("Auto picks the best profile for this Mac from hardware, memory state and past successes. Advanced uses your manual parameters unchanged.")
+                        .help(selectedPreset.summary)
                     }
                     Spacer()
                     // Requested vs effective resolution (64-px alignment is never silent).
@@ -825,6 +830,9 @@ struct PromptInputView: View {
         .onChange(of: selectedTextEncoderID) { _, _ in
             dismissedHeavyEncoderComboHint = false
         }
+        .onChange(of: disableAudio) { oldValue, newValue in
+            if oldValue != newValue { presetRaw = GenerationPreset.custom.rawValue }
+        }
         .alert("High Memory Risk", isPresented: $showMemoryRiskAlert) {
             Button("Continue Anyway") {
                 executePendingQueueAction()
@@ -880,7 +888,8 @@ struct PromptInputView: View {
             modelId: selectedModelID,
             textEncoderId: selectedTextEncoderID,
             parameters: parameters,
-            qualityMode: autoQualityEnabled ? qualityModeRaw : nil
+            qualityMode: autoQualityEnabled ? qualityModeRaw : nil,
+            preset: autoQualityEnabled ? selectedPreset.rawValue : nil
         )
         generationService.addToQueue(request)
     }
@@ -996,7 +1005,8 @@ struct PromptInputView: View {
                     vaeTilingMode: parameters.vaeTilingMode,
                     imageStrength: parameters.imageStrength
                 ),
-                qualityMode: autoQualityEnabled ? qualityModeRaw : nil
+                qualityMode: autoQualityEnabled ? qualityModeRaw : nil,
+                preset: autoQualityEnabled ? selectedPreset.rawValue : nil
             )
         }
         generationService.addBatch(requests)

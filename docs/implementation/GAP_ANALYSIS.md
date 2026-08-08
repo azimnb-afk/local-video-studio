@@ -49,12 +49,12 @@ Master Promptの原則: 「backendで実際に動作確認できたものだけe
 | G1 | ~~Requested / Effective / Actual のUI表示~~ → **RESOLVED**（Generate画面: 丸め発生時にRequested→Effective表示 / Video Archive: Requested・Effective・Actual (MP4)・Actual Length表示） | §31 | 完了 |
 | G2 | Resume後の自動再enqueue | §35 | reconcileはstatus=queuedへ戻すが、GenerationServiceへの自動再投入は無し（StoryboardのGenerate Takesで再投入可能）。データ整合は保証済み |
 | G3 | peakMemory / swapPeak のruntime自記録 | §18/§33 | GenerationResult/Takeにフィールドはあるがbridge非対応でnil（実測はharness側で取得）。bridgeへのtask_info注入は薄い変更で可能だが未実施 |
-| G4 | ~~Storyboard専用workspace UI~~ → **RESOLVED**（Storyboardタブ: Brief→Create→Shot一覧→Take生成/選択/Retake→Generate Missing Takes→Assemble Final Video。実.appで表示確認済み） | §31/§36 | 完了 |
+| G4 | ~~Storyboard専用workspace UI~~ → **RESOLVED**（Project Settings、Preset/Model/Audio、Custom Resolution/Frames/FPS/Steps、Preview→High Quality append再生成、選択Take Assemblyを実.appで確認） | §31/§36 | 完了 |
 | G5 | AI撮影チームの役割分割（Director/Screenwriter/Continuity/Cinematographer/Audio/QC） | §36 | 単一providerの**1回のstoryboard呼び出し**に統合実装。役割ごとの逐次呼び出しには未分割（heavy LLM同時常駐禁止は満たす）。QC相当はContinuityEngine/monotonyがdeterministicに担当 |
 | G6 | Global BGM の Final Assembly 適用 | §38 | `ProjectSettings.globalBGMGenre` フィールドのみ。Assembly後の最終ファイルへのBGM mux未実装（既存AudioService.addMusicToVideoの手動適用は可能）。Shot単位BGM禁止は遵守 |
 | G7 | Take UI（favorite/rating/notes編集） | §33 | データモデル・永続化は完備。編集UIなし |
 | G8 | Adult model install GUIフロー（Model Card表示→Explicit Install→Checksum） | §26 | ModelInstaller（plan/record/license ack/checksumフラグ）とLab表示は済み。ダウンロード実行UIは無し（意図的: 明示承認が前提のため人間手順として文書化） |
-| G9 | Advanced設定としてのQuality「Advanced」表示 | §27(v0.5)/§31 | Advancedモード自体は実装（=手動パラメータ、AutoQualityが不介入）。既存Parameters UIがその役割を担い、専用画面は無し |
+| G9 | ~~Advanced設定としてのQuality「Advanced」表示~~ → **RESOLVED**。ユーザー向けにはCustom、内部はAdvanced。手動parameterはCustom時のみ主要表示 | §27(v0.5)/§31 | 完了 |
 
 ### 仕様と異なる実装判断（Decision Logged、逸脱ではない）
 | # | 項目 | 判断 |
@@ -73,13 +73,16 @@ Master Promptの原則: 「backendで実際に動作確認できたものだけe
 - Story Bible / Character Bible / deterministic continuity / validator / Assembly（実MP4で検証）
 - API v1（token/loopback/sandbox/policy/≤20）+ OpenClaw extras
 - Adult Mode policy 5-case matrix（UI/Service/API各層）
-- Unit 242 checks / integration（実生成4本+regression+soak3）/ security(unit) / benchmark harness一式
+- Unit 282 checks / integration（実生成4本+regression+soak3）/ security(unit) / benchmark harness一式
+- Shared Preset UX（Quick Preview→Compact / Standard→Auto / High Quality→High / Custom→Advanced）とmanual→Custom
+- Sidebar 4 production modes、独立One Shot、Storyboard Project Settings、Hybrid MVP（自動shot split + sequential first pass）
+- Preview Take保持、current Presetでshot/複数shot再生成、selected Take Assembly
 
 ---
 
 ## 3. 整合性確認結果（2026-08-08, `a02ad07`）
 - `swift build`: clean
-- `swift run LTXTests`: 242 passed, 0 failed
+- `swift run LTXTests`: 282 passed, 0 failed
 - `git status`: clean / 全9 commits green
 - pbxproj: plutil OK、新規26ファイル登録済み
 - ドキュメント: CURRENT_STATE / BASELINE / DECISION_LOG / IMPLEMENTATION_PLAN / TEST_MATRIX / MODEL_COMPATIBILITY / BENCHMARK_RESULTS / OPENCLAW_API / FINAL_IMPLEMENTATION_REPORT / GAP_ANALYSIS（本書）/ GUI_ACCEPTANCE_CHECKLIST — 相互参照一致

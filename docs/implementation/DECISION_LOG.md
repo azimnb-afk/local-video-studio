@@ -20,3 +20,9 @@ User acceptance of the built .app showed the new features were invisible because
 
 ## D-006 (2026-08-08) useLocalMlxVideoRepo pref is stale
 User pref useLocalMlxVideoRepo=1 but ~/projects/mlx-video-with-audio does not exist; bridge logic falls back to pip package (0.1.36). No action needed; noted for support.
+
+## D-008 (2026-08-08) Preset is the GUI concept; QualityMode stays internal
+The existing AutoQualityEngine and QualityMode execution strategy remain unchanged. A shared `GenerationPreset` maps Quick Preview→Compact, Standard→Auto, High Quality→High and Custom→Advanced across Generate, One Shot, Storyboard and Hybrid. Manual controls are shown under Custom, avoiding contradictory preset/manual states. Existing legacy custom parameter bundles remain available only inside Custom. Preset changes are project settings changes, not storyboard rebuilds; Take creation is append-only and snapshots Preset/Quality/effective profile metadata.
+
+## D-009 (2026-08-08) Hybrid is thin orchestration over completed services
+Hybrid uses StoryboardDirector, PromptCompiler, ContinuityEngine, FilmProjectStore, TakeGenerationCoordinator, GenerationService and FinalAssemblyService. It adds no inference implementation. The deterministic no-LLM template fallback is expanded into 4–6 second shots from target duration so Hybrid remains usable without Ollama; all first-pass requests enter the existing single-flight queue.

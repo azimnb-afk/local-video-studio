@@ -192,6 +192,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
     var modelRevision: String?         // Pinned model revision used for this request
     var quantization: String?          // Quantization of the selected model ("q4", "q8", "bf16")
     var qualityMode: String?           // "auto" / "high" / "compact" / "advanced"
+    var preset: String?                // user-facing GenerationPreset snapshot
     var adultMode: Bool                // Adult Content Mode state at submission time
     var filmProjectID: UUID?
     var shotID: UUID?
@@ -233,6 +234,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         modelRevision: String? = nil,
         quantization: String? = nil,
         qualityMode: String? = nil,
+        preset: String? = nil,
         adultMode: Bool = false,
         filmProjectID: UUID? = nil,
         shotID: UUID? = nil,
@@ -258,6 +260,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         self.modelRevision = modelRevision
         self.quantization = quantization
         self.qualityMode = qualityMode
+        self.preset = preset
         self.adultMode = adultMode
         self.filmProjectID = filmProjectID
         self.shotID = shotID
@@ -285,6 +288,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         case modelRevision
         case quantization
         case qualityMode
+        case preset
         case adultMode
         case filmProjectID
         case shotID
@@ -313,6 +317,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         modelRevision = try container.decodeIfPresent(String.self, forKey: .modelRevision)
         quantization = try container.decodeIfPresent(String.self, forKey: .quantization)
         qualityMode = try container.decodeIfPresent(String.self, forKey: .qualityMode)
+        preset = try container.decodeIfPresent(String.self, forKey: .preset)
         adultMode = try container.decodeIfPresent(Bool.self, forKey: .adultMode) ?? false
         filmProjectID = try container.decodeIfPresent(UUID.self, forKey: .filmProjectID)
         shotID = try container.decodeIfPresent(UUID.self, forKey: .shotID)

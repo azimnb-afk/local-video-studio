@@ -97,7 +97,7 @@ func runRegistryTests(_ t: TestKit) {
             let decoded = try JSONDecoder().decode(GenerationRequest.self, from: Data(legacyRequest.utf8))
             t.checkEqual(decoded.modelId, LTXModelCatalog.defaultModelID, "legacy request: modelId defaults")
             t.checkEqual(decoded.adultMode, false, "legacy request: adultMode defaults false")
-            t.check(decoded.modelRevision == nil && decoded.filmProjectID == nil, "legacy request: new fields nil")
+            t.check(decoded.modelRevision == nil && decoded.filmProjectID == nil && decoded.preset == nil, "legacy request: new fields nil")
         } catch {
             t.check(false, "legacy GenerationRequest decodes (threw \(error))")
         }
@@ -109,19 +109,21 @@ func runRegistryTests(_ t: TestKit) {
         do {
             let decoded = try JSONDecoder().decode(GenerationResult.self, from: Data(legacyResult.utf8))
             t.checkEqual(decoded.seed, 42, "legacy result decodes")
-            t.check(decoded.actualWidth == nil && decoded.peakMemoryBytes == nil, "legacy result: new fields nil")
+            t.check(decoded.actualWidth == nil && decoded.peakMemoryBytes == nil && decoded.preset == nil
+                    && decoded.effectiveProfileID == nil, "legacy result: new fields nil")
         } catch {
             t.check(false, "legacy GenerationResult decodes (threw \(error))")
         }
 
         // Round-trip with new fields populated.
-        var request = GenerationRequest(prompt: "x", qualityMode: "auto", adultMode: false, filmProjectID: UUID())
+        var request = GenerationRequest(prompt: "x", qualityMode: "auto", preset: "standard", adultMode: false, filmProjectID: UUID())
         request.modelRevision = "abc123"
         do {
             let data = try JSONEncoder().encode(request)
             let decoded = try JSONDecoder().decode(GenerationRequest.self, from: data)
             t.checkEqual(decoded.modelRevision, "abc123", "new request fields round-trip")
             t.checkEqual(decoded.qualityMode, "auto", "qualityMode round-trips")
+            t.checkEqual(decoded.preset, "standard", "preset round-trips")
         } catch {
             t.check(false, "new request fields round-trip (threw \(error))")
         }

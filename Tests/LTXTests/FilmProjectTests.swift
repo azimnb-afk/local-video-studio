@@ -29,6 +29,20 @@ func runFilmProjectTests(_ t: TestKit) {
         t.checkEqual(reloaded?.shots.count, 1, "shots persist")
         t.checkEqual(reloaded?.shots.first?.compiledPrompt, project.shots.first?.compiledPrompt, "prompt persists")
 
+        var settingsProject = project
+        settingsProject.settings.applyPreset(.custom)
+        settingsProject.settings.width = 768
+        settingsProject.settings.height = 1080
+        settingsProject.settings.numFrames = 81
+        settingsProject.settings.numInferenceSteps = 35
+        settingsProject.settings.audioEnabled = false
+        store.save(settingsProject)
+        let settingsReloaded = FilmProjectStore(projectsDirectory: tmpDir.appendingPathComponent("p1")).project(id: project.id)
+        t.checkEqual(settingsReloaded?.settings.resolvedPreset, .custom, "Project Settings preset persists")
+        t.checkEqual(settingsReloaded?.settings.height, 1080, "Storyboard resolution persists")
+        t.checkEqual(settingsReloaded?.settings.numFrames, 81, "Storyboard frames persist")
+        t.checkEqual(settingsReloaded?.settings.audioEnabled, false, "Storyboard audio persists")
+
         // Newer schema is never destroyed.
         let futureURL = tmpDir.appendingPathComponent("p1").appendingPathComponent("\(UUID().uuidString).json")
         let futureJSON = """
@@ -76,8 +90,27 @@ func runFilmProjectTests(_ t: TestKit) {
                 t.check(saved.shots[0].takes.allSatisfy { $0.status == .queued }, "takes queued")
                 // Frame count derives from duration (3s → 73f).
                 t.checkEqual(requests.first?.parameters.numFrames, PromptCompiler.frameCount(forSeconds: 3), "frames from shot duration")
+                t.checkEqual(requests.first?.preset, GenerationPreset.standard.rawValue, "take request records Standard preset")
+                t.checkEqual(saved.shots[0].takes.first?.preset, GenerationPreset.standard.rawValue, "take snapshot records preset")
             } catch {
                 t.check(false, "planTakes threw \(error)")
+            }
+
+            // Switching project preset appends a new take and keeps all preview takes.
+            if var changed = store.project(id: project.id) {
+                let previousCount = changed.shots[0].takes.count
+                changed.settings.applyPreset(.highQuality)
+                store.save(changed)
+                do {
+                    let requests = try coordinator.planTakes(projectID: project.id, shotID: shotID, count: 1, baseSeed: 5000)
+                    let afterRegeneration = store.project(id: project.id)!
+                    t.checkEqual(afterRegeneration.shots[0].takes.count, previousCount + 1, "quality regeneration appends take")
+                    t.checkEqual(afterRegeneration.shots[0].takes.first?.preset, GenerationPreset.standard.rawValue,
+                                 "existing preview take retained")
+                    t.checkEqual(afterRegeneration.shots[0].takes.last?.preset, GenerationPreset.highQuality.rawValue,
+                                 "new High Quality take distinguished")
+                    t.checkEqual(requests.first?.qualityMode, QualityMode.high.rawValue, "regeneration uses current project preset")
+                } catch { t.check(false, "quality regeneration threw \(error)") }
             }
 
             // Completion linkage.

@@ -27,6 +27,11 @@ struct GenerationResult: Identifiable, Codable {
     var modelRevision: String?
     var quantization: String?
     var qualityMode: String?
+    var preset: String?
+    var effectiveProfileID: String?
+    var effectiveProfileName: String?
+    var requestedWidth: Int?
+    var requestedHeight: Int?
     var effectiveWidth: Int?
     var effectiveHeight: Int?
     var actualWidth: Int?
@@ -107,6 +112,11 @@ struct GenerationResult: Identifiable, Codable {
         modelRevision: String? = nil,
         quantization: String? = nil,
         qualityMode: String? = nil,
+        preset: String? = nil,
+        effectiveProfileID: String? = nil,
+        effectiveProfileName: String? = nil,
+        requestedWidth: Int? = nil,
+        requestedHeight: Int? = nil,
         effectiveWidth: Int? = nil,
         effectiveHeight: Int? = nil,
         actualWidth: Int? = nil,
@@ -142,6 +152,11 @@ struct GenerationResult: Identifiable, Codable {
         self.modelRevision = modelRevision
         self.quantization = quantization
         self.qualityMode = qualityMode
+        self.preset = preset
+        self.effectiveProfileID = effectiveProfileID
+        self.effectiveProfileName = effectiveProfileName
+        self.requestedWidth = requestedWidth
+        self.requestedHeight = requestedHeight
         self.effectiveWidth = effectiveWidth
         self.effectiveHeight = effectiveHeight
         self.actualWidth = actualWidth
@@ -179,6 +194,11 @@ struct GenerationResult: Identifiable, Codable {
         case modelRevision
         case quantization
         case qualityMode
+        case preset
+        case effectiveProfileID
+        case effectiveProfileName
+        case requestedWidth
+        case requestedHeight
         case effectiveWidth
         case effectiveHeight
         case actualWidth
@@ -217,6 +237,11 @@ struct GenerationResult: Identifiable, Codable {
         modelRevision = try container.decodeIfPresent(String.self, forKey: .modelRevision)
         quantization = try container.decodeIfPresent(String.self, forKey: .quantization)
         qualityMode = try container.decodeIfPresent(String.self, forKey: .qualityMode)
+        preset = try container.decodeIfPresent(String.self, forKey: .preset)
+        effectiveProfileID = try container.decodeIfPresent(String.self, forKey: .effectiveProfileID)
+        effectiveProfileName = try container.decodeIfPresent(String.self, forKey: .effectiveProfileName)
+        requestedWidth = try container.decodeIfPresent(Int.self, forKey: .requestedWidth)
+        requestedHeight = try container.decodeIfPresent(Int.self, forKey: .requestedHeight)
         effectiveWidth = try container.decodeIfPresent(Int.self, forKey: .effectiveWidth)
         effectiveHeight = try container.decodeIfPresent(Int.self, forKey: .effectiveHeight)
         actualWidth = try container.decodeIfPresent(Int.self, forKey: .actualWidth)

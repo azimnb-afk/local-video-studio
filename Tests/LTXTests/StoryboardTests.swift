@@ -142,6 +142,28 @@ func runStoryboardTests(_ t: TestKit) {
         }
         sem2.wait()
 
+        // Hybrid composes the same director and deterministically expands the
+        // template fallback into reviewable 4–6 second shots.
+        let hybridDirector = StoryboardDirector(providers: [TemplateStoryboardProvider()])
+        let hybrid = HybridProjectCoordinator(director: hybridDirector)
+        let sem3 = DispatchSemaphore(value: 0)
+        Task {
+            do {
+                var settings = ProjectSettings()
+                settings.applyPreset(.quickPreview)
+                settings.targetDurationSeconds = 20
+                let (project, _, _) = try await hybrid.makeProject(title: "Hybrid", brief: "a train crosses a valley", settings: settings)
+                t.checkEqual(project.workflowMode, "hybrid", "Hybrid workflow state recorded")
+                t.checkEqual(project.shots.count, 4, "Hybrid target duration split into short shots")
+                t.check(project.shots.allSatisfy { (4...6).contains($0.durationSeconds) }, "Hybrid shots are 4–6 seconds")
+                t.checkEqual(Set(project.shots.map(\.id)).count, project.shots.count, "Hybrid shot IDs unique")
+                t.check(project.shots.allSatisfy { !$0.compiledPrompt.isEmpty }, "Hybrid prompts compiled")
+                t.checkEqual(project.settings.resolvedPreset, .quickPreview, "Hybrid uses shared preset settings")
+            } catch { t.check(false, "Hybrid orchestration threw \(error)") }
+            sem3.signal()
+        }
+        sem3.wait()
+
         // Validation catches bad drafts.
         t.check(!StoryboardDirector.validate(StoryboardDirector.StoryboardDraft(
             logline: "", synopsis: nil, setting: nil, tone: nil, initialState: nil, shots: []

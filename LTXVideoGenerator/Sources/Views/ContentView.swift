@@ -14,18 +14,33 @@ struct ContentView: View {
     // GenerationParameters is a struct, so we persist it as JSON via UserDefaults
     // and bridge through a `@State` binding the children already expect.
     @State private var parameters: GenerationParameters = SessionSettings.loadParameters()
+    @AppStorage("generationPreset") private var generationPresetRaw = GenerationPreset.standard.rawValue
     @State private var showError = false
 
     enum Tab: String, CaseIterable {
         case generate = "Generate"
-        case storyboard = "Storyboard"
+        case oneShot = "One Shot"
+        case storyboard = "Storyboard / Director"
+        case hybrid = "Hybrid"
         case history = "Video Archive"
 
         var icon: String {
             switch self {
             case .generate: return "wand.and.stars"
+            case .oneShot: return "camera.metering.center.weighted"
             case .storyboard: return "movieclapper"
+            case .hybrid: return "sparkles.rectangle.stack"
             case .history: return "film.stack"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .generate: return "Create a single video"
+            case .oneShot: return "One video from a short brief"
+            case .storyboard: return "Manage multiple shots and takes"
+            case .hybrid: return "AI structure and automatic first pass"
+            case .history: return "Review generated videos"
             }
         }
     }
@@ -33,7 +48,11 @@ struct ContentView: View {
     /// Storyboard tab appears only while its feature flag is on.
     private var visibleTabs: [Tab] {
         Tab.allCases.filter { tab in
-            tab != .storyboard || FeatureFlags.isEnabled(.storyboardV1)
+            switch tab {
+            case .oneShot: return FeatureFlags.isEnabled(.directorV1)
+            case .storyboard, .hybrid: return FeatureFlags.isEnabled(.storyboardV1)
+            default: return true
+            }
         }
     }
     
@@ -65,6 +84,7 @@ struct ContentView: View {
         }
         .onChange(of: parameters) { _, newValue in
             SessionSettings.saveParameters(newValue)
+            generationPresetRaw = GenerationPreset.custom.rawValue
         }
     }
     
@@ -91,6 +111,7 @@ struct ContentView: View {
             ForEach(visibleTabs, id: \.self) { tab in
                 SidebarButton(
                     title: tab.rawValue,
+                    subtitle: tab.subtitle,
                     icon: tab.icon,
                     isSelected: selectedTab == tab,
                     badge: tab == .generate ? generationService.queue.count : nil
@@ -112,8 +133,12 @@ struct ContentView: View {
                 voiceoverText: $voiceoverText,
                 parameters: $parameters
             )
+        case .oneShot:
+            OneShotView(parameters: $parameters)
         case .storyboard:
             StoryboardView()
+        case .hybrid:
+            HybridView()
         case .history:
             HistoryView()
         }
@@ -122,6 +147,7 @@ struct ContentView: View {
 
 struct SidebarButton: View {
     let title: String
+    var subtitle: String? = nil
     let icon: String
     let isSelected: Bool
     var badge: Int?
@@ -139,7 +165,14 @@ struct SidebarButton: View {
         HStack {
             Image(systemName: icon)
                 .frame(width: 24)
-            Text(title)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
             Spacer()
             badgeView
         }
@@ -161,6 +194,115 @@ struct SidebarButton: View {
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
                 .background(Capsule().fill(Color.blue))
+        }
+    }
+}
+
+/// Dedicated One Shot mode. It composes LocalDirector, PromptCompiler and the
+/// existing single-flight GenerationService; it does not introduce another
+/// generation path.
+private struct OneShotView: View {
+    @EnvironmentObject var generationService: GenerationService
+    @Binding var parameters: GenerationParameters
+
+    @State private var brief = ""
+    @State private var status: String?
+    @State private var isPlanning = false
+    @State private var targetDuration = 5.0
+    @AppStorage("generationPreset") private var presetRaw = GenerationPreset.standard.rawValue
+    @AppStorage(LTXModelCatalog.selectedModelIDKey) private var modelID = LTXModelCatalog.defaultModelID
+    @AppStorage(LTXTextEncoderCatalog.selectedTextEncoderIDKey) private var textEncoderID = LTXTextEncoderCatalog.defaultTextEncoderID
+    @State private var audioEnabled = true
+
+    private var preset: GenerationPreset { GenerationPreset(rawValue: presetRaw) ?? .standard }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("One Shot")
+                    .font(.largeTitle.bold())
+                Text("Describe one short scene. The local director fills in camera, action, dialogue and sound, unloads before rendering, then uses the same official generation queue.")
+                    .foregroundStyle(.secondary)
+                Text("Short Brief")
+                    .font(.headline)
+                TextEditor(text: $brief)
+                    .frame(minHeight: 140)
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
+                HStack(spacing: 16) {
+                    Picker("Preset", selection: $presetRaw) {
+                        ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
+                    }
+                    Picker("Model", selection: $modelID) {
+                        ForEach(ModelRegistry.shared.selectableModels()) { Text($0.displayName).tag($0.id) }
+                    }
+                    HStack {
+                        Text("Target Duration")
+                        Stepper("\(targetDuration, specifier: "%.0f")s", value: $targetDuration, in: 1...10)
+                    }
+                    Toggle("Audio", isOn: $audioEnabled)
+                    Spacer()
+                }
+                if preset == .custom {
+                    HStack {
+                        Text("Custom: \(parameters.width)×\(parameters.height), \(parameters.numFrames) frames, \(parameters.fps) fps, \(parameters.numInferenceSteps) steps")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                        Text("Edit these values in Generate → Custom.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                } else {
+                    Text(preset.summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Button {
+                    planAndGenerate()
+                } label: {
+                    if isPlanning { ProgressView().controlSize(.small) }
+                    Label(isPlanning ? "Planning…" : "Create & Generate", systemImage: "play.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(brief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isPlanning || generationService.isProcessing)
+                if let status {
+                    Text(status).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding(28)
+            .frame(maxWidth: 900, alignment: .leading)
+        }
+        .onChange(of: audioEnabled) { old, new in
+            if old != new { presetRaw = GenerationPreset.custom.rawValue }
+        }
+    }
+
+    private func planAndGenerate() {
+        let trimmed = brief.trimmingCharacters(in: .whitespacesAndNewlines)
+        isPlanning = true
+        status = "Planning locally…"
+        Task {
+            defer { isPlanning = false }
+            do {
+                let (plan, providerName) = try await LocalDirector().plan(brief: trimmed)
+                var requestParameters = parameters
+                requestParameters.numFrames = PromptCompiler.frameCount(forSeconds: targetDuration, fps: requestParameters.fps)
+                let compiled = PromptCompiler.compile(plan: plan)
+                let request = GenerationRequest(
+                    prompt: compiled,
+                    disableAudio: !audioEnabled,
+                    modelId: modelID,
+                    textEncoderId: textEncoderID,
+                    parameters: requestParameters,
+                    qualityMode: preset.qualityMode.rawValue,
+                    preset: preset.rawValue
+                )
+                generationService.addToQueue(request)
+                status = "Planned via \(providerName); queued for sequential generation"
+            } catch {
+                status = "Planning failed: \(error.localizedDescription)"
+            }
         }
     }
 }
@@ -336,6 +478,7 @@ struct GenerateView: View {
     @Binding var negativePrompt: String
     @Binding var voiceoverText: String
     @Binding var parameters: GenerationParameters
+    @AppStorage("generationPreset") private var presetRaw = GenerationPreset.standard.rawValue
     
     var body: some View {
         HSplitView {
@@ -366,9 +509,27 @@ struct GenerateView: View {
     }
     
     private var parametersPanel: some View {
-        ParametersView(parameters: $parameters)
-            .frame(width: 300)
-            .background(Color(nsColor: .windowBackgroundColor))
+        Group {
+            if presetRaw == GenerationPreset.custom.rawValue {
+                ParametersView(parameters: $parameters)
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    let preset = GenerationPreset(rawValue: presetRaw) ?? .standard
+                    Label("\(preset.displayName) Preset", systemImage: "slider.horizontal.3")
+                        .font(.headline)
+                    Text(preset.summary)
+                        .foregroundStyle(.secondary)
+                    Divider()
+                    Text("Manual resolution, frames, FPS and steps are available with Custom. The finished video records the requested settings, selected effective profile and actual MP4 metadata.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding()
+            }
+        }
+        .frame(width: 300)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 

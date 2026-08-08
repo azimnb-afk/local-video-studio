@@ -256,3 +256,74 @@ final class TemplateStoryboardProvider: DirectorProvider {
 
     func terminate() async {}
 }
+
+/// Thin Hybrid orchestration layer. Planning remains in StoryboardDirector;
+/// generation remains in TakeGenerationCoordinator/GenerationService. When
+/// the no-LLM template can only return one shot, this expands it into a
+/// deterministic 4–6 second review sequence so Hybrid still provides real
+/// shot splitting without inventing another inference backend.
+final class HybridProjectCoordinator {
+    private let director: StoryboardDirector
+
+    init(director: StoryboardDirector = StoryboardDirector()) {
+        self.director = director
+    }
+
+    func makeProject(
+        title: String,
+        brief: String,
+        settings: ProjectSettings
+    ) async throws -> (project: FilmProject, violations: [ContinuityEngine.Violation], providerName: String) {
+        var (project, violations, providerName) = try await director.makeProject(
+            title: title, brief: brief, settings: settings
+        )
+        let target = min(60, max(5, settings.targetDurationSeconds ?? 20))
+        let desiredCount = min(12, max(1, Int(ceil(target / 5))))
+        guard project.shots.count == 1, desiredCount > 1, let source = project.shots.first else {
+            project.workflowMode = "hybrid"
+            return (project, violations, providerName)
+        }
+
+        let scales = ["wide", "medium", "close-up", "medium"]
+        let movements = ["dolly", "track", "static", "pan"]
+        let duration = min(6, max(4, target / Double(desiredCount)))
+        var shots: [Shot] = []
+        var state = source.continuityBefore ?? ContinuitySnapshot()
+        for index in 0..<desiredCount {
+            var shot = source
+            shot.id = UUID()
+            shot.index = index
+            shot.title = "Shot \(index + 1)"
+            shot.summary = "\(source.summary) — story beat \(index + 1) of \(desiredCount)."
+            shot.durationSeconds = duration
+            shot.camera.shotScale = scales[index % scales.count]
+            shot.camera.movement = movements[index % movements.count]
+            shot.continuityBefore = state
+            shot.takes = []
+            shot.selectedTakeID = nil
+
+            let plan = OneShotPlan(
+                camera: "\(shot.camera.shotScale) shot, \(shot.camera.angle) angle, \(shot.camera.movement) camera",
+                action: shot.summary,
+                lighting: state.lighting,
+                dialogue: shot.audio.dialogue.map {
+                    OneShotPlan.DialogueLine(speaker: $0.speaker, text: $0.text, language: $0.language, romanization: $0.romanization)
+                },
+                audioCues: shot.audio.sfx,
+                durationIntentSeconds: duration
+            )
+            let context = ContinuityEngine.promptContext(for: state)
+            let compiled = PromptCompiler.compile(plan: plan)
+            shot.compiledPrompt = context.isEmpty ? compiled : context + " " + compiled
+            shots.append(shot)
+
+            if let next = try? ContinuityEngine.apply(changes: shot.explicitChanges, to: state) {
+                state = next
+            }
+        }
+        project.shots = shots
+        project.workflowMode = "hybrid"
+        violations.append(contentsOf: ContinuityEngine.monotonyWarnings(shots: shots))
+        return (project, violations, providerName)
+    }
+}

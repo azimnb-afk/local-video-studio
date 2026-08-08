@@ -19,6 +19,26 @@ func runAutoQualityTests(_ t: TestKit) {
         HardwareProfile(modelIdentifier: "TestMac1,1", chipDescription: "Test", physicalMemoryGB: gb)
     }
 
+    t.suite("User-facing preset mapping") {
+        t.checkEqual(GenerationPreset.quickPreview.qualityMode, .compact, "Quick Preview → Compact")
+        t.checkEqual(GenerationPreset.standard.qualityMode, .auto, "Standard → Auto")
+        t.checkEqual(GenerationPreset.highQuality.qualityMode, .high, "High Quality → High")
+        t.checkEqual(GenerationPreset.custom.qualityMode, .advanced, "Custom → Advanced")
+        t.checkEqual(GenerationPreset.resolving(presetRaw: nil, qualityModeRaw: "compact"), .quickPreview,
+                     "legacy Compact resolves to Quick Preview")
+        var settings = ProjectSettings()
+        settings.applyPreset(.highQuality)
+        t.checkEqual(settings.qualityMode, QualityMode.high.rawValue, "Project Settings uses shared mapping")
+        settings.width = 1024
+        settings.markCustom()
+        t.checkEqual(settings.resolvedPreset, .custom, "manual setting marks Custom")
+        t.checkEqual(settings.qualityMode, QualityMode.advanced.rawValue, "manual setting marks Advanced")
+        settings.audioEnabled = false
+        settings.applyPreset(.standard)
+        t.checkEqual(settings.audioEnabled, true, "reapplying Standard clears conflicting manual audio")
+        t.checkEqual(settings.width, GenerationParameters.default.width, "reapplying Standard clears conflicting manual size")
+    }
+
     t.suite("Memory monitor") {
         let snap = MemoryMonitor.shared.snapshot()
         t.check(snap.physicalBytes > 0, "physical memory read")
@@ -114,13 +134,14 @@ func runAutoQualityTests(_ t: TestKit) {
         t.check(!AutoQualityEngine.isMemoryRelatedFailure(LTXError.generationFailed("config mismatch")),
                 "non-memory failure not retried")
 
-        let request = GenerationRequest(prompt: "p", parameters: .default, qualityMode: "auto")
+        let request = GenerationRequest(prompt: "p", parameters: .default, qualityMode: "auto", preset: "standard")
         let applied = GenerationService.applying(profile: QualityProfileLadder.compact0, to: request)
         t.checkEqual(applied.parameters.width, 512, "profile width applied")
         t.checkEqual(applied.parameters.numFrames, 25, "profile frames applied")
         t.check(applied.disableAudio, "C0 disables audio")
         t.checkEqual(applied.id, request.id, "request identity preserved")
         t.checkEqual(applied.prompt, "p", "prompt preserved")
+        t.checkEqual(applied.preset, "standard", "preset snapshot preserved")
     }
 
     t.suite("MediaProbe") {

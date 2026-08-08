@@ -1,5 +1,13 @@
 import SwiftUI
 
+private enum StoryboardWorkspaceMode {
+    case storyboard
+    case hybrid
+
+    var title: String { self == .hybrid ? "Hybrid Projects" : "Storyboards" }
+    var workflowValue: String? { self == .hybrid ? "hybrid" : nil }
+}
+
 /// Storyboard workspace: Brief → Create Storyboard → Shots → Takes →
 /// Select → Generate Missing Takes → Assemble Final Video — all in the GUI.
 /// Uses the same single-flight GenerationService as the Generate tab.
@@ -12,6 +20,11 @@ struct StoryboardView: View {
     @State private var statusMessage: String?
     @State private var isAssembling = false
     @State private var isCreating = false
+    private let mode: StoryboardWorkspaceMode
+
+    init() { self.mode = .storyboard }
+
+    fileprivate init(mode: StoryboardWorkspaceMode) { self.mode = mode }
 
     private let store = FilmProjectStore.shared
     /// Generation completions land in the store; poll it while visible.
@@ -40,8 +53,8 @@ struct StoryboardView: View {
         .onAppear(perform: refresh)
         .onReceive(refreshTimer) { _ in refresh() }
         .sheet(isPresented: $showNewProjectSheet) {
-            NewStoryboardSheet(isCreating: $isCreating) { title, brief in
-                createProject(title: title, brief: brief)
+            NewStoryboardSheet(isCreating: $isCreating, mode: mode) { title, brief, settings in
+                createProject(title: title, brief: brief, settings: settings)
             }
         }
     }
@@ -49,7 +62,7 @@ struct StoryboardView: View {
     private var projectList: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Storyboards")
+                Text(mode.title)
                     .font(.headline)
                 Spacer()
                 Button {
@@ -57,7 +70,7 @@ struct StoryboardView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
-                .help("Create a storyboard from a short brief")
+                .help(mode == .hybrid ? "Create a Hybrid project and generate its first pass" : "Create a storyboard from a short brief")
             }
             .padding(12)
             Divider()
@@ -96,14 +109,16 @@ struct StoryboardView: View {
             Image(systemName: "movieclapper")
                 .font(.system(size: 48))
                 .foregroundStyle(.secondary)
-            Text("Create a storyboard from a short brief")
+            Text(mode == .hybrid ? "Create and generate a first pass automatically" : "Create a storyboard from a short brief")
                 .font(.title3)
-            Text("The local director breaks your idea into 4–6 second shots with deterministic continuity. Generate takes per shot, pick the best, then assemble the final video.")
+            Text(mode == .hybrid
+                 ? "The local director structures the story, splits it into short shots and queues one take per shot sequentially. Review, retake and assemble here."
+                 : "The local director breaks your idea into 4–6 second shots with deterministic continuity. Generate takes per shot, pick the best, then assemble the final video.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 380)
                 .multilineTextAlignment(.center)
-            Button("New Storyboard…") { showNewProjectSheet = true }
+            Button(mode == .hybrid ? "New Hybrid Project…" : "New Storyboard…") { showNewProjectSheet = true }
                 .buttonStyle(.borderedProminent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -114,25 +129,34 @@ struct StoryboardView: View {
     }
 
     private func refresh() {
-        projects = store.allProjects
+        projects = store.allProjects.filter { project in
+            mode == .hybrid ? project.workflowMode == "hybrid" : project.workflowMode != "hybrid"
+        }
     }
 
-    private func createProject(title: String, brief: String) {
+    private func createProject(title: String, brief: String, settings: ProjectSettings) {
         isCreating = true
         statusMessage = "Planning storyboard…"
         Task {
             defer { isCreating = false }
             do {
-                var settings = ProjectSettings()
-                settings.modelID = LTXModelCatalog.selectedModel().id
-                let (project, violations, providerName) = try await StoryboardDirector()
-                    .makeProject(title: title, brief: brief, settings: settings)
+                var (project, violations, providerName) = mode == .hybrid
+                    ? try await HybridProjectCoordinator().makeProject(title: title, brief: brief, settings: settings)
+                    : try await StoryboardDirector().makeProject(title: title, brief: brief, settings: settings)
+                project.workflowMode = mode.workflowValue
                 store.save(project)
+                if mode == .hybrid {
+                    let coordinator = TakeGenerationCoordinator(store: store, generationService: generationService)
+                    for shot in project.shots {
+                        _ = try coordinator.planTakes(projectID: project.id, shotID: shot.id, count: 1)
+                    }
+                }
                 selectedProjectID = project.id
                 refresh()
                 let warnings = violations.filter { $0.severity == .warning }.count
                 let errors = violations.filter { $0.severity == .error }.count
                 statusMessage = "Planned \(project.shots.count) shots via \(providerName)"
+                    + (mode == .hybrid ? "; queued one take per shot sequentially" : "")
                     + (violations.isEmpty ? "" : " (\(errors) continuity errors, \(warnings) warnings)")
                 showNewProjectSheet = false
             } catch {
@@ -147,14 +171,21 @@ struct StoryboardView: View {
 private struct NewStoryboardSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var isCreating: Bool
-    let onCreate: (String, String) -> Void
+    let mode: StoryboardWorkspaceMode
+    let onCreate: (String, String, ProjectSettings) -> Void
 
     @State private var title = ""
     @State private var brief = ""
+    @State private var presetRaw = GenerationPreset.standard.rawValue
+    @State private var modelID = LTXModelCatalog.selectedModel().id
+    @State private var audioEnabled = true
+    @State private var targetDuration = 20.0
+    @State private var width = 768
+    @State private var height = 512
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("New Storyboard")
+            Text(mode == .hybrid ? "New Hybrid Project" : "New Storyboard")
                 .font(.headline)
             TextField("Title", text: $title)
                 .textFieldStyle(.roundedBorder)
@@ -166,6 +197,34 @@ private struct NewStoryboardSheet: View {
                 .frame(height: 110)
                 .padding(6)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+            HStack {
+                Picker("Preset", selection: $presetRaw) {
+                    ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
+                }
+                Picker("Model", selection: $modelID) {
+                    ForEach(ModelRegistry.shared.selectableModels()) { Text($0.displayName).tag($0.id) }
+                }
+                Toggle("Audio", isOn: $audioEnabled)
+                    .onChange(of: audioEnabled) { old, new in
+                        if old != new { presetRaw = GenerationPreset.custom.rawValue }
+                    }
+            }
+            if presetRaw == GenerationPreset.custom.rawValue {
+                HStack {
+                    Picker("Width", selection: $width) {
+                        ForEach([320, 512, 640, 768, 896, 1024], id: \.self) { Text("\($0)").tag($0) }
+                    }
+                    Picker("Height", selection: $height) {
+                        ForEach([320, 384, 512, 576, 768, 1024, 1080], id: \.self) { Text("\($0)").tag($0) }
+                    }
+                    Text(effectiveResolutionText(width: width, height: height))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if mode == .hybrid {
+                Stepper("Target Duration: \(targetDuration, specifier: "%.0f")s", value: $targetDuration, in: 5...60, step: 5)
+            }
             Text("Planning is local-only: Ollama on localhost when available, otherwise a deterministic single-shot template. Any local LLM is unloaded before rendering.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -173,12 +232,20 @@ private struct NewStoryboardSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button {
-                    onCreate(title.isEmpty ? "Untitled Storyboard" : title, brief)
+                    var settings = ProjectSettings()
+                    let preset = GenerationPreset(rawValue: presetRaw) ?? .standard
+                    settings.applyPreset(preset)
+                    settings.modelID = modelID
+                    settings.audioEnabled = audioEnabled
+                    settings.width = width
+                    settings.height = height
+                    settings.targetDurationSeconds = mode == .hybrid ? targetDuration : nil
+                    onCreate(title.isEmpty ? (mode == .hybrid ? "Untitled Hybrid Project" : "Untitled Storyboard") : title, brief, settings)
                 } label: {
                     if isCreating {
                         ProgressView().controlSize(.small)
                     } else {
-                        Text("Create Storyboard")
+                        Text(mode == .hybrid ? "Create & Generate" : "Create Storyboard")
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -188,6 +255,18 @@ private struct NewStoryboardSheet: View {
         .padding(20)
         .frame(width: 460)
     }
+
+    private func effectiveResolutionText(width: Int, height: Int) -> String {
+        let effectiveWidth = (width / 64) * 64
+        let effectiveHeight = (height / 64) * 64
+        return effectiveWidth == width && effectiveHeight == height
+            ? "Requested = Effective \(width)×\(height)"
+            : "Requested \(width)×\(height) → Effective \(effectiveWidth)×\(effectiveHeight)"
+    }
+}
+
+struct HybridView: View {
+    var body: some View { StoryboardView(mode: .hybrid) }
 }
 
 // MARK: - Project detail
@@ -244,6 +323,9 @@ private struct ProjectDetailView: View {
                     .font(.body)
                     .foregroundStyle(.secondary)
             }
+            ProjectSettingsEditor(project: project) {
+                onChanged()
+            }
             HStack(spacing: 12) {
                 // Generate one take for every shot that has none yet.
                 Button {
@@ -255,6 +337,14 @@ private struct ProjectDetailView: View {
                 .help(shotsMissingTakes.isEmpty
                       ? "Every shot already has a take (queued or completed)."
                       : "Queues one take for each of the \(shotsMissingTakes.count) shots without takes. Generation is sequential.")
+
+                Button {
+                    regenerateSelectedShots()
+                } label: {
+                    Label("Regenerate Selected Shots", systemImage: "arrow.clockwise.circle")
+                }
+                .disabled(project.shots.allSatisfy { $0.selectedTakeID == nil })
+                .help("Adds one new take for each shot that currently has a selected take, using the current Project Settings. Existing preview takes are kept.")
 
                 Button {
                     assemble()
@@ -290,6 +380,17 @@ private struct ProjectDetailView: View {
         onChanged()
     }
 
+    private func regenerateSelectedShots() {
+        var queued = 0
+        for shot in project.shots where shot.selectedTakeID != nil {
+            if (try? coordinator.planTakes(projectID: project.id, shotID: shot.id, count: 1)) != nil {
+                queued += 1
+            }
+        }
+        statusMessage = "Queued \(queued) selected shots at \(project.settings.resolvedPreset.displayName); previous takes kept"
+        onChanged()
+    }
+
     private func assemble() {
         isAssembling = true
         statusMessage = "Assembling final video…"
@@ -316,6 +417,115 @@ private struct ProjectDetailView: View {
     }
 }
 
+// MARK: - Shared project settings
+
+private struct ProjectSettingsEditor: View {
+    let project: FilmProject
+    let onChanged: () -> Void
+
+    @State private var expanded = true
+    private let store = FilmProjectStore.shared
+
+    var body: some View {
+        DisclosureGroup("Project Settings", isExpanded: $expanded) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 16) {
+                    Picker("Preset", selection: binding(
+                        get: { project.settings.resolvedPreset.rawValue },
+                        set: { raw, settings in settings.applyPreset(GenerationPreset(rawValue: raw) ?? .standard) }
+                    )) {
+                        ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
+                    }
+                    Picker("Model", selection: binding(
+                        get: { project.settings.modelID },
+                        set: { $1.modelID = $0 }
+                    )) {
+                        ForEach(ModelRegistry.shared.selectableModels()) { Text($0.displayName).tag($0.id) }
+                    }
+                    Toggle("Audio", isOn: binding(
+                        get: { project.settings.resolvedAudioEnabled },
+                        set: { value, settings in
+                            settings.audioEnabled = value
+                            settings.markCustom()
+                        }
+                    ))
+                    Spacer()
+                }
+                Text(project.settings.resolvedPreset.summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if project.settings.resolvedPreset == .custom {
+                    HStack(spacing: 12) {
+                        Picker("Width", selection: customBinding(\.width)) {
+                            ForEach([320, 512, 640, 768, 896, 1024], id: \.self) { Text("\($0)").tag($0) }
+                        }
+                        Picker("Height", selection: customBinding(\.height)) {
+                            ForEach([320, 384, 512, 576, 704, 768, 864, 1024, 1080, 1152], id: \.self) { Text("\($0)").tag($0) }
+                        }
+                        Picker("FPS", selection: customBinding(\.fps)) {
+                            ForEach([12, 20, 24, 30], id: \.self) { Text("\($0)").tag($0) }
+                        }
+                        Stepper("Frames: \(project.settings.numFrames ?? 121)", value: optionalIntBinding(\.numFrames, default: 121), in: 25...241, step: 8)
+                        Stepper("Steps: \(project.settings.numInferenceSteps ?? 30)", value: optionalIntBinding(\.numInferenceSteps, default: 30), in: 10...100, step: 5)
+                    }
+                    Text(resolutionSummary)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.top, 8)
+        }
+        .font(.headline)
+    }
+
+    private var resolutionSummary: String {
+        let width = project.settings.width
+        let height = project.settings.height
+        let effectiveWidth = (width / 64) * 64
+        let effectiveHeight = (height / 64) * 64
+        return "Requested \(width)×\(height) → Effective \(effectiveWidth)×\(effectiveHeight) → Actual shown per completed Take"
+    }
+
+    private func save(_ change: (inout ProjectSettings) -> Void) {
+        guard var updated = store.project(id: project.id) else { return }
+        change(&updated.settings)
+        updated.touch()
+        store.save(updated)
+        onChanged()
+    }
+
+    private func binding<Value>(
+        get: @escaping () -> Value,
+        set: @escaping (Value, inout ProjectSettings) -> Void
+    ) -> Binding<Value> {
+        Binding(get: get, set: { value in save { set(value, &$0) } })
+    }
+
+    private func customBinding(_ keyPath: WritableKeyPath<ProjectSettings, Int>) -> Binding<Int> {
+        Binding(
+            get: { project.settings[keyPath: keyPath] },
+            set: { value in save { settings in
+                settings[keyPath: keyPath] = value
+                settings.markCustom()
+            } }
+        )
+    }
+
+    private func optionalIntBinding(
+        _ keyPath: WritableKeyPath<ProjectSettings, Int?>,
+        default defaultValue: Int
+    ) -> Binding<Int> {
+        Binding(
+            get: { project.settings[keyPath: keyPath] ?? defaultValue },
+            set: { value in save { settings in
+                settings[keyPath: keyPath] = value
+                settings.markCustom()
+            } }
+        )
+    }
+}
+
 // MARK: - Shot card
 
 private struct ShotCard: View {
@@ -325,7 +535,7 @@ private struct ShotCard: View {
     @Binding var statusMessage: String?
     let onChanged: () -> Void
 
-    @State private var takeCount = 3
+    @State private var takeCount = 1
     @State private var showPrompt = false
 
     var body: some View {
@@ -380,7 +590,7 @@ private struct ShotCard: View {
                     Button {
                         plan(count: 1)
                     } label: {
-                        Label("Retake", systemImage: "arrow.clockwise")
+                        Label("Regenerate at Current Preset", systemImage: "arrow.clockwise")
                     }
                     .help("Queue one more take with a fresh seed.")
                 }
@@ -417,6 +627,16 @@ private struct TakeRow: View {
             statusIcon
             Text("Seed \(take.seed)")
                 .font(.caption.monospaced())
+            if let preset = take.preset.flatMap(GenerationPreset.init(rawValue:)) {
+                Text(preset.displayName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let profile = take.effectiveProfileID {
+                Text("Effective \(profile)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             if let width = take.actualWidth, let height = take.actualHeight {
                 Text("\(width)×\(height)")
                     .font(.caption)
@@ -427,6 +647,9 @@ private struct TakeRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Text("Requested \(take.requestedWidth)×\(take.requestedHeight)")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
             Spacer()
             if take.status == .completed {
                 Button("Play") {

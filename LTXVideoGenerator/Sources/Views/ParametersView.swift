@@ -18,9 +18,10 @@ struct ParametersView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            // Preset picker
+            // Legacy/custom parameter bundles. The primary product Preset is
+            // selected in the Generate header; these only populate Custom.
             VStack(alignment: .leading, spacing: 8) {
-                Label("Preset", systemImage: "slider.horizontal.3")
+                Label("Saved Custom Settings", systemImage: "slider.horizontal.3")
                     .font(.headline)
                     .foregroundStyle(.secondary)
                 
@@ -43,7 +44,7 @@ struct ParametersView: View {
                         Image(systemName: "plus.circle")
                     }
                     .buttonStyle(.borderless)
-                    .help("Save current settings as preset")
+                    .help("Save the current Custom parameters for reuse")
                 }
             }
             

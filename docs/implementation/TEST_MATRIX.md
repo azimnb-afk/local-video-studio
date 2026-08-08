@@ -1,8 +1,8 @@
 # TEST_MATRIX
 
-Updated: 2026-08-08. Runner: `swift run LTXTests` (242 checks, all passing).
-CLT-only environment (no Xcode.app) → XCTest/SwiftTesting unavailable; tests run
-as a dependency-free executable (Tests/LTXTests/TestKit.swift).
+Updated: 2026-08-08. Runner: `swift run LTXTests` (282 checks, all passing).
+Tests run through the repository's dependency-free SPM executable
+(`Tests/LTXTests/TestKit.swift`); the full app is also compiled separately by Xcode.
 
 ## Unit (swift run LTXTests)
 | Area | Checks | Status |
@@ -20,6 +20,7 @@ as a dependency-free executable (Tests/LTXTests/TestKit.swift).
 | Memory monitor / hardware profiler (live syscalls) | 6 | PASS |
 | Hardware tiers | 5 | PASS |
 | Auto Quality priors / ladder / advanced-refusal | 7 | PASS |
+| User-facing Preset mapping + manual→Custom + preset reapplication | 10 | PASS |
 | Historical success (promote/demote, per-hardware, persistence) | 4 | PASS |
 | Failure classification + profile application | 8 | PASS |
 | LowRAM adapter gating | 4 | PASS |
@@ -28,12 +29,15 @@ as a dependency-free executable (Tests/LTXTests/TestKit.swift).
 | Prompt compiler (Japanese native/romanized, frames 8n+1) | 14 | PASS |
 | Director request pipeline | 4 | PASS |
 | FilmProject persistence (schema guard, backup, delete) | 7 | PASS |
+| Storyboard Project Settings persistence (preset/resolution/frames/audio) | 4 | PASS |
 | Take planning 1–20 (seeds, linkage, jobs) + selection | 14 | PASS |
+| Preview Take retention + High Quality append regeneration | 4 | PASS |
 | Resume reconciliation (real MP4 = source of truth) | 5 | PASS |
 | Continuity transitions + directive grammar | 8 | PASS |
 | Continuity validation (silent changes, injuries, props) | 4 | PASS |
 | Shot monotony rules | 4 | PASS |
 | Storyboard pipeline (scripted + template fallback) | 16 | PASS |
+| Hybrid state / short-shot split / compiled prompts / shared Preset | 6 | PASS |
 | API token auth (constant-time, bearer) | 8 | PASS |
 | API asset sandbox (traversal/absolute/non-UUID rejected) | 6 | PASS |
 | API job validation (variations cap, i2v asset, task whitelist) | 10 | PASS |
@@ -55,6 +59,7 @@ as a dependency-free executable (Tests/LTXTests/TestKit.swift).
 | Queue soak (full 20-take) | HARNESS READY (scripts/queue_soak.sh 20, ≈17 min) |
 | REST API end-to-end over socket (real .app) | **PASS** (2026-08-08: job POST → auto-quality compact C2 → real generation → completed + actual metadata 512×320/65f/2.708s; ffprobe re-verified) |
 | App .app bundle build (xcodebuild) | **PASS** (Xcode 26.6: BUILD SUCCEEDED, Debug arm64, ad-hoc; app launches & runs) |
+| Final GUI-first acceptance | **PASS** (running final .app: four production modes, Preset UX, One Shot, Storyboard Project Settings + Custom controls, Hybrid creation sheet) |
 
 ## Security (socket-level checks 2026-08-08 against the running .app)
 | Test | Status |

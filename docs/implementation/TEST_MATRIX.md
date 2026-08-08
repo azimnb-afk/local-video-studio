@@ -1,45 +1,74 @@
 # TEST_MATRIX
 
-Status legend: PASS / FAIL / PENDING / N-A (not runnable in this environment)
+Updated: 2026-08-08. Runner: `swift run LTXTests` (242 checks, all passing).
+CLT-only environment (no Xcode.app) → XCTest/SwiftTesting unavailable; tests run
+as a dependency-free executable (Tests/LTXTests/TestKit.swift).
 
-## Unit (swift test via SPM harness)
-| Area | Test | Status |
+## Unit (swift run LTXTests)
+| Area | Checks | Status |
 |---|---|---|
-| ModelRegistry | descriptor lookup, official seeding | PENDING |
-| Policy | adult mode matrix (5 cases) | PENDING |
-| Manifest validator | valid/incomplete/unpinned | PENDING |
-| AutoQuality | profile selection + fallback order + max 3 attempts | PENDING |
-| HistoricalSuccessStore | save/promote/demote | PENDING |
-| Continuity | state transition + contradiction detection | PENDING |
-| Codable migration | legacy GenerationRequest/Result JSON decodes | PENDING |
-| API validation | assetID, size limit, token, variations cap | PENDING |
+| Catalog / 64-px floor | 2 | PASS |
+| ModelRegistry seeding (official verified, lab unverified) | 12 | PASS |
+| Adult policy matrix (all 5 cases + unregistered + unverified) | 6 | PASS |
+| Selectable models × feature flags | 4 | PASS |
+| Adapter routing (official/derived) | 2 | PASS |
+| Codable migration (legacy request/result JSON, round-trip) | 7 | PASS |
+| Feature flags (defaults OFF, rollback) | 11 | PASS |
+| Verification gate (11 checks, persistence, promotion) | 9 | PASS |
+| Manifest validator (descriptor, snapshot, injection guard) | 8 | PASS |
+| Model installer (disk preflight, license ack, revision pin) | 7 | PASS |
+| Memory monitor / hardware profiler (live syscalls) | 6 | PASS |
+| Hardware tiers | 5 | PASS |
+| Auto Quality priors / ladder / advanced-refusal | 7 | PASS |
+| Historical success (promote/demote, per-hardware, persistence) | 4 | PASS |
+| Failure classification + profile application | 8 | PASS |
+| LowRAM adapter gating | 4 | PASS |
+| One Shot plan parsing/validation | 5 | PASS |
+| Director lifecycle (terminate-before-render, repair, fallback) | 8 | PASS |
+| Prompt compiler (Japanese native/romanized, frames 8n+1) | 14 | PASS |
+| Director request pipeline | 4 | PASS |
+| FilmProject persistence (schema guard, backup, delete) | 7 | PASS |
+| Take planning 1–20 (seeds, linkage, jobs) + selection | 14 | PASS |
+| Resume reconciliation (real MP4 = source of truth) | 5 | PASS |
+| Continuity transitions + directive grammar | 8 | PASS |
+| Continuity validation (silent changes, injuries, props) | 4 | PASS |
+| Shot monotony rules | 4 | PASS |
+| Storyboard pipeline (scripted + template fallback) | 16 | PASS |
+| API token auth (constant-time, bearer) | 8 | PASS |
+| API asset sandbox (traversal/absolute/non-UUID rejected) | 6 | PASS |
+| API job validation (variations cap, i2v asset, task whitelist) | 10 | PASS |
+| API adult policy (client cannot override app) | 4 | PASS |
+| API request building | 6 | PASS |
+| HTTP framing (Content-Length) | 4 | PASS |
 
-## Integration
+## Integration (real binaries/files)
 | Test | Status |
 |---|---|
-| Official T2V smoke (audio ON) via benchmark harness | PENDING |
-| Official T2V smoke (audio OFF) | PENDING |
-| I2V smoke | PENDING |
-| MediaProbe on real MP4 | PENDING |
-| FFmpeg assembly (concat) | PENDING |
-| Persistence + resume | PENDING |
-| REST API curl smoke | PENDING (needs running app; harness-level handler tests instead) |
+| Official T2V audio ON via exact app CLI (benchmark harness) | PASS (49 s, 23.66 GB peak) |
+| Official T2V audio OFF | PASS (46 s, 17.23 GB) |
+| Official I2V audio ON / OFF | PASS (48 s / 47 s) |
+| Render-time network egress | PASS (HF_HUB_OFFLINE=1, generation fully offline) |
+| MediaProbe on real MP4 | PASS (in LTXTests) |
+| FFmpeg assembly stream-copy of 2 real MP4s | PASS (in LTXTests) |
+| FFmpeg normalize+reencode plan (mixed audio) | PASS (plan-level) |
+| Queue soak (3-take short validation) | see BENCHMARK_RESULTS |
+| Queue soak (full 20-take) | HARNESS READY (scripts/queue_soak.sh 20, ≈17 min) |
+| REST API end-to-end over socket | N-A here (needs running app; logic layer fully unit-tested) |
+| App .app bundle build (xcodebuild) | N-A (no Xcode.app — Remaining Human Action) |
 
 ## Security
 | Test | Status |
 |---|---|
-| non-loopback rejected | PENDING |
-| missing/invalid token | PENDING |
-| path traversal on assets | PENDING |
-| oversized upload | PENDING |
-| adult model ID while adultMode=false rejected | PENDING |
+| Loopback-only bind | ENFORCED in code (requiredLocalEndpoint 127.0.0.1); socket-level check pending app run |
+| Missing/invalid/length-mismatch token | PASS (unit) |
+| Path traversal / absolute path / invalid assetID | PASS (unit) |
+| Oversized upload caps | ENFORCED (413 path; caps unit-visible) |
+| Arbitrary repo injection | PASS (registry lookup + repo-id charset guard) |
+| Adult model while adultMode OFF (UI/Service/API) | PASS (unit at each layer) |
+| No wildcard CORS in v1 | PASS (no CORS headers emitted) |
 
 ## Regression
 | Test | Status |
 |---|---|
-| Baseline vs post-change generation (same seed/settings) | PENDING |
-
-## Queue soak
-| Test | Status |
-|---|---|
-| 20-take sequential memory stability | PLANNED (design + harness; full run is hours) |
+| Flags-OFF legacy path unchanged | PASS by construction (flag-gated branches) + code review |
+| Post-change T2V baseline re-run (same seed/settings) | see BENCHMARK_RESULTS (REGRESSION row) |

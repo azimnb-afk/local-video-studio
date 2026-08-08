@@ -13,3 +13,13 @@ Backend: james-see/mlx-video-with-audio 0.1.36 (pip), MLX 0.32.0, Python 3.14.5.
 Key: MLX artifact exists ≠ compatible with current backend. Verification gate in Phase 2 must pass (license, provenance, pinned revision, manifest, load, T2V/I2V/audio smoke, unload, memory bench, adult classification evidence) before verified=true.
 
 10Eros weights are NOT downloaded on this machine (no user authorization yet; tens of GB). Lab infrastructure ships without weights; Runtime Verification Pending.
+
+## Verification workflow (when the user decides to install 10Eros)
+1. Pin a revision in the registry descriptor (`ModelRegistry.seedLabModels`), verify license/provenance on the HF model card, record `licenseVerified`/`provenanceVerified`/`revisionPinned`/`adultClassificationEvidence` in the Compatibility Lab.
+2. `hf download MLXBits/ltx-2.3-10eros-v1.2-mlx-q8 --revision <pinned>` (explicit user action).
+3. `ManifestValidator.validateSnapshot` on the local snapshot → `manifestValid`.
+4. `scripts/compat_lab_smoke.sh MLXBits/ltx-2.3-10eros-v1.2-mlx-q8 t2v` (then `i2v`, `audio`) → record `backendLoadSuccess`, `t2vSmokeTest`, `i2vSmokeTest`, `audioTest`, `memoryBenchmark`, `unloadReclaimTest` (subprocess exit = reclamation; verify via repeated runs).
+5. Only when ALL 11 checks pass does `ModelRegistry.refreshVerification(from:)` promote `verified=true`.
+
+## Low-RAM backend note
+A dgrauet/ltx-2-mlx checkout already exists locally at `~/AI/LTX-MLX/ltx-2-mlx` with `models/ltx-2.3-mlx-q8`. `scripts/lowram_bench.sh` targets it. Functional verification could run on this 48GB machine; the 16GB claim itself requires 16GB hardware — Runtime Verification Pending on 16GB hardware.

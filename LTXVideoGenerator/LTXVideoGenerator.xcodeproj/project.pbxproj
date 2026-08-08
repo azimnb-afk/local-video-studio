@@ -35,6 +35,32 @@
 		AA000190 /* MacOSSystemMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000191; };
 		AA000192 /* LTXGenerationLogSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000193; };
 		AA000194 /* GenerationFailureRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000195; };
+		AA000200 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000201; };
+		AA000202 /* ModelRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000203; };
+		AA000204 /* QualityProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000205; };
+		AA000206 /* OneShotPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000207; };
+		AA000208 /* FilmProject.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000209; };
+		AA00020A /* VideoGenerationAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00020B; };
+		AA00020C /* CompatibilityLab.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00020D; };
+		AA00020E /* ManifestValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00020F; };
+		AA000210 /* ModelInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000211; };
+		AA000212 /* MemoryMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000213; };
+		AA000214 /* HardwareProfiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000215; };
+		AA000216 /* HistoricalSuccessStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000217; };
+		AA000218 /* AutoQualityEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000219; };
+		AA00021A /* MediaProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00021B; };
+		AA00021C /* LowRAMMLXAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00021D; };
+		AA00021E /* DirectorProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00021F; };
+		AA000220 /* PromptCompiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000221; };
+		AA000222 /* LocalDirector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000223; };
+		AA000224 /* ContinuityEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000225; };
+		AA000226 /* StoryboardDirector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000227; };
+		AA000228 /* FinalAssemblyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000229; };
+		AA00022A /* FilmProjectStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00022B; };
+		AA00022C /* TakeGenerationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00022D; };
+		AA00022E /* APIv1Handler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00022F; };
+		AA000230 /* LocalAPIServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000231; };
+		AA000232 /* ModelsAndFeaturesPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000233; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -62,6 +88,32 @@
 		AA00002C /* AudioService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioService.swift; sourceTree = "<group>"; };
 		AA00002E /* AddAudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAudioView.swift; sourceTree = "<group>"; };
 		AA000036 /* CharacterProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterProfile.swift; sourceTree = "<group>"; };
+		AA000201 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlags.swift; sourceTree = "<group>"; };
+		AA000203 /* ModelRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelRegistry.swift; sourceTree = "<group>"; };
+		AA000205 /* QualityProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QualityProfile.swift; sourceTree = "<group>"; };
+		AA000207 /* OneShotPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneShotPlan.swift; sourceTree = "<group>"; };
+		AA000209 /* FilmProject.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmProject.swift; sourceTree = "<group>"; };
+		AA00020B /* VideoGenerationAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoGenerationAdapter.swift; sourceTree = "<group>"; };
+		AA00020D /* CompatibilityLab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompatibilityLab.swift; sourceTree = "<group>"; };
+		AA00020F /* ManifestValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManifestValidator.swift; sourceTree = "<group>"; };
+		AA000211 /* ModelInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelInstaller.swift; sourceTree = "<group>"; };
+		AA000213 /* MemoryMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryMonitor.swift; sourceTree = "<group>"; };
+		AA000215 /* HardwareProfiler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardwareProfiler.swift; sourceTree = "<group>"; };
+		AA000217 /* HistoricalSuccessStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoricalSuccessStore.swift; sourceTree = "<group>"; };
+		AA000219 /* AutoQualityEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoQualityEngine.swift; sourceTree = "<group>"; };
+		AA00021B /* MediaProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaProbe.swift; sourceTree = "<group>"; };
+		AA00021D /* LowRAMMLXAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LowRAMMLXAdapter.swift; sourceTree = "<group>"; };
+		AA00021F /* DirectorProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectorProvider.swift; sourceTree = "<group>"; };
+		AA000221 /* PromptCompiler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptCompiler.swift; sourceTree = "<group>"; };
+		AA000223 /* LocalDirector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDirector.swift; sourceTree = "<group>"; };
+		AA000225 /* ContinuityEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityEngine.swift; sourceTree = "<group>"; };
+		AA000227 /* StoryboardDirector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryboardDirector.swift; sourceTree = "<group>"; };
+		AA000229 /* FinalAssemblyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalAssemblyService.swift; sourceTree = "<group>"; };
+		AA00022B /* FilmProjectStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmProjectStore.swift; sourceTree = "<group>"; };
+		AA00022D /* TakeGenerationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TakeGenerationCoordinator.swift; sourceTree = "<group>"; };
+		AA00022F /* APIv1Handler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIv1Handler.swift; sourceTree = "<group>"; };
+		AA000231 /* LocalAPIServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAPIServer.swift; sourceTree = "<group>"; };
+		AA000233 /* ModelsAndFeaturesPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelsAndFeaturesPreferences.swift; sourceTree = "<group>"; };
 		AA000191 /* MacOSSystemMemory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacOSSystemMemory.swift; sourceTree = "<group>"; };
 		AA000193 /* LTXGenerationLogSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LTXGenerationLogSummary.swift; sourceTree = "<group>"; };
 		AA000195 /* GenerationFailureRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationFailureRecovery.swift; sourceTree = "<group>"; };
@@ -128,6 +180,11 @@
 				AA00000A /* GenerationResult.swift */,
 				AA00000C /* Preset.swift */,
 				AA000036 /* CharacterProfile.swift */,
+				AA000201 /* FeatureFlags.swift */,
+				AA000203 /* ModelRegistry.swift */,
+				AA000205 /* QualityProfile.swift */,
+				AA000207 /* OneShotPlan.swift */,
+				AA000209 /* FilmProject.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -144,6 +201,26 @@
 				AA000014 /* PresetManager.swift */,
 				AA000026 /* APIServer.swift */,
 				AA00002C /* AudioService.swift */,
+				AA00020B /* VideoGenerationAdapter.swift */,
+				AA00020D /* CompatibilityLab.swift */,
+				AA00020F /* ManifestValidator.swift */,
+				AA000211 /* ModelInstaller.swift */,
+				AA000213 /* MemoryMonitor.swift */,
+				AA000215 /* HardwareProfiler.swift */,
+				AA000217 /* HistoricalSuccessStore.swift */,
+				AA000219 /* AutoQualityEngine.swift */,
+				AA00021B /* MediaProbe.swift */,
+				AA00021D /* LowRAMMLXAdapter.swift */,
+				AA00021F /* DirectorProvider.swift */,
+				AA000221 /* PromptCompiler.swift */,
+				AA000223 /* LocalDirector.swift */,
+				AA000225 /* ContinuityEngine.swift */,
+				AA000227 /* StoryboardDirector.swift */,
+				AA000229 /* FinalAssemblyService.swift */,
+				AA00022B /* FilmProjectStore.swift */,
+				AA00022D /* TakeGenerationCoordinator.swift */,
+				AA00022F /* APIv1Handler.swift */,
+				AA000231 /* LocalAPIServer.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -158,6 +235,7 @@
 				AA00001C /* HistoryView.swift */,
 				AA00001E /* PreferencesView.swift */,
 				AA00002E /* AddAudioView.swift */,
+				AA000233 /* ModelsAndFeaturesPreferences.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -263,6 +341,32 @@
 				AA000025 /* APIServer.swift in Sources */,
 				AA00002B /* AudioService.swift in Sources */,
 				AA00002D /* AddAudioView.swift in Sources */,
+				AA000200 /* FeatureFlags.swift in Sources */,
+				AA000202 /* ModelRegistry.swift in Sources */,
+				AA000204 /* QualityProfile.swift in Sources */,
+				AA000206 /* OneShotPlan.swift in Sources */,
+				AA000208 /* FilmProject.swift in Sources */,
+				AA00020A /* VideoGenerationAdapter.swift in Sources */,
+				AA00020C /* CompatibilityLab.swift in Sources */,
+				AA00020E /* ManifestValidator.swift in Sources */,
+				AA000210 /* ModelInstaller.swift in Sources */,
+				AA000212 /* MemoryMonitor.swift in Sources */,
+				AA000214 /* HardwareProfiler.swift in Sources */,
+				AA000216 /* HistoricalSuccessStore.swift in Sources */,
+				AA000218 /* AutoQualityEngine.swift in Sources */,
+				AA00021A /* MediaProbe.swift in Sources */,
+				AA00021C /* LowRAMMLXAdapter.swift in Sources */,
+				AA00021E /* DirectorProvider.swift in Sources */,
+				AA000220 /* PromptCompiler.swift in Sources */,
+				AA000222 /* LocalDirector.swift in Sources */,
+				AA000224 /* ContinuityEngine.swift in Sources */,
+				AA000226 /* StoryboardDirector.swift in Sources */,
+				AA000228 /* FinalAssemblyService.swift in Sources */,
+				AA00022A /* FilmProjectStore.swift in Sources */,
+				AA00022C /* TakeGenerationCoordinator.swift in Sources */,
+				AA00022E /* APIv1Handler.swift in Sources */,
+				AA000230 /* LocalAPIServer.swift in Sources */,
+				AA000232 /* ModelsAndFeaturesPreferences.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

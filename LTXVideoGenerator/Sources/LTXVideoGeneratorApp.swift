@@ -70,6 +70,22 @@ struct RootView: View {
                 historyManager.loadInitialData()
                 presetManager.loadInitialData()
                 characterProfileManager.loadInitialData()
+
+                // Director extensions (all no-ops when their flags are OFF).
+                if FeatureFlags.isEnabled(.derivedModelsV1) {
+                    ModelRegistry.shared.refreshVerification(from: CompatibilityLab.shared)
+                }
+                if FeatureFlags.isEnabled(.localAPIv1) {
+                    LocalAPIServer.shared.start(
+                        generationService: generationService,
+                        historyManager: historyManager
+                    )
+                }
+                if FeatureFlags.isEnabled(.filmProjectV1) {
+                    for project in FilmProjectStore.shared.allProjects {
+                        FilmProjectStore.shared.reconcileInFlightTakes(projectID: project.id)
+                    }
+                }
                 
                 // One-time launch check: must NOT set hasCheckedPython until work finishes — if we set it
                 // before `await validateWithSubprocess`, a cancelled .task would skip validation forever.

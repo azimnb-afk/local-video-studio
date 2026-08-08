@@ -14,5 +14,6 @@ runAutoQualityTests(t)
 runDirectorTests(t)
 runFilmProjectTests(t)
 runStoryboardTests(t)
+runAPITests(t)
 
 t.finish()

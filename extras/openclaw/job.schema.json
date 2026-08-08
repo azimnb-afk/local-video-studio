@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LTX Video Generator v1 Job",
+  "type": "object",
+  "required": ["prompt"],
+  "properties": {
+    "task": {
+      "type": "string",
+      "enum": ["text_to_video", "image_to_video"],
+      "default": "text_to_video"
+    },
+    "prompt": { "type": "string", "minLength": 1 },
+    "negative_prompt": { "type": "string" },
+    "input": {
+      "type": "object",
+      "properties": {
+        "assetID": {
+          "type": "string",
+          "description": "Server-issued asset id from POST /v1/assets. Required for image_to_video. Filesystem paths are never accepted."
+        }
+      }
+    },
+    "duration": { "type": "number", "exclusiveMinimum": 0, "maximum": 20 },
+    "quality": {
+      "type": "string",
+      "enum": ["auto", "high", "compact", "advanced"],
+      "default": "auto"
+    },
+    "audio": { "type": "boolean", "default": true },
+    "model": {
+      "type": "string",
+      "description": "Registry model id, or \"auto\" for the app's selected model.",
+      "default": "auto"
+    },
+    "adultMode": {
+      "type": "boolean",
+      "default": false,
+      "description": "Only honored when Adult Content Mode is also enabled in the app."
+    },
+    "variations": { "type": "integer", "minimum": 1, "maximum": 20, "default": 1 },
+    "seed": { "type": "integer" }
+  }
+}

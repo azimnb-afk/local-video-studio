@@ -30,8 +30,13 @@ struct GenerationResult: Identifiable, Codable {
     var preset: String?
     var effectiveProfileID: String?
     var effectiveProfileName: String?
+    var effectiveProfileReason: String?
     var requestedWidth: Int?
     var requestedHeight: Int?
+    var requestedDurationSeconds: Double?
+    var targetDurationSeconds: Double?
+    var audioEnabled: Bool?
+    var generationSource: String?
     var effectiveWidth: Int?
     var effectiveHeight: Int?
     var actualWidth: Int?
@@ -115,8 +120,13 @@ struct GenerationResult: Identifiable, Codable {
         preset: String? = nil,
         effectiveProfileID: String? = nil,
         effectiveProfileName: String? = nil,
+        effectiveProfileReason: String? = nil,
         requestedWidth: Int? = nil,
         requestedHeight: Int? = nil,
+        requestedDurationSeconds: Double? = nil,
+        targetDurationSeconds: Double? = nil,
+        audioEnabled: Bool? = nil,
+        generationSource: String? = nil,
         effectiveWidth: Int? = nil,
         effectiveHeight: Int? = nil,
         actualWidth: Int? = nil,
@@ -155,8 +165,13 @@ struct GenerationResult: Identifiable, Codable {
         self.preset = preset
         self.effectiveProfileID = effectiveProfileID
         self.effectiveProfileName = effectiveProfileName
+        self.effectiveProfileReason = effectiveProfileReason
         self.requestedWidth = requestedWidth
         self.requestedHeight = requestedHeight
+        self.requestedDurationSeconds = requestedDurationSeconds
+        self.targetDurationSeconds = targetDurationSeconds
+        self.audioEnabled = audioEnabled
+        self.generationSource = generationSource
         self.effectiveWidth = effectiveWidth
         self.effectiveHeight = effectiveHeight
         self.actualWidth = actualWidth
@@ -197,8 +212,13 @@ struct GenerationResult: Identifiable, Codable {
         case preset
         case effectiveProfileID
         case effectiveProfileName
+        case effectiveProfileReason
         case requestedWidth
         case requestedHeight
+        case requestedDurationSeconds
+        case targetDurationSeconds
+        case audioEnabled
+        case generationSource
         case effectiveWidth
         case effectiveHeight
         case actualWidth
@@ -240,8 +260,13 @@ struct GenerationResult: Identifiable, Codable {
         preset = try container.decodeIfPresent(String.self, forKey: .preset)
         effectiveProfileID = try container.decodeIfPresent(String.self, forKey: .effectiveProfileID)
         effectiveProfileName = try container.decodeIfPresent(String.self, forKey: .effectiveProfileName)
+        effectiveProfileReason = try container.decodeIfPresent(String.self, forKey: .effectiveProfileReason)
         requestedWidth = try container.decodeIfPresent(Int.self, forKey: .requestedWidth)
         requestedHeight = try container.decodeIfPresent(Int.self, forKey: .requestedHeight)
+        requestedDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .requestedDurationSeconds)
+        targetDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .targetDurationSeconds)
+        audioEnabled = try container.decodeIfPresent(Bool.self, forKey: .audioEnabled)
+        generationSource = try container.decodeIfPresent(String.self, forKey: .generationSource)
         effectiveWidth = try container.decodeIfPresent(Int.self, forKey: .effectiveWidth)
         effectiveHeight = try container.decodeIfPresent(Int.self, forKey: .effectiveHeight)
         actualWidth = try container.decodeIfPresent(Int.self, forKey: .actualWidth)

@@ -53,21 +53,47 @@ final class AutoQualityEngine {
         case .high:
             return makeResolution(target: QualityProfileLadder.high, snapshot: snapshot, reason: "High mode requested")
         case .auto:
-            // 1. Known-successful profile wins.
-            if let known = history.highestKnownSafeProfile(hardwareSignature: hardware.signature, modelID: modelID) {
-                return makeResolution(target: known, snapshot: snapshot,
-                                      reason: "Highest known-safe profile from history (\(known.id))")
-            }
-            // 2. Hardware prior.
+            // Start with the hardware prior. A lower-profile success by itself
+            // must not pin Standard to Compact forever; it only becomes a cap
+            // after the prior has an explicit latest failure.
             let prior: QualityProfile
             switch hardware.memoryTier {
             case .tier16: prior = QualityProfileLadder.compact0
             case .tier24: prior = QualityProfileLadder.compact2
-            case .tier32: prior = QualityProfileLadder.standard
-            case .tier48, .tier64plus: prior = QualityProfileLadder.high
+            case .tier32, .tier48: prior = QualityProfileLadder.standard
+            case .tier64plus: prior = QualityProfileLadder.high
             }
+
+            if let known = history.highestKnownSafeProfile(
+                hardwareSignature: hardware.signature,
+                modelID: modelID
+            ), known.rank >= prior.rank {
+                return makeResolution(
+                    target: prior,
+                    snapshot: snapshot,
+                    reason: "History confirms the hardware prior \(prior.id) (known success \(known.id))"
+                )
+            }
+
+            if history.latestAttemptFailed(
+                profileID: prior.id,
+                hardwareSignature: hardware.signature,
+                modelID: modelID
+            ) {
+                let fallback = history.highestKnownSafeProfile(
+                    hardwareSignature: hardware.signature,
+                    modelID: modelID
+                ) ?? QualityProfileLadder.descending(fromRank: prior.rank).dropFirst().first
+                    ?? QualityProfileLadder.compact0
+                return makeResolution(
+                    target: fallback,
+                    snapshot: snapshot,
+                    reason: "History fallback: hardware prior \(prior.id) most recently failed; using \(fallback.id)"
+                )
+            }
+
             return makeResolution(target: prior, snapshot: snapshot,
-                                  reason: "Hardware prior for \(hardware.memoryTier.rawValue)")
+                                  reason: "Hardware prior for \(hardware.memoryTier.rawValue); lower-profile successes do not cap Standard")
         }
     }
 
@@ -119,5 +145,93 @@ final class AutoQualityEngine {
             || text.contains("memory pressure") || text.contains("jetsam")
             || text.contains("outofmemory") || text.contains("bad_alloc")
             || text.contains("code -9") || text.contains("insufficient memory")
+    }
+}
+
+/// The single policy boundary that converts a user-facing preset request into
+/// the concrete request sent to the renderer. Every workflow and retry uses
+/// this resolver, so profile fields and duration precedence cannot diverge.
+struct ResolvedGenerationSettings: Equatable {
+    var request: GenerationRequest
+    var profile: QualityProfile?
+    var attemptLadder: [QualityProfile]
+    var reason: String
+}
+
+enum GenerationSettingsResolver {
+    static func resolve(
+        request: GenerationRequest,
+        engine: AutoQualityEngine,
+        snapshot: MemorySnapshot
+    ) throws -> ResolvedGenerationSettings {
+        guard let rawMode = request.qualityMode,
+              let mode = QualityMode(rawValue: rawMode) else {
+            return ResolvedGenerationSettings(
+                request: request,
+                profile: nil,
+                attemptLadder: [],
+                reason: "Direct request parameters (Auto Quality not requested)"
+            )
+        }
+        guard mode != .advanced else {
+            return ResolvedGenerationSettings(
+                request: request,
+                profile: nil,
+                attemptLadder: [],
+                reason: "Custom/Advanced parameters preserved"
+            )
+        }
+
+        let resolution = try engine.resolve(
+            mode: mode,
+            modelID: request.modelId,
+            snapshot: snapshot,
+            audioRequested: !request.disableAudio
+        )
+        return ResolvedGenerationSettings(
+            request: applying(profile: resolution.profile, to: request),
+            profile: resolution.profile,
+            attemptLadder: resolution.attemptLadder,
+            reason: resolution.reason
+        )
+    }
+
+    /// Preset profile supplies resolution/FPS/steps/audio. A workflow duration
+    /// intent then constrains frames using the profile FPS. Custom requests do
+    /// not call this method and retain their manual frame count.
+    static func applying(profile: QualityProfile, to request: GenerationRequest) -> GenerationRequest {
+        var parameters = profile.applied(to: request.parameters)
+        if let target = request.targetDurationSeconds {
+            parameters.numFrames = PromptCompiler.frameCount(forSeconds: target, fps: profile.fps)
+        }
+        return GenerationRequest(
+            id: request.id,
+            prompt: request.prompt,
+            negativePrompt: request.negativePrompt,
+            voiceoverText: request.voiceoverText,
+            voiceoverSource: request.voiceoverSource,
+            voiceoverVoice: request.voiceoverVoice,
+            sourceImagePath: request.sourceImagePath,
+            musicEnabled: request.musicEnabled,
+            musicGenre: request.musicGenre,
+            disableAudio: request.disableAudio || !profile.audioEnabled,
+            gemmaRepetitionPenalty: request.gemmaRepetitionPenalty,
+            gemmaTopP: request.gemmaTopP,
+            modelId: request.modelId,
+            textEncoderId: request.textEncoderId,
+            parameters: parameters,
+            createdAt: request.createdAt,
+            status: request.status,
+            modelRevision: request.modelRevision,
+            quantization: request.quantization,
+            qualityMode: request.qualityMode,
+            preset: request.preset,
+            targetDurationSeconds: request.targetDurationSeconds,
+            generationSource: request.generationSource,
+            adultMode: request.adultMode,
+            filmProjectID: request.filmProjectID,
+            shotID: request.shotID,
+            takeID: request.takeID
+        )
     }
 }

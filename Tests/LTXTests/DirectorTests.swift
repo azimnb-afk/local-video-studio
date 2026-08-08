@@ -144,7 +144,13 @@ func runDirectorTests(_ t: TestKit) {
     t.suite("Director request pipeline") {
         let good = MockDirectorProvider(responses: [validPlanJSON])
         let director = LocalDirector(providers: [good])
-        let base = GenerationRequest(prompt: "ignored", parameters: .default, qualityMode: "auto")
+        let base = GenerationRequest(
+            prompt: "ignored",
+            parameters: .default,
+            qualityMode: QualityMode.auto.rawValue,
+            preset: GenerationPreset.standard.rawValue,
+            generationSource: "oneShot"
+        )
         let sem = DispatchSemaphore(value: 0)
         Task {
             do {
@@ -152,12 +158,59 @@ func runDirectorTests(_ t: TestKit) {
                 t.check(request.prompt.contains("lifts a cup"), "request carries compiled prompt")
                 t.checkEqual(request.id, base.id, "request identity preserved")
                 t.checkEqual(request.qualityMode, "auto", "quality mode preserved")
+                t.checkEqual(request.preset, GenerationPreset.standard.rawValue, "preset preserved")
+                t.checkEqual(request.generationSource, "oneShot", "One Shot source preserved")
+                t.checkEqual(request.targetDurationSeconds, plan.durationIntentSeconds, "One Shot duration intent carried")
                 t.checkEqual(request.parameters.numFrames, PromptCompiler.frameCount(forSeconds: plan.durationIntentSeconds ?? 5), "duration intent applied to frames")
+
+                let temp = FileManager.default.temporaryDirectory.appendingPathComponent("director-quality-\(UUID().uuidString).json")
+                defer { try? FileManager.default.removeItem(at: temp) }
+                let history = HistoricalSuccessStore(storeURL: temp)
+                let hardware = HardwareProfile(modelIdentifier: "TestMac1,1", chipDescription: "Test", physicalMemoryGB: 48)
+                let engine = AutoQualityEngine(history: history, hardware: hardware)
+                let snapshot = MemorySnapshot(
+                    physicalBytes: 48 * 1_073_741_824,
+                    approximateAvailableBytes: 30 * 1_073_741_824,
+                    swapUsedBytes: 0,
+                    swapTotalBytes: 0,
+                    thermalState: "nominal",
+                    capturedAt: Date()
+                )
+                let resolved = try GenerationSettingsResolver.resolve(request: request, engine: engine, snapshot: snapshot)
+                t.checkEqual(resolved.profile?.id, "S0", "One Shot Standard uses shared resolver")
+                t.checkEqual(resolved.request.parameters.numFrames,
+                             PromptCompiler.frameCount(forSeconds: plan.durationIntentSeconds ?? 5, fps: 24),
+                             "One Shot duration survives profile application")
             } catch {
                 t.check(false, "makeRequest threw \(error)")
             }
             sem.signal()
         }
         sem.wait()
+
+        let customProvider = MockDirectorProvider(responses: [validPlanJSON])
+        let customDirector = LocalDirector(providers: [customProvider])
+        var manual = GenerationParameters.default
+        manual.numFrames = 81
+        let customBase = GenerationRequest(
+            prompt: "ignored",
+            parameters: manual,
+            qualityMode: QualityMode.advanced.rawValue,
+            preset: GenerationPreset.custom.rawValue,
+            targetDurationSeconds: 2,
+            generationSource: "oneShot"
+        )
+        let customSem = DispatchSemaphore(value: 0)
+        Task {
+            do {
+                let (request, _, _) = try await customDirector.makeRequest(brief: "tea", base: customBase)
+                t.checkEqual(request.parameters.numFrames, 81, "One Shot Custom preserves manual frames")
+                t.check(request.targetDurationSeconds == nil, "One Shot Custom ignores automatic duration constraint")
+            } catch {
+                t.check(false, "custom makeRequest threw \(error)")
+            }
+            customSem.signal()
+        }
+        customSem.wait()
     }
 }

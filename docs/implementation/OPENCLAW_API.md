@@ -18,6 +18,9 @@ example: [extras/openclaw/](../../extras/openclaw/README.md).
   canonicalized sandbox check (unit-tested).
 - `variations` capped at 20; all generation flows through the single-flight
   GenerationService (concurrency 1).
+- `quality` uses the same resolver as the GUI: compact=Quick, auto=Standard,
+  high=High, advanced=Custom. `duration` survives profile selection and is
+  converted to final 8n+1 frames at the resolved FPS.
 - Adult policy: `adultMode` in a job is honored only when the app's Adult
   Content Mode is also ON; unverified/unknown/blocked models rejected (403).
 
@@ -26,5 +29,6 @@ example: [extras/openclaw/](../../extras/openclaw/README.md).
 POST /v1/assets · POST /v1/jobs · GET /v1/jobs/{id} · DELETE /v1/jobs/{id} ·
 GET /v1/models · GET /v1/system · GET /v1/history
 
-The legacy APIServer (port 8420, /generate) is untouched for backward
-compatibility; v1 is the recommended surface.
+The legacy APIServer (port 8420, /generate) remains backward compatible and
+now also forwards optional `quality`/`duration` through the shared resolver;
+v1 is the recommended surface.

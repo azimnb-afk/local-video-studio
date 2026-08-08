@@ -116,7 +116,15 @@ func runRegistryTests(_ t: TestKit) {
         }
 
         // Round-trip with new fields populated.
-        var request = GenerationRequest(prompt: "x", qualityMode: "auto", preset: "standard", adultMode: false, filmProjectID: UUID())
+        var request = GenerationRequest(
+            prompt: "x",
+            qualityMode: "auto",
+            preset: "standard",
+            targetDurationSeconds: 5,
+            generationSource: "oneShot",
+            adultMode: false,
+            filmProjectID: UUID()
+        )
         request.modelRevision = "abc123"
         do {
             let data = try JSONEncoder().encode(request)
@@ -124,8 +132,28 @@ func runRegistryTests(_ t: TestKit) {
             t.checkEqual(decoded.modelRevision, "abc123", "new request fields round-trip")
             t.checkEqual(decoded.qualityMode, "auto", "qualityMode round-trips")
             t.checkEqual(decoded.preset, "standard", "preset round-trips")
+            t.checkEqual(decoded.targetDurationSeconds, 5, "target duration round-trips")
+            t.checkEqual(decoded.generationSource, "oneShot", "generation source round-trips")
         } catch {
             t.check(false, "new request fields round-trip (threw \(error))")
+        }
+
+        var result = GenerationResult.preview()
+        result.effectiveProfileReason = "hardware prior"
+        result.targetDurationSeconds = 5
+        result.requestedDurationSeconds = 5.04
+        result.audioEnabled = true
+        result.generationSource = "storyboard"
+        do {
+            let data = try JSONEncoder().encode(result)
+            let decoded = try JSONDecoder().decode(GenerationResult.self, from: data)
+            t.checkEqual(decoded.effectiveProfileReason, "hardware prior", "profile reason round-trips")
+            t.checkEqual(decoded.targetDurationSeconds, 5, "result target duration round-trips")
+            t.checkEqual(decoded.requestedDurationSeconds, 5.04, "result requested duration round-trips")
+            t.checkEqual(decoded.audioEnabled, true, "result audio state round-trips")
+            t.checkEqual(decoded.generationSource, "storyboard", "result source round-trips")
+        } catch {
+            t.check(false, "new result fields round-trip (threw \(error))")
         }
     }
 

@@ -91,6 +91,8 @@ func runFilmProjectTests(_ t: TestKit) {
                 // Frame count derives from duration (3s → 73f).
                 t.checkEqual(requests.first?.parameters.numFrames, PromptCompiler.frameCount(forSeconds: 3), "frames from shot duration")
                 t.checkEqual(requests.first?.preset, GenerationPreset.standard.rawValue, "take request records Standard preset")
+                t.checkEqual(requests.first?.targetDurationSeconds, 3.0, "Storyboard shot duration is carried as target")
+                t.checkEqual(requests.first?.generationSource, "storyboard", "Storyboard source recorded")
                 t.checkEqual(saved.shots[0].takes.first?.preset, GenerationPreset.standard.rawValue, "take snapshot records preset")
             } catch {
                 t.check(false, "planTakes threw \(error)")
@@ -110,6 +112,23 @@ func runFilmProjectTests(_ t: TestKit) {
                     t.checkEqual(afterRegeneration.shots[0].takes.last?.preset, GenerationPreset.highQuality.rawValue,
                                  "new High Quality take distinguished")
                     t.checkEqual(requests.first?.qualityMode, QualityMode.high.rawValue, "regeneration uses current project preset")
+                    t.checkEqual(requests.first?.targetDurationSeconds, 3.0, "regeneration keeps shot duration constraint")
+
+                    let history = HistoricalSuccessStore(storeURL: tmpDir.appendingPathComponent("film-quality.json"))
+                    let hardware = HardwareProfile(modelIdentifier: "TestMac1,1", chipDescription: "Test", physicalMemoryGB: 48)
+                    let engine = AutoQualityEngine(history: history, hardware: hardware)
+                    let snapshot = MemorySnapshot(
+                        physicalBytes: 48 * 1_073_741_824,
+                        approximateAvailableBytes: 30 * 1_073_741_824,
+                        swapUsedBytes: 0,
+                        swapTotalBytes: 0,
+                        thermalState: "nominal",
+                        capturedAt: Date()
+                    )
+                    let resolved = try GenerationSettingsResolver.resolve(request: requests[0], engine: engine, snapshot: snapshot)
+                    t.checkEqual(resolved.profile?.id, "H0", "Storyboard regeneration resolves High through shared policy")
+                    t.checkEqual(resolved.request.parameters.numFrames, PromptCompiler.frameCount(forSeconds: 3, fps: 24),
+                                 "Storyboard duration survives High profile application")
                 } catch { t.check(false, "quality regeneration threw \(error)") }
             }
 

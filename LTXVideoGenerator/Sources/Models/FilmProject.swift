@@ -101,6 +101,7 @@ struct Take: Codable, Equatable, Identifiable {
     var qualityMode: String?
     var effectiveProfileID: String?
     var effectiveProfileName: String?
+    var effectiveProfileReason: String?
     var audioEnabled: Bool?
 
     var requestedWidth: Int
@@ -112,6 +113,7 @@ struct Take: Codable, Equatable, Identifiable {
 
     var fps: Int
     var requestedDuration: Double
+    var targetDurationSeconds: Double?
     var actualDuration: Double?
 
     var audioMetadata: MediaInfo?

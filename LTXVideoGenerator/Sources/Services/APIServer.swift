@@ -180,6 +180,8 @@ class APIServer: ObservableObject {
             let voiceoverVoice = body["voiceover_voice"] as? String ?? "af_heart"
             let musicEnabled = body["music_enabled"] as? Bool ?? false
             let musicGenre = body["music_genre"] as? String
+            let qualityMode = (body["quality"] as? String).flatMap(QualityMode.init(rawValue:)) ?? .auto
+            let targetDuration = body["duration"] as? Double
             let requestedModelID = body["model_id"] as? String
             let requestedModelRepo = body["model_repo"] as? String
             let requestedTextEncoderID = body["text_encoder_id"] as? String
@@ -211,6 +213,9 @@ class APIServer: ObservableObject {
                 if let guidance = p["guidance_scale"] as? Double { params.guidanceScale = guidance }
                 if let seed = p["seed"] as? Int { params.seed = seed }
             }
+            if let targetDuration {
+                params.numFrames = PromptCompiler.frameCount(forSeconds: targetDuration, fps: params.fps)
+            }
             
             let request = GenerationRequest(
                 prompt: prompt,
@@ -222,7 +227,11 @@ class APIServer: ObservableObject {
                 musicGenre: musicGenre,
                 modelId: resolvedModel.id,
                 textEncoderId: resolvedTextEncoder.id,
-                parameters: params
+                parameters: params,
+                qualityMode: qualityMode.rawValue,
+                preset: GenerationPreset.resolving(presetRaw: nil, qualityModeRaw: qualityMode.rawValue).rawValue,
+                targetDurationSeconds: targetDuration,
+                generationSource: "legacyREST"
             )
             
             generationService.addToQueue(request)

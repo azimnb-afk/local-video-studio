@@ -137,6 +137,25 @@ func runAPITests(_ t: TestKit) {
             t.check(requests.allSatisfy { $0.disableAudio }, "audio=false honored")
             t.checkEqual(requests.first?.parameters.numFrames, PromptCompiler.frameCount(forSeconds: 4), "duration → frames")
             t.checkEqual(requests.first?.qualityMode, "auto", "quality mode carried")
+            t.checkEqual(requests.first?.preset, GenerationPreset.standard.rawValue, "API quality maps through shared preset")
+            t.checkEqual(requests.first?.targetDurationSeconds, 4.0, "API target duration carried to final resolver")
+            t.checkEqual(requests.first?.generationSource, "apiV1", "API source recorded")
+
+            let history = HistoricalSuccessStore(storeURL: tmpDir.appendingPathComponent("api-quality.json"))
+            let hardware = HardwareProfile(modelIdentifier: "TestMac1,1", chipDescription: "Test", physicalMemoryGB: 48)
+            let engine = AutoQualityEngine(history: history, hardware: hardware)
+            let snapshot = MemorySnapshot(
+                physicalBytes: 48 * 1_073_741_824,
+                approximateAvailableBytes: 30 * 1_073_741_824,
+                swapUsedBytes: 0,
+                swapTotalBytes: 0,
+                thermalState: "nominal",
+                capturedAt: Date()
+            )
+            let resolved = try GenerationSettingsResolver.resolve(request: requests[0], engine: engine, snapshot: snapshot)
+            t.checkEqual(resolved.profile?.id, "S0", "API Standard uses same concrete resolver")
+            t.checkEqual(resolved.request.parameters.numFrames, PromptCompiler.frameCount(forSeconds: 4, fps: 24),
+                         "API duration survives profile application")
         } catch { t.check(false, "request building threw \(error)") }
     }
 

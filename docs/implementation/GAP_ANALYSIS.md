@@ -73,7 +73,7 @@ Master Promptの原則: 「backendで実際に動作確認できたものだけe
 - Story Bible / Character Bible / deterministic continuity / validator / Assembly（実MP4で検証）
 - API v1（token/loopback/sandbox/policy/≤20）+ OpenClaw extras
 - Adult Mode policy 5-case matrix（UI/Service/API各層）
-- Unit 282 checks / integration（実生成4本+regression+soak3）/ security(unit) / benchmark harness一式
+- Unit 331 checks / integration（実生成4本+regression+soak3+Preset実測監査）/ security(unit) / benchmark harness一式
 - Shared Preset UX（Quick Preview→Compact / Standard→Auto / High Quality→High / Custom→Advanced）とmanual→Custom
 - Sidebar 4 production modes、独立One Shot、Storyboard Project Settings、Hybrid MVP（自動shot split + sequential first pass）
 - Preview Take保持、current Presetでshot/複数shot再生成、selected Take Assembly
@@ -82,7 +82,7 @@ Master Promptの原則: 「backendで実際に動作確認できたものだけe
 
 ## 3. 整合性確認結果（2026-08-08, `a02ad07`）
 - `swift build`: clean
-- `swift run LTXTests`: 282 passed, 0 failed
+- `swift run LTXTests`: 331 passed, 0 failed
 - `git status`: clean / 全9 commits green
 - pbxproj: plutil OK、新規26ファイル登録済み
 - ドキュメント: CURRENT_STATE / BASELINE / DECISION_LOG / IMPLEMENTATION_PLAN / TEST_MATRIX / MODEL_COMPATIBILITY / BENCHMARK_RESULTS / OPENCLAW_API / FINAL_IMPLEMENTATION_REPORT / GAP_ANALYSIS（本書）/ GUI_ACCEPTANCE_CHECKLIST — 相互参照一致

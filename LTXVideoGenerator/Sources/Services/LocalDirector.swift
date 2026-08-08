@@ -118,7 +118,11 @@ final class LocalDirector {
             )
         )
         var params = base.parameters
-        if let seconds = plan.durationIntentSeconds {
+        let customParameters = GenerationPreset.resolving(
+            presetRaw: base.preset,
+            qualityModeRaw: base.qualityMode
+        ) == .custom
+        if let seconds = plan.durationIntentSeconds, !customParameters {
             params.numFrames = PromptCompiler.frameCount(forSeconds: seconds, fps: params.fps)
         }
         let request = GenerationRequest(
@@ -142,6 +146,9 @@ final class LocalDirector {
             modelRevision: base.modelRevision,
             quantization: base.quantization,
             qualityMode: base.qualityMode,
+            preset: base.preset,
+            targetDurationSeconds: customParameters ? nil : (base.targetDurationSeconds ?? plan.durationIntentSeconds),
+            generationSource: base.generationSource ?? "oneShot",
             adultMode: base.adultMode,
             filmProjectID: base.filmProjectID,
             shotID: base.shotID,

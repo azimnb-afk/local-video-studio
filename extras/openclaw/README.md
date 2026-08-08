@@ -40,6 +40,9 @@ Authorization: Bearer <token>
 Notes:
 - Clients never pass filesystem paths. Upload an image → use `input.assetID`.
 - `variations` is capped at 20; generation is always sequential (one at a time).
+- `quality` maps to the GUI presets (`compact` Quick, `auto` Standard, `high`
+  High, `advanced` Custom). A supplied `duration` is a final constraint: the
+  app resolves the profile first, then computes compatible 8n+1 frames.
 - Adult-classified models are rejected unless Adult Content Mode is ON **in the
   app**; the API cannot override the app's setting.
 - Video generation is local-only. The API never triggers cloud generation.

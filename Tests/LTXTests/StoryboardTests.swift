@@ -159,6 +159,38 @@ func runStoryboardTests(_ t: TestKit) {
                 t.checkEqual(Set(project.shots.map(\.id)).count, project.shots.count, "Hybrid shot IDs unique")
                 t.check(project.shots.allSatisfy { !$0.compiledPrompt.isEmpty }, "Hybrid prompts compiled")
                 t.checkEqual(project.settings.resolvedPreset, .quickPreview, "Hybrid uses shared preset settings")
+
+                let projectDir = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("LTXTests-hybrid-\(UUID().uuidString)", isDirectory: true)
+                defer { try? FileManager.default.removeItem(at: projectDir) }
+                let projectStore = FilmProjectStore(projectsDirectory: projectDir)
+                projectStore.save(project)
+                let request = try TakeGenerationCoordinator(store: projectStore).planTakes(
+                    projectID: project.id,
+                    shotID: project.shots[0].id,
+                    count: 1,
+                    baseSeed: 700
+                )[0]
+                t.checkEqual(request.generationSource, "hybrid", "Hybrid request source recorded")
+                t.checkEqual(request.targetDurationSeconds, project.shots[0].durationSeconds,
+                             "Hybrid shot target carried to request")
+
+                let history = HistoricalSuccessStore(storeURL: projectDir.appendingPathComponent("quality.json"))
+                let hardware = HardwareProfile(modelIdentifier: "TestMac1,1", chipDescription: "Test", physicalMemoryGB: 48)
+                let engine = AutoQualityEngine(history: history, hardware: hardware)
+                let snapshot = MemorySnapshot(
+                    physicalBytes: 48 * 1_073_741_824,
+                    approximateAvailableBytes: 30 * 1_073_741_824,
+                    swapUsedBytes: 0,
+                    swapTotalBytes: 0,
+                    thermalState: "nominal",
+                    capturedAt: Date()
+                )
+                let resolved = try GenerationSettingsResolver.resolve(request: request, engine: engine, snapshot: snapshot)
+                t.checkEqual(resolved.profile?.id, "C3", "Hybrid Quick uses shared resolver")
+                t.checkEqual(resolved.request.parameters.numFrames,
+                             PromptCompiler.frameCount(forSeconds: project.shots[0].durationSeconds, fps: 24),
+                             "Hybrid duration survives profile application")
             } catch { t.check(false, "Hybrid orchestration threw \(error)") }
             sem3.signal()
         }

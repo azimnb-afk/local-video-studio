@@ -209,7 +209,7 @@ private struct OneShotView: View {
     @State private var status: String?
     @State private var isPlanning = false
     @State private var targetDuration = 5.0
-    @AppStorage("generationPreset") private var presetRaw = GenerationPreset.standard.rawValue
+    @AppStorage("oneShotGenerationPreset") private var presetRaw = GenerationPreset.standard.rawValue
     @AppStorage(LTXModelCatalog.selectedModelIDKey) private var modelID = LTXModelCatalog.defaultModelID
     @AppStorage(LTXTextEncoderCatalog.selectedTextEncoderIDKey) private var textEncoderID = LTXTextEncoderCatalog.defaultTextEncoderID
     @State private var audioEnabled = true
@@ -287,7 +287,9 @@ private struct OneShotView: View {
             do {
                 let (plan, providerName) = try await LocalDirector().plan(brief: trimmed)
                 var requestParameters = parameters
-                requestParameters.numFrames = PromptCompiler.frameCount(forSeconds: targetDuration, fps: requestParameters.fps)
+                if preset != .custom {
+                    requestParameters.numFrames = PromptCompiler.frameCount(forSeconds: targetDuration, fps: requestParameters.fps)
+                }
                 let compiled = PromptCompiler.compile(plan: plan)
                 let request = GenerationRequest(
                     prompt: compiled,
@@ -296,7 +298,9 @@ private struct OneShotView: View {
                     textEncoderId: textEncoderID,
                     parameters: requestParameters,
                     qualityMode: preset.qualityMode.rawValue,
-                    preset: preset.rawValue
+                    preset: preset.rawValue,
+                    targetDurationSeconds: preset == .custom ? nil : targetDuration,
+                    generationSource: "oneShot"
                 )
                 generationService.addToQueue(request)
                 status = "Planned via \(providerName); queued for sequential generation"

@@ -767,7 +767,7 @@ struct PromptInputView: View {
                 .disabled(generationActionsDisabled)
             }
 
-            if !disableAudio && parameters.fps != 24 {
+            if !qualityOverridesParameters && !disableAudio && parameters.fps != 24 {
                 HStack(spacing: 6) {
                     Image(systemName: "info.circle.fill")
                         .foregroundStyle(.orange)
@@ -889,7 +889,8 @@ struct PromptInputView: View {
             textEncoderId: selectedTextEncoderID,
             parameters: parameters,
             qualityMode: autoQualityEnabled ? qualityModeRaw : nil,
-            preset: autoQualityEnabled ? selectedPreset.rawValue : nil
+            preset: autoQualityEnabled ? selectedPreset.rawValue : nil,
+            generationSource: "generate"
         )
         generationService.addToQueue(request)
     }
@@ -1006,7 +1007,8 @@ struct PromptInputView: View {
                     imageStrength: parameters.imageStrength
                 ),
                 qualityMode: autoQualityEnabled ? qualityModeRaw : nil,
-                preset: autoQualityEnabled ? selectedPreset.rawValue : nil
+                preset: autoQualityEnabled ? selectedPreset.rawValue : nil,
+                generationSource: "generate"
             )
         }
         generationService.addBatch(requests)

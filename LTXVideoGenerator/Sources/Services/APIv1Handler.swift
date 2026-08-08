@@ -203,6 +203,9 @@ enum APIv1 {
                 textEncoderId: textEncoderID,
                 parameters: p,
                 qualityMode: payload.quality,
+                preset: GenerationPreset.resolving(presetRaw: nil, qualityModeRaw: payload.quality).rawValue,
+                targetDurationSeconds: payload.durationSeconds,
+                generationSource: "apiV1",
                 adultMode: payload.adultMode
             )
         }

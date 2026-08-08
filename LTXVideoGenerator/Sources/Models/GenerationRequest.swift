@@ -193,6 +193,11 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
     var quantization: String?          // Quantization of the selected model ("q4", "q8", "bf16")
     var qualityMode: String?           // "auto" / "high" / "compact" / "advanced"
     var preset: String?                // user-facing GenerationPreset snapshot
+    /// Duration intent that must survive profile resolution. For Custom the
+    /// caller-owned frame count remains authoritative.
+    var targetDurationSeconds: Double?
+    /// Origin of the request (generate/oneShot/storyboard/hybrid/apiV1).
+    var generationSource: String?
     var adultMode: Bool                // Adult Content Mode state at submission time
     var filmProjectID: UUID?
     var shotID: UUID?
@@ -235,6 +240,8 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         quantization: String? = nil,
         qualityMode: String? = nil,
         preset: String? = nil,
+        targetDurationSeconds: Double? = nil,
+        generationSource: String? = nil,
         adultMode: Bool = false,
         filmProjectID: UUID? = nil,
         shotID: UUID? = nil,
@@ -261,6 +268,8 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         self.quantization = quantization
         self.qualityMode = qualityMode
         self.preset = preset
+        self.targetDurationSeconds = targetDurationSeconds
+        self.generationSource = generationSource
         self.adultMode = adultMode
         self.filmProjectID = filmProjectID
         self.shotID = shotID
@@ -289,6 +298,8 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         case quantization
         case qualityMode
         case preset
+        case targetDurationSeconds
+        case generationSource
         case adultMode
         case filmProjectID
         case shotID
@@ -318,10 +329,16 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         quantization = try container.decodeIfPresent(String.self, forKey: .quantization)
         qualityMode = try container.decodeIfPresent(String.self, forKey: .qualityMode)
         preset = try container.decodeIfPresent(String.self, forKey: .preset)
+        targetDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .targetDurationSeconds)
+        generationSource = try container.decodeIfPresent(String.self, forKey: .generationSource)
         adultMode = try container.decodeIfPresent(Bool.self, forKey: .adultMode) ?? false
         filmProjectID = try container.decodeIfPresent(UUID.self, forKey: .filmProjectID)
         shotID = try container.decodeIfPresent(UUID.self, forKey: .shotID)
         takeID = try container.decodeIfPresent(UUID.self, forKey: .takeID)
+    }
+
+    var requestedDurationSeconds: Double {
+        Double(parameters.numFrames) / Double(max(1, parameters.fps))
     }
 }
 

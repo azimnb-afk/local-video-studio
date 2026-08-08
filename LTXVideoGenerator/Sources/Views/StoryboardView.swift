@@ -650,6 +650,12 @@ private struct TakeRow: View {
             Text("Requested \(take.requestedWidth)×\(take.requestedHeight)")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
+                .help(take.effectiveProfileReason ?? "No profile resolution reason recorded")
+            if let target = take.targetDurationSeconds {
+                Text(String(format: "Target %.2fs", target))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
             Spacer()
             if take.status == .completed {
                 Button("Play") {

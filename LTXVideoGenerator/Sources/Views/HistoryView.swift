@@ -224,11 +224,14 @@ struct HistoryView: View {
             sourceImagePath: result.sourceImagePath,
             musicEnabled: result.hasMusic,
             musicGenre: result.musicGenre,
+            disableAudio: result.audioEnabled == false,
             modelId: result.modelId,
             textEncoderId: LTXTextEncoderCatalog.selectedTextEncoder().id,
             parameters: params,
             qualityMode: result.qualityMode,
-            preset: result.preset
+            preset: result.preset,
+            targetDurationSeconds: result.targetDurationSeconds,
+            generationSource: result.generationSource ?? "historyRegenerate"
         )
         generationService.addToQueue(request)
     }
@@ -377,6 +380,12 @@ struct HistoryDetailView: View {
                         if let profile = result.effectiveProfileName ?? result.effectiveProfileID {
                             DetailItem(label: "Effective Profile", value: profile)
                         }
+                        if let reason = result.effectiveProfileReason {
+                            DetailItem(label: "Profile Reason", value: reason)
+                        }
+                        if let source = result.generationSource {
+                            DetailItem(label: "Source", value: source)
+                        }
                         DetailItem(label: "Requested", value: "\(result.requestedWidth ?? result.parameters.width)×\(result.requestedHeight ?? result.parameters.height)")
                         if let effWidth = result.effectiveWidth, let effHeight = result.effectiveHeight,
                            effWidth != (result.requestedWidth ?? result.parameters.width)
@@ -389,9 +398,18 @@ struct HistoryDetailView: View {
                         if let actualDuration = result.actualDuration {
                             DetailItem(label: "Actual Length", value: String(format: "%.2fs", actualDuration))
                         }
+                        if let target = result.targetDurationSeconds {
+                            DetailItem(label: "Target Length", value: String(format: "%.2fs", target))
+                        }
+                        if let requested = result.requestedDurationSeconds {
+                            DetailItem(label: "Requested Length", value: String(format: "%.2fs", requested))
+                        }
                         DetailItem(label: "Frames", value: "\(result.parameters.numFrames)")
                         DetailItem(label: "FPS", value: "\(result.parameters.fps)")
                         DetailItem(label: "Steps", value: "\(result.parameters.numInferenceSteps)")
+                        if let audioEnabled = result.audioEnabled {
+                            DetailItem(label: "Built-in Audio", value: audioEnabled ? "On" : "Off")
+                        }
                         DetailItem(label: "Guidance", value: String(format: "%.1f", result.parameters.guidanceScale))
                         DetailItem(label: "Seed", value: "\(result.seed)", copyable: true)
                         DetailItem(label: "Model", value: result.model.displayName)

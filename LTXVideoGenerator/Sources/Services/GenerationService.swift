@@ -223,20 +223,21 @@ class GenerationService: ObservableObject {
             var attemptProfiles: [QualityProfile] = []
             var autoQualityEngine: AutoQualityEngine?
             var effectiveProfile: QualityProfile?
-            if FeatureFlags.isEnabled(.autoQualityV1),
-               let modeRaw = request.qualityMode,
-               let mode = QualityMode(rawValue: modeRaw), mode != .advanced {
+            var effectiveProfileReason = "Direct request parameters (Auto Quality disabled)"
+            if FeatureFlags.isEnabled(.autoQualityV1) {
                 let engine = AutoQualityEngine()
-                if let resolution = try? engine.resolve(
-                    mode: mode,
-                    modelID: request.modelId,
-                    snapshot: MemoryMonitor.shared.snapshot(),
-                    audioRequested: !request.disableAudio
-                ) {
+                let resolution = try GenerationSettingsResolver.resolve(
+                    request: request,
+                    engine: engine,
+                    snapshot: MemoryMonitor.shared.snapshot()
+                )
+                effectiveRequest = resolution.request
+                effectiveProfile = resolution.profile
+                effectiveProfileReason = resolution.reason
+                if resolution.profile != nil {
                     autoQualityEngine = engine
                     attemptProfiles = resolution.attemptLadder
-                    effectiveRequest = Self.applying(profile: resolution.profile, to: request)
-                    statusMessage = "Auto Quality: \(resolution.profile.displayName) — \(resolution.reason)"
+                    statusMessage = "Auto Quality: \(resolution.profile!.displayName) — \(resolution.reason)"
                 }
             }
 
@@ -246,6 +247,12 @@ class GenerationService: ObservableObject {
                 do {
                     let profileID = attemptProfiles.indices.contains(attemptIndex) ? attemptProfiles[attemptIndex].id : nil
                     let attemptStart = Date()
+                    Self.logResolvedSettings(
+                        effectiveRequest,
+                        profile: attemptProfiles.indices.contains(attemptIndex) ? attemptProfiles[attemptIndex] : effectiveProfile,
+                        reason: effectiveProfileReason,
+                        attempt: attemptIndex + 1
+                    )
                     result = try await runGeneration(effectiveRequest)
                     if attemptProfiles.indices.contains(attemptIndex) {
                         effectiveProfile = attemptProfiles[attemptIndex]
@@ -280,7 +287,8 @@ class GenerationService: ObservableObject {
                     }
                     attemptIndex = nextIndex
                     let lower = attemptProfiles[attemptIndex]
-                    effectiveRequest = Self.applying(profile: lower, to: request)
+                    effectiveRequest = GenerationSettingsResolver.applying(profile: lower, to: request)
+                    effectiveProfileReason = "\(effectiveProfileReason); runtime memory fallback to \(lower.id)"
                     statusMessage = "Retrying with lower profile: \(lower.displayName)"
                 }
             }
@@ -403,8 +411,13 @@ class GenerationService: ObservableObject {
             generationResult.preset = request.preset
             generationResult.effectiveProfileID = effectiveProfile?.id
             generationResult.effectiveProfileName = effectiveProfile?.displayName
+            generationResult.effectiveProfileReason = effectiveProfileReason
             generationResult.requestedWidth = request.parameters.width
             generationResult.requestedHeight = request.parameters.height
+            generationResult.requestedDurationSeconds = request.requestedDurationSeconds
+            generationResult.targetDurationSeconds = request.targetDurationSeconds
+            generationResult.audioEnabled = !effectiveRequest.disableAudio
+            generationResult.generationSource = request.generationSource
             generationResult.filmProjectID = request.filmProjectID
             generationResult.shotID = request.shotID
             generationResult.takeID = request.takeID
@@ -446,32 +459,18 @@ class GenerationService: ObservableObject {
     /// Copy of a request with a quality profile applied (parameters + audio).
     /// Prompt, model, IDs and all other fields are preserved.
     nonisolated static func applying(profile: QualityProfile, to request: GenerationRequest) -> GenerationRequest {
-        GenerationRequest(
-            id: request.id,
-            prompt: request.prompt,
-            negativePrompt: request.negativePrompt,
-            voiceoverText: request.voiceoverText,
-            voiceoverSource: request.voiceoverSource,
-            voiceoverVoice: request.voiceoverVoice,
-            sourceImagePath: request.sourceImagePath,
-            musicEnabled: request.musicEnabled,
-            musicGenre: request.musicGenre,
-            disableAudio: request.disableAudio || !profile.audioEnabled,
-            gemmaRepetitionPenalty: request.gemmaRepetitionPenalty,
-            gemmaTopP: request.gemmaTopP,
-            modelId: request.modelId,
-            textEncoderId: request.textEncoderId,
-            parameters: profile.applied(to: request.parameters),
-            createdAt: request.createdAt,
-            status: request.status,
-            modelRevision: request.modelRevision,
-            quantization: request.quantization,
-            qualityMode: request.qualityMode,
-            preset: request.preset,
-            adultMode: request.adultMode,
-            filmProjectID: request.filmProjectID,
-            shotID: request.shotID,
-            takeID: request.takeID
-        )
+        GenerationSettingsResolver.applying(profile: profile, to: request)
+    }
+
+    nonisolated static func logResolvedSettings(
+        _ request: GenerationRequest,
+        profile: QualityProfile?,
+        reason: String,
+        attempt: Int
+    ) {
+        let p = request.parameters
+        let target = request.targetDurationSeconds.map { String(format: "%.3f", $0) } ?? "none"
+        let requested = String(format: "%.3f", request.requestedDurationSeconds)
+        print("[ResolvedGenerationSettings] source=\(request.generationSource ?? "unknown") attempt=\(attempt) preset=\(request.preset ?? "none") quality=\(request.qualityMode ?? "none") profile=\(profile?.id ?? "manual") reason=\(reason) width=\(p.width) height=\(p.height) frames=\(p.numFrames) fps=\(p.fps) steps=\(p.numInferenceSteps) audio=\(!request.disableAudio) targetDuration=\(target) requestedDuration=\(requested) model=\(request.modelId) seed=\(p.seed.map(String.init) ?? "random")")
     }
 }

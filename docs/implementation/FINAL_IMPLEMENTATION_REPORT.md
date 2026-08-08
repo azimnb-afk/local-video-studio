@@ -16,7 +16,7 @@ used as the Last Known Good Baseline; upstream git history is retained.
 - **Phase 0 — Audit/Baseline**: full code+environment audit (BASELINE.md); all Deep-Research hypotheses re-verified against local code; SPM build/test harness for the CLT-only environment; measured baselines for T2V/I2V × audio ON/OFF with the app's exact CLI (BENCHMARK_RESULTS.md); render verified fully offline (HF_HUB_OFFLINE=1).
 - **Phase 1 — Model Registry**: ModelDescriptor/ModelRegistry/ContentClassification/Policy/Runtime/License/Artifacts; `VideoGenerationAdapter` protocol; OfficialMLXAudioAdapter (thin wrapper — LTXBridge untouched); DerivedModelAdapter; AdapterRegistry; 9 rollback-capable feature flags; backward-compatible request/result metadata with decodeIfPresent migration.
 - **Phase 2 — 10Eros Compatibility Lab + Adult Mode**: 11-check verification gate persisted to disk; ManifestValidator (revision pinning, license, classification evidence, repo-id injection guard, snapshot completeness); ModelInstaller (disk preflight, license acknowledgement, never auto-downloads); adult policy matrix enforced at Service and API layers; Preferences "Models & Features" tab.
-- **Phase 3 — Auto Quality + Low-RAM foundation**: MemoryMonitor (vm_statistics64/vm.swapusage/task_vm_info/pressure source/thermal), HardwareProfiler with memory tiers, QualityProfile ladder seeded from measured anchors, HistoricalSuccessStore (per-hardware signature), AutoQualityEngine (history > hardware prior > preflight; ≤3 attempts; memory-failure classification), fallback retry loop in GenerationService, MediaProbe (actual MP4 = source of truth) filling result metadata, LowRAMMLXAdapter boundary + lowram_bench.sh.
+- **Phase 3 — Auto Quality + Low-RAM foundation**: MemoryMonitor (vm_statistics64/vm.swapusage/task_vm_info/pressure source/thermal), HardwareProfiler with memory tiers, QualityProfile ladder seeded from measured anchors, HistoricalSuccessStore (per-hardware signature), AutoQualityEngine (hardware prior + evidence-based history cap + preflight; ≤3 attempts; memory-failure classification), fallback retry loop in GenerationService, MediaProbe (actual MP4 = source of truth) filling result metadata, LowRAMMLXAdapter boundary + lowram_bench.sh.
 - **Phase 4 — One Shot Director**: OneShotPlan structured JSON with validation; provider abstraction (Ollama on 127.0.0.1 with keep_alive:0 unload; deterministic template fallback so the feature works with zero LLMs installed); bounded JSON repair (≤2); LLM ALWAYS terminated before rendering; PromptCompiler (chronological/present-tense/single-flow; I2V image = visual truth; Japanese native + optional romanization); DialogueNormalizer; UI disclosure.
 - **Phase 5 — FilmProject/Shot/Take**: complete data model incl. spec's full Take field list; 1–20 takes (seed variants) strictly sequential through the single-flight queue; versioned atomic persistence (schema guard: newer files never destroyed; pre-migration backups); startup resume reconciling in-flight takes against real MP4s.
 - **Phase 6 — Storyboard/Continuity/Assembly**: deterministic ContinuityEngine (directive grammar, Previous+Changes=Next, contradiction validator, monotony rules); StoryboardDirector (hybrid: one sequential local LLM for all roles, terminated before render; template fallback); FinalAssemblyService (ffprobe-driven: stream-copy when compatible, else normalize+re-encode; hard cuts) — verified by actually concatenating two baseline MP4s.
@@ -50,7 +50,7 @@ Docs: docs/implementation/* (9 files), extras/openclaw/* (3 files)
 - PromptInputView.swift — quality picker, director panel, 10/20 variations, qualityMode pass-through
 - PreferencesView.swift — new tab hook; LTXVideoGeneratorApp.swift — flag-gated startup wiring; project.pbxproj — file registration
 - 6 view files — `#Preview` gated behind `!SPM_BUILD` (Xcode unaffected)
-- **NOT modified**: LTXBridge.swift generation internals (only formatting of call sites; the Python script, scheduler/VAE/conditioning logic untouched), APIServer.swift, HistoryManager.swift, AudioService.swift
+- **NOT modified**: LTXBridge.swift generation internals (only formatting of call sites; the Python script, scheduler/VAE/conditioning logic untouched), HistoryManager.swift, AudioService.swift. Legacy APIServer request construction was updated only to carry the same preset/duration metadata into the shared resolver.
 
 ## 6. Architecture
 GUI-first: SwiftUI → GenerationService (single-flight) → [flag OFF: LTXBridge directly | flag ON: ModelRegistry policy → AdapterRegistry → OfficialMLXAudioAdapter → same LTXBridge] → python subprocess → mlx_video.generate_av → MP4 → MediaProbe → History.
@@ -65,7 +65,7 @@ modelRegistryV1 · autoQualityV1 · directorV1 · filmProjectV1 · storyboardV1 
 Automated acceptance against the running .app: API v1 socket-level security suite passed (401/401/403/400, loopback-only lsof, no CORS) and a full E2E job (POST /v1/jobs, quality=compact) ran a real generation through the GUI app's queue — Auto Quality applied C2 (512×320/65f), completed with actual ffprobe metadata (2.708 s), output re-verified on disk. Remaining distribution step: Developer ID signing + notarization (credentials required).
 
 ## 9. Test Results
-`swift run LTXTests`: **282 checks, 0 failures** (breakdown: TEST_MATRIX.md). Includes Preset mapping, Project Settings persistence, Preview Take retention, Hybrid orchestration, live syscall checks, real-MP4 MediaProbe, and real ffmpeg concat assembly.
+`swift run LTXTests`: **331 checks, 0 failures** (breakdown: TEST_MATRIX.md). Includes exact Quick/Standard/High final-request comparison, history cap/fallback policy, duration survival for One Shot/Storyboard/Hybrid/API, Custom frame precedence, metadata migration, Preset mapping, Project Settings persistence, Preview Take retention, Hybrid orchestration, live syscall checks, real-MP4 MediaProbe, and real ffmpeg concat assembly.
 
 ## 10. Regression Results
 Same seed/settings re-render after all changes produced a **byte-identical MP4** (MD5 bf8020b1f55f73a62c075f2df1c65a8d = Phase 0 baseline). Peak memory 23.46 GB ≤ baseline 23.66 GB. Official fast path: 0% regression.
@@ -107,4 +107,43 @@ Post-Xcode human GUI acceptance checklist: [GUI_ACCEPTANCE_CHECKLIST.md](GUI_ACC
 5. Optionally install Ollama + a small model to upgrade Director planning beyond the deterministic template fallback.
 
 ## 18. Exact Resume Prompt
-> /Users/azimnb/ltx23appdev/ltx-video-mac の docs/implementation/CURRENT_STATE.md と FINAL_IMPLEMENTATION_REPORT.md を読んでください。branch は director-extensions、テストは `swift run LTXTests`（282 checks）です。Remaining Human Actions のうち完了したものを教えるので、対応する Runtime Verification（10Eros compat lab / 16GB lowram bench / full queue soak）を進め、結果を Compatibility Lab・BENCHMARK_RESULTS.md・TEST_MATRIX.md へ記録してください。Official fast path の regression 判定は同一 seed の MD5 比較（bf8020b1f55f73a62c075f2df1c65a8d）を基準にしてください。
+> /Users/azimnb/ltx23appdev/ltx-video-mac の docs/implementation/CURRENT_STATE.md と FINAL_IMPLEMENTATION_REPORT.md を読んでください。branch は director-extensions、テストは `swift run LTXTests`（331 checks）です。Remaining Human Actions のうち完了したものを教えるので、対応する Runtime Verification（10Eros compat lab / 16GB lowram bench / full queue soak / post-fix real Preset comparison）を進め、結果を Compatibility Lab・BENCHMARK_RESULTS.md・TEST_MATRIX.md へ記録してください。Official fast path の regression 判定は同一 seed の MD5 比較（bf8020b1f55f73a62c075f2df1c65a8d）を基準にしてください。
+
+## 19. Preset / Quality propagation root-cause closure
+
+### Root cause and affected modes
+Two independent defects combined:
+
+1. Auto returned the highest successful historical profile before consulting the hardware prior. The user's real `quality_history.json` contained Compact successes, so Standard/Auto resolved to Compact even though no Standard failure existed.
+2. One Shot, Storyboard, Hybrid and API correctly computed duration-derived frames, but `QualityProfile.applied` later overwrote them with its fixed profile frame count. Retake, Generate Missing and Regenerate Selected were affected because all feed `TakeGenerationCoordinator` then `GenerationService`.
+
+Generate was affected by the Auto history bug; duration overwrite affected the duration-aware modes and REST/OpenClaw. Custom was additionally vulnerable in One Shot because planning wrote plan duration into manual frames before Auto resolution.
+
+### Fix
+- Added one `GenerationSettingsResolver`; every path and retry uses it.
+- 48 GB Standard uses S0; Quick uses C3 with audio; High uses H0. Lower success does not cap Auto unless S0's latest recorded outcome failed.
+- Profile resolution happens first, then target duration recomputes frames at the profile FPS. Custom preserves manual frames.
+- One Shot uses an independent persisted preset key.
+- Full resolved settings are logged before render and durable metadata is shown in Archive/Take rows.
+
+### Mandatory final-request comparison
+Same brief, model `ltx23_distilled_q4`, seed `4242`, target/requested duration 5 s, audio ON:
+
+| Preset | Quality | Effective profile | Width×Height | Frames | FPS | Steps | Audio | Model | Seed |
+|---|---|---:|---:|---:|---:|---:|---|---|---:|
+| Quick Preview | compact | C3 | 512×320 | 121 | 24 | 15 | ON | ltx23_distilled_q4 | 4242 |
+| Standard | auto | S0 | 768×512 | 121 | 24 | 25 | ON | ltx23_distilled_q4 | 4242 |
+| High Quality | high | H0 | 768×512 | 121 | 24 | 30 | ON | ltx23_distilled_q4 | 4242 |
+
+All three use 121 frames because 5 s is an explicit duration constraint; the intended quality/time separation is resolution and inference steps, not an accidental duration change.
+
+### Existing real-generation evidence
+The final app's Archive and persisted history reproduced the reported regression with the same Japanese brief:
+
+| Preset | Effective | Actual output | Frames/Steps | Wall time |
+|---|---|---|---|---:|
+| Quick Preview | C3 | 512×320, 2.01 s | 49 / 15 | 70.69 s |
+| old Standard | C3 | 512×320, 2.01 s | 49 / 15 | 69.17 s |
+| High Quality | H0 | 768×512, 5.01 s | 121 / 30 | 274.95 s |
+
+A new post-fix render was not started because the Debug app reported `MLX Environment Not Ready` and the sandboxed Python probe reported no Metal device. This is an environment limitation, not a claimed pass. The required final-request comparison, unit/integration tests, persisted real-output inspection, final xcodebuild and GUI checks all completed.

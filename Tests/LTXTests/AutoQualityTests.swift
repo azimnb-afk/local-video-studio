@@ -62,13 +62,14 @@ func runAutoQualityTests(_ t: TestKit) {
         let store = HistoricalSuccessStore(storeURL: tmpDir.appendingPathComponent("h1.json"))
         let snap48 = snapshot(physicalGB: 48, availableGB: 30)
 
-        // 48GB, no history → High prior.
+        // 48GB, no history → Standard profile. High remains a distinct,
+        // explicit preset on this hardware.
         let engine48 = AutoQualityEngine(history: store, hardware: hardware(48))
         do {
             let res = try engine48.resolve(mode: .auto, modelID: "m", snapshot: snap48, audioRequested: true)
-            t.checkEqual(res.profile.id, "H0", "48GB auto prior = High")
+            t.checkEqual(res.profile.id, "S0", "48GB auto prior = Standard")
             t.check(res.attemptLadder.count <= AutoQualityEngine.maxAttempts, "ladder capped at 3 attempts")
-            t.checkEqual(res.attemptLadder.first?.id, "H0", "ladder starts at chosen profile")
+            t.checkEqual(res.attemptLadder.first?.id, "S0", "ladder starts at chosen profile")
         } catch { t.check(false, "48GB auto resolve threw \(error)") }
 
         // 16GB → Compact C0 prior; ladder must not contain anything above C0.
@@ -106,11 +107,12 @@ func runAutoQualityTests(_ t: TestKit) {
             t.checkEqual(res.profile.id, "S0", "known-safe profile preferred over failed higher profile")
         } catch { t.check(false, "history resolve threw \(error)") }
 
-        // Later success at high promotes back.
+        // A later High success confirms Standard's hardware prior but does not
+        // collapse the explicit Standard and High presets.
         engine.recordOutcome(modelID: "m", profileID: "H0", succeeded: true)
         do {
             let res = try engine.resolve(mode: .auto, modelID: "m", snapshot: snap, audioRequested: true)
-            t.checkEqual(res.profile.id, "H0", "new success promotes profile")
+            t.checkEqual(res.profile.id, "S0", "high success does not promote Standard past its prior")
         } catch { t.check(false, "promotion resolve threw \(error)") }
 
         // History is per hardware signature.
@@ -124,6 +126,26 @@ func runAutoQualityTests(_ t: TestKit) {
         let store2 = HistoricalSuccessStore(storeURL: tmpDir.appendingPathComponent("h2.json"))
         t.check(store2.highestKnownSafeProfile(hardwareSignature: "TestMac1,1/48GB", modelID: "m")?.id == "H0",
                 "history persists")
+
+        // A Compact success without a Standard failure must not pin Auto to
+        // Compact (the production regression that made Quick == Standard).
+        let lowerOnlyStore = HistoricalSuccessStore(storeURL: tmpDir.appendingPathComponent("h-lower-only.json"))
+        let lowerOnly = AutoQualityEngine(history: lowerOnlyStore, hardware: hardware(48))
+        lowerOnly.recordOutcome(modelID: "m", profileID: "C2", succeeded: true)
+        do {
+            let res = try lowerOnly.resolve(mode: .auto, modelID: "m", snapshot: snap, audioRequested: true)
+            t.checkEqual(res.profile.id, "S0", "lower success alone does not cap Standard")
+            t.check(res.reason.contains("lower-profile successes do not cap"), "uncapped reason is explicit")
+        } catch { t.check(false, "lower-only history resolve threw \(error)") }
+
+        // An actual failure at Standard plus a known Compact success does cap
+        // Auto, and the reason is persisted for diagnostics.
+        lowerOnly.recordOutcome(modelID: "m", profileID: "S0", succeeded: false)
+        do {
+            let res = try lowerOnly.resolve(mode: .auto, modelID: "m", snapshot: snap, audioRequested: true)
+            t.checkEqual(res.profile.id, "C2", "failed Standard falls back to known-safe Compact")
+            t.check(res.reason.contains("History fallback"), "history fallback reason is explicit")
+        } catch { t.check(false, "history fallback resolve threw \(error)") }
     }
 
     t.suite("Failure classification / profile application") {
@@ -142,6 +164,70 @@ func runAutoQualityTests(_ t: TestKit) {
         t.checkEqual(applied.id, request.id, "request identity preserved")
         t.checkEqual(applied.prompt, "p", "prompt preserved")
         t.checkEqual(applied.preset, "standard", "preset snapshot preserved")
+    }
+
+    t.suite("Resolved Quick / Standard / High requests") {
+        let store = HistoricalSuccessStore(storeURL: tmpDir.appendingPathComponent("comparison.json"))
+        let engine = AutoQualityEngine(history: store, hardware: hardware(48))
+        let snap = snapshot(physicalGB: 48, availableGB: 30)
+        let seed = 4242
+        let target = 5.0
+
+        func request(_ preset: GenerationPreset, source: String = "oneShot") -> GenerationRequest {
+            var p = GenerationParameters.default
+            p.seed = seed
+            return GenerationRequest(
+                prompt: "same cinematic brief",
+                modelId: LTXModelCatalog.defaultModelID,
+                parameters: p,
+                qualityMode: preset.qualityMode.rawValue,
+                preset: preset.rawValue,
+                targetDurationSeconds: target,
+                generationSource: source
+            )
+        }
+
+        do {
+            let quick = try GenerationSettingsResolver.resolve(request: request(.quickPreview), engine: engine, snapshot: snap)
+            let standard = try GenerationSettingsResolver.resolve(request: request(.standard), engine: engine, snapshot: snap)
+            let high = try GenerationSettingsResolver.resolve(request: request(.highQuality), engine: engine, snapshot: snap)
+
+            t.checkEqual(quick.profile?.id, "C3", "Quick resolves to C3")
+            t.checkEqual(standard.profile?.id, "S0", "Standard resolves to S0")
+            t.checkEqual(high.profile?.id, "H0", "High resolves to H0")
+            t.checkEqual(quick.request.parameters.width, 512, "Quick final width")
+            t.checkEqual(standard.request.parameters.width, 768, "Standard final width")
+            t.checkEqual(high.request.parameters.numInferenceSteps, 30, "High final steps")
+            t.check(quick.request.parameters.numInferenceSteps < standard.request.parameters.numInferenceSteps,
+                    "Quick steps lower than Standard")
+            t.check(standard.request.parameters.numInferenceSteps < high.request.parameters.numInferenceSteps,
+                    "Standard steps lower than High")
+            let expectedFrames = PromptCompiler.frameCount(forSeconds: target, fps: 24)
+            t.checkEqual(quick.request.parameters.numFrames, expectedFrames, "Quick honors target duration")
+            t.checkEqual(standard.request.parameters.numFrames, expectedFrames, "Standard honors target duration")
+            t.checkEqual(high.request.parameters.numFrames, expectedFrames, "High honors target duration")
+            t.checkEqual(quick.request.parameters.seed, seed, "Quick seed preserved")
+            t.checkEqual(standard.request.parameters.seed, seed, "Standard seed preserved")
+            t.checkEqual(high.request.parameters.seed, seed, "High seed preserved")
+            t.check(!quick.request.disableAudio && !standard.request.disableAudio && !high.request.disableAudio,
+                    "audio is explicit in all resolved requests")
+        } catch { t.check(false, "request comparison threw \(error)") }
+
+        var customParams = GenerationParameters.default
+        customParams.numFrames = 81
+        let custom = GenerationRequest(
+            prompt: "same cinematic brief",
+            parameters: customParams,
+            qualityMode: QualityMode.advanced.rawValue,
+            preset: GenerationPreset.custom.rawValue,
+            targetDurationSeconds: 2,
+            generationSource: "oneShot"
+        )
+        do {
+            let resolved = try GenerationSettingsResolver.resolve(request: custom, engine: engine, snapshot: snap)
+            t.checkEqual(resolved.request.parameters.numFrames, 81, "Custom manual frames win over target duration")
+            t.check(resolved.profile == nil, "Custom has no automatic profile")
+        } catch { t.check(false, "custom resolution threw \(error)") }
     }
 
     t.suite("MediaProbe") {

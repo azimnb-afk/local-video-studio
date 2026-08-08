@@ -64,6 +64,17 @@ final class HistoricalSuccessStore {
             .max { $0.rank < $1.rank }
     }
 
+    /// Returns true when the latest recorded attempt for this concrete profile
+    /// failed. A success at a lower profile alone is not evidence that higher
+    /// profiles are unsafe.
+    func latestAttemptFailed(
+        profileID: String,
+        hardwareSignature: String,
+        modelID: String
+    ) -> Bool {
+        latestOutcomes(hardwareSignature: hardwareSignature, modelID: modelID)[profileID] == false
+    }
+
     // MARK: Persistence
 
     private func load() {

@@ -39,6 +39,8 @@ final class TakeGenerationCoordinator {
         }
         let shot = project.shots[shotIndex]
         let settings = project.settings
+        let targetDuration = settings.resolvedPreset == .custom ? nil : shot.durationSeconds
+        let generationSource = project.workflowMode == "hybrid" ? "hybrid" : "storyboard"
 
         var requests: [GenerationRequest] = []
         for i in 0..<count {
@@ -66,6 +68,7 @@ final class TakeGenerationCoordinator {
                 requestedHeight: params.height,
                 fps: params.fps,
                 requestedDuration: Double(params.numFrames) / Double(params.fps),
+                targetDurationSeconds: targetDuration,
                 status: .queued
             )
             project.shots[shotIndex].takes.append(take)
@@ -78,6 +81,8 @@ final class TakeGenerationCoordinator {
                 parameters: params,
                 qualityMode: settings.qualityMode,
                 preset: settings.resolvedPreset.rawValue,
+                targetDurationSeconds: targetDuration,
+                generationSource: generationSource,
                 filmProjectID: projectID,
                 shotID: shotID,
                 takeID: take.id
@@ -123,6 +128,12 @@ final class TakeGenerationCoordinator {
         take.qualityMode = result.qualityMode ?? take.qualityMode
         take.effectiveProfileID = result.effectiveProfileID
         take.effectiveProfileName = result.effectiveProfileName
+        take.effectiveProfileReason = result.effectiveProfileReason
+        take.targetDurationSeconds = result.targetDurationSeconds ?? take.targetDurationSeconds
+        take.audioEnabled = result.audioEnabled ?? take.audioEnabled
+        take.settingsSnapshot = result.parameters
+        take.fps = result.parameters.fps
+        take.requestedDuration = result.requestedDurationSeconds ?? take.requestedDuration
         take.generationCompletedAt = result.completedAt
         take.generationTime = result.duration
         take.peakMemoryBytes = result.peakMemoryBytes

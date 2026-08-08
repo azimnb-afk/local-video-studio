@@ -26,3 +26,14 @@ The existing AutoQualityEngine and QualityMode execution strategy remain unchang
 
 ## D-009 (2026-08-08) Hybrid is thin orchestration over completed services
 Hybrid uses StoryboardDirector, PromptCompiler, ContinuityEngine, FilmProjectStore, TakeGenerationCoordinator, GenerationService and FinalAssemblyService. It adds no inference implementation. The deterministic no-LLM template fallback is expanded into 4–6 second shots from target duration so Hybrid remains usable without Ollama; all first-pass requests enter the existing single-flight queue.
+
+## D-010 (2026-08-08) One concrete generation-settings resolver
+`GenerationSettingsResolver` is the sole boundary that applies a resolved `QualityProfile` to `GenerationRequest`. Generate, One Shot, Storyboard, Hybrid, all take/regeneration actions, legacy REST and Local API v1/OpenClaw carry metadata to that same boundary. Retry fallback calls the same application function. This prevents mode-specific copies from silently diverging.
+
+Duration precedence is explicit: a non-Custom profile owns resolution, FPS, steps, tiling and audio capability; a workflow `targetDurationSeconds` then owns frames through `PromptCompiler.frameCount` (8n+1); Custom/Advanced owns manual frames and ignores automatic duration constraints.
+
+## D-011 (2026-08-08) Standard is distinct from Quick and explicit High on 48 GB
+The former Auto policy treated any lower-profile success as a permanent ceiling. Production history proved the failure: a C3 success made Standard resolve to C3, identical to Quick. Auto now begins with a hardware prior, and lower successes cap it only when that exact prior's latest outcome is failure. On 48 GB the Standard prior is S0 (768×512/25 steps); explicit High remains H0 (768×512/30 steps). A fallback reason is persisted and displayed. A known H0 success confirms, but does not promote, Standard beyond S0; 64 GB+ retains H0 as its Auto prior.
+
+## D-012 (2026-08-08) Diagnostics are persisted, not inferred later
+`GenerationRequest` carries target duration and workflow source. `GenerationResult` and `Take` store effective profile reason, target/requested duration, effective audio and source, all backward-compatible optional fields. `GenerationService` prints the full final renderer settings before every attempt. Archive/Take UI exposes the durable fields so a future preset regression can be diagnosed without reconstructing transient UI state.

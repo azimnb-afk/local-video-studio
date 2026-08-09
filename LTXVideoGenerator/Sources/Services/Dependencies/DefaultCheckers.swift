@@ -22,6 +22,12 @@ public class DefaultPythonChecker: PythonChecking {
             } else if result.pendingUserConsent {
                 return .missing(result.message) // Needs pip install/upgrade
             } else {
+                // Saved path is invalid; attempt auto-detection as a recovery path
+                let autoResult = await env.autoDetectPython()
+                if let autoPath = autoResult.path, autoResult.result.success {
+                    UserDefaults.standard.set(autoPath, forKey: "pythonPath")
+                    return .ready
+                }
                 return .invalid(result.message)
             }
         }

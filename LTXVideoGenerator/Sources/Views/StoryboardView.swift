@@ -166,9 +166,13 @@ struct StoryboardView: View {
                 project.workflowMode = mode.workflowValue
                 store.save(project)
                 if mode == .hybrid, generateFirstPass {
-                    let coordinator = TakeGenerationCoordinator(store: store, generationService: generationService)
-                    for shot in project.shots {
-                        _ = try coordinator.planTakes(projectID: project.id, shotID: shot.id, count: 1)
+                    if !DependencyHealthManager.shared.isGenerationReady {
+                        DependencyHealthManager.shared.showSetupWizard = true
+                    } else {
+                        let coordinator = TakeGenerationCoordinator(store: store, generationService: generationService)
+                        for shot in project.shots {
+                            _ = try coordinator.planTakes(projectID: project.id, shotID: shot.id, count: 1)
+                        }
                     }
                 }
                 selectedProjectID = project.id
@@ -754,6 +758,10 @@ private struct ShotCard: View {
     }
 
     private func plan(count: Int) {
+        if !DependencyHealthManager.shared.isGenerationReady {
+            DependencyHealthManager.shared.showSetupWizard = true
+            return
+        }
         do {
             _ = try coordinator.planTakes(projectID: project.id, shotID: shot.id, count: count)
             statusMessage = "Queued \(count) take\(count == 1 ? "" : "s") for Shot \(shot.index + 1)"

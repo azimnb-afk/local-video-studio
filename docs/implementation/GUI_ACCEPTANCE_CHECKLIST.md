@@ -6,6 +6,22 @@ Python: `~/ltx-venv/bin/python3`（設定済みのはず）。モデル: ltx23_d
 
 判定原則: **requested値ではなく実MP4（ffprobe）と実挙動が基準。**
 
+## 2026-08-09 Phase A1 First Run / Dependency Onboarding Acceptance
+
+- [x] Canonical Debug app built with Xcode 26.6 (`xcodebuild -scheme LTXVideoGenerator clean build` → BUILD SUCCEEDED).
+- [x] Subprocess Python validation: verifies Python executable, version 3.10+, PyTorch, diffusers, `mlx_video`.
+- [x] Auto-detection recovery path: if configured `pythonPath` is deleted or invalid, `DefaultPythonChecker` automatically executes `autoDetectPython()` as a recovery path.
+- [x] DependencyHealthManager aggregates statuses (`.python`, `.ffmpeg`, `.videoModel`, `.textEncoder`, `.localDirector`, `.vision`).
+- [x] Required vs Optional: Python, FFmpeg, Video Model, and Text Encoder are Required (`isGenerationReady = true` when all 4 ready); Ollama and Local Vision are Optional.
+- [x] Non-blocking onboarding: SetupWizardView is displayed on launch if required dependencies are missing, but users can click "Continue to App" to browse Archive, existing Projects, CharacterBible, and Settings.
+- [x] Unified Generation Gating: All generation triggers across all UI views (Generate, Add to Queue, Batch, One Shot, Storyboard Take, Generate Missing Takes, Regenerate Selected Shots, Hybrid auto generation, Retake, History) check `isGenerationReady` and open `SetupWizardView` when incomplete.
+- [x] Timeouts: Subprocess and HTTP checks (Ollama/localhost) utilize timeouts (15s / 5s) to guarantee no infinite spinners or MainActor thread blocking.
+- [x] Legacy Alert Replacement: Removed legacy `showPythonSetupAlert` and `launchPackageUpgradeMessage` alerts; `SetupWizardView` displays detailed package/dependency diagnostic copy and directs users to Preferences.
+- [x] Privacy & Safety: No silent network access, automatic pip/brew installs, or background model downloads. Diagnostics copy contains zero secrets or tokens.
+- [x] Unit Test Suite: 598 passed / 0 failed in `swift run LTXTests`. TestKit test harness handles async MainActor dispatch via `RunLoop.main` without deadlocks.
+
+---
+
 ## 2026-08-08 GUI-first completion verification
 
 - [x] Final Debug `.app` built with Xcode 26.6 and launched.

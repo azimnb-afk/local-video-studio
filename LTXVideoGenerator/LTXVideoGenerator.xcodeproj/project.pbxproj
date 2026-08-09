@@ -65,6 +65,10 @@
 		AA00022E /* APIv1Handler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00022F; };
 		AA000230 /* LocalAPIServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000231; };
 		AA000232 /* ModelsAndFeaturesPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000233; };
+		AA000250 /* DefaultCheckers.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000251; };
+		AA000252 /* DependencyHealthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000253; };
+		AA000254 /* FFmpegDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000255; };
+		AA000256 /* SetupWizardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000257; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -122,6 +126,10 @@
 		AA00022F /* APIv1Handler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIv1Handler.swift; sourceTree = "<group>"; };
 		AA000231 /* LocalAPIServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAPIServer.swift; sourceTree = "<group>"; };
 		AA000233 /* ModelsAndFeaturesPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelsAndFeaturesPreferences.swift; sourceTree = "<group>"; };
+		AA000251 /* DefaultCheckers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dependencies/DefaultCheckers.swift; sourceTree = "<group>"; };
+		AA000253 /* DependencyHealthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dependencies/DependencyHealthManager.swift; sourceTree = "<group>"; };
+		AA000255 /* FFmpegDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dependencies/FFmpegDetector.swift; sourceTree = "<group>"; };
+		AA000257 /* SetupWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupWizardView.swift; sourceTree = "<group>"; };
 		AA000191 /* MacOSSystemMemory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacOSSystemMemory.swift; sourceTree = "<group>"; };
 		AA000193 /* LTXGenerationLogSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LTXGenerationLogSummary.swift; sourceTree = "<group>"; };
 		AA000195 /* GenerationFailureRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationFailureRecovery.swift; sourceTree = "<group>"; };
@@ -231,6 +239,9 @@
 				AA00022D /* TakeGenerationCoordinator.swift */,
 				AA00022F /* APIv1Handler.swift */,
 				AA000231 /* LocalAPIServer.swift */,
+				AA000251 /* DefaultCheckers.swift */,
+				AA000253 /* DependencyHealthManager.swift */,
+				AA000255 /* FFmpegDetector.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -248,6 +259,7 @@
 				AA000241 /* StoryboardView.swift */,
 				AA000247 /* CharacterReferenceExtractionView.swift */,
 				AA000233 /* ModelsAndFeaturesPreferences.swift */,
+				AA000257 /* SetupWizardView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -383,6 +395,10 @@
 				AA00022E /* APIv1Handler.swift in Sources */,
 				AA000230 /* LocalAPIServer.swift in Sources */,
 				AA000232 /* ModelsAndFeaturesPreferences.swift in Sources */,
+				AA000250 /* DefaultCheckers.swift in Sources */,
+				AA000252 /* DependencyHealthManager.swift in Sources */,
+				AA000254 /* FFmpegDetector.swift in Sources */,
+				AA000256 /* SetupWizardView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

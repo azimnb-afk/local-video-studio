@@ -93,3 +93,12 @@ The Production UX specification approved in Phase 6A has been fully implemented 
 3. **Warnings & Assistance**: Displays inline camera freedom guidance, framing constraint warning for Face images, and `AspectMismatchCalculator` warnings for aspect ratio/orientation mismatch (threshold >=20%) without blocking video generation.
 4. **Missing Asset Safety**: Missing starting image files on disk retain user selection, present a red `Image unavailable` badge with explicit `Clear` and `Change...` buttons, and fail preflight (`CoordinatorError.startingImageUnavailable`) to block silent T2V fallback.
 5. **Shared Workflow UX**: Storyboard and Hybrid workflows share identical UI elements and missing asset behavior. Generate and One Shot remain unmutated with legacy `CharacterProfile`.
+
+## D-021 (2026-08-09) Phase A1 First Run / Dependency Onboarding Architecture
+Centralized dependency health checking (`DependencyHealthManager`) replaces fragmented launch alerts (`showPythonSetupAlert`, `showLaunchPackageUpgradePrompt`) and ensures non-blocking app onboarding.
+
+1. **Required vs Optional Dependencies**: Python Environment, FFmpeg, Video Model, and Text Encoder are classified as Required for video generation (`isGenerationReady = true` when all 4 are `.ready`). Ollama (Local Director) and Local Vision are classified as Optional and do not block Generation readiness.
+2. **Subprocess Python Validation**: Validates executable existence, version (3.10+), PyTorch, diffusers, and `mlx_video` package import. If a user-configured `pythonPath` is invalid or deleted, `DefaultPythonChecker` automatically executes `autoDetectPython()` as a non-mutating recovery path.
+3. **No Silent Mutations**: Managed Python environment installation/upgrade (pip/Homebrew/bundled binaries) is deferred. The app never runs `sudo`, silent `pip install`, `brew install`, or background model/encoder downloads.
+4. **Unified Generation Gating**: All video generation triggers across all UI views (Generate, Add to Queue, Batch, One Shot, Storyboard Take, Generate Missing Takes, Regenerate Selected Shots, Hybrid auto generation, Retake, History) check `isGenerationReady` and present `SetupWizardView` when required dependencies are missing.
+5. **App Exploration Unblocked**: Missing dependencies only block video rendering actions. Users may dismiss `SetupWizardView` ("Continue to App") to browse Archive, existing Projects, CharacterBible, and Settings.

@@ -92,3 +92,13 @@ process was PID `87843`, started at `22:10:12`, from that exact executable.
 Generate showed direct `Image to Video` and no One Shot Director UI. One Shot
 showed image selection, thumbnail/status, clear, and deterministic missing-file
 recovery. No render, model download, cloud call, or backend change was made.
+
+## 2026-08-09 Bilingual page descriptions
+
+Generate, One Shot, Storyboard, Hybrid, Video Archive, and Settings now show a
+page title followed by the English page description and its Japanese equivalent.
+Navigation, buttons, presets, errors, workflow logic, and localization settings
+remain unchanged; this is an always-visible two-line presentation rather than a
+locale system. Canonical Debug GUI acceptance confirmed all six pages, English
+navigation labels, intact One Shot Starting Image controls, and no clipping or
+overlap at the tested window sizes.

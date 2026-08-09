@@ -35,19 +35,33 @@ struct StoryboardView: View {
     }
 
     var body: some View {
-        HSplitView {
-            projectList
-                .frame(minWidth: 220, maxWidth: 300)
-            if let project = selectedProject {
-                ProjectDetailView(
-                    project: project,
-                    generationService: generationService,
-                    statusMessage: $statusMessage,
-                    isAssembling: $isAssembling,
-                    onChanged: refresh
-                )
-            } else {
-                emptyState
+        VStack(spacing: 0) {
+            BilingualPageHeader(
+                title: mode == .hybrid ? "Hybrid" : "Storyboard",
+                englishDescription: mode == .hybrid
+                    ? "Combine automatic planning with manual storyboard control."
+                    : "Build and manage a video as multiple shots, takes, and characters.",
+                japaneseDescription: mode == .hybrid
+                    ? "AIによる自動構成とストーリーボードの手動編集を組み合わせて制作します。"
+                    : "複数のショット・テイク・キャラクターを管理しながら映像を制作します。"
+            )
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+            Divider()
+            HSplitView {
+                projectList
+                    .frame(minWidth: 220, maxWidth: 300)
+                if let project = selectedProject {
+                    ProjectDetailView(
+                        project: project,
+                        generationService: generationService,
+                        statusMessage: $statusMessage,
+                        isAssembling: $isAssembling,
+                        onChanged: refresh
+                    )
+                } else {
+                    emptyState
+                }
             }
         }
         .onAppear(perform: refresh)

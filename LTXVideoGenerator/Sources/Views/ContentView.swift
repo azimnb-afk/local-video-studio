@@ -199,6 +199,26 @@ struct SidebarButton: View {
     }
 }
 
+/// A compact, always-bilingual page introduction. Navigation and control
+/// labels remain English; only the page-level description is duplicated.
+struct BilingualPageHeader: View {
+    let title: String
+    let englishDescription: String
+    let japaneseDescription: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.largeTitle.bold())
+            Text(englishDescription)
+            Text(japaneseDescription)
+                .foregroundStyle(.secondary)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 /// Dedicated One Shot mode. It composes LocalDirector, PromptCompiler and the
 /// existing single-flight GenerationService; it does not introduce another
 /// generation path.
@@ -223,10 +243,11 @@ private struct OneShotView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text("One Shot")
-                    .font(.largeTitle.bold())
-                Text("Describe one short scene. The local director fills in camera, action, dialogue and sound, unloads before rendering, then uses the same official generation queue.")
-                    .foregroundStyle(.secondary)
+                BilingualPageHeader(
+                    title: "One Shot",
+                    englishDescription: "Describe a scene, optionally add a starting image, and let the Director turn it into a complete video shot.",
+                    japaneseDescription: "作りたいシーンを入力し、必要に応じて開始画像を追加すると、Directorが1つの映像シーンとして組み立てて生成します。"
+                )
                 Text("Short Brief")
                     .font(.headline)
                 TextEditor(text: $brief)
@@ -628,9 +649,19 @@ struct GenerateView: View {
     @AppStorage("generationPreset") private var presetRaw = GenerationPreset.standard.rawValue
     
     var body: some View {
-        HSplitView {
-            promptArea
-            parametersPanel
+        VStack(spacing: 0) {
+            BilingualPageHeader(
+                title: "Generate",
+                englishDescription: "Generate a video directly from a prompt or starting image.",
+                japaneseDescription: "プロンプトや開始画像から、動画を直接生成します。"
+            )
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+            Divider()
+            HSplitView {
+                promptArea
+                parametersPanel
+            }
         }
     }
     

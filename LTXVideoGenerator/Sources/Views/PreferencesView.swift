@@ -40,7 +40,16 @@ struct PreferencesView: View {
     }
     
     var body: some View {
-        TabView {
+        VStack(spacing: 0) {
+            BilingualPageHeader(
+                title: "Settings",
+                englishDescription: "Configure generation, models, local AI, and application behavior.",
+                japaneseDescription: "動画生成・モデル・ローカルAI・アプリの動作を設定します。"
+            )
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+            Divider()
+            TabView {
             // General
             Form {
                 Section("Python Environment") {
@@ -475,6 +484,7 @@ struct PreferencesView: View {
             .padding(40)
             .tabItem {
                 Label("About", systemImage: "info.circle")
+            }
             }
         }
         .frame(width: 550, height: 450)

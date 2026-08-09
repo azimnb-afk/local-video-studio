@@ -315,3 +315,14 @@ TOKEN=$(cat ~/Library/Application\ Support/LTXVideoGenerator/api_token)
 - [x] One Shotの選択状態はGenerateのsource-image preferenceと別keyであり、相互リークしない。
 - [x] `swift build` PASS; `swift run LTXTests` = **659 passed / 0 failed**; Xcode Debug clean build `BUILD SUCCEEDED`; Xcode Release clean build `BUILD SUCCEEDED`; `git diff --check` PASS。
 - [x] GUI sessionはMLX Environment Not Readyだったためrenderは開始せず、model download / cloud call / backend変更も行っていない。
+
+## O. Bilingual page descriptions（2026-08-09）
+
+- [x] canonical Debug appをフルパスで1つだけ起動し、Generate / One Shot / Storyboard / Hybrid / Video Archive / Settingsを開いた。
+- [x] 6ページすべてでpage title直下にEnglish → Japaneseの順で説明が表示される。
+- [x] navigation名はGenerate / One Shot / Storyboard / Director / Hybrid / Video Archiveの英語表記を維持する。
+- [x] button・Preset・設定項目・error・tooltip・Localizable infrastructureを変更していない。
+- [x] One ShotのStarting Image (Optional)、thumbnail、filename/status、Choose Another、Clearが説明文の下で正常に表示される。
+- [x] Generateはdirect T2V/I2Vのままで、One Shot Director UIは復活していない。
+- [x] Settingsの550×450 windowを含め、文字切れ・重なり・不自然なoverflowなし。
+- [x] `swift build` PASS; `swift run LTXTests` = **659 passed / 0 failed**; Xcode Debug clean build `BUILD SUCCEEDED`; `git diff --check` PASS。

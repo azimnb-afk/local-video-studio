@@ -40,9 +40,18 @@ struct HistoryView: View {
     }
     
     var body: some View {
-        HSplitView {
-            // Grid view
-            VStack(spacing: 0) {
+        VStack(spacing: 0) {
+            BilingualPageHeader(
+                title: "Video Archive",
+                englishDescription: "Browse and manage your previously generated videos.",
+                japaneseDescription: "これまでに生成した動画を確認・管理できます。"
+            )
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+            Divider()
+            HSplitView {
+                // Grid view
+                VStack(spacing: 0) {
                 // Toolbar
                 HStack {
                     Label("\(historyManager.results.count) videos", systemImage: "film")
@@ -69,7 +78,7 @@ struct HistoryView: View {
                 }
                 .padding()
                 .background(Color(nsColor: .controlBackgroundColor))
-                
+
                 Divider()
                 
                 // Search
@@ -125,24 +134,25 @@ struct HistoryView: View {
                         .padding()
                     }
                 }
-            }
-            .frame(minWidth: 400)
-            
-            // Detail view
-            if let selected = historyManager.selectedResult {
-                HistoryDetailView(result: selected, onAddAudio: { result in
-                    addAudioResult = result
-                })
-                    .frame(minWidth: 350, idealWidth: 400)
-            } else {
-                VStack {
-                    Image(systemName: "sidebar.right")
-                        .font(.largeTitle)
-                        .foregroundStyle(.tertiary)
-                    Text("Select a video to preview")
-                        .foregroundStyle(.secondary)
                 }
-                .frame(minWidth: 350, idealWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minWidth: 400)
+
+                // Detail view
+                if let selected = historyManager.selectedResult {
+                    HistoryDetailView(result: selected, onAddAudio: { result in
+                        addAudioResult = result
+                    })
+                        .frame(minWidth: 350, idealWidth: 400)
+                } else {
+                    VStack {
+                        Image(systemName: "sidebar.right")
+                            .font(.largeTitle)
+                            .foregroundStyle(.tertiary)
+                        Text("Select a video to preview")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(minWidth: 350, idealWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
         }
         .sheet(item: $addAudioResult) { result in

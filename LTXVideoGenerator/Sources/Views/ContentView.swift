@@ -22,7 +22,7 @@ struct ContentView: View {
         case generate = "Generate"
         case oneShot = "One Shot"
         case storyboard = "Storyboard / Director"
-        case hybrid = "Hybrid"
+        case hybrid = "Auto Movie"
         case history = "Video Archive"
 
         var icon: String {
@@ -40,7 +40,7 @@ struct ContentView: View {
             case .generate: return "Create a single video"
             case .oneShot: return "One video from a short brief"
             case .storyboard: return "Manage multiple shots and takes"
-            case .hybrid: return "AI structure and automatic first pass"
+            case .hybrid: return "Sora 2-like connected shots"
             case .history: return "Review generated videos"
             }
         }

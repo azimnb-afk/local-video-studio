@@ -133,3 +133,18 @@ and the execution boundary reports a real error. Storyboard creation retains
 the selected preset's dimensions except when Custom is explicit. This does not
 change the QualityProfile ladder, model/encoder selection, rendering command,
 or packaging policy.
+
+## D-024 (2026-08-09) Generate is direct generation; One Shot owns directed single-scene input
+
+Generate remains the direct T2V/I2V production surface and must not contain a
+second One Shot planning experience. One Shot owns the short brief, local
+Director planning, and one optional `Starting Image`. Its image preference is
+independent from Generate so navigation cannot leak stale source-image state.
+
+The Starting Image is explicitly temporal first-frame conditioning. It reuses
+`GenerationRequest.sourceImagePath` and the existing MLX I2V adapter; it is not
+a CharacterBible reference, identity lock, multi-image set, or new backend
+capability. Text-only One Shot is represented by a nil image path. A non-nil
+path must resolve to a readable decodable image both before planning and just
+before queue insertion. Missing or invalid state is actionable failure, never
+an implicit downgrade to T2V; only explicit Clear returns to text-only.

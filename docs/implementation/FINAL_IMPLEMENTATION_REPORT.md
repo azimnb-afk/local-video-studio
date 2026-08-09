@@ -390,3 +390,35 @@ persistence after restart passed. The app reported its MLX environment as not
 ready, so no extra render was queued; no model/encoder download was initiated.
 `swift build`, `swift run LTXTests` (**643 passed / 0 failed**), Debug
 `xcodebuild clean build`, and `git diff --check` passed.
+
+## Phase X — Generate / One Shot responsibility split and One Shot Starting Image
+
+Generate is now a direct generation workspace only: T2V, its existing direct
+I2V picker, presets, audio, queue, and batch remain, while the embedded One Shot
+Director disclosure and its transient planning state were removed. One Shot is
+the sole directed single-scene surface and accepts either a text-only brief or
+one optional Starting Image.
+
+The image implementation reuses the proven backend bridge. A One Shot-specific
+persisted path is validated as a readable decodable image, copied into the base
+`GenerationRequest.sourceImagePath`, preserved by `LocalDirector.makeRequest`,
+and therefore reaches the existing LTX first-frame conditioning path. No
+CharacterBible coupling, multi-image input, identity adapter, Python/backend
+change, cloud service, or model download was added. The UI describes the image
+as an optional first-frame visual anchor and makes no identity guarantee.
+
+Safety is deterministic: an absent/unreadable selected path produces an
+actionable error before Director planning and is checked again immediately
+before queue insertion. There is no silent image-to-text fallback. `Clear`
+removes One Shot's independent state and restores a valid text-only request;
+Generate's persisted source image is unaffected.
+
+Verification: `swift build` passed; `swift run LTXTests` passed **659 / 0**;
+Debug and Release Xcode clean builds both succeeded; `git diff --check` passed.
+Focused tests cover text-only One Shot, image propagation and I2V detection,
+clear semantics, missing/invalid image rejection, Generate source separation,
+retained direct Generate I2V, and existing preset behavior. Canonical GUI
+acceptance confirmed the Generate cleanup, One Shot choose/thumbnail/status,
+clear, and missing-file choose-again/clear recovery. The installed MLX
+environment was not ready in that GUI session, so no heavyweight render was
+started; request-boundary behavior is covered by the passing focused tests.

@@ -38,13 +38,7 @@ struct PromptInputView: View {
     // an internal execution detail.
     @AppStorage("generationPreset") private var presetRaw = GenerationPreset.standard.rawValue
     @AppStorage(FeatureFlag.autoQualityV1.userDefaultsKey) private var autoQualityEnabled = FeatureFlag.autoQualityV1.defaultEnabled
-    // One Shot Director (directorV1 flag)
-    @AppStorage(FeatureFlag.directorV1.userDefaultsKey) private var directorEnabled = FeatureFlag.directorV1.defaultEnabled
     @AppStorage(FeatureFlag.modelRegistryV1.userDefaultsKey) private var modelRegistryEnabled = FeatureFlag.modelRegistryV1.defaultEnabled
-    @State private var showDirector = false
-    @State private var directorBrief = ""
-    @State private var isDirectorPlanning = false
-    @State private var directorStatus: String?
 
     // Audio disable for unified model — persisted (issue #51 explicitly called
     // this out: "Generate Audio is forced to true on launch").
@@ -191,51 +185,6 @@ struct PromptInputView: View {
                             .stroke(isPromptFocused ? Color.accentColor : Color.clear, lineWidth: 2)
                     )
                     .focused($isPromptFocused)
-            }
-
-            // One Shot Director (directorV1 flag): brief → structured plan →
-            // compiled LTX prompt in the prompt field above. LLM is local-first
-            // and always terminated before rendering.
-            if directorEnabled {
-                DisclosureGroup(isExpanded: $showDirector) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        TextEditor(text: $directorBrief)
-                            .font(.body)
-                            .frame(minHeight: 50, maxHeight: 80)
-                            .scrollContentBackground(.hidden)
-                            .padding(8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color(nsColor: .controlBackgroundColor))
-                            )
-                        HStack {
-                            Button {
-                                planWithDirector()
-                            } label: {
-                                if isDirectorPlanning {
-                                    ProgressView().scaleEffect(0.6)
-                                    Text("Planning...")
-                                } else {
-                                    Label("Plan Shot", systemImage: "movieclapper")
-                                }
-                            }
-                            .disabled(directorBrief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isDirectorPlanning)
-                            if let status = directorStatus {
-                                Text(status)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        Text("Describe what should happen in plain language. The local director turns it into a structured, LTX-optimized prompt (replaces the prompt above). Uses Local AI Director when available; otherwise a deterministic template.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.top, 4)
-                } label: {
-                    Label("One Shot Director", systemImage: "movieclapper")
-                        .font(.headline)
-                        .foregroundStyle(.secondary)
-                }
             }
 
             // Character consistency profiles
@@ -982,31 +931,6 @@ struct PromptInputView: View {
         showNegativePrompt = !negativePrompt.isEmpty
         showVoiceover = !voiceoverText.isEmpty
         showMusic = musicEnabled
-    }
-
-    private func planWithDirector() {
-        let brief = directorBrief.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !brief.isEmpty else { return }
-        isDirectorPlanning = true
-        directorStatus = nil
-        Task {
-            defer { isDirectorPlanning = false }
-            do {
-                let director = LocalDirector()
-                let (plan, providerName) = try await director.plan(brief: brief)
-                let compiled = PromptCompiler.compile(
-                    plan: plan,
-                    options: PromptCompiler.Options(isImageToVideo: sourceImagePath != nil)
-                )
-                prompt = compiled
-                if let seconds = plan.durationIntentSeconds {
-                    parameters.numFrames = PromptCompiler.frameCount(forSeconds: seconds, fps: parameters.fps)
-                }
-                directorStatus = "Planned via \(providerName)"
-            } catch {
-                directorStatus = "Planning failed: \(error.localizedDescription)"
-            }
-        }
     }
 
     private func requestSingleGeneration() {

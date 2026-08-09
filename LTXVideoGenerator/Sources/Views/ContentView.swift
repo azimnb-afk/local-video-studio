@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject var generationService: GenerationService
@@ -212,7 +213,10 @@ private struct OneShotView: View {
     @AppStorage("oneShotGenerationPreset") private var presetRaw = GenerationPreset.standard.rawValue
     @AppStorage(LTXModelCatalog.selectedModelIDKey) private var modelID = LTXModelCatalog.defaultModelID
     @AppStorage(LTXTextEncoderCatalog.selectedTextEncoderIDKey) private var textEncoderID = LTXTextEncoderCatalog.defaultTextEncoderID
+    @AppStorage("oneShotStartingImagePath") private var storedStartingImagePath = ""
     @State private var audioEnabled = true
+    @State private var startingImageThumbnail: NSImage?
+    @State private var startingImageError: String?
 
     private var preset: GenerationPreset { GenerationPreset(rawValue: presetRaw) ?? .standard }
 
@@ -229,6 +233,7 @@ private struct OneShotView: View {
                     .frame(minHeight: 140)
                     .padding(10)
                     .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
+                startingImageSection
                 HStack(spacing: 16) {
                     Picker("Preset", selection: $presetRaw) {
                         ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
@@ -265,7 +270,12 @@ private struct OneShotView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(brief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isPlanning || generationService.isProcessing)
+                .disabled(
+                    brief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || isPlanning
+                        || generationService.isProcessing
+                        || startingImageError != nil
+                )
                 if let status {
                     Text(status).font(.caption).foregroundStyle(.secondary)
                 }
@@ -276,9 +286,71 @@ private struct OneShotView: View {
         .onChange(of: audioEnabled) { old, new in
             if old != new { presetRaw = GenerationPreset.custom.rawValue }
         }
+        .onAppear(perform: refreshStartingImage)
+    }
+
+    private var startingImageSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Starting Image (Optional)", systemImage: "photo.on.rectangle.angled")
+                    .font(.headline)
+                Spacer()
+                if !storedStartingImagePath.isEmpty {
+                    Button("Clear", role: .destructive) { clearStartingImage() }
+                        .buttonStyle(.borderless)
+                }
+            }
+
+            if let thumbnail = startingImageThumbnail {
+                HStack(spacing: 12) {
+                    Image(nsImage: thumbnail)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 96, height: 96)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(URL(fileURLWithPath: storedStartingImagePath).lastPathComponent)
+                            .lineLimit(1)
+                        Label("Image-conditioned starting frame", systemImage: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                        Button("Choose Another Image…", action: chooseStartingImage)
+                    }
+                    Spacer()
+                }
+            } else if !storedStartingImagePath.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(startingImageError ?? "Starting Image is unavailable.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                    Button("Choose Image Again…", action: chooseStartingImage)
+                }
+            } else {
+                Button(action: chooseStartingImage) {
+                    Label("Choose Starting Image…", systemImage: "photo.badge.plus")
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Text("Optional visual anchor for the first frame. It guides image-conditioned generation and does not guarantee character identity.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
     }
 
     private func planAndGenerate() {
+        let validatedStartingImage: String?
+        do {
+            validatedStartingImage = try OneShotStartingImagePreflight.validatedPath(storedStartingImagePath)
+            startingImageError = nil
+        } catch {
+            startingImageThumbnail = nil
+            startingImageError = error.localizedDescription
+            status = error.localizedDescription
+            return
+        }
         if !DependencyHealthManager.shared.isGenerationReady {
             DependencyHealthManager.shared.showSetupWizard = true
             return
@@ -289,14 +361,13 @@ private struct OneShotView: View {
         Task {
             defer { isPlanning = false }
             do {
-                let (plan, providerName) = try await LocalDirector().plan(brief: trimmed)
                 var requestParameters = parameters
                 if preset != .custom {
                     requestParameters.numFrames = PromptCompiler.frameCount(forSeconds: targetDuration, fps: requestParameters.fps)
                 }
-                let compiled = PromptCompiler.compile(plan: plan)
-                let request = GenerationRequest(
-                    prompt: compiled,
+                let baseRequest = GenerationRequest(
+                    prompt: trimmed,
+                    sourceImagePath: validatedStartingImage,
                     disableAudio: !audioEnabled,
                     modelId: modelID,
                     textEncoderId: textEncoderID,
@@ -306,12 +377,80 @@ private struct OneShotView: View {
                     targetDurationSeconds: preset == .custom ? nil : targetDuration,
                     generationSource: "oneShot"
                 )
+                let (request, _, providerName) = try await LocalDirector().makeRequest(
+                    brief: trimmed,
+                    base: baseRequest
+                )
+                // The file may have moved while local planning was running.
+                // Re-check immediately before queue insertion; never downgrade
+                // a selected Starting Image request to text-only.
+                _ = try OneShotStartingImagePreflight.validatedPath(request.sourceImagePath)
                 generationService.addToQueue(request)
-                status = "Planned via \(providerName); queued for sequential generation"
+                status = validatedStartingImage == nil
+                    ? "Planned via \(providerName); queued text-only generation"
+                    : "Planned via \(providerName); queued with Starting Image"
+            } catch let error as OneShotStartingImageError {
+                startingImageThumbnail = nil
+                startingImageError = error.localizedDescription
+                status = error.localizedDescription
             } catch {
                 status = "Planning failed: \(error.localizedDescription)"
             }
         }
+    }
+
+    private func chooseStartingImage() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.image, .png, .jpeg, .webP]
+        panel.message = "Choose an optional Starting Image for One Shot"
+        panel.prompt = "Choose"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        storedStartingImagePath = url.path
+        refreshStartingImage()
+    }
+
+    private func refreshStartingImage() {
+        do {
+            guard let path = try OneShotStartingImagePreflight.validatedPath(storedStartingImagePath),
+                  let image = NSImage(contentsOfFile: path) else {
+                startingImageThumbnail = nil
+                startingImageError = nil
+                return
+            }
+            startingImageThumbnail = makeThumbnail(image)
+            startingImageError = nil
+        } catch {
+            startingImageThumbnail = nil
+            startingImageError = error.localizedDescription
+        }
+    }
+
+    private func clearStartingImage() {
+        storedStartingImagePath = ""
+        startingImageThumbnail = nil
+        startingImageError = nil
+        status = nil
+    }
+
+    private func makeThumbnail(_ image: NSImage) -> NSImage {
+        let maxSize: CGFloat = 192
+        let aspectRatio = image.size.width / max(image.size.height, 1)
+        let size = aspectRatio > 1
+            ? NSSize(width: maxSize, height: maxSize / aspectRatio)
+            : NSSize(width: maxSize * aspectRatio, height: maxSize)
+        let thumbnail = NSImage(size: size)
+        thumbnail.lockFocus()
+        image.draw(
+            in: NSRect(origin: .zero, size: size),
+            from: NSRect(origin: .zero, size: image.size),
+            operation: .copy,
+            fraction: 1
+        )
+        thumbnail.unlockFocus()
+        return thumbnail
     }
 }
 

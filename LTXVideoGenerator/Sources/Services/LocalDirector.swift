@@ -1,4 +1,45 @@
 import Foundation
+import ImageIO
+
+enum OneShotStartingImageError: Error, Equatable, LocalizedError {
+    case unavailable(String)
+    case invalidImage(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable(let path):
+            return "Starting Image is unavailable (\(URL(fileURLWithPath: path).lastPathComponent)). Choose it again or clear it before generating."
+        case .invalidImage(let path):
+            return "Starting Image could not be read as an image (\(URL(fileURLWithPath: path).lastPathComponent)). Choose another image or clear it."
+        }
+    }
+}
+
+/// Lightweight One Shot image preflight. The path remains an ordinary
+/// sourceImagePath consumed by the existing I2V backend; no identity or
+/// CharacterBible semantics are introduced here.
+enum OneShotStartingImagePreflight {
+    static func validatedPath(
+        _ storedPath: String?,
+        fileManager: FileManager = .default
+    ) throws -> String? {
+        guard let raw = storedPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return nil }
+
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: raw, isDirectory: &isDirectory),
+              !isDirectory.boolValue,
+              fileManager.isReadableFile(atPath: raw) else {
+            throw OneShotStartingImageError.unavailable(raw)
+        }
+        let url = URL(fileURLWithPath: raw) as CFURL
+        guard let source = CGImageSourceCreateWithURL(url, nil),
+              CGImageSourceGetCount(source) > 0 else {
+            throw OneShotStartingImageError.invalidImage(raw)
+        }
+        return raw
+    }
+}
 
 /// One Shot director: brief → structured plan → compiled prompt → request.
 ///

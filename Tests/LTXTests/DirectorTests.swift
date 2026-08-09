@@ -301,6 +301,8 @@ func runDirectorTests(_ t: TestKit) {
                 t.checkEqual(request.qualityMode, "auto", "quality mode preserved")
                 t.checkEqual(request.preset, GenerationPreset.standard.rawValue, "preset preserved")
                 t.checkEqual(request.generationSource, "oneShot", "One Shot source preserved")
+                t.check(request.sourceImagePath == nil, "One Shot without image remains text-only")
+                t.check(!request.isImageToVideo, "text-only One Shot does not enter I2V")
                 t.checkEqual(request.targetDurationSeconds, plan.durationIntentSeconds, "One Shot duration intent carried")
                 t.checkEqual(request.parameters.numFrames, PromptCompiler.frameCount(forSeconds: plan.durationIntentSeconds ?? 5), "duration intent applied to frames")
 
@@ -353,5 +355,99 @@ func runDirectorTests(_ t: TestKit) {
             customSem.signal()
         }
         customSem.wait()
+    }
+
+    t.suite("One Shot Starting Image bridge and safety") {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LTXTests-oneshot-image-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        let pngURL = tempDirectory.appendingPathComponent("starting.png")
+        let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z1x8AAAAASUVORK5CYII=")!
+        try? tinyPNG.write(to: pngURL)
+
+        do {
+            t.checkEqual(
+                try OneShotStartingImagePreflight.validatedPath(pngURL.path),
+                pngURL.path,
+                "readable image passes Starting Image preflight"
+            )
+            t.check(try OneShotStartingImagePreflight.validatedPath(nil) == nil,
+                    "no Starting Image stays text-only")
+            t.check(try OneShotStartingImagePreflight.validatedPath("") == nil,
+                    "clearing Starting Image returns to text-only")
+        } catch {
+            t.check(false, "valid Starting Image preflight threw \(error)")
+        }
+
+        let missingPath = tempDirectory.appendingPathComponent("moved.png").path
+        t.checkThrows(OneShotStartingImageError.unavailable(missingPath),
+                      "missing selected image is rejected without text-only fallback") {
+            _ = try OneShotStartingImagePreflight.validatedPath(missingPath)
+        }
+
+        let invalidURL = tempDirectory.appendingPathComponent("not-an-image.png")
+        try? Data("not image data".utf8).write(to: invalidURL)
+        t.checkThrows(OneShotStartingImageError.invalidImage(invalidURL.path),
+                      "invalid selected image is rejected deterministically") {
+            _ = try OneShotStartingImagePreflight.validatedPath(invalidURL.path)
+        }
+
+        let imageProvider = MockDirectorProvider(responses: [validPlanJSON])
+        let imageDirector = LocalDirector(providers: [imageProvider])
+        let base = GenerationRequest(
+            prompt: "ignored",
+            sourceImagePath: pngURL.path,
+            parameters: .default,
+            qualityMode: QualityMode.compact.rawValue,
+            preset: GenerationPreset.quickPreview.rawValue,
+            generationSource: "oneShot"
+        )
+        let imageSemaphore = DispatchSemaphore(value: 0)
+        Task {
+            do {
+                let (request, _, _) = try await imageDirector.makeRequest(brief: "smile", base: base)
+                t.checkEqual(request.sourceImagePath, pngURL.path,
+                             "One Shot bridges Starting Image through sourceImagePath")
+                t.check(request.isImageToVideo, "One Shot with Starting Image enters existing I2V path")
+                t.checkEqual(request.generationSource, "oneShot", "image-conditioned request remains One Shot")
+            } catch {
+                t.check(false, "image-conditioned makeRequest threw \(error)")
+            }
+            imageSemaphore.signal()
+        }
+        imageSemaphore.wait()
+    }
+
+    t.suite("Generate / One Shot responsibility split") {
+        let testsDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let repositoryRoot = testsDirectory.deletingLastPathComponent().deletingLastPathComponent()
+        let promptInputURL = repositoryRoot
+            .appendingPathComponent("LTXVideoGenerator/Sources/Views/PromptInputView.swift")
+        let oneShotURL = repositoryRoot
+            .appendingPathComponent("LTXVideoGenerator/Sources/Views/ContentView.swift")
+        let promptInputSource = try? String(contentsOf: promptInputURL, encoding: .utf8)
+        let oneShotSource = try? String(contentsOf: oneShotURL, encoding: .utf8)
+
+        t.check(promptInputSource?.contains("One Shot Director") == false,
+                "Generate source no longer contains One Shot Director UI")
+        t.check(promptInputSource?.contains("planWithDirector") == false,
+                "Generate source no longer owns One Shot planning")
+        t.check(promptInputSource?.contains("Image to Video") == true,
+                "Generate retains direct I2V")
+        t.check(oneShotSource?.contains("Starting Image (Optional)") == true,
+                "One Shot owns optional Starting Image UI")
+
+        let directGenerate = GenerationRequest(
+            prompt: "direct prompt",
+            sourceImagePath: "/tmp/direct-i2v.png",
+            parameters: .preview,
+            qualityMode: QualityMode.compact.rawValue,
+            preset: GenerationPreset.quickPreview.rawValue,
+            generationSource: "generate"
+        )
+        t.checkEqual(directGenerate.generationSource, "generate", "direct request remains Generate-owned")
+        t.check(directGenerate.isImageToVideo, "Generate direct I2V request remains supported")
     }
 }

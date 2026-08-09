@@ -300,3 +300,18 @@ TOKEN=$(cat ~/Library/Application\ Support/LTXVideoGenerator/api_token)
 - [x] アセット消失状態で生成を実行すると、`CoordinatorError.startingImageUnavailable` がスローされ、サイレントなT2Vフォールバックが防止される。
 - [x] StoryboardとHybridで同一のUI構造、Menu構成、アセット消失保護、警告ロジックが共通化されている。
 - [x] `swift build` PASS; `swift run LTXTests` = **593 passed / 0 failed** (新規 `StartingImageUXTests` 含む); Xcode Debug `BUILD SUCCEEDED`; `git diff --check` clean。
+
+## N. Phase X — Generate / One Shot responsibility split（2026-08-09）
+
+- [x] `xcodebuild -showBuildSettings` からcanonical Debug appを解決し、フルパスで起動した。
+- [x] 起動前HEAD `9f2a355`、executable mtime `2026-08-09 22:04:52 +0900`、実行PID `87843`、実行ファイルのフルパスを確認した。
+- [x] build前から残っていたPID `86580`を終了し、最新canonical executableを起動した。
+- [x] Generateに `One Shot Director` / director brief / planning actionが表示されない。
+- [x] Generateの既存 `Image to Video`、選択画像、strength、preset、audio、queue操作が維持されている。
+- [x] One Shotに `Starting Image (Optional)`、first-frame guidance、Chooseが表示される。
+- [x] 1086×1448 PNGを選択し、thumbnail、filename、`Image-conditioned starting frame` status、Choose Another、Clearを確認した。
+- [x] 選択画像を一時的に欠損させて生成操作を行い、text-onlyへ落ちず `Starting Image is unavailable`、Choose Again、Clear、生成button disabledを確認した。
+- [x] Clear後は画像状態とerrorが消え、text-only One Shotの生成buttonが再度有効になった。
+- [x] One Shotの選択状態はGenerateのsource-image preferenceと別keyであり、相互リークしない。
+- [x] `swift build` PASS; `swift run LTXTests` = **659 passed / 0 failed**; Xcode Debug clean build `BUILD SUCCEEDED`; Xcode Release clean build `BUILD SUCCEEDED`; `git diff --check` PASS。
+- [x] GUI sessionはMLX Environment Not Readyだったためrenderは開始せず、model download / cloud call / backend変更も行っていない。

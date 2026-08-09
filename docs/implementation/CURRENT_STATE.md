@@ -33,7 +33,7 @@ OFF; Hardened Runtime ON with no CS exception entitlements.
 
 ## Build & Verification Status
 - `swift build`: PASS
-- `swift run LTXTests`: **643 passed, 0 failed**
+- `swift run LTXTests`: **659 passed, 0 failed**
 - `xcodebuild -scheme LTXVideoGenerator -configuration Debug CODE_SIGNING_ALLOWED=NO clean build`: **BUILD SUCCEEDED**
 - `xcodebuild -scheme LTXVideoGenerator -configuration Release CODE_SIGNING_ALLOWED=NO clean build`: **BUILD SUCCEEDED**
 - `git diff --check`: PASS
@@ -69,3 +69,26 @@ creation no longer overwrites a non-Custom preset's dimensions with stale
 sheet state. Canonical Debug GUI acceptance verified Quick → C3, Standard →
 S0, High → H0, Custom manual controls, and Quick persistence through restart;
 no new render or download was started.
+
+## 2026-08-09 Generate / One Shot responsibility split
+
+Generate remains the direct production surface for T2V, existing one-image I2V,
+presets, audio, queue, and batch work. Its embedded One Shot Director disclosure
+and planning state were removed; the existing `Image to Video` source-image
+workflow and `generationSource = generate` request path are unchanged.
+
+One Shot now owns directed single-scene planning and an independent optional
+`Starting Image`. The image is a first-frame visual anchor, persists under a
+One Shot-specific preference key, and travels through the existing
+`GenerationRequest.sourceImagePath` / MLX I2V bridge. A missing or unreadable
+selection is rejected both before planning and immediately before queueing, with
+explicit choose-again/clear recovery; it never silently becomes text-only.
+Clearing the image deliberately restores text-only One Shot.
+
+Canonical Debug GUI acceptance used the full DerivedData app path resolved from
+`xcodebuild -showBuildSettings`. HEAD before the local Phase X checkpoint was
+`9f2a355`; executable mtime was `2026-08-09 22:04:52 +0900`; the accepted
+process was PID `87843`, started at `22:10:12`, from that exact executable.
+Generate showed direct `Image to Video` and no One Shot Director UI. One Shot
+showed image selection, thumbnail/status, clear, and deterministic missing-file
+recovery. No render, model download, cloud call, or backend change was made.

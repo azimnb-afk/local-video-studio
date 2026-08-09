@@ -73,8 +73,29 @@ struct PromptInputView: View {
         LTXModelCatalog.resolvedModel(id: selectedModelID)
     }
 
+    /// This is the same resolution used for the queue. It intentionally does
+    /// not mutate the user's Custom fields: selecting a preset is sufficient
+    /// to make its effective profile visible to preflight UI.
+    private var preflightSettings: ResolvedGenerationSettings {
+        guard autoQualityEnabled else {
+            return ResolvedGenerationSettings(
+                request: makeGenerationRequest(parameters: parameters),
+                profile: nil,
+                attemptLadder: [],
+                reason: "Auto Quality disabled"
+            )
+        }
+        return GenerationSettingsResolver.resolveForPreflight(
+            request: makeGenerationRequest(parameters: parameters)
+        )
+    }
+
+    private var effectiveParametersForPreflight: GenerationParameters {
+        preflightSettings.request.parameters
+    }
+
     private var estimatedMemoryGB: Int {
-        parameters.estimatedVRAM
+        effectiveParametersForPreflight.estimatedVRAM
     }
 
     private var machineMemoryGB: Int {
@@ -87,12 +108,13 @@ struct PromptInputView: View {
     }
 
     private var isHighMemoryRisk: Bool {
-        estimatedMemoryGB >= warningThresholdGB
-            || (parameters.width * parameters.height >= 768 * 512 && parameters.numFrames >= 97 && machineMemoryGB <= 64)
+        let effective = effectiveParametersForPreflight
+        return estimatedMemoryGB >= warningThresholdGB
+            || (effective.width * effective.height >= 768 * 512 && effective.numFrames >= 97 && machineMemoryGB <= 64)
     }
 
     private var memoryRiskGuidance: String {
-        let tilingHint = parameters.vaeTilingMode == "aggressive"
+        let tilingHint = effectiveParametersForPreflight.vaeTilingMode == "aggressive"
             ? ""
             : " Switch tiling to aggressive for lower peak memory."
         return "This request may hit Metal memory limits (estimated ~\(estimatedMemoryGB)GB on a ~\(machineMemoryGB)GB machine). Recommended retry settings: 512x320 resolution, 25/33/49 frames, 24 FPS.\(tilingHint)"
@@ -125,10 +147,11 @@ struct PromptInputView: View {
 
     /// Non-nil when the 64-px floor will change the requested dimensions.
     private var effectiveResolutionNote: String? {
-        let effWidth = (parameters.width / 64) * 64
-        let effHeight = (parameters.height / 64) * 64
-        guard effWidth != parameters.width || effHeight != parameters.height else { return nil }
-        return "Requested \(parameters.width)×\(parameters.height) → Effective \(effWidth)×\(effHeight)"
+        let effective = effectiveParametersForPreflight
+        let effWidth = (effective.width / 64) * 64
+        let effHeight = (effective.height / 64) * 64
+        guard effWidth != effective.width || effHeight != effective.height else { return nil }
+        return "Requested \(effective.width)×\(effective.height) → Effective \(effWidth)×\(effHeight)"
     }
 
     private var qualityOverridesParameters: Bool {
@@ -136,8 +159,12 @@ struct PromptInputView: View {
     }
 
     private var resolutionSummary: String {
+        if let profile = preflightSettings.profile {
+            let effective = effectiveParametersForPreflight
+            return "\(selectedPreset.displayName) → \(profile.id): \(effective.width)×\(effective.height), \(effective.numFrames) frames, \(effective.numInferenceSteps) steps"
+        }
         if qualityOverridesParameters {
-            return "\(selectedPreset.displayName) selects an adaptive profile; Requested → Effective → Actual is recorded"
+            return "\(selectedPreset.displayName) selects an adaptive profile; effective settings are recorded"
         }
         return effectiveResolutionNote ?? ""
     }
@@ -882,7 +909,11 @@ struct PromptInputView: View {
     }
     
     private func generateVideo() {
-        let request = GenerationRequest(
+        generationService.addToQueue(makeGenerationRequest(parameters: parameters))
+    }
+
+    private func makeGenerationRequest(parameters: GenerationParameters) -> GenerationRequest {
+        GenerationRequest(
             prompt: prompt,
             negativePrompt: negativePrompt,
             voiceoverText: voiceoverText,
@@ -901,7 +932,6 @@ struct PromptInputView: View {
             preset: autoQualityEnabled ? selectedPreset.rawValue : nil,
             generationSource: "generate"
         )
-        generationService.addToQueue(request)
     }
 
     private func saveCurrentCharacterProfile(name: String) {
@@ -994,20 +1024,7 @@ struct PromptInputView: View {
     
     private func generateBatch(count: Int) {
         let requests = (0..<count).map { _ in
-            GenerationRequest(
-                prompt: prompt,
-                negativePrompt: negativePrompt,
-                voiceoverText: voiceoverText,
-                voiceoverSource: voiceoverSource.rawValue,
-                voiceoverVoice: voiceoverSource == .elevenLabs ? selectedElevenLabsVoice : selectedMLXVoice,
-                sourceImagePath: sourceImagePath,
-                musicEnabled: musicEnabled,
-                musicGenre: musicEnabled ? selectedMusicGenre.rawValue : nil,
-                disableAudio: disableAudio,
-                gemmaRepetitionPenalty: gemmaRepetitionPenalty,
-                gemmaTopP: gemmaTopP,
-                modelId: selectedModelID,
-                textEncoderId: selectedTextEncoderID,
+            makeGenerationRequest(
                 parameters: GenerationParameters(
                     numInferenceSteps: parameters.numInferenceSteps,
                     guidanceScale: parameters.guidanceScale,
@@ -1018,10 +1035,7 @@ struct PromptInputView: View {
                     seed: Int.random(in: 0..<Int(Int32.max)),
                     vaeTilingMode: parameters.vaeTilingMode,
                     imageStrength: parameters.imageStrength
-                ),
-                qualityMode: autoQualityEnabled ? qualityModeRaw : nil,
-                preset: autoQualityEnabled ? selectedPreset.rawValue : nil,
-                generationSource: "generate"
+                )
             )
         }
         generationService.addBatch(requests)

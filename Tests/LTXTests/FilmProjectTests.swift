@@ -54,6 +54,17 @@ func runFilmProjectTests(_ t: TestKit) {
         t.checkEqual(settingsReloaded?.requestedDirectorMode, "auto", "Requested Director mode persists")
         t.checkEqual(settingsReloaded?.effectiveDirectorMode, "localAI", "Effective Director mode persists")
 
+        var quickProject = FilmProject(title: "Quick persistence")
+        quickProject.settings.applyPreset(.quickPreview)
+        quickProject.settings.audioEnabled = false
+        let quickStore = FilmProjectStore(projectsDirectory: tmpDir.appendingPathComponent("pquick"))
+        quickStore.save(quickProject)
+        let quickReloaded = FilmProjectStore(projectsDirectory: tmpDir.appendingPathComponent("pquick")).project(id: quickProject.id)
+        t.checkEqual(quickReloaded?.settings.resolvedPreset, .quickPreview, "Quick preset survives project reload")
+        t.checkEqual(quickReloaded?.settings.width, 512, "Quick width survives project reload")
+        t.checkEqual(quickReloaded?.settings.numInferenceSteps, 15, "Quick steps survive project reload")
+        t.checkEqual(quickReloaded?.settings.audioEnabled, false, "Quick audio preference survives project reload")
+
         // Newer schema is never destroyed.
         let futureURL = tmpDir.appendingPathComponent("p1").appendingPathComponent("\(UUID().uuidString).json")
         let futureJSON = """
@@ -328,14 +339,30 @@ func runFilmProjectTests(_ t: TestKit) {
             // Completion linkage.
             let saved = store.project(id: project.id)!
             let take = saved.shots[0].takes[0]
+            var effectiveQuickParameters = take.settingsSnapshot
+            effectiveQuickParameters.width = 512
+            effectiveQuickParameters.height = 320
+            effectiveQuickParameters.numFrames = 49
+            effectiveQuickParameters.numInferenceSteps = 15
             let result = GenerationResult(
                 id: UUID(), requestId: UUID(), prompt: take.promptSnapshot,
                 enhancedPrompt: nil, negativePrompt: "", voiceoverText: "",
                 voiceoverSource: "mlx-audio", voiceoverVoice: "af_heart",
-                modelId: take.modelID, parameters: take.settingsSnapshot,
+                modelId: take.modelID, parameters: effectiveQuickParameters,
                 videoPath: "/tmp/ltx_baseline/T2V-A-ON.mp4", thumbnailPath: nil,
                 audioPath: nil, musicPath: nil, musicGenre: nil, sourceImagePath: nil,
                 createdAt: Date(), completedAt: Date(), duration: 49, seed: take.seed,
+                qualityMode: QualityMode.compact.rawValue,
+                preset: GenerationPreset.quickPreview.rawValue,
+                effectiveProfileID: "C3",
+                effectiveProfileName: "Compact + audio",
+                effectiveProfileReason: "Compact mode requested",
+                requestedWidth: 1024,
+                requestedHeight: 768,
+                targetDurationSeconds: 3,
+                audioEnabled: true,
+                effectiveWidth: 512,
+                effectiveHeight: 320,
                 filmProjectID: project.id, shotID: shotID, takeID: take.id
             )
             coordinator.recordCompletion(result: result)
@@ -343,6 +370,10 @@ func runFilmProjectTests(_ t: TestKit) {
             let completedTake = after.shots[0].takes.first { $0.id == take.id }
             t.checkEqual(completedTake?.status, .completed, "take marked completed")
             t.checkEqual(completedTake?.outputPath, "/tmp/ltx_baseline/T2V-A-ON.mp4", "output path recorded")
+            t.checkEqual(completedTake?.preset, GenerationPreset.quickPreview.rawValue, "completed Take persists actual preset")
+            t.checkEqual(completedTake?.effectiveProfileID, "C3", "completed Take persists effective profile")
+            t.checkEqual(completedTake?.settingsSnapshot.width, 512, "completed Take persists effective width")
+            t.checkEqual(completedTake?.settingsSnapshot.height, 320, "completed Take persists effective height")
             t.check(after.jobs.first { $0.takeID == take.id }?.state == .completed, "job marked completed")
 
             // Selection.

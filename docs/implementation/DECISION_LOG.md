@@ -119,3 +119,17 @@ artifacts, then requires accepted notarization, stapling, and Gatekeeper checks.
 
 Normal validation and generation readiness do not mutate Python environments or
 start package/model downloads; any setup mutation is a visible user action.
+
+## D-023 (2026-08-09) Preset preflight must use the final settings resolver
+Quick Preview previously resolved correctly at the execution boundary, but the
+Generate UI's memory-risk gate and queue could still describe stale Custom
+parameters. This made a Quick label appear alongside 512×768 / 121-frame /
+30-step warning values. `GenerationSettingsResolver` now supplies a best-effort
+preflight resolution to every queue producer and to Generate's display/warning
+logic; `GenerationService` repeats resolution immediately before the backend
+call so current memory state remains authoritative. The fallback is deliberately
+non-blocking: an unexpected preflight failure preserves the original request
+and the execution boundary reports a real error. Storyboard creation retains
+the selected preset's dimensions except when Custom is explicit. This does not
+change the QualityProfile ladder, model/encoder selection, rendering command,
+or packaging policy.

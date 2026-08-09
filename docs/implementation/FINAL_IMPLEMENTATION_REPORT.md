@@ -353,3 +353,40 @@ No valid Developer ID identity or notary keychain profile exists on this Mac,
 so the final status remains **PARTIAL — Packaging Ready — Apple Credentials
 Required**. No distribution artifact, notarization, stapling, or Gatekeeper
 acceptance is claimed.
+
+## 20. 2026-08-09 Quick Preview effective-settings audit
+
+### Root cause
+The Phase A2 Release smoke run uncovered a genuine preset-state regression:
+Quick Preview was correctly resolved at render time, but `PromptInputView`
+calculated its high-memory warning from stale manually persisted Custom
+parameters. Consequently the UI could show Quick alongside 512×768 / 121
+frames / 30 steps even though the actual renderer received C2/C3. The same
+stale dimensions could be written from the Storyboard creation sheet after it
+had applied a non-Custom preset. This was unrelated to distribution packaging,
+signing, hardened runtime, encoder choice, or the LTX command line.
+
+### Resolution and result
+`GenerationSettingsResolver` now provides a common non-blocking preflight
+resolution. Generate uses it for display and high-memory gating, and
+`GenerationService` uses it when inserting every source into the queue
+(Generate, One Shot, Storyboard, Hybrid, and History). The service repeats the
+resolution immediately before rendering, preserving current-memory authority.
+Storyboard only applies its width/height sheet state when Custom is selected.
+
+With audio enabled, Quick Preview visibly resolves to **C3: 512×320, 49
+frames, 15 steps**. With audio disabled it resolves to **C2: 512×320, 65
+frames, 15 steps**. Standard remains adaptive (observed S0: 768×512, 73
+frames, 25 steps); High Quality remains H0 (768×512, 121 frames, 30 steps);
+Custom preserves manual values. Tests cover all four producer sources with
+stale Custom settings, Custom→Quick and Quick→Custom, project persistence, and
+final Take effective-profile metadata.
+
+Canonical Debug GUI acceptance used
+`/Users/azimnb/Library/Developer/Xcode/DerivedData/LTXVideoGenerator-amthplfqixfwzxgnoumxohoqainn/Build/Products/Debug/LTXVideoGenerator.app`
+from `09ef2a7b5108de64314c75354ef7bcdcd5af3914` (executable mtime
+`2026-08-09 21:20:37 +0900`). Quick/Standard/High/Custom switching and Quick
+persistence after restart passed. The app reported its MLX environment as not
+ready, so no extra render was queued; no model/encoder download was initiated.
+`swift build`, `swift run LTXTests` (**643 passed / 0 failed**), Debug
+`xcodebuild clean build`, and `git diff --check` passed.

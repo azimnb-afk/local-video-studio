@@ -159,6 +159,31 @@ struct ResolvedGenerationSettings: Equatable {
 }
 
 enum GenerationSettingsResolver {
+    /// Resolves the settings that the user will actually queue. This is also
+    /// used by UI preflight so warnings and queue rows describe the same
+    /// profile that GenerationService will render. The service resolves once
+    /// more immediately before invoking the backend, which remains the final
+    /// source of truth for a changing memory snapshot.
+    static func resolveForPreflight(
+        request: GenerationRequest,
+        engine: AutoQualityEngine = AutoQualityEngine(),
+        snapshot: MemorySnapshot = MemoryMonitor.shared.snapshot()
+    ) -> ResolvedGenerationSettings {
+        do {
+            return try resolve(request: request, engine: engine, snapshot: snapshot)
+        } catch {
+            // A preflight must never prevent a request from being queued. The
+            // GenerationService will surface a real resolution error at the
+            // execution boundary.
+            return ResolvedGenerationSettings(
+                request: request,
+                profile: nil,
+                attemptLadder: [],
+                reason: "Preflight unavailable; preserving request parameters"
+            )
+        }
+    }
+
     static func resolve(
         request: GenerationRequest,
         engine: AutoQualityEngine,

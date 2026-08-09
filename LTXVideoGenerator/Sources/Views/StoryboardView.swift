@@ -303,9 +303,15 @@ private struct NewStoryboardSheet: View {
                     let preset = GenerationPreset(rawValue: presetRaw) ?? .standard
                     settings.applyPreset(preset)
                     settings.modelID = modelID
+                    // Audio remains a deliberate choice for Quick (C3 with
+                    // audio, C2 without it). Width and height are Custom-only
+                    // controls, so never overwrite a selected preset with
+                    // stale sheet state.
                     settings.audioEnabled = audioEnabled
-                    settings.width = width
-                    settings.height = height
+                    if preset == .custom {
+                        settings.width = width
+                        settings.height = height
+                    }
                     settings.targetDurationSeconds = mode == .hybrid ? targetDuration : nil
                     onCreate(
                         projectID,

@@ -37,6 +37,22 @@ func runAutoQualityTests(_ t: TestKit) {
         settings.applyPreset(.standard)
         t.checkEqual(settings.audioEnabled, true, "reapplying Standard clears conflicting manual audio")
         t.checkEqual(settings.width, GenerationParameters.default.width, "reapplying Standard clears conflicting manual size")
+
+        settings.applyPreset(.custom)
+        settings.width = 1024
+        settings.height = 768
+        settings.numFrames = 121
+        settings.numInferenceSteps = 30
+        settings.audioEnabled = false
+        settings.applyPreset(.quickPreview)
+        t.checkEqual(settings.resolvedPreset, .quickPreview, "Custom → Quick records Quick preset")
+        t.checkEqual(settings.width, 512, "Custom → Quick clears stale width")
+        t.checkEqual(settings.height, 320, "Custom → Quick clears stale height")
+        t.checkEqual(settings.numFrames, 49, "Custom → Quick clears stale frame count")
+        t.checkEqual(settings.numInferenceSteps, 15, "Custom → Quick clears stale step count")
+        settings.applyPreset(.custom)
+        t.checkEqual(settings.resolvedPreset, .custom, "Quick → Custom enters manual mode")
+        t.checkEqual(settings.width, 512, "Quick → Custom retains the editable Quick baseline")
     }
 
     t.suite("Memory monitor") {
@@ -213,6 +229,52 @@ func runAutoQualityTests(_ t: TestKit) {
                     "audio is explicit in all resolved requests")
         } catch { t.check(false, "request comparison threw \(error)") }
 
+        // Every producer may carry stale Custom parameters, but the shared
+        // resolver—not a view-local mapping—must make non-Custom presets win.
+        var staleCustom = GenerationParameters.highQuality
+        staleCustom.width = 1024
+        staleCustom.height = 768
+        staleCustom.numFrames = 121
+        staleCustom.numInferenceSteps = 30
+        for source in ["generate", "oneShot", "storyboard", "hybrid"] {
+            let rawQuick = GenerationRequest(
+                prompt: "same cinematic brief",
+                disableAudio: false,
+                modelId: LTXModelCatalog.defaultModelID,
+                parameters: staleCustom,
+                qualityMode: GenerationPreset.quickPreview.qualityMode.rawValue,
+                preset: GenerationPreset.quickPreview.rawValue,
+                generationSource: source
+            )
+            do {
+                let resolved = try GenerationSettingsResolver.resolve(request: rawQuick, engine: engine, snapshot: snap)
+                t.checkEqual(resolved.profile?.id, "C3", "\(source) Quick selects audio profile")
+                t.checkEqual(resolved.request.parameters.width, 512, "\(source) Quick overrides stale width")
+                t.checkEqual(resolved.request.parameters.height, 320, "\(source) Quick overrides stale height")
+                t.checkEqual(resolved.request.parameters.numFrames, 49, "\(source) Quick overrides stale frames")
+                t.checkEqual(resolved.request.parameters.numInferenceSteps, 15, "\(source) Quick overrides stale steps")
+            } catch {
+                t.check(false, "\(source) Quick resolution threw \(error)")
+            }
+        }
+
+        let noAudioQuick = GenerationRequest(
+            prompt: "same cinematic brief",
+            disableAudio: true,
+            modelId: LTXModelCatalog.defaultModelID,
+            parameters: staleCustom,
+            qualityMode: GenerationPreset.quickPreview.qualityMode.rawValue,
+            preset: GenerationPreset.quickPreview.rawValue,
+            generationSource: "generate"
+        )
+        do {
+            let resolved = try GenerationSettingsResolver.resolve(request: noAudioQuick, engine: engine, snapshot: snap)
+            t.checkEqual(resolved.profile?.id, "C2", "Quick without audio selects C2")
+            t.checkEqual(resolved.request.parameters.width, 512, "Quick without audio retains compact width")
+            t.checkEqual(resolved.request.parameters.numFrames, 65, "Quick without audio uses C2 frames")
+            t.check(resolved.request.disableAudio, "Quick without audio remains disabled")
+        } catch { t.check(false, "no-audio Quick resolution threw \(error)") }
+
         var customParams = GenerationParameters.default
         customParams.numFrames = 81
         let custom = GenerationRequest(
@@ -226,6 +288,7 @@ func runAutoQualityTests(_ t: TestKit) {
         do {
             let resolved = try GenerationSettingsResolver.resolve(request: custom, engine: engine, snapshot: snap)
             t.checkEqual(resolved.request.parameters.numFrames, 81, "Custom manual frames win over target duration")
+            t.checkEqual(resolved.request.parameters.width, customParams.width, "Custom preserves manual width")
             t.check(resolved.profile == nil, "Custom has no automatic profile")
         } catch { t.check(false, "custom resolution threw \(error)") }
     }

@@ -23,13 +23,21 @@ class GenerationService: ObservableObject {
     // MARK: - Queue Management
     
     func addToQueue(_ request: GenerationRequest) {
-        queue.append(request)
+        queue.append(requestForQueue(request))
         processNextIfNeeded()
     }
     
     func addBatch(_ requests: [GenerationRequest]) {
-        queue.append(contentsOf: requests)
+        queue.append(contentsOf: requests.map(requestForQueue))
         processNextIfNeeded()
+    }
+
+    /// Queue rows must not display stale manual values when a non-Custom
+    /// preset is active. Resolve here so every producer (Generate, One Shot,
+    /// Storyboard, Hybrid, History) shares the same preflight boundary.
+    private func requestForQueue(_ request: GenerationRequest) -> GenerationRequest {
+        guard FeatureFlags.isEnabled(.autoQualityV1) else { return request }
+        return GenerationSettingsResolver.resolveForPreflight(request: request).request
     }
     
     func removeFromQueue(_ request: GenerationRequest) {

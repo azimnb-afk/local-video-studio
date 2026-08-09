@@ -46,6 +46,26 @@ Python: `~/ltx-venv/bin/python3`（設定済みのはず）。モデル: ltx23_d
 - [x] Release local-test artifact is ad-hoc signed and therefore expected to be
   rejected by Gatekeeper. It is not a distribution claim.
 
+## 2026-08-09 Preset effective-settings regression acceptance
+
+- [x] Root cause confirmed: Quick was correctly resolved by
+  `GenerationSettingsResolver` for the renderer, but the Generate preflight
+  warning and queue displayed stale Custom `GenerationParameters`.
+- [x] Canonical Debug app launched by its full DerivedData path from HEAD
+  `09ef2a7b5108de64314c75354ef7bcdcd5af3914`; executable mtime
+  `2026-08-09 21:20:37 +0900`; running PID `86234` resolved to that path.
+- [x] Generate visibly reported Quick Preview → **C3** (512×320 / 49 frames /
+  15 steps), Standard → **S0** (768×512 / 73 frames / 25 steps), High Quality
+  → **H0** (768×512 / 121 frames / 30 steps), and Custom exposed the retained
+  manual controls.
+- [x] Quick Preview remained selected and C3 remained visible after close and
+  relaunch of that exact app.
+- [x] No render was queued: the canonical app reported MLX Environment Not
+  Ready, and the audit's resolver, queue, and persisted-Take tests cover the
+  non-rendering settings path. No model or encoder download was started.
+- [x] `swift build`; `swift run LTXTests` = **643 passed / 0 failed**;
+  Xcode Debug clean build = **BUILD SUCCEEDED**; `git diff --check` passed.
+
 ---
 
 ## 2026-08-08 GUI-first completion verification

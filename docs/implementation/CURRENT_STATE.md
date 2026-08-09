@@ -33,7 +33,7 @@ OFF; Hardened Runtime ON with no CS exception entitlements.
 
 ## Build & Verification Status
 - `swift build`: PASS
-- `swift run LTXTests`: **603 passed, 0 failed**
+- `swift run LTXTests`: **643 passed, 0 failed**
 - `xcodebuild -scheme LTXVideoGenerator -configuration Debug CODE_SIGNING_ALLOWED=NO clean build`: **BUILD SUCCEEDED**
 - `xcodebuild -scheme LTXVideoGenerator -configuration Release CODE_SIGNING_ALLOWED=NO clean build`: **BUILD SUCCEEDED**
 - `git diff --check`: PASS
@@ -49,3 +49,23 @@ OFF; Hardened Runtime ON with no CS exception entitlements.
   weights.
 - See `DISTRIBUTION_ARCHITECTURE.md` and `RELEASE_PROCESS.md` for the exact
   delivery path and human credential hand-off.
+
+## 2026-08-09 Preset effective-settings regression closure
+
+The Phase A2 local-test app exposed a real preflight/UI regression, not a
+packaging failure: Quick Preview could retain old Custom fields in the UI
+(512×768 / 121 frames / 30 steps) while `GenerationService` correctly resolved
+the renderer request to Quick's compact profile. `GenerationSettingsResolver`
+is now also the common preflight/queue boundary. Generate's effective-settings
+summary and high-memory warning use that same resolved request; all queue
+producers (Generate, One Shot, Storyboard, Hybrid, History) receive the same
+preflight normalization; final execution still resolves again immediately
+before rendering.
+
+Quick Preview is C3 (512×320 / 49 frames / 15 steps) with audio, or C2
+(512×320 / 65 frames / 15 steps) with audio off. Standard and High Quality
+remain adaptive S0 and H0 respectively, and Custom remains manual. Storyboard
+creation no longer overwrites a non-Custom preset's dimensions with stale
+sheet state. Canonical Debug GUI acceptance verified Quick → C3, Standard →
+S0, High → H0, Custom manual controls, and Quick persistence through restart;
+no new render or download was started.

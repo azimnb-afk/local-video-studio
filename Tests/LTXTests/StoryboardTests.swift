@@ -93,6 +93,8 @@ func runStoryboardTests(_ t: TestKit) {
                 t.checkEqual(result.providerName, "template", "template remains the final fallback")
                 t.checkEqual(result.project.planningMode, "fallback", "fallback planning mode is persisted")
                 t.checkEqual(result.project.directorProvider, "template", "fallback provider is persisted")
+                t.checkEqual(result.project.requestedDirectorMode, "auto", "requested Auto mode is persisted")
+                t.checkEqual(result.project.effectiveDirectorMode, "basic", "fallback effective mode is Basic")
                 t.checkEqual(result.project.fallbackReason, StoryboardDirector.FailureStage.jsonExtractionFailed.rawValue,
                              "actionable fallback reason is persisted")
                 t.check(fallbackDirector.diagnostics.contains { $0.stage == .jsonExtractionFailed },
@@ -250,6 +252,8 @@ func runStoryboardTests(_ t: TestKit) {
                 t.checkEqual(Set(project.shots.map(\.id)).count, 2, "materialized shot IDs are unique")
                 t.checkEqual(project.directorProvider, "mock", "AI provider metadata persisted")
                 t.checkEqual(project.planningMode, "ai", "AI planning mode persisted")
+                t.checkEqual(project.requestedDirectorMode, "auto", "AI project records requested Auto mode")
+                t.checkEqual(project.effectiveDirectorMode, "localAI", "AI project records effective Local AI")
                 t.checkEqual(project.storyBible.logline, "A courier races the rain.", "story bible populated")
                 t.check(project.characterBible.character(named: "Kei") != nil, "character bible seeded")
                 t.checkEqual(project.shots[0].continuityBefore?.location, "street", "shot 1 sees initial state")
@@ -282,6 +286,36 @@ func runStoryboardTests(_ t: TestKit) {
             sem2.signal()
         }
         sem2.wait()
+
+        // Explicit Basic bypasses Local AI and safely decomposes only clear
+        // first/next/final shot cues.
+        let basicBrief = """
+        最初のショットでは、女性が波打ち際を歩く。
+        次のショットでは、女性が海を眺める。
+        最後のショットでは、女性が振り返って微笑む。
+        """
+        let explicitBasic = StoryboardDirector(
+            providers: [TemplateStoryboardProvider()],
+            requestedMode: .basic
+        )
+        let basicSemaphore = DispatchSemaphore(value: 0)
+        Task {
+            do {
+                let (project, _, providerName) = try await explicitBasic.makeProject(
+                    title: "Basic", brief: basicBrief
+                )
+                t.checkEqual(providerName, "template", "explicit Basic uses deterministic provider")
+                t.checkEqual(project.shots.count, 3, "Basic decomposes explicit three-shot cues")
+                t.checkEqual(project.planningMode, "basic", "explicit Basic is not mislabeled fallback")
+                t.checkEqual(project.requestedDirectorMode, "basic", "requested Basic mode persists")
+                t.checkEqual(project.effectiveDirectorMode, "basic", "effective Basic mode persists")
+                t.check(project.fallbackReason == nil, "explicit Basic has no failure reason")
+            } catch {
+                t.check(false, "explicit Basic storyboard threw \(error)")
+            }
+            basicSemaphore.signal()
+        }
+        basicSemaphore.wait()
 
         // Hybrid composes the same director and deterministically expands the
         // template fallback into reviewable 4–6 second shots.

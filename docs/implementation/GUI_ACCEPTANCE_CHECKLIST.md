@@ -66,6 +66,22 @@ The affected project still has its original persisted BF16 snapshot and was not 
 
 No new LTX render was queued for this Planning-only acceptance. The same downstream 4-bit Quick/High queue, retake, mixed-resolution assembly, and cancellation paths had already passed real E2E immediately before this fix and were deliberately left unchanged.
 
+## 2026-08-09 Zero-setup Director UX acceptance
+
+- [x] New users default to Director Auto; the Storyboard sheet exposes only Auto / Local AI / Basic plus friendly status copy.
+- [x] Settings has a Director tab with mode, readiness, installed-model picker, Refresh Models, Test, and Advanced-only endpoint/technical details.
+- [x] `/api/tags` populated the picker with ten existing models, including `qwen3.6-claw-fast:latest`; no shell `ollama list` call is used by the app.
+- [x] GUI model selection persisted through the existing `directorOllamaModel` key. A temporary selection change was observed in UserDefaults and the preferred qwen-fast selection was restored.
+- [x] Test returned `Local AI Director is ready (qwen3.6-claw-fast:latest)` and `/api/ps` was empty afterward.
+- [x] Auto + Local AI created project `668BCE7F-D25C-4AB8-A68C-24FDDA280181`: 3×5 s, requested Auto, effective Local AI, planning AI, fallback nil.
+- [x] Explicit Basic with Ollama running created project `93CA9860-CF98-4009-9D81-F600873DC397`: 3×5 s, requested/effective Basic, template provider, no fallback reason; UI displayed `Director: Basic`.
+- [x] Homebrew Ollama service was stopped safely. Auto displayed Basic/No setup required and created project `B37EC01D-47A1-441F-A9D1-2B22210A8DC6`: 3×5 s, requested Auto, effective Basic, planning fallback, `localAIServerUnavailable`; no blocking alert.
+- [x] Ollama service was restored to started; Director mode is Auto, preferred model is qwen fast, and no Ollama model remains loaded.
+- [x] All projects retained Official Q4 + Gemma 12B 4-bit. No model download, BF16 selection, LTX render, OpenClaw connection, or cloud fallback occurred.
+- [x] Existing FilmProject JSON without the optional requested/effective fields remains decodable; new metadata persists across store reload.
+- [x] Canonical app provenance: base HEAD `da86397` plus reviewed worktree; executable mtime `2026-08-09 08:45:59 +0900`; running PID 59844 executable `/Users/azimnb/Library/Developer/Xcode/DerivedData/LTXVideoGenerator-amthplfqixfwzxgnoumxohoqainn/Build/Products/Debug/LTXVideoGenerator.app/Contents/MacOS/LTXVideoGenerator`.
+- [x] Automated validation: `swift build`; `swift run LTXTests` = 396 passed / 0 failed; Xcode Debug `BUILD SUCCEEDED`; `git diff --check` clean.
+
 ---
 
 ## A. Regression — 全flag OFF = 従来動作（最優先）

@@ -263,6 +263,8 @@ struct FilmProject: Codable, Equatable, Identifiable {
     var directorModel: String?
     var planningMode: String?
     var fallbackReason: String?
+    var requestedDirectorMode: String?
+    var effectiveDirectorMode: String?
     var settings: ProjectSettings = ProjectSettings()
     var storyBible: StoryBible = StoryBible()
     var characterBible: CharacterBible = CharacterBible()

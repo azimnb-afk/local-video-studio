@@ -374,7 +374,12 @@ struct PreferencesView: View {
             .tabItem {
                 Label("Generation", systemImage: "wand.and.stars")
             }
-            
+
+            DirectorPreferencesView()
+                .tabItem {
+                    Label("Director", systemImage: "movieclapper")
+                }
+
             // Audio
             Form {
                 Section("ElevenLabs API") {
@@ -706,6 +711,152 @@ struct PreferencesView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Storyboard Director
+
+private struct DirectorPreferencesView: View {
+    @AppStorage(DirectorMode.userDefaultsKey) private var modeRaw = DirectorMode.auto.rawValue
+    @AppStorage(DirectorEnvironmentService.modelUserDefaultsKey) private var directorModel = ""
+
+    @State private var snapshot = DirectorSetupSnapshot.checking(mode: .auto)
+    @State private var isRefreshing = false
+    @State private var isTesting = false
+    @State private var testResult: (success: Bool, message: String)?
+    @State private var showAdvanced = false
+
+    private let environment = DirectorEnvironmentService()
+
+    private var mode: DirectorMode {
+        DirectorMode(rawValue: modeRaw) ?? .auto
+    }
+
+    private var modelSelection: Binding<String> {
+        Binding(
+            get: { directorModel.isEmpty ? (snapshot.effectiveModel ?? "") : directorModel },
+            set: { directorModel = $0; testResult = nil }
+        )
+    }
+
+    var body: some View {
+        Form {
+            Section("Director Mode") {
+                Picker("Mode", selection: $modeRaw) {
+                    ForEach(DirectorMode.allCases) { mode in
+                        Text(mode == .auto ? "Auto (Recommended)" : mode.displayName).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text(mode.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Local AI") {
+                HStack {
+                    statusLabel
+                    Spacer()
+                    if isRefreshing { ProgressView().controlSize(.small) }
+                }
+
+                if mode != .basic {
+                    Picker("Director Model", selection: modelSelection) {
+                        if snapshot.installedModels.isEmpty {
+                            Text("No installed models").tag("")
+                        } else {
+                            ForEach(snapshot.installedModels, id: \.self) { Text($0).tag($0) }
+                        }
+                    }
+                    .disabled(snapshot.installedModels.isEmpty || isRefreshing)
+
+                    HStack {
+                        Button("Refresh Models") { Task { await refresh() } }
+                            .disabled(isRefreshing || isTesting)
+                        Button("Test") { Task { await testConnection() } }
+                            .disabled(snapshot.effectiveModel == nil || isRefreshing || isTesting)
+                        if isTesting { ProgressView().controlSize(.small) }
+                    }
+
+                    if let testResult {
+                        Label(testResult.message,
+                              systemImage: testResult.success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(testResult.success ? .green : .orange)
+                    }
+                } else {
+                    Text("Storyboard planning works without a Local AI model.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            DisclosureGroup("Advanced", isExpanded: $showAdvanced) {
+                VStack(alignment: .leading, spacing: 6) {
+                    LabeledContent("Endpoint", value: OllamaDirectorEnvironmentClient.endpoint.absoluteString)
+                    LabeledContent("Technical Status", value: snapshot.technicalStatus)
+                    LabeledContent("Installed Models", value: "\(snapshot.installedModels.count)")
+                }
+                .font(.caption)
+                .textSelection(.enabled)
+                .padding(.top, 6)
+            }
+        }
+        .formStyle(.grouped)
+        .task { await refresh() }
+        .onChange(of: modeRaw) { _, _ in
+            testResult = nil
+            Task { await refresh() }
+        }
+        .onChange(of: directorModel) { _, _ in
+            testResult = nil
+            Task { await refresh() }
+        }
+    }
+
+    @ViewBuilder
+    private var statusLabel: some View {
+        switch snapshot.availability {
+        case .checking:
+            Label("Checking…", systemImage: "clock")
+                .foregroundStyle(.secondary)
+        case .localAIReady(let model):
+            VStack(alignment: .leading, spacing: 2) {
+                Label("Ready", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text(model).font(.caption).foregroundStyle(.secondary)
+            }
+        case .basicOnly:
+            Label("Basic Director — Ready", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        case .localAIModelMissing:
+            Label("Model Not Available — Basic Director is ready", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        case .localAIServerUnavailable:
+            Label("Not Running — Basic Director is ready", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        }
+    }
+
+    @MainActor
+    private func refresh() async {
+        isRefreshing = true
+        snapshot = await environment.refresh(mode: mode)
+        isRefreshing = false
+    }
+
+    @MainActor
+    private func testConnection() async {
+        isTesting = true
+        switch await environment.testSelectedModel() {
+        case .success(let model):
+            testResult = (true, "Local AI Director is ready (\(model)).")
+        case .failure:
+            testResult = (false, "Local AI could not be reached. Basic Director remains available.")
+        }
+        isTesting = false
+        await refresh()
     }
 }
 

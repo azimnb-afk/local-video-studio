@@ -40,6 +40,8 @@ func runFilmProjectTests(_ t: TestKit) {
         settingsProject.directorModel = "local-test-model"
         settingsProject.planningMode = "ai"
         settingsProject.fallbackReason = nil
+        settingsProject.requestedDirectorMode = "auto"
+        settingsProject.effectiveDirectorMode = "localAI"
         store.save(settingsProject)
         let settingsReloaded = FilmProjectStore(projectsDirectory: tmpDir.appendingPathComponent("p1")).project(id: project.id)
         t.checkEqual(settingsReloaded?.settings.resolvedPreset, .custom, "Project Settings preset persists")
@@ -49,6 +51,8 @@ func runFilmProjectTests(_ t: TestKit) {
         t.checkEqual(settingsReloaded?.directorProvider, "ollama", "Director provider metadata persists")
         t.checkEqual(settingsReloaded?.directorModel, "local-test-model", "Director model metadata persists")
         t.checkEqual(settingsReloaded?.planningMode, "ai", "Planning mode metadata persists")
+        t.checkEqual(settingsReloaded?.requestedDirectorMode, "auto", "Requested Director mode persists")
+        t.checkEqual(settingsReloaded?.effectiveDirectorMode, "localAI", "Effective Director mode persists")
 
         // Newer schema is never destroyed.
         let futureURL = tmpDir.appendingPathComponent("p1").appendingPathComponent("\(UUID().uuidString).json")

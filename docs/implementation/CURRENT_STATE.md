@@ -3,7 +3,7 @@
 Updated: 2026-08-09
 
 ## Current Phase
-Preset/Quality and text-encoder propagation hardening is complete. Pure Storyboard structured output is also hardened and has passed a real local-Ollama multi-shot GUI acceptance; the previously verified cached-model Storyboard/Hybrid render, mixed-resolution final assembly, and cancellation paths were not changed.
+Preset/Quality and text-encoder propagation hardening is complete. Storyboard Director is now a zero-setup Auto / Local AI / Basic product workflow, with real GUI acceptance for Local AI, explicit Basic, and Ollama-unavailable fallback. The previously verified cached-model render, mixed-resolution assembly, and cancellation paths were not changed.
 
 ## Completed
 - Source acquisition: cloned `james-see/ltx-video-mac` (MIT) @ `a441dc2` → branch `director-extensions`.
@@ -31,6 +31,9 @@ Preset/Quality and text-encoder propagation hardening is complete. Pure Storyboa
 - Pure Storyboard planning closure (2026-08-09): `qwen3.6-claw-fast:latest` returned valid three-shot schema JSON in Ollama's `thinking` envelope field while `response` was empty. The provider now requests `think:false`, retains a compatibility fallback for non-empty `thinking`, and distinguishes no response from request, extraction, syntax, decode, schema, semantic, repair, retry, and template-fallback stages.
 - Structured-output recovery is bounded: direct decode, balanced-object extraction, conservative deterministic repair, one LLM repair request, then the existing Basic/template fallback. Debug builds may retain raw responses only in a rotating temporary log; Release builds do not persist them.
 - New projects persist planning provenance (`directorProvider`, `directorModel`, `planningMode`, optional `fallbackReason`) and the Storyboard UI identifies Local AI versus Basic Fallback.
+- Director UX: Auto is the default and resolves an installed preferred model through the loopback `/api/tags` API; unavailable server/model conditions become a visible Basic Director result instead of blocking Storyboard creation. No shell-based discovery, automatic model download, cloud fallback, or OpenClaw coupling was added.
+- Settings now has a Director tab with Auto / Local AI / Basic, friendly readiness state, installed-model picker backed by the existing `directorOllamaModel` preference, manual refresh, lightweight Test, and an Advanced-only endpoint/technical status disclosure.
+- Requested/effective Director mode is persisted as optional FilmProject metadata. Explicit Basic is labeled Basic rather than AI/failure, bypasses Ollama entirely, and safely decomposes briefs containing explicit first/next/final shot cues into multiple deterministic shots.
 
 ## In Progress
 - No open item in the Storyboard structured-output repair scope. Optional broader planning-quality evaluation remains separate from schema transport and validation correctness.
@@ -105,7 +108,7 @@ Record the three provenance values with the GUI acceptance result: `git_head`, `
 Builds created with a custom path such as `-derivedDataPath /tmp/...` are disposable test artifacts. They must not be treated as the normal development app or used to claim final GUI acceptance. Multiple old Debug apps with bundle id `com.ltxvideo.generator` may coexist, so bundle-name lookup is always ambiguous; `open -a LTXVideoGenerator` is prohibited for GUI verification.
 
 ## Test Status
-- `swift run LTXTests`: **368 checks, 0 failures** (including structured-output extraction/repair/failure-stage coverage, planning metadata migration, new-project text-encoder inheritance, Hybrid request propagation, and cancelled Take/Job persistence).
+- `swift run LTXTests`: **396 checks, 0 failures** (including Auto/Local AI/Basic resolution, installed model parsing/refresh, preferred-model persistence, model-missing/offline fallback, Basic no-network behavior, requested/effective metadata migration, and all prior structured-output/render regressions).
 - Final concrete comparison on Mac16,11/48 GB, same prompt/model/seed 4242/target 5 s/audio ON: Quick=C3 512×320/121f/24fps/15 steps; Standard=S0 768×512/121f/24fps/25 steps; High=H0 768×512/121f/24fps/30 steps.
 
 ## 2026-08-09 Real Storyboard / Hybrid GUI E2E
@@ -125,6 +128,14 @@ Builds created with a custom path such as `-derivedDataPath /tmp/...` are dispos
 - Project `2274CB69-B651-4C1F-A9B5-2BF975E00023` was created from the same Japanese sea-side brief. GUI reported `Planned 3 shots via Local AI Director (ollama)` and displayed `Director: Local AI qwen3.6-claw-fast:latest`.
 - The saved plan has three 5-second shots (`The Walk`, `The Pause`, `The Smile`), non-empty compiled prompts, propagated continuity state, and `directorProvider=ollama`, `directorModel=qwen3.6-claw-fast:latest`, `planningMode=ai`, `fallbackReason=null`.
 - Project render settings remained `modelID=ltx23_distilled_q4` and `textEncoderID=gemma3_12b_4bit`. No BF16 selection or model download occurred. Ollama was no longer serving a model after planning. A new LTX render was intentionally not queued because downstream Quick/High generation, queue, retake, assembly, and cancellation had already passed the immediately preceding real E2E and were outside this Planning-only fix.
+
+## 2026-08-09 Zero-Setup Director UX Acceptance
+- Canonical app: `/Users/azimnb/Library/Developer/Xcode/DerivedData/LTXVideoGenerator-amthplfqixfwzxgnoumxohoqainn/Build/Products/Debug/LTXVideoGenerator.app`; executable mtime `2026-08-09 08:45:59 +0900`; running PID 59844 resolved to that exact executable. Acceptance source was `da86397` plus the reviewed Director UX worktree that becomes the local `feat: add zero-setup storyboard director experience` checkpoint.
+- Settings > Director opened with Auto (Recommended), `Ready`, model `qwen3.6-claw-fast:latest`, Refresh Models and Test. The picker listed all models returned by `/api/tags`; changing to `qwen3.6-claw:latest` persisted through `directorOllamaModel`, then the GUI restored `qwen3.6-claw-fast:latest`. Test returned `Local AI Director is ready` and unloaded the model afterward.
+- Auto + Ollama ready: project `668BCE7F-D25C-4AB8-A68C-24FDDA280181`, three 5-second shots, requested `auto`, effective `localAI`, provider `ollama`, model `qwen3.6-claw-fast:latest`, planning `ai`, fallback nil.
+- Explicit Basic while Ollama was running: project `93CA9860-CF98-4009-9D81-F600873DC397`, three deterministic 5-second shots, requested/effective `basic`, provider `template`, planning `basic`, fallback nil. Unit coverage verifies Basic never requests the Ollama model list; `/api/ps` remained empty.
+- Auto while the Homebrew Ollama service was deliberately stopped: project `B37EC01D-47A1-441F-A9D1-2B22210A8DC6`, three deterministic 5-second shots, requested `auto`, effective `basic`, planning `fallback`, reason `localAIServerUnavailable`. Storyboard creation succeeded without an alert. The service was restored to its original started state; mode was restored to Auto, preferred model to qwen fast, and `/api/ps` was empty.
+- All three projects retained `modelID=ltx23_distilled_q4` and `textEncoderID=gemma3_12b_4bit`. No Ollama pull, Hugging Face/BF16 download, or LTX generation was started.
 
 ## Known Blockers / Remaining Human Actions
 1. ~~No Xcode.app~~ → RESOLVED: Xcode 26.6 installed; unsigned dev .app builds and runs. Remaining: Developer ID signing + notarization for distribution (needs credentials).
@@ -151,6 +162,7 @@ GUI-first defaults (D-007): modelRegistryV1 / autoQualityV1 / directorV1 / filmP
 ## Last Known Good Commit
 - Previous downstream checkpoint: `7302c67` on `director-extensions` (`docs: record storyboard 4bit e2e acceptance`).
 - This document is included in the local `fix: harden storyboard director structured output` checkpoint, verified with 368 tests, Xcode Debug build, and canonical-app pure Storyboard GUI acceptance. No push was performed.
+- This update is included in the local `feat: add zero-setup storyboard director experience` checkpoint, verified with 396 tests and the three canonical-app GUI cases above. No push was performed.
 
 ## Exact Resume Action
 `cd /Users/azimnb/ltx23appdev/ltx-video-mac && git status && swift run LTXTests && xcodebuild -project LTXVideoGenerator/LTXVideoGenerator.xcodeproj -scheme LTXVideoGenerator -configuration Debug CODE_SIGNING_ALLOWED=NO build`.

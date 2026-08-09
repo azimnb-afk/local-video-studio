@@ -86,6 +86,7 @@ final class StoryboardDirector {
     """
 
     private let providers: [DirectorProvider]
+    private let requestedMode: DirectorMode
     /// One original request plus one bounded LLM repair request.
     private let maxRepairAttempts = 1
     private(set) var diagnostics: [Diagnostic] = []
@@ -93,8 +94,16 @@ final class StoryboardDirector {
     private(set) var lastPlanningMode: String?
     private(set) var lastFallbackReason: String?
 
-    init(providers: [DirectorProvider]? = nil) {
-        self.providers = providers ?? [OllamaDirectorProvider(), TemplateStoryboardProvider()]
+    init(providers: [DirectorProvider]? = nil,
+         requestedMode: DirectorMode = DirectorMode.selected()) {
+        self.requestedMode = requestedMode
+        if let providers {
+            self.providers = providers
+        } else if requestedMode == .basic {
+            self.providers = [TemplateStoryboardProvider()]
+        } else {
+            self.providers = [EnvironmentDirectorProvider(mode: requestedMode), TemplateStoryboardProvider()]
+        }
     }
 
     /// Brief → validated storyboard draft. Provider terminated before return.
@@ -110,20 +119,27 @@ final class StoryboardDirector {
             guard await provider.isAvailable() else {
                 record(.ollamaRequestFailed, provider: provider.name, attempt: 0,
                        message: "provider unavailable")
+                if let reason = provider.availabilityFailureReason {
+                    lastFallbackReason = reason
+                }
                 precedingProviderFailed = true
                 continue
             }
             if precedingProviderFailed, provider.isFallbackProvider {
-                lastFallbackReason = diagnostics.reversed().first {
-                    $0.stage != .repairFailed && $0.stage != .retryFailed
-                }?.stage.rawValue
+                if lastFallbackReason == nil {
+                    lastFallbackReason = diagnostics.reversed().first {
+                        $0.stage != .repairFailed && $0.stage != .retryFailed
+                    }?.stage.rawValue
+                }
                 record(.templateFallback, provider: provider.name, attempt: 0,
                        message: "using deterministic template after structured planning failed")
             }
             do {
                 let draft = try await draftWithProvider(provider, brief: brief)
                 await provider.terminate()
-                lastPlanningMode = provider.isFallbackProvider ? "fallback" : "ai"
+                lastPlanningMode = provider.isFallbackProvider
+                    ? (requestedMode == .basic ? "basic" : "fallback")
+                    : "ai"
                 if !provider.isFallbackProvider {
                     lastProviderModel = provider.modelIdentifier
                     lastFallbackReason = nil
@@ -476,6 +492,10 @@ final class StoryboardDirector {
         project.directorModel = lastProviderModel
         project.planningMode = lastPlanningMode
         project.fallbackReason = lastFallbackReason
+        project.requestedDirectorMode = requestedMode.rawValue
+        project.effectiveDirectorMode = providerName == "template"
+            ? DirectorMode.basic.rawValue
+            : DirectorMode.localAI.rawValue
         project.storyBible = StoryBible(
             logline: draft.logline,
             synopsis: draft.synopsis ?? "",
@@ -552,7 +572,9 @@ final class StoryboardDirector {
     }
 }
 
-/// Deterministic no-LLM storyboard fallback: single shot from the brief.
+/// Deterministic no-LLM storyboard fallback. Explicit first/next/final shot
+/// cues are decomposed without inventing story content; other briefs remain a
+/// single safe shot.
 final class TemplateStoryboardProvider: DirectorProvider {
     let name = "template"
     let isFallbackProvider = true
@@ -566,32 +588,59 @@ final class TemplateStoryboardProvider: DirectorProvider {
         } else {
             brief = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         }
+        let beats = Self.explicitBeats(from: brief)
+        let scales = ["wide", "medium", "close-up", "medium-close-up"]
+        let movements = ["track", "dolly", "dolly", "static"]
+        let shots = beats.enumerated().map { index, beat in
+            StoryboardDirector.ShotPlanDraft(
+                title: beats.count == 1 ? "Shot 1" : "Shot \(index + 1)",
+                summary: beat,
+                durationSeconds: 5,
+                shotScale: scales[index % scales.count],
+                angle: "eye-level",
+                movement: movements[index % movements.count],
+                lighting: "soft natural lighting",
+                dialogue: [],
+                audioCues: [],
+                explicitChanges: []
+            )
+        }
         let draft = StoryboardDirector.StoryboardDraft(
             logline: brief,
             synopsis: brief,
             setting: "",
             tone: "",
             initialState: nil,
-            shots: [
-                StoryboardDirector.ShotPlanDraft(
-                    title: "Shot 1",
-                    summary: brief,
-                    durationSeconds: 5,
-                    shotScale: "medium",
-                    angle: "eye-level",
-                    movement: "static",
-                    lighting: "soft natural lighting",
-                    dialogue: [],
-                    audioCues: [],
-                    explicitChanges: []
-                ),
-            ]
+            shots: shots
         )
         let data = try JSONEncoder().encode(draft)
         return String(data: data, encoding: .utf8) ?? "{}"
     }
 
     func terminate() async {}
+
+    static func explicitBeats(from brief: String) -> [String] {
+        let lines = brief.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let markers = [
+            "最初のショット", "次のショット", "最後のショット",
+            "first shot", "next shot", "final shot", "last shot",
+        ]
+        var beats: [String] = []
+        var current: String?
+        for line in lines {
+            let lower = line.lowercased()
+            if markers.contains(where: { lower.contains($0) }) {
+                if let current { beats.append(current) }
+                current = line
+            } else if let existing = current {
+                current = existing + " " + line
+            }
+        }
+        if let current { beats.append(current) }
+        return beats.count >= 2 ? Array(beats.prefix(8)) : [brief]
+    }
 }
 
 /// Thin Hybrid orchestration layer. Planning remains in StoryboardDirector;

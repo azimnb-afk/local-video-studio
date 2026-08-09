@@ -65,7 +65,7 @@ modelRegistryV1 · autoQualityV1 · directorV1 · filmProjectV1 · storyboardV1 
 Automated acceptance against the running .app: API v1 socket-level security suite passed (401/401/403/400, loopback-only lsof, no CORS) and a full E2E job (POST /v1/jobs, quality=compact) ran a real generation through the GUI app's queue — Auto Quality applied C2 (512×320/65f), completed with actual ffprobe metadata (2.708 s), output re-verified on disk. Remaining distribution step: Developer ID signing + notarization (credentials required).
 
 ## 9. Test Results
-`swift run LTXTests`: **368 checks, 0 failures**. Includes exact Quick/Standard/High final-request comparison, history cap/fallback policy, duration survival for One Shot/Storyboard/Hybrid/API, Custom frame precedence, metadata migration, Preset mapping, Project Settings persistence, Preview Take retention, Hybrid orchestration, Storyboard structured-output extraction/repair/failure-stage coverage, live syscall checks, real-MP4 MediaProbe, and real ffmpeg concat assembly.
+`swift run LTXTests`: **396 checks, 0 failures**. Includes exact Quick/Standard/High final-request comparison, Director Auto/Local AI/Basic resolution, installed-model parsing/refresh/persistence, offline/model-missing fallback, Basic no-network behavior, requested/effective metadata migration, Storyboard structured-output extraction/repair/failure-stage coverage, live syscall checks, real-MP4 MediaProbe, and real ffmpeg concat assembly.
 
 ## 10. Regression Results
 Same seed/settings re-render after all changes produced a **byte-identical MP4** (MD5 bf8020b1f55f73a62c075f2df1c65a8d = Phase 0 baseline). Peak memory 23.46 GB ≤ baseline 23.66 GB. Official fast path: 0% regression.
@@ -107,7 +107,7 @@ Post-Xcode human GUI acceptance checklist: [GUI_ACCEPTANCE_CHECKLIST.md](GUI_ACC
 5. Optionally evaluate additional local Ollama models for creative planning quality. `qwen3.6-claw-fast:latest` is installed and now passes the pure Storyboard structured-output path; deterministic template fallback remains available.
 
 ## 18. Exact Resume Prompt
-> /Users/azimnb/ltx23appdev/ltx-video-mac の docs/implementation/CURRENT_STATE.md と FINAL_IMPLEMENTATION_REPORT.md を読んでください。branch は director-extensions、テストは `swift run LTXTests`（368 checks）です。Remaining Human Actions のうち完了したものを教えるので、対応する Runtime Verification（10Eros compat lab / 16GB lowram bench / full queue soak / post-fix real Preset comparison）を進め、結果を Compatibility Lab・BENCHMARK_RESULTS.md・TEST_MATRIX.md へ記録してください。Official fast path の regression 判定は同一 seed の MD5 比較（bf8020b1f55f73a62c075f2df1c65a8d）を基準にしてください。
+> /Users/azimnb/ltx23appdev/ltx-video-mac の docs/implementation/CURRENT_STATE.md と FINAL_IMPLEMENTATION_REPORT.md を読んでください。branch は director-extensions、テストは `swift run LTXTests`（396 checks）です。Remaining Human Actions のうち完了したものを教えるので、対応する Runtime Verification（10Eros compat lab / 16GB lowram bench / full queue soak / post-fix real Preset comparison）を進め、結果を Compatibility Lab・BENCHMARK_RESULTS.md・TEST_MATRIX.md へ記録してください。Official fast path の regression 判定は同一 seed の MD5 比較（bf8020b1f55f73a62c075f2df1c65a8d）を基準にしてください。
 
 ## 19. Preset / Quality propagation root-cause closure
 
@@ -184,3 +184,30 @@ Project `2274CB69-B651-4C1F-A9B5-2BF975E00023` used the same Brief and persisted
 The GUI reported `Planned 3 shots via Local AI Director (ollama)` and displayed three 5-second shots: The Walk, The Pause, and The Smile. All compiled prompts were non-empty and continuity state propagated the same character, outfit, beach, dusk timing, and explicit position changes. No BF16 encoder was selected, no model was downloaded, and Ollama was unloaded/stopped after planning.
 
 A new video render was intentionally omitted: this task changed only Planning, while the same cached Q4/4-bit downstream queue, retake, mixed-resolution assembly, and cancellation paths had already passed real E2E at the immediately preceding checkpoint.
+
+## 21. Zero-setup Storyboard Director experience
+
+### Product architecture
+Storyboard exposes one product concept, Director, with requested modes Auto (default/recommended), Local AI, and Basic. `DirectorEnvironmentService` is the shared source for loopback availability, installed models, configured preference validity, effective mode/model, and friendly status. Views do not perform curl, shell model discovery, or direct UserDefaults interpretation.
+
+Auto queries the existing loopback `/api/tags` endpoint. It uses the configured `directorOllamaModel` when installed, otherwise selects the first deterministic compatible installed text-generation candidate (excluding obvious embedding/reranking tags). If the server or all candidates are unavailable it selects Basic. Explicit Local AI with a missing configured model reports that condition and still permits Basic fallback; explicit Basic never contacts Ollama. Actual planning/Test requests remain the structured-output capability check, and any failure falls through the bounded da86397 repair/fallback pipeline.
+
+There is no automatic `ollama pull`, Hugging Face download, server process management, cloud LLM, or OpenClaw linkage. Planning success/failure remains distinct from LTX generation. After a Local AI Test or planning attempt the selected Ollama model is unloaded before any LTX work.
+
+### User interface and metadata
+- Storyboard creation presents Auto / Local AI / Basic and a short `Local AI Ready` or `Basic Director · No setup required` state. Endpoint/model transport terminology is absent from the normal workflow.
+- Settings > Director provides mode, status, installed-model picker, Refresh Models, Test, and Advanced-only endpoint/technical status.
+- The picker writes the pre-existing `directorOllamaModel` preference; model additions appear after Refresh without restarting the app. Existing FilmProjects are never rewritten.
+- FilmProject keeps the previous optional provider/model/planning/fallback fields and adds optional `requestedDirectorMode` and `effectiveDirectorMode`. Explicit Basic is labeled `basic`, Auto failure is labeled `fallback`, and successful Local AI is labeled `ai`.
+- Basic is a supported Director, not a terminal error. It only decomposes clearly marked first/next/final shot beats, avoiding broad heuristic story invention; other briefs retain the safe single-shot behavior.
+
+### Canonical GUI evidence
+The canonical app executable mtime was `2026-08-09 08:45:59 +0900`; PID 59844 ran the exact DerivedData path. The installed-model picker listed ten existing models and persisted/restored qwen selections. Test succeeded and unloaded the model.
+
+| Case | Project | Requested | Effective | Planning | Result |
+|---|---|---|---|---|---|
+| Auto, Ollama/model ready | `668BCE7F-D25C-4AB8-A68C-24FDDA280181` | auto | localAI | ai | qwen fast, 3×5 s, fallback nil |
+| Explicit Basic, Ollama running | `93CA9860-CF98-4009-9D81-F600873DC397` | basic | basic | basic | template, 3×5 s, no Ollama request |
+| Auto, Ollama stopped | `B37EC01D-47A1-441F-A9D1-2B22210A8DC6` | auto | basic | fallback | 3×5 s, `localAIServerUnavailable` |
+
+The Homebrew Ollama service was restored to its original started state after the offline test. Mode is Auto, preferred model is `qwen3.6-claw-fast:latest`, and `/api/ps` is empty. Every project retained Official Q4 + Gemma 12B 4-bit. No download or video generation was initiated.

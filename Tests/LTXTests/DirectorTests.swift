@@ -27,6 +27,31 @@ final class MockDirectorProvider: DirectorProvider {
     func terminate() async { terminated = true }
 }
 
+final class MockDirectorEnvironmentClient: DirectorEnvironmentClient {
+    var models: [String]
+    var listError: Error?
+    var testError: Error?
+    private(set) var listCalls = 0
+    private(set) var testedModels: [String] = []
+
+    init(models: [String] = [], listError: Error? = nil, testError: Error? = nil) {
+        self.models = models
+        self.listError = listError
+        self.testError = testError
+    }
+
+    func installedModels() async throws -> [String] {
+        listCalls += 1
+        if let listError { throw listError }
+        return models
+    }
+
+    func testModel(_ model: String) async throws {
+        testedModels.append(model)
+        if let testError { throw testError }
+    }
+}
+
 func runDirectorTests(_ t: TestKit) {
     let validPlanJSON = """
     {"camera":"slow dolly-in, medium close-up","action":"A woman lifts a cup of tea and smiles.","acting":"soft, warm expression","motion":"gentle, natural","lighting":"golden hour side light","dialogue":[{"speaker":"Mika","text":"おはよう"}],"audioCues":["porcelain clink"],"durationIntentSeconds":5}
@@ -71,6 +96,88 @@ func runDirectorTests(_ t: TestKit) {
         } catch {
             t.check(false, "Ollama envelope test setup threw \(error)")
         }
+    }
+
+    t.suite("Director environment") {
+        do {
+            let tags = try JSONSerialization.data(withJSONObject: [
+                "models": [
+                    ["name": "qwen3.6-claw-fast:latest", "capabilities": ["completion", "thinking"]],
+                    ["model": "gemma3:4b"],
+                    ["name": "nomic-embed:latest", "capabilities": ["embedding"]],
+                    ["name": "qwen3.6-claw-fast:latest"],
+                ],
+            ])
+            t.checkEqual(try OllamaDirectorEnvironmentClient.modelNames(from: tags),
+                         ["gemma3:4b", "qwen3.6-claw-fast:latest"],
+                         "installed model list parses, deduplicates and sorts")
+        } catch {
+            t.check(false, "installed model response parsing threw \(error)")
+        }
+
+        let suiteName = "LTXTests-DirectorEnvironment-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        func resolve(_ service: DirectorEnvironmentService, mode: DirectorMode) -> DirectorSetupSnapshot? {
+            var value: DirectorSetupSnapshot?
+            let semaphore = DispatchSemaphore(value: 0)
+            Task {
+                value = await service.refresh(mode: mode)
+                semaphore.signal()
+            }
+            semaphore.wait()
+            return value
+        }
+
+        defaults.set("qwen3.6-claw-fast:latest", forKey: DirectorEnvironmentService.modelUserDefaultsKey)
+        let readyClient = MockDirectorEnvironmentClient(models: ["qwen3.6-claw-fast:latest"])
+        let readyService = DirectorEnvironmentService(userDefaults: defaults, client: readyClient)
+        let ready = resolve(readyService, mode: .auto)
+        t.checkEqual(ready?.effectiveMode, .localAI, "Auto + server + configured model selects Local AI")
+        t.checkEqual(ready?.effectiveModel, "qwen3.6-claw-fast:latest", "configured model is source of truth")
+        t.checkEqual(resolve(readyService, mode: .localAI)?.effectiveMode, .localAI,
+                     "explicit Local AI + available model selects Local AI")
+
+        let offlineClient = MockDirectorEnvironmentClient(
+            listError: DirectorError.providerFailed("offline")
+        )
+        let offline = resolve(DirectorEnvironmentService(userDefaults: defaults, client: offlineClient), mode: .auto)
+        t.checkEqual(offline?.effectiveMode, .basic, "Auto + unavailable server selects Basic")
+        t.checkEqual(offline?.fallbackReason, "localAIServerUnavailable", "offline reason is actionable")
+
+        defaults.set("missing:latest", forKey: DirectorEnvironmentService.modelUserDefaultsKey)
+        let alternativeClient = MockDirectorEnvironmentClient(models: ["z-embed:latest", "gemma3:4b"])
+        let alternativeService = DirectorEnvironmentService(userDefaults: defaults, client: alternativeClient)
+        let alternative = resolve(alternativeService, mode: .auto)
+        t.checkEqual(alternative?.effectiveMode, .localAI, "Auto safely uses an installed alternative")
+        t.checkEqual(alternative?.effectiveModel, "gemma3:4b", "embedding model is excluded from candidates")
+        t.checkEqual(alternative?.fallbackReason, "configuredModelMissingUsingInstalledAlternative",
+                     "missing preference is visible when Auto selects an alternative")
+
+        let explicitMissing = resolve(alternativeService, mode: .localAI)
+        t.checkEqual(explicitMissing?.effectiveMode, .basic, "explicit Local AI missing model falls back safely")
+        t.checkEqual(explicitMissing?.availability, .localAIModelMissing,
+                     "explicit Local AI reports model missing")
+
+        let basicClient = MockDirectorEnvironmentClient(models: ["qwen:latest"])
+        let basic = resolve(DirectorEnvironmentService(userDefaults: defaults, client: basicClient), mode: .basic)
+        t.checkEqual(basic?.availability, .basicOnly, "Basic is a first-class ready state")
+        t.checkEqual(basicClient.listCalls, 0, "Basic never contacts Ollama")
+
+        defaults.removeObject(forKey: DirectorEnvironmentService.modelUserDefaultsKey)
+        let refreshClient = MockDirectorEnvironmentClient(models: ["first:latest"])
+        let refreshService = DirectorEnvironmentService(userDefaults: defaults, client: refreshClient)
+        t.checkEqual(resolve(refreshService, mode: .auto)?.installedModels, ["first:latest"],
+                     "initial model refresh returns installed list")
+        refreshClient.models = ["first:latest", "second:latest"]
+        t.checkEqual(resolve(refreshService, mode: .auto)?.installedModels,
+                     ["first:latest", "second:latest"],
+                     "model refresh observes additions without app restart")
+
+        defaults.set("second:latest", forKey: DirectorEnvironmentService.modelUserDefaultsKey)
+        t.checkEqual(resolve(refreshService, mode: .auto)?.effectiveModel, "second:latest",
+                     "selected model persists through the shared preference key")
     }
 
     t.suite("Director lifecycle") {

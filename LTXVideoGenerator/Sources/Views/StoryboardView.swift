@@ -140,7 +140,7 @@ struct StoryboardView: View {
         Task {
             defer { isCreating = false }
             do {
-                var (project, violations, providerName) = mode == .hybrid
+                var (project, violations, _) = mode == .hybrid
                     ? try await HybridProjectCoordinator().makeProject(title: title, brief: brief, settings: settings)
                     : try await StoryboardDirector().makeProject(title: title, brief: brief, settings: settings)
                 project.workflowMode = mode.workflowValue
@@ -155,9 +155,12 @@ struct StoryboardView: View {
                 refresh()
                 let warnings = violations.filter { $0.severity == .warning }.count
                 let errors = violations.filter { $0.severity == .error }.count
-                let planningSource = project.planningMode == "fallback"
-                    ? "Basic Director fallback"
-                    : "Local AI Director (\(providerName))"
+                let planningSource: String
+                switch project.planningMode {
+                case "basic": planningSource = "Basic Director"
+                case "fallback": planningSource = "Basic Director fallback"
+                default: planningSource = "Local AI Director"
+                }
                 statusMessage = "Planned \(project.shots.count) shots via \(planningSource)"
                     + (mode == .hybrid ? "; queued one take per shot sequentially" : "")
                     + (violations.isEmpty ? "" : " (\(errors) continuity errors, \(warnings) warnings)")
@@ -185,6 +188,14 @@ private struct NewStoryboardSheet: View {
     @State private var targetDuration = 20.0
     @State private var width = 768
     @State private var height = 512
+    @AppStorage(DirectorMode.userDefaultsKey) private var directorModeRaw = DirectorMode.auto.rawValue
+    @State private var directorSnapshot = DirectorSetupSnapshot.checking(mode: .auto)
+    @State private var isCheckingDirector = false
+    private let directorEnvironment = DirectorEnvironmentService()
+
+    private var directorMode: DirectorMode {
+        DirectorMode(rawValue: directorModeRaw) ?? .auto
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -228,9 +239,27 @@ private struct NewStoryboardSheet: View {
             if mode == .hybrid {
                 Stepper("Target Duration: \(targetDuration, specifier: "%.0f")s", value: $targetDuration, in: 5...60, step: 5)
             }
-            Text("Planning is local-only: Ollama on localhost when available, otherwise a deterministic single-shot template. Any local LLM is unloaded before rendering.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Picker("Director", selection: $directorModeRaw) {
+                        Text("Auto").tag(DirectorMode.auto.rawValue)
+                        Text("Local AI").tag(DirectorMode.localAI.rawValue)
+                        Text("Basic").tag(DirectorMode.basic.rawValue)
+                    }
+                    .pickerStyle(.segmented)
+                    if isCheckingDirector { ProgressView().controlSize(.small) }
+                }
+                HStack(spacing: 6) {
+                    Image(systemName: directorStatusIcon)
+                        .foregroundStyle(directorStatusColor)
+                    Text(directorStatusText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text("Local AI can improve planning. Basic Director works without additional setup.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
@@ -257,6 +286,43 @@ private struct NewStoryboardSheet: View {
         }
         .padding(20)
         .frame(width: 460)
+        .task { await refreshDirectorStatus() }
+        .onChange(of: directorModeRaw) { _, _ in
+            Task { await refreshDirectorStatus() }
+        }
+    }
+
+    private var directorStatusText: String {
+        switch directorSnapshot.availability {
+        case .checking: return "Checking Director availability…"
+        case .localAIReady(let model): return "Local AI Ready · \(model)"
+        case .localAIModelMissing: return "Basic Director · Local AI model unavailable"
+        case .localAIServerUnavailable: return "Basic Director · No setup required"
+        case .basicOnly: return "Basic Director · No setup required"
+        }
+    }
+
+    private var directorStatusIcon: String {
+        switch directorSnapshot.availability {
+        case .localAIReady, .basicOnly: return "checkmark.circle.fill"
+        case .checking: return "clock"
+        case .localAIModelMissing, .localAIServerUnavailable: return "info.circle.fill"
+        }
+    }
+
+    private var directorStatusColor: Color {
+        switch directorSnapshot.availability {
+        case .localAIReady, .basicOnly: return .green
+        case .checking: return .secondary
+        case .localAIModelMissing, .localAIServerUnavailable: return .orange
+        }
+    }
+
+    @MainActor
+    private func refreshDirectorStatus() async {
+        isCheckingDirector = true
+        directorSnapshot = await directorEnvironment.refresh(mode: directorMode)
+        isCheckingDirector = false
     }
 
     private func effectiveResolutionText(width: Int, height: Int) -> String {
@@ -330,8 +396,12 @@ private struct ProjectDetailView: View {
                 Label("Director: Basic Fallback", systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.orange)
-                    .help(project.fallbackReason.map { "AI planning fallback reason: \($0)" }
-                          ?? "AI planning was unavailable")
+                    .help(DirectorEnvironmentService.friendlyFallbackReason(project.fallbackReason))
+            } else if project.planningMode == "basic" {
+                Label("Director: Basic", systemImage: "movieclapper")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help("No additional setup was required.")
             } else if project.planningMode == "ai" {
                 HStack(spacing: 6) {
                     Label("Director: Local AI", systemImage: "sparkles")

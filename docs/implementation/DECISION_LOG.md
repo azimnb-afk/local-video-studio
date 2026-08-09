@@ -37,3 +37,6 @@ The former Auto policy treated any lower-profile success as a permanent ceiling.
 
 ## D-012 (2026-08-08) Diagnostics are persisted, not inferred later
 `GenerationRequest` carries target duration and workflow source. `GenerationResult` and `Take` store effective profile reason, target/requested duration, effective audio and source, all backward-compatible optional fields. `GenerationService` prints the full final renderer settings before every attempt. Archive/Take UI exposes the durable fields so a future preset regression can be diagnosed without reconstructing transient UI state.
+
+## D-013 (2026-08-09) Storyboard Director is zero-setup Auto with explicit effective state
+The normal product concept is Director, not Ollama. Auto is the default and chooses Local AI only when the loopback server and an installed compatible candidate are available; otherwise it uses the fully supported Basic Director without blocking Storyboard creation. Local AI and Basic remain explicit expert choices. Installed models come from `/api/tags`, the existing `directorOllamaModel` key remains the sole model preference, and no automatic download or process management is added. Requested and effective modes are separate optional FilmProject metadata so Auto fallback is visible without changing old projects. OpenClaw remains an unrelated optional REST client.

@@ -9,6 +9,9 @@ protocol DirectorProvider {
     var modelIdentifier: String? { get }
     /// True only for Basic/Template providers used after AI planning fails.
     var isFallbackProvider: Bool { get }
+    /// User-facing reason when this provider cannot be used. Kept separate
+    /// from transport diagnostics so Auto can explain a Basic fallback.
+    var availabilityFailureReason: String? { get }
     func isAvailable() async -> Bool
     /// Single completion call. `system` frames the role; `prompt` is the task.
     func complete(system: String, prompt: String) async throws -> String
@@ -19,6 +22,235 @@ protocol DirectorProvider {
 extension DirectorProvider {
     var modelIdentifier: String? { nil }
     var isFallbackProvider: Bool { false }
+    var availabilityFailureReason: String? { nil }
+}
+
+enum DirectorMode: String, CaseIterable, Codable, Identifiable {
+    case auto
+    case localAI
+    case basic
+
+    static let userDefaultsKey = "storyboardDirectorMode"
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .auto: return "Auto"
+        case .localAI: return "Local AI"
+        case .basic: return "Basic"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .auto: return "Recommended"
+        case .localAI: return "Use an installed local model"
+        case .basic: return "No additional setup required"
+        }
+    }
+
+    static func selected(userDefaults: UserDefaults = .standard) -> DirectorMode {
+        DirectorMode(rawValue: userDefaults.string(forKey: userDefaultsKey) ?? "") ?? .auto
+    }
+}
+
+enum DirectorAvailability: Equatable {
+    case checking
+    case localAIReady(model: String)
+    case localAIModelMissing
+    case localAIServerUnavailable
+    case basicOnly
+}
+
+struct DirectorSetupSnapshot: Equatable {
+    var requestedMode: DirectorMode
+    var effectiveMode: DirectorMode
+    var availability: DirectorAvailability
+    var installedModels: [String]
+    var configuredModel: String?
+    var effectiveModel: String?
+    var fallbackReason: String?
+
+    static func checking(mode: DirectorMode) -> DirectorSetupSnapshot {
+        DirectorSetupSnapshot(requestedMode: mode, effectiveMode: .basic, availability: .checking,
+                              installedModels: [], configuredModel: nil, effectiveModel: nil,
+                              fallbackReason: nil)
+    }
+
+    var userStatus: String {
+        switch availability {
+        case .checking: return "Checking Director availability…"
+        case .localAIReady: return "Local AI Director is ready."
+        case .localAIModelMissing: return "Local AI model is not available. Basic Director will be used."
+        case .localAIServerUnavailable: return "Local AI is unavailable. Basic Director will be used."
+        case .basicOnly: return "Basic Director is ready. No additional setup required."
+        }
+    }
+
+    var technicalStatus: String {
+        switch availability {
+        case .checking: return "checking"
+        case .localAIReady(let model): return "ready: \(model)"
+        case .localAIModelMissing: return "configured model missing"
+        case .localAIServerUnavailable: return "local server unavailable"
+        case .basicOnly: return "local AI bypassed by user selection"
+        }
+    }
+}
+
+protocol DirectorEnvironmentClient {
+    func installedModels() async throws -> [String]
+    func testModel(_ model: String) async throws
+}
+
+/// Loopback-only Ollama environment client. It never starts Ollama, invokes a
+/// shell, downloads a model, or contacts a cloud service.
+final class OllamaDirectorEnvironmentClient: DirectorEnvironmentClient {
+    static let endpoint = URL(string: "http://127.0.0.1:11434")!
+    private let session: URLSession
+
+    init(session: URLSession = .shared) { self.session = session }
+
+    func installedModels() async throws -> [String] {
+        var request = URLRequest(url: Self.endpoint.appendingPathComponent("api/tags"))
+        request.timeoutInterval = 2
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw DirectorError.providerFailed("Local AI model list is unavailable")
+        }
+        return try Self.modelNames(from: data)
+    }
+
+    static func modelNames(from data: Data) throws -> [String] {
+        struct Tags: Decodable {
+            struct Model: Decodable {
+                var name: String?
+                var model: String?
+                var capabilities: [String]?
+            }
+            var models: [Model]
+        }
+        let names: [String] = try JSONDecoder().decode(Tags.self, from: data).models.compactMap { entry -> String? in
+            if let capabilities = entry.capabilities, !capabilities.isEmpty,
+               !capabilities.contains("completion") {
+                return nil
+            }
+            let value = entry.name ?? entry.model
+            return value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.filter { !$0.isEmpty }
+        return Array(Set(names)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    func testModel(_ model: String) async throws {
+        let provider = OllamaDirectorProvider(model: model, session: session)
+        do {
+            _ = try await provider.complete(
+                system: "Return only a JSON object.",
+                prompt: "Return {\"ready\":true}."
+            )
+            await provider.terminate()
+        } catch {
+            await provider.terminate()
+            throw error
+        }
+    }
+}
+
+/// One source of truth for requested mode, installed models, preferred model,
+/// and the effective Director selected for the next planning attempt.
+final class DirectorEnvironmentService {
+    static let modelUserDefaultsKey = OllamaDirectorProvider.modelUserDefaultsKey
+
+    private let userDefaults: UserDefaults
+    private let client: DirectorEnvironmentClient
+
+    init(userDefaults: UserDefaults = .standard,
+         client: DirectorEnvironmentClient = OllamaDirectorEnvironmentClient()) {
+        self.userDefaults = userDefaults
+        self.client = client
+    }
+
+    func refresh(mode requestedMode: DirectorMode? = nil) async -> DirectorSetupSnapshot {
+        let mode = requestedMode ?? DirectorMode.selected(userDefaults: userDefaults)
+        let configured = userDefaults.string(forKey: Self.modelUserDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let preferred = configured.flatMap { $0.isEmpty ? nil : $0 }
+
+        guard mode != .basic else {
+            return DirectorSetupSnapshot(requestedMode: mode, effectiveMode: .basic,
+                                          availability: .basicOnly, installedModels: [],
+                                          configuredModel: preferred, effectiveModel: nil,
+                                          fallbackReason: nil)
+        }
+
+        let installed: [String]
+        do {
+            installed = try await client.installedModels()
+        } catch {
+            return DirectorSetupSnapshot(requestedMode: mode, effectiveMode: .basic,
+                                          availability: .localAIServerUnavailable,
+                                          installedModels: [], configuredModel: preferred,
+                                          effectiveModel: nil,
+                                          fallbackReason: "localAIServerUnavailable")
+        }
+
+        let candidates = Self.compatibleCandidates(from: installed)
+        if let preferred, installed.contains(preferred) {
+            return DirectorSetupSnapshot(requestedMode: mode, effectiveMode: .localAI,
+                                          availability: .localAIReady(model: preferred),
+                                          installedModels: installed, configuredModel: preferred,
+                                          effectiveModel: preferred, fallbackReason: nil)
+        }
+        if preferred != nil, mode == .localAI {
+            return DirectorSetupSnapshot(requestedMode: mode, effectiveMode: .basic,
+                                          availability: .localAIModelMissing,
+                                          installedModels: installed, configuredModel: preferred,
+                                          effectiveModel: nil,
+                                          fallbackReason: "localAIModelMissing")
+        }
+        if let candidate = candidates.first {
+            return DirectorSetupSnapshot(requestedMode: mode, effectiveMode: .localAI,
+                                          availability: .localAIReady(model: candidate),
+                                          installedModels: installed, configuredModel: preferred,
+                                          effectiveModel: candidate,
+                                          fallbackReason: preferred == nil ? nil : "configuredModelMissingUsingInstalledAlternative")
+        }
+        return DirectorSetupSnapshot(requestedMode: mode, effectiveMode: .basic,
+                                      availability: .localAIModelMissing,
+                                      installedModels: installed, configuredModel: preferred,
+                                      effectiveModel: nil,
+                                      fallbackReason: "localAIModelMissing")
+    }
+
+    func testSelectedModel() async -> Result<String, Error> {
+        let snapshot = await refresh()
+        guard let model = snapshot.effectiveModel else {
+            return .failure(DirectorError.noProviderAvailable)
+        }
+        do {
+            try await client.testModel(model)
+            return .success(model)
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    static func compatibleCandidates(from models: [String]) -> [String] {
+        models.filter { model in
+            let value = model.lowercased()
+            return !value.contains("embed") && !value.contains("embedding") && !value.contains("rerank")
+        }.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    static func friendlyFallbackReason(_ reason: String?) -> String {
+        switch reason {
+        case "localAIServerUnavailable": return "Local AI was unavailable."
+        case "localAIModelMissing": return "The selected Local AI model was unavailable."
+        case "configuredModelMissingUsingInstalledAlternative": return "The preferred model was unavailable; another installed model was used."
+        case nil: return "Basic Director was selected."
+        default: return "Local AI could not complete the plan."
+        }
+    }
 }
 
 enum DirectorError: Error, Equatable {
@@ -48,16 +280,26 @@ final class OllamaDirectorProvider: DirectorProvider {
     let name = "ollama"
     static let modelUserDefaultsKey = "directorOllamaModel"
 
-    private let baseURL = URL(string: "http://127.0.0.1:11434")!
+    private let baseURL: URL
+    private let session: URLSession
+    private let explicitModel: String?
     private var model: String {
-        UserDefaults.standard.string(forKey: Self.modelUserDefaultsKey) ?? "qwen2.5:7b"
+        explicitModel ?? UserDefaults.standard.string(forKey: Self.modelUserDefaultsKey) ?? "qwen2.5:7b"
     }
     var modelIdentifier: String? { model }
+
+    init(model: String? = nil,
+         baseURL: URL = OllamaDirectorEnvironmentClient.endpoint,
+         session: URLSession = .shared) {
+        self.explicitModel = model
+        self.baseURL = baseURL
+        self.session = session
+    }
 
     func isAvailable() async -> Bool {
         var request = URLRequest(url: baseURL.appendingPathComponent("api/tags"))
         request.timeoutInterval = 2
-        guard let (_, response) = try? await URLSession.shared.data(for: request),
+        guard let (_, response) = try? await session.data(for: request),
               let http = response as? HTTPURLResponse else { return false }
         return http.statusCode == 200
     }
@@ -78,7 +320,7 @@ final class OllamaDirectorProvider: DirectorProvider {
             "format": "json",
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw DirectorError.providerFailed("Ollama HTTP error")
         }
@@ -109,7 +351,46 @@ final class OllamaDirectorProvider: DirectorProvider {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body: [String: Any] = ["model": model, "keep_alive": 0]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        _ = try? await URLSession.shared.data(for: request)
+        _ = try? await session.data(for: request)
+    }
+}
+
+/// Mode-aware Local AI provider used by Storyboard. Auto selects an installed
+/// model through DirectorEnvironmentService; Basic bypasses local AI entirely.
+final class EnvironmentDirectorProvider: DirectorProvider {
+    let name = "ollama"
+    private let mode: DirectorMode
+    private let environment: DirectorEnvironmentService
+    private var provider: OllamaDirectorProvider?
+    private var selectedModel: String?
+    private(set) var availabilityFailureReason: String?
+
+    var modelIdentifier: String? { selectedModel }
+
+    init(mode: DirectorMode, environment: DirectorEnvironmentService = DirectorEnvironmentService()) {
+        self.mode = mode
+        self.environment = environment
+    }
+
+    func isAvailable() async -> Bool {
+        let snapshot = await environment.refresh(mode: mode)
+        availabilityFailureReason = snapshot.fallbackReason
+        guard snapshot.effectiveMode == .localAI, let model = snapshot.effectiveModel else {
+            return false
+        }
+        selectedModel = model
+        provider = OllamaDirectorProvider(model: model)
+        return true
+    }
+
+    func complete(system: String, prompt: String) async throws -> String {
+        guard let provider else { throw DirectorError.noProviderAvailable }
+        return try await provider.complete(system: system, prompt: prompt)
+    }
+
+    func terminate() async {
+        await provider?.terminate()
+        provider = nil
     }
 }
 

@@ -187,3 +187,16 @@ executed: during the unattended run the graphical session was not vending
 windows — every application, including TextEdit, reported zero windows and
 screen captures were blank — so no app UI could be inspected. It needs one
 session with an awake, unlocked display.
+
+### 2026-08-10 run — final verification snapshot
+- `swift build`: PASS
+- `swift run LTXTests`: 718 passed, 0 failed
+- `xcodebuild` Debug clean build: BUILD SUCCEEDED
+- `xcodebuild` Release clean build: BUILD SUCCEEDED
+- `git diff --check`: PASS
+- Real 3-shot Auto Movie continuity run: PASS (3.125 s assembled movie)
+- GUI acceptance: **not executed** — the graphical session was not vending
+  windows for any application during the run (see GUI_ACCEPTANCE_CHECKLIST J–M)
+
+Exact resume action: open the canonical Debug app on an awake, unlocked
+display and work through GUI_ACCEPTANCE_CHECKLIST sections J–M.

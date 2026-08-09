@@ -275,3 +275,11 @@ Canonical GUI acceptance saved six derived PNGs: Front 287×774, Side 174×751, 
 This phase deliberately does not connect reference paths or pixels to PromptCompiler, GenerationRequest, LTXBridge, or MLX. It adds no face/identity recognition, embeddings, I2V substitution, identity guarantee, cloud call, model pull, or trait-lock automation.
 
 Final verification passed: `swift build`; `swift run LTXTests` (**543 passed / 0 failed**); unsigned Debug `xcodebuild clean build`; and `git diff --check`. The final full-path canonical executable had mtime `2026-08-09 16:29:33 +0900`; fresh PID 75522 resolved to that exact path and restored all six derived-reference thumbnails after restart.
+
+## CharacterBible Phase 3 — LTX Reference / Identity Capability Audit
+
+Phase 3 changed documentation only. It traced Generate/API source image handling through `GenerationRequest`, `GenerationSettingsResolver`, `GenerationService`, `OfficialMLXAudioAdapter`, `LTXBridge`, the embedded wrapper, and the exact installed `mlx-video-with-audio` 0.1.36 source selected by `/Users/azimnb/ltx-venv/bin/python3`.
+
+The installed backend accepts one image, VAE-encodes the whole image, and injects it at one selected temporal latent index. The app exposes that as one starting image and an I2V denoise/preservation value; it leaves `image_frame_idx` at zero. Existing offline baseline renders already prove Q4 + Gemma 4-bit T2V and I2V with audio ON/OFF. No new generation was needed for the audit.
+
+The product conclusion is definitive: true face-only identity conditioning, a generic character reference, Front/Side/Back multi-view identity sets, expression/costume region references, and multiple-character image binding are **not supported** by the current app/backend. A face crop can only be misused as a whole starting frame and must not be marketed as Face Lock. Official multiple temporal-keyframe and separate IC-LoRA paths are documented backend gaps, not installed capability. No Swift/Python/model/schema/cache change, model pull, cloud call, or Phase 4 production wiring occurred. `swift build` passed; `swift run LTXTests` passed **543 / 543**; unsigned Debug `xcodebuild` succeeded; `git diff --check` passed; and no MLX/Ollama model process remained. See `CHARACTER_REFERENCE_CAPABILITY_AUDIT.md` for the matrix and evidence.

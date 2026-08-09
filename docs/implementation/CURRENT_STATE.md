@@ -181,6 +181,17 @@ GUI-first defaults (D-007): modelRegistryV1 / autoQualityV1 / directorV1 / filmP
 - Capability boundary remains explicit: reference images are not sent to PromptCompiler, GenerationRequest, LTXBridge, or MLX; no face recognition/embedding, identity conditioning, same-person guarantee, cloud processing, model download, or automatic trait-lock change was added.
 - Final verification: `swift build` PASS; `swift run LTXTests` **543 passed / 0 failed**; unsigned Debug `xcodebuild clean build` **BUILD SUCCEEDED**; `git diff --check` clean. Final canonical executable mtime `2026-08-09 16:29:33 +0900`; fresh PID 75522 resolved to the exact DerivedData executable path and displayed all restored references.
 
+## 2026-08-09 CharacterBible Phase 3 — Reference / Identity Capability Audit
+
+- Full evidence and matrix: `docs/implementation/CHARACTER_REFERENCE_CAPABILITY_AUDIT.md`.
+- Current generation uses `/Users/azimnb/ltx-venv/bin/python3` (Python 3.14.5) and pip `mlx-video-with-audio` 0.1.36. The app passes one optional `sourceImagePath` as `--image` plus I2V `--image-strength`; it does not pass `--image-frame-idx`, so the backend default temporal latent index is zero.
+- The one image is resized, VAE-encoded, and injected into one video latent frame at both generation stages. It is a complete temporal frame condition, not a global character/identity embedding. Q4 + Gemma 4-bit T2V/I2V with and without audio is already proven in `BENCHMARK_RESULTS.md`.
+- **Face-only identity conditioning: NOT_SUPPORTED.** There is no face/identity encoder, subject token, identity adapter, face-only mask, or character binding in the installed backend. Passing the 344×499 Face crop as I2V would be an experimental starting-image misuse with full-pixel composition leakage, not Face Lock.
+- **Front/Side/Back multi-view identity set: NOT_SUPPORTED.** Installed public Python/CLI and Swift request accept one image. Official LTX keyframe pipelines can accept multiple temporal image conditions, but that capability is absent from this MLX public path and does not provide identity-set semantics.
+- Official IC-LoRA is a separate adapter/reference-video pipeline and is not installed or evidence of native face-only identity. No model, adapter, package, or cache was downloaded or changed.
+- Phase 3 made no Production Swift/model/schema changes and ran zero new generations because inspected source plus the existing I2V E2E resolved every capability question. Accurate current UI terms remain `Reference Images` and `Starting Image`; `Face Lock`, `Identity Lock`, and same-person guarantees are prohibited.
+- Regression verification: `swift build` PASS; `swift run LTXTests` **543 passed / 0 failed**; unsigned Debug `xcodebuild` **BUILD SUCCEEDED**; `git diff --check` PASS. No MLX generation process or Ollama-loaded model remained.
+
 ## GUI (verified in the final running .app, 2026-08-08)
 - Sidebar: Generate / One Shot / Storyboard / Director / Hybrid / Video Archive, with concise mode descriptions.
 - Generate: Model + Preset picker; no primary Quality picker; non-Custom shows a preset explanation, Custom restores all legacy manual controls.

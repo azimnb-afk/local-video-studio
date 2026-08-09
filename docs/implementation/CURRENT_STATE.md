@@ -102,3 +102,19 @@ remain unchanged; this is an always-visible two-line presentation rather than a
 locale system. Canonical Debug GUI acceptance confirmed all six pages, English
 navigation labels, intact One Shot Starting Image controls, and no clipping or
 overlap at the tested window sizes.
+
+## 2026-08-09 Bilingual Settings descriptions
+
+Settings now presents 23 existing explanatory blocks in English followed by
+Japanese across General, Generation, Director, Analysis, Audio, and Models &
+Features. Item names, section headings, buttons, pickers, model names, paths,
+status values, defaults, and all settings behavior remain English and unchanged;
+no localization infrastructure was added. Conditional Python and Director
+guidance uses the same bilingual presentation without changing its conditions.
+
+Canonical Debug GUI acceptance covered every Settings tab (including About),
+form scrolling, and the Analysis model picker. The additional text initially
+compressed the shared Settings page description; assigning the existing page
+header layout priority keeps both header lines visible while the form remains
+scrollable. The accepted executable was the full canonical DerivedData path,
+mtime `2026-08-09 22:38:15 +0900`, running as PID `89377`.

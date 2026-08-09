@@ -18,9 +18,10 @@ struct ModelsAndFeaturesPreferences: View {
             Section("Adult Content Mode") {
                 Toggle("Adult Content Mode", isOn: $adultContentMode)
                     .help("Off by default. When off, adult-verified models are never auto-selected and are rejected even when requested explicitly (enforced in the service and API layers, not just here).")
-                Text("Intended solely for consenting-adult use of adult-verified local models. Enabling this never bypasses model or content safety mechanisms.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                BilingualSettingDescription(
+                    english: "Intended solely for consenting-adult use of adult-verified local models. Enabling this never bypasses model or content safety mechanisms.",
+                    japanese: "成人同士の合意に基づき、adult-verified local modelsを使用する場合のみを対象とします。有効にしてもModelやコンテンツの安全機構を回避することはありません。"
+                )
             }
 
             Section("Experimental Features") {
@@ -36,9 +37,10 @@ struct ModelsAndFeaturesPreferences: View {
                 Toggle("Storyboard", isOn: $flagStoryboard)
                     .disabled(!flagFilmProject)
                 Toggle("Local REST API v1", isOn: $flagLocalAPI)
-                Text("GUI features (registry, auto quality, director, projects, storyboard) are on by default; unverified models, adult content and the local API stay opt-in. Turning everything off restores exactly the legacy official generation path.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                BilingualSettingDescription(
+                    english: "GUI features (registry, auto quality, director, projects, storyboard) are on by default; unverified models, adult content and the local API stay opt-in. Turning everything off restores exactly the legacy official generation path.",
+                    japanese: "GUI機能（registry、auto quality、Director、projects、Storyboard）は標準で有効です。未検証Model、adult content、local APIはユーザーが明示的に有効にします。すべてオフにすると従来の公式生成経路へ戻ります。"
+                )
             }
 
             Section("Compatibility Lab") {
@@ -66,9 +68,10 @@ struct ModelsAndFeaturesPreferences: View {
                         }
                     }
                 }
-                Text("Derived models stay unverified until every gate check passes (license, provenance, pinned revision, manifest, backend load, T2V/I2V/audio smoke, unload, memory benchmark, classification evidence). Unverified models cannot generate.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                BilingualSettingDescription(
+                    english: "Derived models stay unverified until every gate check passes (license, provenance, pinned revision, manifest, backend load, T2V/I2V/audio smoke, unload, memory benchmark, classification evidence). Unverified models cannot generate.",
+                    japanese: "Derived modelsは、license・provenance・固定revision・manifest・backend load・T2V/I2V/audio smoke・unload・memory benchmark・classification evidenceの全確認を通るまで未検証のままです。未検証Modelでは生成できません。"
+                )
             }
         }
         .formStyle(.grouped)

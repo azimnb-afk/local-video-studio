@@ -326,3 +326,14 @@ TOKEN=$(cat ~/Library/Application\ Support/LTXVideoGenerator/api_token)
 - [x] Generateはdirect T2V/I2Vのままで、One Shot Director UIは復活していない。
 - [x] Settingsの550×450 windowを含め、文字切れ・重なり・不自然なoverflowなし。
 - [x] `swift build` PASS; `swift run LTXTests` = **659 passed / 0 failed**; Xcode Debug clean build `BUILD SUCCEEDED`; `git diff --check` PASS。
+
+## P. Bilingual Settings descriptions（2026-08-09）
+
+- [x] baseline `257fece`から、Settings内の既存説明23箇所だけをEnglish → Japaneseの順で2行併記した。
+- [x] General / Generation / Director / Analysis / Audio / Models & Featuresの全対象説明を確認した。Aboutには翻訳対象となるoption説明がないことも確認した。
+- [x] setting item、section heading、button、picker、Model名、path、status、default値は英語表記と既存値を維持する。
+- [x] Settings behavior、`@AppStorage` key、feature flag、generation/backend/data model、Localizable infrastructureを変更していない。
+- [x] canonical appのSettings headerはEnglish/Japanese両方を表示し、追加説明はform内でscroll可能。文字切れ・重なり・control崩れなし。
+- [x] AnalysisのVision Model pickerを開閉し、選択値を変えずにcontrol interactionを確認した。
+- [x] 起動前にHEAD `257fece`、canonical executable mtime `2026-08-09 22:38:15 +0900`を確認。旧processを終了後、PID `89377`が同じfull executable pathから動作することを確認した。
+- [x] `swift build` PASS; `swift run LTXTests` = **659 passed / 0 failed**; Xcode Debug clean build `BUILD SUCCEEDED`; `git diff --check` PASS。

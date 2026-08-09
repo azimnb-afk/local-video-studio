@@ -1,5 +1,21 @@
 import SwiftUI
 
+struct BilingualSettingDescription: View {
+    let english: String
+    let japanese: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(english)
+            Text(japanese)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 struct PreferencesView: View {
     @AppStorage("pythonPath") private var pythonPath = ""
     @AppStorage("outputDirectory") private var outputDirectory = ""
@@ -33,6 +49,19 @@ struct PreferencesView: View {
         LTXTextEncoderCatalog.resolvedTextEncoder(id: selectedTextEncoderID)
     }
 
+    private var selectedTextEncoderJapaneseTips: String? {
+        switch selectedTextEncoderID {
+        case "gemma3_12b_bf16":
+            return "品質を優先する標準設定です。テキストエンコード時に多くのメモリを使用します。"
+        case "gemma3_4b_bf16":
+            return "12B bf16よりメモリ使用量が少なく、32 GB Macで品質とメモリのバランスを取りやすい設定です。"
+        case "gemma3_12b_4bit":
+            return "16 GB Macや、12B bf16 Text Encoderがシステムに強制終了される場合に推奨します。"
+        default:
+            return nil
+        }
+    }
+
     private var appVersionText: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Unknown"
@@ -48,6 +77,7 @@ struct PreferencesView: View {
             )
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
+            .layoutPriority(1)
             Divider()
             TabView {
             // General
@@ -153,9 +183,10 @@ struct PreferencesView: View {
                                                 VStack(alignment: .leading, spacing: 4) {
                                                     Text("System Python Detected")
                                                         .font(.caption.bold())
-                                                    Text("This Python doesn't allow global pip installs. Create a virtual environment to install packages.")
-                                                        .font(.caption)
-                                                        .foregroundStyle(.secondary)
+                                                    BilingualSettingDescription(
+                                                        english: "This Python doesn't allow global pip installs. Create a virtual environment to install packages.",
+                                                        japanese: "このPythonではglobal pip installを利用できません。packageを導入するにはvirtual environmentを作成してください。"
+                                                    )
                                                 }
                                             }
                                             
@@ -165,9 +196,10 @@ struct PreferencesView: View {
                                             .buttonStyle(.borderedProminent)
                                             .disabled(isInstalling)
                                             
-                                            Text("This will create ~/ltx-venv and install packages there")
-                                                .font(.caption2)
-                                                .foregroundStyle(.secondary)
+                                            BilingualSettingDescription(
+                                                english: "This will create ~/ltx-venv and install packages there",
+                                                japanese: "~/ltx-venvを作成し、その中へpackageをインストールします。"
+                                            )
                                         }
                                     }
                                     .padding(.top, 4)
@@ -221,9 +253,10 @@ struct PreferencesView: View {
                         }
                     }
                     
-                    Text("Supports both Python executable (e.g., /opt/homebrew/bin/python3) and dylib paths. Auto Detect will search common locations including Homebrew, pyenv, conda, and virtualenvs.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    BilingualSettingDescription(
+                        english: "Supports both Python executable (e.g., /opt/homebrew/bin/python3) and dylib paths. Auto Detect will search common locations including Homebrew, pyenv, conda, and virtualenvs.",
+                        japanese: "Python実行ファイルとdylibのパスに対応しています。Auto DetectはHomebrew、pyenv、conda、virtualenvなどの一般的な場所を検索します。"
+                    )
                 }
                 
                 Section("Model") {
@@ -240,9 +273,10 @@ struct PreferencesView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(selectedModel.displayName)
                                 .font(.caption.bold())
-                            Text("Uses \(selectedModel.repo) (\(selectedModel.downloadSize) download). Model cached in ~/.cache/huggingface/")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            BilingualSettingDescription(
+                                english: "Uses \(selectedModel.repo) (\(selectedModel.downloadSize) download). Model cached in ~/.cache/huggingface/",
+                                japanese: "\(selectedModel.repo)を使用します（ダウンロード容量: \(selectedModel.downloadSize)）。Modelは~/.cache/huggingface/に保存されます。"
+                            )
                         }
                     }
                     .padding(.vertical, 4)
@@ -270,13 +304,16 @@ struct PreferencesView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(selectedTextEncoder.displayName)
                                 .font(.caption.bold())
-                            Text("Uses \(selectedTextEncoder.repo) for generation prompt encoding.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            if let tips = selectedTextEncoder.tips {
-                                Text(tips)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                            BilingualSettingDescription(
+                                english: "Uses \(selectedTextEncoder.repo) for generation prompt encoding.",
+                                japanese: "生成プロンプトのエンコードに\(selectedTextEncoder.repo)を使用します。"
+                            )
+                            if let tips = selectedTextEncoder.tips,
+                               let japaneseTips = selectedTextEncoderJapaneseTips {
+                                BilingualSettingDescription(
+                                    english: tips,
+                                    japanese: japaneseTips
+                                )
                             }
                         }
                     }
@@ -298,9 +335,10 @@ struct PreferencesView: View {
                                 .font(.caption.bold())
                             TextField("e.g. mlx-community/gemma-3-12b-it-4bit", text: $customTextEncoderRepo)
                                 .textFieldStyle(.roundedBorder)
-                            Text("The app does not download weights until you run a generation. Use any MLX-compatible Gemma repo your Python environment supports.")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                            BilingualSettingDescription(
+                                english: "The app does not download weights until you run a generation. Use any MLX-compatible Gemma repo your Python environment supports.",
+                                japanese: "生成を実行するまでweightsはダウンロードされません。現在のPython環境が対応するMLX互換Gemma repoを指定してください。"
+                            )
                         }
                     }
                     
@@ -321,9 +359,10 @@ struct PreferencesView: View {
                         }
                     }
                     
-                    Text("Leave empty to use default location in Application Support")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    BilingualSettingDescription(
+                        english: "Leave empty to use default location in Application Support",
+                        japanese: "空欄の場合はApplication Support内の標準保存先を使用します。"
+                    )
                 }
 
                 Section("Reset") {
@@ -335,9 +374,10 @@ struct PreferencesView: View {
                         }
                         Spacer()
                     }
-                    Text("Clears persisted prompt, generation parameters, audio toggles, and model selections. Python path, output directory, and ElevenLabs API key are kept.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    BilingualSettingDescription(
+                        english: "Clears persisted prompt, generation parameters, audio toggles, and model selections. Python path, output directory, and ElevenLabs API key are kept.",
+                        japanese: "保存済みのプロンプト、生成パラメータ、音声設定、Model選択を消去します。Python path、出力先、ElevenLabs API Keyは保持されます。"
+                    )
                 }
             }
             .formStyle(.grouped)
@@ -354,20 +394,26 @@ struct PreferencesView: View {
                 Section("Output") {
                     Toggle("Save audio track separately", isOn: $saveAudioTrackSeparately)
                         .help("When on, keeps a .wav file alongside each video. Default: off (audio only in mp4).")
+                    BilingualSettingDescription(
+                        english: "When on, keeps a .wav file alongside each video. Default: off (audio only in mp4).",
+                        japanese: "オンにすると、動画と一緒に.wav音声ファイルも保存します。標準ではオフで、音声はmp4内にのみ保存されます。"
+                    )
                 }
 
                 Section("Prompt Enhancement") {
                     Toggle("Enable Prompt Enhancement", isOn: $enableGemmaPromptEnhancement)
                         .help("When on, Gemma rewrites your prompt with vivid details (lighting, camera, audio) before generation. Use Preview in the prompt view to see the enhanced prompt first.")
-                    Text("Uses Gemma to rewrite prompts with vivid details for better video generation. First run downloads ~7GB. If enhancement fails, generation automatically continues with your original prompt.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    BilingualSettingDescription(
+                        english: "Uses Gemma to rewrite prompts with vivid details for better video generation. First run downloads ~7GB. If enhancement fails, generation automatically continues with your original prompt.",
+                        japanese: "Gemmaがプロンプトへ具体的な描写を加え、動画生成向けに書き直します。初回使用時に約7 GBをダウンロードします。処理に失敗した場合は元のプロンプトで生成を続行します。"
+                    )
                 }
                 
                 Section("Defaults") {
-                    Text("Default generation parameters can be set via Presets")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    BilingualSettingDescription(
+                        english: "Default generation parameters can be set via Presets",
+                        japanese: "標準の生成パラメータはPresetsから設定できます。"
+                    )
                 }
             }
             .formStyle(.grouped)
@@ -413,9 +459,12 @@ struct PreferencesView: View {
                         .disabled(elevenLabsApiKey.isEmpty || isTestingElevenLabs)
                     }
                     
-                    Text("Get your API key from [elevenlabs.io](https://elevenlabs.io)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Get your API key from [elevenlabs.io](https://elevenlabs.io)")
+                        Text("API Keyは[elevenlabs.io](https://elevenlabs.io)で取得できます。")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
                 
                 Section("Default Audio Source") {
@@ -425,9 +474,10 @@ struct PreferencesView: View {
                     }
                     .pickerStyle(.radioGroup)
                     
-                    Text("ElevenLabs requires an API key but provides high-quality voices. MLX Audio runs locally on your Mac.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    BilingualSettingDescription(
+                        english: "ElevenLabs requires an API key but provides high-quality voices. MLX Audio runs locally on your Mac.",
+                        japanese: "ElevenLabsはAPI Keyが必要ですが、高品質な音声を利用できます。MLX AudioはMac上でローカル実行されます。"
+                    )
                 }
                 
                 Section("MLX Audio") {
@@ -437,9 +487,10 @@ struct PreferencesView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Local Text-to-Speech")
                                 .font(.caption.bold())
-                            Text("MLX Audio runs entirely on your Mac using Apple Silicon. No API key required, but requires the mlx-audio Python package to be installed.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            BilingualSettingDescription(
+                                english: "MLX Audio runs entirely on your Mac using Apple Silicon. No API key required, but requires the mlx-audio Python package to be installed.",
+                                japanese: "MLX AudioはApple Siliconを使用してMac上で実行されます。API Keyは不要ですが、Python環境にmlx-audio packageが必要です。"
+                            )
                         }
                     }
                 }
@@ -741,6 +792,14 @@ private struct DirectorPreferencesView: View {
         DirectorMode(rawValue: modeRaw) ?? .auto
     }
 
+    private var modeJapaneseDetail: String {
+        switch mode {
+        case .auto: return "推奨設定です。"
+        case .localAI: return "インストール済みのローカルModelを使用します。"
+        case .basic: return "追加設定なしで使用できます。"
+        }
+    }
+
     private var modelSelection: Binding<String> {
         Binding(
             get: { directorModel.isEmpty ? (snapshot.effectiveModel ?? "") : directorModel },
@@ -758,9 +817,10 @@ private struct DirectorPreferencesView: View {
                 }
                 .pickerStyle(.segmented)
 
-                Text(mode.detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                BilingualSettingDescription(
+                    english: mode.detail,
+                    japanese: modeJapaneseDetail
+                )
             }
 
             Section("Local AI") {
@@ -795,9 +855,10 @@ private struct DirectorPreferencesView: View {
                             .foregroundStyle(testResult.success ? .green : .orange)
                     }
                 } else {
-                    Text("Storyboard planning works without a Local AI model.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    BilingualSettingDescription(
+                        english: "Storyboard planning works without a Local AI model.",
+                        japanese: "Local AI ModelがなくてもStoryboardのプランニングを利用できます。"
+                    )
                 }
             }
 
@@ -905,8 +966,10 @@ private struct CharacterSheetAnalysisPreferencesView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                Text("Auto uses a compatible installed local Vision model when available. Otherwise Character Sheet import continues with manual review.")
-                    .font(.caption).foregroundStyle(.secondary)
+                BilingualSettingDescription(
+                    english: "Auto uses a compatible installed local Vision model when available. Otherwise Character Sheet import continues with manual review.",
+                    japanese: "Autoは対応するインストール済みLocal Vision Modelがあれば使用します。利用できない場合も、Character Sheetの読み込みを手動レビューで続行できます。"
+                )
             }
 
             Section("Local Analysis") {
@@ -927,8 +990,10 @@ private struct CharacterSheetAnalysisPreferencesView: View {
                     Button("Refresh") { Task { await refresh() } }
                         .disabled(isRefreshing)
                 }
-                Text("Models are detected by their reported Vision capability. This app never downloads one automatically.")
-                    .font(.caption).foregroundStyle(.secondary)
+                BilingualSettingDescription(
+                    english: "Models are detected by their reported Vision capability. This app never downloads one automatically.",
+                    japanese: "Modelが申告するVision capabilityに基づいて検出します。このアプリがModelを自動ダウンロードすることはありません。"
+                )
             }
 
             DisclosureGroup("Advanced", isExpanded: $showAdvanced) {
@@ -941,8 +1006,10 @@ private struct CharacterSheetAnalysisPreferencesView: View {
             }
 
             Section("Privacy & Capability") {
-                Text("Character Sheets stay local. Analysis creates editable text candidates; it does not provide face recognition, identity conditioning, or a same-person guarantee.")
-                    .font(.caption).foregroundStyle(.secondary)
+                BilingualSettingDescription(
+                    english: "Character Sheets stay local. Analysis creates editable text candidates; it does not provide face recognition, identity conditioning, or a same-person guarantee.",
+                    japanese: "Character Sheetはローカルに保持されます。解析は編集可能なテキスト候補を作成しますが、顔認識・identity conditioning・同一人物の保証は行いません。"
+                )
             }
         }
         .formStyle(.grouped)

@@ -318,6 +318,12 @@ final class OllamaDirectorProvider: DirectorProvider {
             // Ollama's `thinking` field and leave `response` empty.
             "think": false,
             "format": "json",
+            // A multi-shot plan with camera, dialogue and continuity fields can
+            // exceed Ollama's default response budget and come back as
+            // truncated JSON, which then burns the repair attempts and drops the
+            // run to the Basic Director. Observed at the default limit with a
+            // four-shot plan.
+            "options": ["num_predict": 4096],
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await session.data(for: request)

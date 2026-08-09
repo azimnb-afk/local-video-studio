@@ -227,3 +227,38 @@ asking for a "steady camera" holds the framing regardless of strength (D-033).
   existing hybrid projects loading, the new continuity schema decoding in the
   real app, and the "Continues from Shot 1" badge were all confirmed on the
   canonical Debug app.
+
+## 2026-08-10 Auto Movie cinematic progression
+
+Composition leakage had a second cause beyond image strength, and it was not the
+camera. Auto Movie's split path reused the brief verbatim for every beat
+("… — story beat 2 of 4"), and `PromptCompiler` feeds the shot summary in as the
+action, so every shot described the same moment. The other candidates were
+cleared first: the split path already varied scale and movement, the compiler
+passes the camera plan through unchanged, the app never emits "steady camera"
+anywhere, and the continuity context only carries location, time, weather,
+lighting and outfit — it never constrains framing (D-034).
+
+`AutoMovieBeatPlanner` now gives each beat a distinct stage and picks scale,
+angle and movement to match it, keeping a static camera available for a
+resolving beat. Continuing beats are short because they render image-to-video
+and the scene already arrives in the inherited frame.
+`ContinuityEngine.repeatedActionWarnings` adds a small deterministic warning for
+consecutive shots that describe the same action (D-035).
+
+The Director now has to advance each shot to a new visible state, is told that a
+continuing shot keeps the world but not the framing, keeps a static camera valid
+when the beat calls for it, and prefers a cut when the story genuinely moves.
+Sampling revealed it would otherwise mark every shot "cut", so a worked
+cut/continue/continue/cut example rebalances it (D-036). The longer instructions
+made the plan JSON長 enough to truncate at Ollama's default budget, so the
+request now sets `num_predict` explicitly (D-037).
+
+Continuity strength stays 0.8. Generate, One Shot, Storyboard manual shots and
+explicit Starting Images are untouched.
+
+### Build & verification
+- `swift build`: PASS
+- `swift run LTXTests`: **792 passed, 0 failed** (736 + 56)
+- `xcodebuild` Debug clean build: BUILD SUCCEEDED
+- `git diff --check`: PASS

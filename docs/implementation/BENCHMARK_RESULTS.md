@@ -132,3 +132,54 @@ unverifiable at this resolution and is not claimed.
 
 Evidence: `/tmp/ltx_strength_calib/strength_sheet.png`,
 `/tmp/ltx_strength_calib7/`, `/tmp/ltx_automovie_e2e_08/continuity_sheet_08.png`.
+
+## Auto Movie cinematic progression (2026-08-10)
+
+Harness: `scripts/automovie_progression_e2e.py` — unlike the earlier shell
+script, shot prompts are not hand written. It calls the same Local AI Director
+with the same system prompt the app sends, compiles each shot the way
+`PromptCompiler` does, and honours the Director's own continuity decision.
+
+### Planning quality — clearly improved
+Before, the split path produced the same sentence four times
+("… — story beat N of 4"). The Director now plans genuinely different beats:
+
+| Shot | Camera | Action |
+|---|---|---|
+| 1 | wide · eye-level · dolly-back | walks the overgrown path toward the entrance |
+| 2 | medium-wide · low · static | arrives at the doors, stops, looks up at the archway |
+| 3 | extreme-close-up · eye-level · static | gloved hand pulls a key and inserts it into the lock |
+| 4 | medium-close-up · eye-level · static | the heavy door creaks inward, revealing darkness |
+
+Four shots at 50/46/46/46 s assembled to a playable 4.167 s h264 512×320 movie.
+Camera scale, angle and movement all change between shots, and the insert
+close-up is a real cinematic beat rather than a restatement.
+
+### The cost of an all-cut plan — measured, and still open
+That run marked every shot "cut", so nothing was inherited and each shot was
+independently text-to-video. The result: shot 1 is a dark-haired woman in a
+black dress, shot 2 a woman in silver armour, shot 4 a middle-aged man. Cutting
+everything gives excellent cinematic variety and **no character or wardrobe
+continuity at all**.
+
+Continuation rate across sampled plans for the same brief:
+
+| Director instructions | plans with ≥1 continuation |
+|---|---|
+| conservative rule only | 0 / 3 |
+| + worked cut/continue/continue/cut example | 2 / 3 |
+| + explicit "same place, same character, same moment MUST continue" | 2 / 4 |
+
+The worked example made continuation reachable; the stronger restatement did not
+improve on it measurably. This small fast planning model retains a cut bias that
+prompt wording alone does not fix reliably.
+
+The Director's decision is deliberately **not** overridden: silently promoting a
+planned cut to a continuation would re-introduce the composition leakage this
+work removed, and would override directorial intent. Recommended next step is a
+deterministic reconciliation pass that promotes a planned cut to a continuation
+only when the Director's own stated location, time and cast are unchanged and no
+scene-change directive exists — or simply a stronger planning model.
+
+Evidence: `/tmp/ltx_progression_e2e/` (director_plan.json, per-shot prompts and
+MP4s, `progression_sheet.png`, `auto_movie_final.mp4`).

@@ -100,6 +100,37 @@ final class StoryboardDirector {
     time jump, one unbroken action. Use "cut" for a location change, a time
     jump, a new establishing shot, a different character, or any intentional
     cinematic cut. When unsure, use "cut". The first shot is always "cut".
+
+    Every shot must advance the story to a NEW visible state. Never restate the
+    previous shot's action in different words: "walks toward the door", then
+    "keeps walking toward the door", then "continues approaching the door" is
+    wrong. Each summary describes what newly happens in that shot — approaching,
+    then arriving, then reaching for the handle, then stepping through.
+
+    Continuing shots keep the same character, clothing, place, light and props,
+    but they do NOT keep the same framing. Let the camera change with the beat:
+    an establishing view can give way to a closer one as the action tightens.
+    Choose one primary camera idea per shot from static, slow push-in, pull-back,
+    tracking, dolly, pan, tilt or handheld follow. A static camera is correct for
+    dialogue, a held reaction or a deliberately still composition — use it
+    because the beat calls for it, not as a default for every shot.
+
+    When the story moves somewhere genuinely new, such as outside to inside, use
+    "cut" and open the new place with its own establishing shot. Story
+    progression matters more than keeping an unbroken visual chain.
+
+    Do not mark every shot "cut". If a shot happens in the same place, with the
+    same character, at the same moment in time as the shot before it, it MUST be
+    "continue" — even when the framing changes completely, and even when it is a
+    tight insert such as a hand on a lock. Only use "cut" when the place, the
+    time or the active character actually changes. Marking a whole scene as cuts
+    makes each shot regenerate a different-looking person and set, which is
+    wrong. Worked example for "a woman walks to a library, opens the door and
+    steps inside":
+      shot 1 "cut"      — wide, she crosses the courtyard (the first shot always cuts)
+      shot 2 "continue" — medium, she arrives at the doors and reaches for the handle
+      shot 3 "continue" — close, the handle turns and the door begins to open
+      shot 4 "cut"      — interior establishing shot as she steps inside
     """
 
     static func storyboardSystemPrompt(characterBible: CharacterBible) -> String {
@@ -751,8 +782,12 @@ final class HybridProjectCoordinator {
             return (project, violations, providerName)
         }
 
-        let scales = ["wide", "medium", "close-up", "medium"]
-        let movements = ["dolly", "track", "static", "pan"]
+        // Camera follows the beat rather than cycling a fixed list: the opening
+        // establishes, the middle moves with the subject, and the final beat
+        // sits closer on the resolving action.
+        let scales = AutoMovieBeatPlanner.shotScales(count: desiredCount)
+        let angles = AutoMovieBeatPlanner.cameraAngles(count: desiredCount)
+        let movements = AutoMovieBeatPlanner.cameraMovements(count: desiredCount)
         let duration = min(6, max(4, target / Double(desiredCount)))
         var shots: [Shot] = []
         var state = source.continuityBefore ?? ContinuitySnapshot()
@@ -760,11 +795,17 @@ final class HybridProjectCoordinator {
             var shot = source
             shot.id = UUID()
             shot.index = index
-            shot.title = "Shot \(index + 1)"
-            shot.summary = "\(source.summary) — story beat \(index + 1) of \(desiredCount)."
+            shot.title = AutoMovieBeatPlanner.title(index: index, count: desiredCount)
+            // Every beat must advance to a new visible state. Repeating the
+            // brief verbatim for each shot is what previously produced a movie
+            // of the same action over and over.
+            shot.summary = AutoMovieBeatPlanner.beatSummary(
+                brief: source.summary, index: index, count: desiredCount
+            )
             shot.durationSeconds = duration
-            shot.camera.shotScale = scales[index % scales.count]
-            shot.camera.movement = movements[index % movements.count]
+            shot.camera.shotScale = scales[index]
+            shot.camera.angle = angles[index]
+            shot.camera.movement = movements[index]
             shot.continuityBefore = state
             shot.takes = []
             shot.selectedTakeID = nil

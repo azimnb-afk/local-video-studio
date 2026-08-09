@@ -173,7 +173,67 @@ enum ContinuityEngine {
         runs(\.shotScale, label: "shot scale")
         runs(\.angle, label: "angle")
         runs(\.movement, label: "camera movement")
+        violations.append(contentsOf: repeatedActionWarnings(shots: shots))
         return violations
+    }
+
+    /// Flags consecutive shots that describe the same action.
+    ///
+    /// A movie whose shots all say "walks toward the building" renders the same
+    /// moment repeatedly, which is the failure mode that made Auto Movie feel
+    /// static. This is deliberately a small deterministic check rather than a
+    /// language model: it compares normalized summaries and their leading verb,
+    /// and only warns.
+    static func repeatedActionWarnings(shots: [Shot]) -> [Violation] {
+        guard shots.count > 1 else { return [] }
+        var violations: [Violation] = []
+        for index in 1..<shots.count {
+            let previous = normalizedAction(shots[index - 1].summary)
+            let current = normalizedAction(shots[index].summary)
+            guard !previous.isEmpty, !current.isEmpty else { continue }
+            if previous == current {
+                violations.append(Violation(
+                    severity: .warning,
+                    message: "Shots \(index) and \(index + 1) describe the same action; each shot should advance to a new visible state."
+                ))
+            } else if let a = actionVerb(previous), let b = actionVerb(current), a == b {
+                violations.append(Violation(
+                    severity: .warning,
+                    message: "Shots \(index) and \(index + 1) both lead with '\(a)'; consider advancing the beat."
+                ))
+            }
+        }
+        return violations
+    }
+
+    /// Lowercased, punctuation-light form used only for comparison. A trailing
+    /// "beat N of M"-style counter is stripped so a numbered restatement of the
+    /// same sentence is still recognised as a repeat.
+    static func normalizedAction(_ summary: String) -> String {
+        var text = summary.lowercased()
+        if let separator = text.range(of: " — ") {
+            let tail = text[separator.upperBound...]
+            if tail.contains("beat") || tail.contains("shot ") {
+                text = String(text[..<separator.lowerBound])
+            }
+        }
+        let allowed = text.map { $0.isLetter || $0.isNumber || $0.isWhitespace ? $0 : " " }
+        return String(allowed)
+            .split(separator: " ", omittingEmptySubsequences: true)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    /// First verb-ish token, skipping common leading articles and subjects, so
+    /// "a woman walks…" and "the same woman walks…" compare as "walks".
+    static func actionVerb(_ normalized: String) -> String? {
+        let skip: Set<String> = [
+            "a", "an", "the", "same", "she", "he", "they", "it", "this", "that",
+            "woman", "man", "person", "girl", "boy", "character", "subject",
+            "young", "old", "camera",
+        ]
+        return normalized.split(separator: " ").first { !skip.contains(String($0)) }
+            .map(String.init)
     }
 
     /// Continuity context sentences for the prompt compiler (keeps prompts

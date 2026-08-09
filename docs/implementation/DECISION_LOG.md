@@ -310,3 +310,62 @@ path already varies scale and movement between consecutive shots.
 No Director or PromptCompiler change was made for this: the finding is recorded
 so a future camera-progression improvement is not mistaken for a strength
 regression.
+
+## D-034 (2026-08-10) Repeated composition came from a repeated action, not the camera
+Auto Movie shots looked static because the split path reused the brief verbatim
+for every beat:
+
+    shot.summary = "\(source.summary) — story beat \(index + 1) of \(desiredCount)."
+
+and `PromptCompiler` feeds `shot.summary` straight in as the action, so every
+shot described the same moment. The other candidates were checked and cleared
+first: the split path already varied scale and movement, `PromptCompiler`
+passes the camera plan through unchanged, the app never emits "steady camera"
+anywhere (that string came from an earlier hand-written test harness, not the
+product), and `ContinuityEngine.promptContext` only carries location, time,
+weather, lighting and outfit — it never constrains framing.
+
+`AutoMovieBeatPlanner` now gives each beat a distinct stage: the opening keeps
+the brief because it renders text-to-video, and later beats state how the action
+moves on. Continuing beats are deliberately short, because they render
+image-to-video from the previous frame and the scene already arrives in the
+image; restating it only fights the picture and inflates the prompt.
+
+## D-035 (2026-08-10) Camera follows the beat, and stillness stays available
+The planner picks scale, angle and movement per beat — establishing wide, moving
+middles, a closer resolution — instead of cycling fixed lists. Angle is now
+varied too, because holding one angle for three shots trips the existing
+monotony rule. A static camera is deliberately kept in the vocabulary for the
+resolving beat: stillness is a choice the beat can call for, not something to
+ban.
+
+`ContinuityEngine.repeatedActionWarnings` adds a small deterministic check for
+consecutive shots that describe the same action or lead with the same verb. It
+warns only, and is not a new QC subsystem: no generated video is inspected and
+nothing is regenerated automatically.
+
+## D-036 (2026-08-10) Director instructions separate world continuity from framing
+The planning prompt now requires each shot to advance to a new visible state and
+forbids restating the previous action. It states that a continuing shot keeps the
+character, clothing, place, light and props but NOT the framing, asks for one
+primary camera idea per shot, keeps a static camera valid when the beat calls for
+it, and prefers a cut when the story genuinely moves — outside to inside opens
+with its own establishing shot.
+
+Sampling the local Director three times showed a second problem: with the
+conservative "when unsure, cut" rule alone it marked every shot "cut", which
+would mean the continuity chain never engages. A worked example showing a
+cut/continue/continue/cut sequence rebalanced it without swinging back to
+always-continue, which was the original leakage failure.
+
+Continuity strength is unchanged at 0.8 and this work touches Auto Movie only:
+Generate, One Shot, Storyboard manual shots and explicit Starting Images keep
+their existing behaviour.
+
+## D-037 (2026-08-10) Local AI planning needed a larger response budget
+The richer planning instructions made the Director's JSON longer, and at
+Ollama's default response budget a four-shot plan intermittently came back as
+truncated JSON — which burned the repair attempts and silently dropped the run
+to the Basic Director. The request now sets `num_predict` explicitly; three
+consecutive samples then returned valid plans. This is a reliability fix for a
+regression risk introduced by the longer instructions, not a new feature.

@@ -407,3 +407,19 @@ assembly. Synthetic clicks cannot focus the SwiftUI brief editor, and a render
 was deliberately not started while the calibration generations were running.
 The equivalent pipeline was verified end to end outside the GUI
 (`scripts/automovie_continuity_e2e.sh`) and by unit tests.
+
+## 2026-08-10 Auto Movie cinematic progression GUI check
+
+Canonical Debug app, executable mtime `2026-08-10 06:17`, PID 4222.
+
+- [x] Sidebar shows Generate / One Shot / Storyboard / Director / Auto Movie /
+  Video Archive, pinned at the top (2db0abc sidebar fix intact).
+- [x] Auto Movie page header and bilingual descriptions render unchanged.
+- [x] Existing Auto Movie projects still load and list correctly.
+- [x] No layout regression from this change (ContentView untouched this round).
+
+Not re-exercised: a full in-app Auto Movie render to assembly, for the same
+reason as the previous pass (synthetic clicks cannot focus the SwiftUI brief
+editor). The equivalent pipeline — real Director planning, per-shot compilation,
+continuity decision, sequential generation and assembly — was run outside the
+GUI by `scripts/automovie_progression_e2e.py`.

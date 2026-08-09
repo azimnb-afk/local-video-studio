@@ -192,6 +192,16 @@ GUI-first defaults (D-007): modelRegistryV1 / autoQualityV1 / directorV1 / filmP
 - Phase 3 made no Production Swift/model/schema changes and ran zero new generations because inspected source plus the existing I2V E2E resolved every capability question. Accurate current UI terms remain `Reference Images` and `Starting Image`; `Face Lock`, `Identity Lock`, and same-person guarantees are prohibited.
 - Regression verification: `swift build` PASS; `swift run LTXTests` **543 passed / 0 failed**; unsigned Debug `xcodebuild` **BUILD SUCCEEDED**; `git diff --check` PASS. No MLX generation process or Ollama-loaded model remained.
 
+## 2026-08-09 CharacterBible Phase 4 — Starting Image Bridge
+- CharacterBible Reference Assets (Front, Side, Back, Face, Expression, Costume Detail) can now be selected as the Starting Image for any Storyboard / Hybrid Shot via `Shot.startingImageReferenceAssetID`. Raw Character Sheet originals are excluded from the candidate picker.
+- Selection is strictly max 1 image per shot, resolved at request time in `TakeGenerationCoordinator` to a project-owned absolute path and passed to `GenerationRequest.sourceImagePath`.
+- Uses the existing single-image I2V / first-frame conditioning pipeline without modifying backend Python code, adding new model dependencies, or creating fake face/identity adapters.
+- Backward compatibility: existing Shot JSON without `startingImageReferenceAssetID` decodes cleanly as `nil`. Legacy manual I2V and T2V paths remain 100% unaffected.
+- Error handling: if a selected reference asset ID is unknown or its managed file is missing on disk, generation preflight throws an explicit `CoordinatorError` (`startingImageNotFound` / `startingImageUnavailable`); silent fallback to T2V is prohibited.
+- Asset lifecycle sanitation: deleting a character or reference asset automatically purges dangling `startingImageReferenceAssetID` references across all shots via `sanitizeStartingImageReferences()`.
+- Naming & product boundaries: UI terms use strictly `Starting Image`. Terms `Face Lock`, `Identity Lock`, `Same Face`, `Same Person`, and `Character Identity Conditioning` are prohibited.
+- Verification: `swift build` PASS; `swift run LTXTests` **575 passed / 0 failed**; unsigned Debug `xcodebuild` **BUILD SUCCEEDED**; `git diff --check` PASS. Canonical executable mtime `2026-08-09 17:45:46 +0900`; running PID 77875 resolved to exact DerivedData path.
+
 ## GUI (verified in the final running .app, 2026-08-08)
 - Sidebar: Generate / One Shot / Storyboard / Director / Hybrid / Video Archive, with concise mode descriptions.
 - Generate: Model + Preset picker; no primary Quality picker; non-Custom shows a preset explanation, Custom restores all legacy manual controls.

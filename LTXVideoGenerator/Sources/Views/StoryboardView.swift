@@ -694,6 +694,8 @@ private struct ShotCard: View {
 
             characterAssignment
 
+            startingImageSection
+
             DisclosureGroup("Compiled prompt", isExpanded: $showPrompt) {
                 Text(shot.compiledPrompt)
                     .font(.caption.monospaced())
@@ -798,7 +800,125 @@ private struct ShotCard: View {
         FilmProjectStore.shared.save(updated)
         onChanged()
     }
+
+    @ViewBuilder
+    private var startingImageSection: some View {
+        if !project.characterBible.characters.isEmpty {
+            HStack(spacing: 8) {
+                Text("Starting Image")
+                    .font(.caption.bold())
+                    .help("Used as the first-frame image condition for this shot. Guides the starting frame and does not guarantee character identity.")
+
+                let currentAssetID = shot.startingImageReferenceAssetID
+                let resolved = currentAssetID.flatMap { project.findReferenceAsset(id: $0) }
+
+                if let (character, asset) = resolved {
+                    HStack(spacing: 4) {
+                        if let relativePath = asset.projectRelativePath,
+                           let url = FilmProjectStore.shared.managedCharacterAssetURL(projectID: project.id, relativePath: relativePath),
+                           let image = NSImage(contentsOf: url) {
+                            Image(nsImage: image)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 20, height: 20)
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                        }
+                        Text("\(character.name) · \(asset.displayLabel)")
+                            .font(.caption)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.accentColor.opacity(0.12)))
+                } else if currentAssetID != nil {
+                    Label("Missing starting image file", systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                } else {
+                    Text("None")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Menu("Select…") {
+                    Button {
+                        setStartingImage(nil)
+                    } label: {
+                        Label("None", systemImage: currentAssetID == nil ? "checkmark" : "")
+                    }
+
+                    let assignedCharacters = project.characterBible.characters.filter { shot.characterIDs.contains($0.id) }
+                    let unassignedCharacters = project.characterBible.characters.filter { !shot.characterIDs.contains($0.id) }
+
+                    if !assignedCharacters.isEmpty {
+                        Divider()
+                        ForEach(assignedCharacters) { character in
+                            let candidates = character.referenceAssets.filter(\.isStartingImageCandidate)
+                            if !candidates.isEmpty {
+                                Section(character.name) {
+                                    ForEach(candidates) { asset in
+                                        let selected = currentAssetID == asset.id
+                                        Button {
+                                            setStartingImage(asset.id)
+                                        } label: {
+                                            Label("\(character.name) · \(asset.displayLabel)", systemImage: selected ? "checkmark" : "")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if !unassignedCharacters.isEmpty {
+                        let candidatesExist = unassignedCharacters.contains { char in
+                            char.referenceAssets.contains(where: \.isStartingImageCandidate)
+                        }
+                        if candidatesExist {
+                            Divider()
+                            Section("Other Characters") {
+                                ForEach(unassignedCharacters) { character in
+                                    let candidates = character.referenceAssets.filter(\.isStartingImageCandidate)
+                                    if !candidates.isEmpty {
+                                        ForEach(candidates) { asset in
+                                            let selected = currentAssetID == asset.id
+                                            Button {
+                                                setStartingImage(asset.id)
+                                            } label: {
+                                                Label("\(character.name) · \(asset.displayLabel)", systemImage: selected ? "checkmark" : "")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .controlSize(.small)
+
+                if currentAssetID != nil {
+                    Button {
+                        setStartingImage(nil)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear Starting Image")
+                }
+
+                Spacer()
+            }
+        }
+    }
+
+    private func setStartingImage(_ assetID: UUID?) {
+        guard var updated = FilmProjectStore.shared.project(id: project.id) else { return }
+        updated.setStartingImageAsset(assetID, forShot: shot.id)
+        FilmProjectStore.shared.save(updated)
+        onChanged()
+    }
 }
+
 
 // MARK: - Character Bible
 
@@ -823,6 +943,10 @@ private struct CharacterBibleDraftSection: View {
                             projectID: projectID, characterID: character.id
                         )
                         bible.characters.removeAll { $0.id == character.id }
+                        if var updatedProject = FilmProjectStore.shared.project(id: projectID) {
+                            updatedProject.sanitizeStartingImageReferences()
+                            FilmProjectStore.shared.save(updatedProject)
+                        }
                     }
                 }
                 Button {
@@ -1592,6 +1716,16 @@ private struct TakeRow: View {
                 Text(String(format: "Target %.2fs", target))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+            }
+            if let assetID = take.startingImageReferenceAssetID,
+               let (character, asset) = project.findReferenceAsset(id: assetID) {
+                Text("Starting Image: \(character.name) · \(asset.displayLabel)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else if let path = take.sourceImagePath, !path.isEmpty {
+                Text("Starting Image: \(URL(fileURLWithPath: path).lastPathComponent)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
             Spacer()
             if take.status == .completed {

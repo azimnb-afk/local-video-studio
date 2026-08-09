@@ -201,6 +201,7 @@ extension FilmProject {
         for index in shots.indices {
             shots[index].characterIDs.removeAll { $0 == id }
         }
+        sanitizeStartingImageReferences()
         CharacterPromptPipeline.recompile(project: &self)
         touch()
     }

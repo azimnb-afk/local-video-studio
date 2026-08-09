@@ -71,3 +71,9 @@ The installed `mlx-video-with-audio` 0.1.36 public API accepts one `image`, one 
 No face encoder, identity embedding/token/adapter, named-subject binding, generic reference input, or public multi-image input exists in the installed path. A face crop used as the I2V image is therefore only an experimental Starting Image misuse and must not be presented as Face Lock. Front/Side/Back cannot currently form one multi-view identity set. Official temporal keyframe and separate IC-LoRA pipelines are backend gaps, not current app capability and not evidence of face-only identity.
 
 Phase 4 must not automatically connect CharacterBible reference assets to generation. The safe current terms are `Reference Images` for the library and `Starting Image` for explicit one-image I2V. Any future identity-capable adapter requires its own dependency, Q4/audio/memory, leakage, multi-character binding, and runtime audit before product claims.
+
+## D-018 (2026-08-09) Phase 4 Starting Image Bridge reuses existing single-image I2V
+CharacterReferenceAssets (derived Front, Side, Back, Face, Expression, Costume Detail) are bridged to Storyboard/Hybrid Shots via stable UUID `Shot.startingImageReferenceAssetID`. Raw Character Sheet originals are excluded from the candidate picker. `TakeGenerationCoordinator` resolves the asset ID to a project-owned managed file URL at request assembly time and assigns `GenerationRequest.sourceImagePath`.
+
+No backend Python code, model dependency, or identity adapter was added. If a selected reference asset ID is unknown or its file is missing on disk, preflight throws `CoordinatorError` (`startingImageNotFound` / `startingImageUnavailable`), preventing silent T2V fallback. The UI strictly uses the term `Starting Image`; terms `Face Lock`, `Identity Lock`, `Same Face`, `Same Person`, and `Character Identity Conditioning` remain prohibited.
+

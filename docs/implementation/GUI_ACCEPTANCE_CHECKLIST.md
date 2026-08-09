@@ -212,3 +212,16 @@ TOKEN=$(cat ~/Library/Application\ Support/LTXVideoGenerator/api_token)
 - [x] Review Cancel時にderived file/metadataなし。Save後はCharacter Editorにefficient thumbnailとdelete controlを表示。source sheetとderived assetの削除責務を分離。
 - [x] App quit/relaunch後、Character Sheet + 6 referencesのthumbnail/type/dimensionsを復元。Shotのstable Character UUIDとcompiled textual promptも維持。
 - [x] Vision modelは検出後にunload。LTX generation、PromptCompilerへのpath注入、identity conditioning、face recognition、cloud、downloadはなし。
+
+## L. CharacterBible Phase 4 — Starting Image Bridge（2026-08-09）
+
+- [x] Storyboard / Hybrid共通のShot UIに`Starting Image`セクションが追加され、Character別にグループ分けされたDerived Reference Assets（Front, Side, Back, Face, Expression, Costume Detail）から最大1枚をStarting Imageとして選択できることを確認。
+- [x] Raw Character Sheetオリジナルは候補Menuに露出しない。
+- [x] 選択中Starting Imageのサムネイルが即時表示され、`None`選択・クリアボタンで解除できることを確認。
+- [x] Shot 1にMaya Front, Shot 2にMaya Side, Shot 3にNoneを設定してProject保存。アプリ終了・完全再起動後、各ShotのStarting Image選択状態とサムネイルが正常に復元される。
+- [x] `TakeGenerationCoordinator.planTakes`にて、`Shot.startingImageReferenceAssetID`からプロジェクト所有の絶対パスが解決され、`GenerationRequest.sourceImagePath`および`Take.sourceImagePath`へマッピングされることを確認。
+- [x] 存在しないAsset IDや実ファイル消失時、silent T2V fallbackを起こさず明示的な `CoordinatorError`（`startingImageNotFound` / `startingImageUnavailable`）がスローされる。
+- [x] キャラクターや参照アセット削除時、`sanitizeStartingImageReferences()`によりdangling IDが安全に除去される。
+- [x] UIおよびコード上の用語は`Starting Image`に統一。`Face Lock`, `Identity Lock`, `Same Face`, `Same Person`, `Character Identity Conditioning`等の不適当な用語が存在しないことを確認。
+- [x] `swift build` PASS; `swift run LTXTests` = **575 passed / 0 failed**; Xcode Debug `BUILD SUCCEEDED`; `git diff --check` clean。
+

@@ -78,6 +78,32 @@ struct CharacterReferenceAssetType: RawRepresentable, Codable, Hashable, Identif
     static let knownTypes: [Self] = [
         .characterSheet, .face, .front, .side, .back, .expression, .costumeDetail, .other,
     ]
+
+    var displayName: String {
+        switch self {
+        case .characterSheet: return "Character Sheet"
+        case .face: return "Face / Close-Up"
+        case .front: return "Front"
+        case .side: return "Side"
+        case .back: return "Back"
+        case .expression: return "Expression"
+        case .costumeDetail: return "Costume Detail"
+        default: return rawValue.capitalized
+        }
+    }
+}
+
+extension CharacterReferenceAsset {
+    var isStartingImageCandidate: Bool {
+        type != .characterSheet
+    }
+
+    var displayLabel: String {
+        if !label.isEmpty && label != type.displayName {
+            return "\(type.displayName) (\(label))"
+        }
+        return type.displayName
+    }
 }
 
 /// Stable crop provenance stored independently of any analysis derivative.
@@ -492,6 +518,9 @@ struct Take: Codable, Equatable, Identifiable {
 
     var peakMemoryBytes: Int64?
     var swapPeakBytes: Int64?
+
+    var startingImageReferenceAssetID: UUID?
+    var sourceImagePath: String?
 }
 
 // MARK: - Shot
@@ -509,6 +538,7 @@ struct Shot: Codable, Equatable, Identifiable {
     /// Stable references into FilmProject.characterBible. Names are display
     /// data only and may be changed without invalidating these links.
     var characterIDs: [UUID] = []
+    var startingImageReferenceAssetID: UUID?
     /// Character-free prompt retained so Bible edits can deterministically
     /// recompile without repeatedly appending old character context.
     var baseCompiledPrompt: String?
@@ -526,6 +556,7 @@ struct Shot: Codable, Equatable, Identifiable {
         durationSeconds: Double = 5, camera: CameraPlan = CameraPlan(),
         audio: AudioPlan = AudioPlan(), continuityBefore: ContinuitySnapshot? = nil,
         explicitChanges: [String] = [], characterIDs: [UUID] = [],
+        startingImageReferenceAssetID: UUID? = nil,
         baseCompiledPrompt: String? = nil, compiledPrompt: String = "",
         takes: [Take] = [], selectedTakeID: UUID? = nil
     ) {
@@ -539,6 +570,7 @@ struct Shot: Codable, Equatable, Identifiable {
         self.continuityBefore = continuityBefore
         self.explicitChanges = explicitChanges
         self.characterIDs = characterIDs
+        self.startingImageReferenceAssetID = startingImageReferenceAssetID
         self.baseCompiledPrompt = baseCompiledPrompt
         self.compiledPrompt = compiledPrompt
         self.takes = takes
@@ -548,6 +580,7 @@ struct Shot: Codable, Equatable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id, index, title, summary, durationSeconds, camera, audio,
              continuityBefore, explicitChanges, characterIDs,
+             startingImageReferenceAssetID,
              baseCompiledPrompt, compiledPrompt, takes, selectedTakeID
     }
 
@@ -563,6 +596,7 @@ struct Shot: Codable, Equatable, Identifiable {
         continuityBefore = try container.decodeIfPresent(ContinuitySnapshot.self, forKey: .continuityBefore)
         explicitChanges = try container.decodeIfPresent([String].self, forKey: .explicitChanges) ?? []
         characterIDs = try container.decodeIfPresent([UUID].self, forKey: .characterIDs) ?? []
+        startingImageReferenceAssetID = try container.decodeIfPresent(UUID.self, forKey: .startingImageReferenceAssetID)
         baseCompiledPrompt = try container.decodeIfPresent(String.self, forKey: .baseCompiledPrompt)
         compiledPrompt = try container.decodeIfPresent(String.self, forKey: .compiledPrompt) ?? ""
         takes = try container.decodeIfPresent([Take].self, forKey: .takes) ?? []
@@ -725,5 +759,36 @@ struct FilmProject: Codable, Equatable, Identifiable {
 
     func shot(id: UUID) -> Shot? {
         shots.first { $0.id == id }
+    }
+
+    func findReferenceAsset(id assetID: UUID) -> (character: BibleCharacter, asset: CharacterReferenceAsset)? {
+        for character in characterBible.characters {
+            if let asset = character.referenceAssets.first(where: { $0.id == assetID }) {
+                return (character, asset)
+            }
+        }
+        return nil
+    }
+
+    func managedReferenceAssetURL(for assetID: UUID, store: FilmProjectStore = .shared) -> URL? {
+        guard let (_, asset) = findReferenceAsset(id: assetID),
+              let relativePath = asset.projectRelativePath else {
+            return nil
+        }
+        return store.managedCharacterAssetURL(projectID: id, relativePath: relativePath)
+    }
+
+    mutating func setStartingImageAsset(_ assetID: UUID?, forShot shotID: UUID) {
+        guard let shotIndex = shots.firstIndex(where: { $0.id == shotID }) else { return }
+        shots[shotIndex].startingImageReferenceAssetID = assetID
+    }
+
+    mutating func sanitizeStartingImageReferences() {
+        let validAssetIDs = Set(characterBible.characters.flatMap { $0.referenceAssets.map(\.id) })
+        for i in shots.indices {
+            if let assetID = shots[i].startingImageReferenceAssetID, !validAssetIDs.contains(assetID) {
+                shots[i].startingImageReferenceAssetID = nil
+            }
+        }
     }
 }

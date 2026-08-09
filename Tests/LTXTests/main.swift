@@ -15,6 +15,7 @@ runDirectorTests(t)
 runFilmProjectTests(t)
 runCharacterSheetTests(t)
 runCharacterReferenceExtractionTests(t)
+runStartingImageBridgeTests(t)
 runStoryboardTests(t)
 runAPITests(t)
 

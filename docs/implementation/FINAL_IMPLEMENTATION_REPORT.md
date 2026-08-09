@@ -283,3 +283,16 @@ Phase 3 changed documentation only. It traced Generate/API source image handling
 The installed backend accepts one image, VAE-encodes the whole image, and injects it at one selected temporal latent index. The app exposes that as one starting image and an I2V denoise/preservation value; it leaves `image_frame_idx` at zero. Existing offline baseline renders already prove Q4 + Gemma 4-bit T2V and I2V with audio ON/OFF. No new generation was needed for the audit.
 
 The product conclusion is definitive: true face-only identity conditioning, a generic character reference, Front/Side/Back multi-view identity sets, expression/costume region references, and multiple-character image binding are **not supported** by the current app/backend. A face crop can only be misused as a whole starting frame and must not be marketed as Face Lock. Official multiple temporal-keyframe and separate IC-LoRA paths are documented backend gaps, not installed capability. No Swift/Python/model/schema/cache change, model pull, cloud call, or Phase 4 production wiring occurred. `swift build` passed; `swift run LTXTests` passed **543 / 543**; unsigned Debug `xcodebuild` succeeded; `git diff --check` passed; and no MLX/Ollama model process remained. See `CHARACTER_REFERENCE_CAPABILITY_AUDIT.md` for the matrix and evidence.
+
+## CharacterBible Phase 4 — Starting Image Bridge
+
+Phase 4 safely bridges CharacterReferenceAssets (Front, Side, Back, Face, Expression, Costume Detail) to Storyboard and Hybrid Shots as a single Starting Image. Raw Character Sheet originals are excluded from the candidate picker. Each Shot retains at most 1 optional `startingImageReferenceAssetID: UUID?`.
+
+At request assembly time, `TakeGenerationCoordinator` resolves the asset ID to a project-owned managed file URL and assigns `GenerationRequest.sourceImagePath`. The request then flows through the existing, fully proven single-image I2V first-frame conditioning pipeline without modifying Python code, adding model dependencies, or introducing fake face/identity adapters.
+
+Backward compatibility is fully preserved: existing Shot JSON without `startingImageReferenceAssetID` decodes cleanly as `nil`. Legacy manual I2V and T2V paths remain unchanged. Preflight error handling throws explicit `CoordinatorError` (`startingImageNotFound` / `startingImageUnavailable`) if an asset ID is missing or its image file does not exist on disk, preventing silent T2V fallback. Asset/character deletions automatically sanitize dangling references.
+
+Product boundaries and naming are strictly enforced: UI uses `Starting Image`. Terms `Face Lock`, `Identity Lock`, `Same Face`, `Same Person`, and `Character Identity Conditioning` are prohibited.
+
+Final verification passed: `swift build` PASS; `swift run LTXTests` (**575 passed / 0 failed**); unsigned Debug `xcodebuild clean build` **BUILD SUCCEEDED**; `git diff --check` PASS. Canonical executable mtime `2026-08-09 17:45:46 +0900`; running PID 77875 resolved to the exact DerivedData executable path.
+

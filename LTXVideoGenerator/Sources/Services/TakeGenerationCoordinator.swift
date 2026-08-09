@@ -7,9 +7,24 @@ final class TakeGenerationCoordinator {
 
     static let maxTakesPerShot = 20
 
-    enum CoordinatorError: Error, Equatable {
+    enum CoordinatorError: Error, Equatable, LocalizedError {
         case invalidTakeCount(Int)
         case shotNotFound(UUID)
+        case startingImageNotFound(UUID)
+        case startingImageUnavailable(UUID)
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidTakeCount(let count):
+                return "Invalid take count (\(count))."
+            case .shotNotFound(let id):
+                return "Shot (\(id.uuidString.prefix(6))) not found."
+            case .startingImageNotFound(let id):
+                return "Selected starting image asset (\(id.uuidString.prefix(6))) not found in project."
+            case .startingImageUnavailable(let id):
+                return "Selected starting image file for asset (\(id.uuidString.prefix(6))) is unavailable on disk."
+            }
+        }
     }
 
     private let store: FilmProjectStore
@@ -42,6 +57,19 @@ final class TakeGenerationCoordinator {
         let targetDuration = settings.resolvedPreset == .custom ? nil : shot.durationSeconds
         let generationSource = project.workflowMode == "hybrid" ? "hybrid" : "storyboard"
 
+        var sourceImagePath: String? = nil
+        if let assetID = shot.startingImageReferenceAssetID {
+            guard let (_, asset) = project.findReferenceAsset(id: assetID) else {
+                throw CoordinatorError.startingImageNotFound(assetID)
+            }
+            guard let relativePath = asset.projectRelativePath,
+                  let url = store.managedCharacterAssetURL(projectID: projectID, relativePath: relativePath),
+                  FileManager.default.fileExists(atPath: url.path) else {
+                throw CoordinatorError.startingImageUnavailable(assetID)
+            }
+            sourceImagePath = url.path
+        }
+
         var requests: [GenerationRequest] = []
         for i in 0..<count {
             let seed = baseSeed.map { $0 + i } ?? Int.random(in: 0..<Int(Int32.max))
@@ -69,12 +97,15 @@ final class TakeGenerationCoordinator {
                 fps: params.fps,
                 requestedDuration: Double(params.numFrames) / Double(params.fps),
                 targetDurationSeconds: targetDuration,
-                status: .queued
+                status: .queued,
+                startingImageReferenceAssetID: shot.startingImageReferenceAssetID,
+                sourceImagePath: sourceImagePath
             )
             project.shots[shotIndex].takes.append(take)
 
             let request = GenerationRequest(
                 prompt: shot.compiledPrompt,
+                sourceImagePath: sourceImagePath,
                 disableAudio: !settings.resolvedAudioEnabled,
                 modelId: settings.modelID,
                 textEncoderId: settings.textEncoderID,

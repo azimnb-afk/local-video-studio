@@ -106,6 +106,9 @@ enum PromptCompiler {
             if !character.currentCostume.trimmed.isEmpty {
                 parts.append("Current costume: \(character.currentCostume.trimmed).")
             }
+            if !character.accessories.trimmed.isEmpty {
+                parts.append("Accessories: \(character.accessories.trimmed).")
+            }
             if !character.lockedTraits.isEmpty {
                 let locks = character.lockedTraits
                     .sorted { $0.rawValue < $1.rawValue }

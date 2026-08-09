@@ -36,6 +36,7 @@
 		AA000192 /* LTXGenerationLogSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000193; };
 		AA000194 /* GenerationFailureRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000195; };
 		AA000240 /* StoryboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000241; };
+		AA000242 /* CharacterSheetAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000243; };
 		AA000200 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000201; };
 		AA000202 /* ModelRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000203; };
 		AA000204 /* QualityProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000205; };
@@ -90,6 +91,7 @@
 		AA00002E /* AddAudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAudioView.swift; sourceTree = "<group>"; };
 		AA000036 /* CharacterProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterProfile.swift; sourceTree = "<group>"; };
 		AA000241 /* StoryboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryboardView.swift; sourceTree = "<group>"; };
+		AA000243 /* CharacterSheetAnalysis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterSheetAnalysis.swift; sourceTree = "<group>"; };
 		AA000201 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlags.swift; sourceTree = "<group>"; };
 		AA000203 /* ModelRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelRegistry.swift; sourceTree = "<group>"; };
 		AA000205 /* QualityProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QualityProfile.swift; sourceTree = "<group>"; };
@@ -220,6 +222,7 @@
 				AA000227 /* StoryboardDirector.swift */,
 				AA000229 /* FinalAssemblyService.swift */,
 				AA00022B /* FilmProjectStore.swift */,
+				AA000243 /* CharacterSheetAnalysis.swift */,
 				AA00022D /* TakeGenerationCoordinator.swift */,
 				AA00022F /* APIv1Handler.swift */,
 				AA000231 /* LocalAPIServer.swift */,
@@ -367,6 +370,7 @@
 				AA000226 /* StoryboardDirector.swift in Sources */,
 				AA000228 /* FinalAssemblyService.swift in Sources */,
 				AA00022A /* FilmProjectStore.swift in Sources */,
+				AA000242 /* CharacterSheetAnalysis.swift in Sources */,
 				AA00022C /* TakeGenerationCoordinator.swift in Sources */,
 				AA00022E /* APIv1Handler.swift in Sources */,
 				AA000230 /* LocalAPIServer.swift in Sources */,

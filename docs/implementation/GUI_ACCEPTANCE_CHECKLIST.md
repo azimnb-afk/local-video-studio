@@ -183,3 +183,19 @@ TOKEN=$(cat ~/Library/Application\ Support/LTXVideoGenerator/api_token)
 - A群（regression）が1つでもFAIL → **リリース不可**。`git diff a441dc2` で原因を特定するか、flags OFFのまま利用
 - B–G群のFAIL → 該当feature flagをOFFにして隔離し、issueとして記録（アプリ全体は出荷可能）
 - 結果はTEST_MATRIX.mdの該当行を PASS/FAIL に更新してcommitすること
+
+## J. CharacterBible Phase 1 — Character Sheet Import（2026-08-09）
+
+- [x] Canonical DerivedData appをフルパス指定で起動し、Storyboard / Hybrid共通Characters UIに`Import Character Sheet`が表示されることを確認。
+- [x] 1600×1600 synthetic PNGを選択。外部sampleが実行環境から取得できなかったためdownloadは行っていない。
+- [x] Project-owned copyをUUID filenameで作成。元画像・managed copyのSHA-256が一致し、元画像は変更されていない。
+- [x] Preferences > AnalysisでAuto / Local Vision / Manual、独立Vision model picker、reported capability方針、no-auto-download、local/privacy/非identity-conditioning表示を確認。
+- [x] Autoはinstall済み`agents-a1:32k`を使用。1 repair後もrequired appearance structure不足だったためManual Reviewへfallbackし、Ollamaはunload済み（`/api/ps` empty）。
+- [x] Review前にBibleへ確定されず、Mayaへ編集後にCreate Character。Face/Hair/Eyes/Costume/Accessories、detected views/expressions、Character Sheet asset metadataを保存。
+- [x] Existing Character更新ReviewでCurrent/Detectedを分離し、既存non-empty fieldがすべてdefault OFF。Cancel後、staged managed copyだけが削除され既存assetと外部originalを保持。
+- [x] Storyboard project `7F85893F-D234-41BC-97ED-635D4EAA533A`でcompiled promptへreview済みvisual dataを反映。sheet image bytesはLTXへ渡していない。
+- [x] 段落区切りBriefのproject `7DDDD8E2-C149-41CB-B49C-08A3CD7CDEC7`で3 shots。全Shotが同じMaya UUID `9C0C46EE-DBF7-4F0B-BCA2-9C576618FD1B`を参照。
+- [x] MayaへFace/Hair/Eyes lockを明示設定し、compiled promptでvisual fields、costume、accessories、textual lock guidanceを確認。
+- [x] App quit/relaunch後にproject、3 shots、UUID assignment、Character Sheet metadataを復元。Hybrid既存projectにも同じshared import controlを確認。
+- [x] `swift build`; `swift run LTXTests` = 498 passed / 0 failed; Xcode Debug `BUILD SUCCEEDED`; `git diff --check` clean。
+- [ ] Exact user sampleによるVision extraction品質E2Eはsample未アクセスのためPending。Local provider/schema failureからManual Reviewまでのproduct fallbackはPASS。

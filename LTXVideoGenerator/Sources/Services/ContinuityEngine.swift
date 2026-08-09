@@ -20,6 +20,7 @@ enum ContinuityEngine {
         var name: String
         var appearance: CharacterAppearance
         var currentCostume: String
+        var accessories: String
         var continuityNotes: String
         var lockedTraits: Set<CharacterTraitLock>
     }
@@ -226,6 +227,7 @@ enum ContinuityEngine {
                 name: character.name,
                 appearance: character.appearance,
                 currentCostume: state?.characterOutfit[key] ?? character.defaultCostume,
+                accessories: character.accessories,
                 continuityNotes: character.continuityNotes,
                 lockedTraits: character.lockedTraits
             )

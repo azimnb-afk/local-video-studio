@@ -100,6 +100,7 @@ final class StoryboardDirector {
             let appearance = character.appearance.compactVisualSummary
             if !appearance.isEmpty { parts.append("Appearance: \(appearance)") }
             if !character.defaultCostume.isEmpty { parts.append("Default costume: \(character.defaultCostume)") }
+            if !character.accessories.isEmpty { parts.append("Accessories: \(character.accessories)") }
             if !character.personality.isEmpty { parts.append("Personality: \(character.personality)") }
             if !character.speakingStyle.isEmpty { parts.append("Speaking style: \(character.speakingStyle)") }
             if !character.roleNotes.isEmpty { parts.append("Role/notes: \(character.roleNotes)") }
@@ -273,7 +274,7 @@ final class StoryboardDirector {
         }
 
         var candidates = [trimmed]
-        if let extracted = extractJSONObject(from: trimmed), extracted != trimmed {
+        if let extracted = StructuredJSONUtilities.firstJSONObject(in: trimmed), extracted != trimmed {
             candidates.append(extracted)
         } else if !trimmed.hasPrefix("{") {
             return ParseResult(draft: nil, failureStage: .jsonExtractionFailed,
@@ -286,7 +287,7 @@ final class StoryboardDirector {
         var repairAttempted = false
 
         for candidate in candidates {
-            let repairedSyntax = removingTrailingCommas(from: candidate)
+            let repairedSyntax = StructuredJSONUtilities.removingTrailingCommas(from: candidate)
             repairAttempted = repairAttempted || repairedSyntax != candidate
             guard let data = repairedSyntax.data(using: .utf8) else { continue }
             let object: Any
@@ -426,60 +427,6 @@ final class StoryboardDirector {
         path.isEmpty ? "<root>" : path.map(\.stringValue).joined(separator: ".")
     }
 
-    /// Finds the first balanced JSON object, ignoring braces inside strings.
-    private static func extractJSONObject(from text: String) -> String? {
-        var start: String.Index?
-        var depth = 0
-        var inString = false
-        var escaped = false
-        for index in text.indices {
-            let character = text[index]
-            if inString {
-                if escaped { escaped = false }
-                else if character == "\\" { escaped = true }
-                else if character == "\"" { inString = false }
-                continue
-            }
-            if character == "\"" { inString = true; continue }
-            if character == "{" {
-                if depth == 0 { start = index }
-                depth += 1
-            } else if character == "}", depth > 0 {
-                depth -= 1
-                if depth == 0, let start {
-                    return String(text[start...index])
-                }
-            }
-        }
-        return nil
-    }
-
-    /// Repairs only trailing commas outside JSON strings.
-    private static func removingTrailingCommas(from text: String) -> String {
-        let characters = Array(text)
-        var output = ""
-        var inString = false
-        var escaped = false
-        for index in characters.indices {
-            let character = characters[index]
-            if inString {
-                output.append(character)
-                if escaped { escaped = false }
-                else if character == "\\" { escaped = true }
-                else if character == "\"" { inString = false }
-                continue
-            }
-            if character == "\"" { inString = true; output.append(character); continue }
-            if character == "," {
-                var next = index + 1
-                while next < characters.count, characters[next].isWhitespace { next += 1 }
-                if next < characters.count, characters[next] == "}" || characters[next] == "]" { continue }
-            }
-            output.append(character)
-        }
-        return output
-    }
-
     private func record(_ stage: FailureStage, provider: String, attempt: Int, message: String) {
         diagnostics.append(Diagnostic(stage: stage, provider: provider, attempt: attempt, message: message))
         #if DEBUG
@@ -521,6 +468,7 @@ final class StoryboardDirector {
     /// Materializes a FilmProject: continuity chain, per-shot compiled prompts,
     /// monotony/continuity validation results attached as notes.
     func makeProject(
+        projectID: UUID = UUID(),
         title: String,
         brief: String,
         settings: ProjectSettings = ProjectSettings(),
@@ -528,7 +476,7 @@ final class StoryboardDirector {
     ) async throws -> (project: FilmProject, violations: [ContinuityEngine.Violation], providerName: String) {
         let (draft, providerName) = try await self.draft(brief: brief, characterBible: characterBible)
 
-        var project = FilmProject(title: title)
+        var project = FilmProject(id: projectID, title: title)
         project.settings = settings
         project.directorProvider = providerName
         project.directorModel = lastProviderModel
@@ -770,13 +718,15 @@ final class HybridProjectCoordinator {
     }
 
     func makeProject(
+        projectID: UUID = UUID(),
         title: String,
         brief: String,
         settings: ProjectSettings,
         characterBible: CharacterBible = CharacterBible()
     ) async throws -> (project: FilmProject, violations: [ContinuityEngine.Violation], providerName: String) {
         var (project, violations, providerName) = try await director.makeProject(
-            title: title, brief: brief, settings: settings, characterBible: characterBible
+            projectID: projectID, title: title, brief: brief,
+            settings: settings, characterBible: characterBible
         )
         let target = min(60, max(5, settings.targetDurationSeconds ?? 20))
         let desiredCount = min(12, max(1, Int(ceil(target / 5))))

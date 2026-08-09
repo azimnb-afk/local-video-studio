@@ -116,6 +116,16 @@ func runFilmProjectTests(_ t: TestKit) {
                      "all reference asset metadata persists")
         t.checkEqual(loaded?.characterBible.characters.first?.referenceAssets.last?.type.rawValue,
                      "futureMultiView", "unknown future asset type round-trips")
+        do {
+            let legacyAsset = try JSONDecoder().decode(
+                CharacterReferenceAsset.self,
+                from: Data("{\"type\":\"characterSheet\",\"label\":\"Old Sheet\"}".utf8)
+            )
+            t.check(legacyAsset.detectedViews.isEmpty && legacyAsset.expressions.isEmpty,
+                    "Phase 0 asset without analysis metadata still decodes")
+        } catch {
+            t.check(false, "Phase 0 reference asset decode threw \(error)")
+        }
 
         // Simulate a schema-v1 project with no CharacterBible, no Shot IDs and
         // no base prompt. Existing shots/takes/jobs must survive.

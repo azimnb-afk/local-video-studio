@@ -53,8 +53,9 @@ struct StoryboardView: View {
         .onAppear(perform: refresh)
         .onReceive(refreshTimer) { _ in refresh() }
         .sheet(isPresented: $showNewProjectSheet) {
-            NewStoryboardSheet(isCreating: $isCreating, mode: mode) { title, brief, settings, characterBible, generateFirstPass in
+            NewStoryboardSheet(isCreating: $isCreating, mode: mode) { projectID, title, brief, settings, characterBible, generateFirstPass in
                 createProject(
+                    projectID: projectID,
                     title: title,
                     brief: brief,
                     settings: settings,
@@ -141,6 +142,7 @@ struct StoryboardView: View {
     }
 
     private func createProject(
+        projectID: UUID,
         title: String,
         brief: String,
         settings: ProjectSettings,
@@ -154,10 +156,12 @@ struct StoryboardView: View {
             do {
                 var (project, violations, _) = mode == .hybrid
                     ? try await HybridProjectCoordinator().makeProject(
-                        title: title, brief: brief, settings: settings, characterBible: characterBible
+                        projectID: projectID, title: title, brief: brief,
+                        settings: settings, characterBible: characterBible
                     )
                     : try await StoryboardDirector().makeProject(
-                        title: title, brief: brief, settings: settings, characterBible: characterBible
+                        projectID: projectID, title: title, brief: brief,
+                        settings: settings, characterBible: characterBible
                     )
                 project.workflowMode = mode.workflowValue
                 store.save(project)
@@ -192,9 +196,10 @@ struct StoryboardView: View {
 
 private struct NewStoryboardSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var generationService: GenerationService
     @Binding var isCreating: Bool
     let mode: StoryboardWorkspaceMode
-    let onCreate: (String, String, ProjectSettings, CharacterBible, Bool) -> Void
+    let onCreate: (UUID, String, String, ProjectSettings, CharacterBible, Bool) -> Void
 
     @State private var title = ""
     @State private var brief = ""
@@ -206,6 +211,7 @@ private struct NewStoryboardSheet: View {
     @State private var width = 768
     @State private var height = 512
     @State private var characterBible = CharacterBible()
+    @State private var projectID = UUID()
     @AppStorage(DirectorMode.userDefaultsKey) private var directorModeRaw = DirectorMode.auto.rawValue
     @State private var directorSnapshot = DirectorSetupSnapshot.checking(mode: .auto)
     @State private var isCheckingDirector = false
@@ -229,7 +235,11 @@ private struct NewStoryboardSheet: View {
                 .frame(height: 110)
                 .padding(6)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
-            CharacterBibleDraftSection(bible: $characterBible)
+            CharacterBibleDraftSection(
+                projectID: projectID,
+                bible: $characterBible,
+                generationActive: generationService.isProcessing
+            )
             HStack {
                 Picker("Preset", selection: $presetRaw) {
                     ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
@@ -294,6 +304,7 @@ private struct NewStoryboardSheet: View {
                     settings.height = height
                     settings.targetDurationSeconds = mode == .hybrid ? targetDuration : nil
                     onCreate(
+                        projectID,
                         title.isEmpty ? (mode == .hybrid ? "Untitled Hybrid Project" : "Untitled Storyboard") : title,
                         brief,
                         settings,
@@ -318,6 +329,11 @@ private struct NewStoryboardSheet: View {
         .task { await refreshDirectorStatus() }
         .onChange(of: directorModeRaw) { _, _ in
             Task { await refreshDirectorStatus() }
+        }
+        .onDisappear {
+            if FilmProjectStore.shared.project(id: projectID) == nil {
+                FilmProjectStore.shared.removeUncommittedProjectAssets(projectID: projectID)
+            }
         }
     }
 
@@ -445,7 +461,11 @@ private struct ProjectDetailView: View {
             ProjectSettingsEditor(project: project) {
                 onChanged()
             }
-            ProjectCharactersSection(project: project, onChanged: onChanged)
+            ProjectCharactersSection(
+                project: project,
+                generationActive: generationService.isProcessing,
+                onChanged: onChanged
+            )
             HStack(spacing: 12) {
                 // Generate one take for every shot that has none yet.
                 Button {
@@ -783,7 +803,9 @@ private struct ShotCard: View {
 // MARK: - Character Bible
 
 private struct CharacterBibleDraftSection: View {
+    let projectID: UUID
     @Binding var bible: CharacterBible
+    let generationActive: Bool
     @State private var isExpanded = true
     @State private var editingCharacter: BibleCharacter?
 
@@ -794,9 +816,12 @@ private struct CharacterBibleDraftSection: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 ForEach(bible.characters) { character in
-                    CharacterSummaryRow(character: character) {
+                    CharacterSummaryRow(projectID: projectID, character: character) {
                         editingCharacter = character
                     } onDelete: {
+                        FilmProjectStore.shared.removeManagedCharacterAssets(
+                            projectID: projectID, characterID: character.id
+                        )
                         bible.characters.removeAll { $0.id == character.id }
                     }
                 }
@@ -806,6 +831,17 @@ private struct CharacterBibleDraftSection: View {
                     Label("Add Character", systemImage: "person.badge.plus")
                 }
                 .controlSize(.small)
+                CharacterSheetImportButton(
+                    projectID: projectID,
+                    characters: bible.characters,
+                    generationActive: generationActive
+                ) { saved in
+                    if let index = bible.characters.firstIndex(where: { $0.id == saved.id }) {
+                        bible.characters[index] = saved
+                    } else {
+                        bible.characters.append(saved)
+                    }
+                }
             }
             .padding(.top, 6)
         }
@@ -823,6 +859,7 @@ private struct CharacterBibleDraftSection: View {
 
 private struct ProjectCharactersSection: View {
     let project: FilmProject
+    let generationActive: Bool
     let onChanged: () -> Void
 
     @State private var isExpanded = true
@@ -842,7 +879,7 @@ private struct ProjectCharactersSection: View {
                         .foregroundStyle(.secondary)
                 }
                 ForEach(project.characterBible.characters) { character in
-                    CharacterSummaryRow(character: character) {
+                    CharacterSummaryRow(projectID: project.id, character: character) {
                         editingCharacter = character
                     } onDelete: {
                         characterToDelete = character
@@ -854,6 +891,16 @@ private struct ProjectCharactersSection: View {
                     Label("Add Character", systemImage: "person.badge.plus")
                 }
                 .controlSize(.small)
+                CharacterSheetImportButton(
+                    projectID: project.id,
+                    characters: project.characterBible.characters,
+                    generationActive: generationActive
+                ) { saved in
+                    guard var updated = store.project(id: project.id) else { return }
+                    updated.upsertCharacter(saved)
+                    store.save(updated)
+                    onChanged()
+                }
             }
             .padding(.top, 6)
         }
@@ -878,6 +925,7 @@ private struct ProjectCharactersSection: View {
                 guard var updated = store.project(id: project.id) else { return }
                 updated.removeCharacter(id: character.id)
                 store.save(updated)
+                store.removeManagedCharacterAssets(projectID: project.id, characterID: character.id)
                 characterToDelete = nil
                 onChanged()
             }
@@ -888,6 +936,7 @@ private struct ProjectCharactersSection: View {
 }
 
 private struct CharacterSummaryRow: View {
+    let projectID: UUID
     let character: BibleCharacter
     let onEdit: () -> Void
     let onDelete: () -> Void
@@ -911,6 +960,12 @@ private struct CharacterSummaryRow: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
+                if character.referenceAssets.contains(where: { $0.type == .characterSheet }) {
+                    Label(missingSheet ? "Character Sheet Missing" : "Character Sheet",
+                          systemImage: missingSheet ? "exclamationmark.triangle" : "photo.on.rectangle")
+                        .font(.caption2)
+                        .foregroundStyle(missingSheet ? .orange : .secondary)
+                }
                 Text("ID \(character.id.uuidString.prefix(8))")
                     .font(.caption2.monospaced())
                     .foregroundStyle(.tertiary)
@@ -924,6 +979,16 @@ private struct CharacterSummaryRow: View {
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+    }
+
+    private var missingSheet: Bool {
+        character.referenceAssets.filter { $0.type == .characterSheet }.contains { asset in
+            guard let path = asset.projectRelativePath,
+                  let url = FilmProjectStore.shared.managedCharacterAssetURL(
+                    projectID: projectID, relativePath: path
+                  ) else { return true }
+            return !FileManager.default.fileExists(atPath: url.path)
+        }
     }
 }
 
@@ -961,6 +1026,7 @@ private struct CharacterEditorSheet: View {
                 }
                 Section("Character") {
                     TextField("Default Costume", text: $draft.defaultCostume, axis: .vertical)
+                    TextField("Accessories", text: $draft.accessories, axis: .vertical)
                     TextField("Personality", text: $draft.personality, axis: .vertical)
                     TextField("Speaking Style", text: $draft.speakingStyle, axis: .vertical)
                     TextField("Continuity Notes", text: $draft.continuityNotes, axis: .vertical)
@@ -978,7 +1044,7 @@ private struct CharacterEditorSheet: View {
                 }
                 Section("Reference Assets") {
                     Text(draft.referenceAssets.isEmpty
-                         ? "No managed reference assets. Image analysis and identity conditioning are not enabled."
+                         ? "No managed reference assets. Character Sheet analysis is optional; identity conditioning is not enabled."
                          : "\(draft.referenceAssets.count) managed reference asset metadata item(s).")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -1012,6 +1078,341 @@ private struct CharacterEditorSheet: View {
                 else { draft.lockedTraits.remove(trait) }
             }
         )
+    }
+}
+
+private struct CharacterSheetReviewSession: Identifiable {
+    var id: UUID { asset.id }
+    var projectID: UUID
+    var characterID: UUID
+    var currentCharacter: BibleCharacter?
+    var asset: CharacterReferenceAsset
+    var candidate: CharacterSheetAnalysisCandidate
+    var previewData: Data?
+    var analysisMessage: String?
+}
+
+/// One shared import surface for Storyboard and Hybrid. The managed asset is
+/// staged before analysis, but neither a new Character nor existing fields are
+/// changed until the user presses Save in the review sheet.
+private struct CharacterSheetImportButton: View {
+    let projectID: UUID
+    let characters: [BibleCharacter]
+    let generationActive: Bool
+    let onSave: (BibleCharacter) -> Void
+
+    @State private var session: CharacterSheetReviewSession?
+    @State private var isPreparing = false
+    @State private var errorMessage: String?
+    @AppStorage(CharacterSheetAnalysisMode.userDefaultsKey)
+    private var modeRaw = CharacterSheetAnalysisMode.auto.rawValue
+
+    private let store = FilmProjectStore.shared
+
+    var body: some View {
+        Menu {
+            Button("Create New Character…") { chooseSheet(for: nil) }
+            if !characters.isEmpty {
+                Divider()
+                Section("Update Existing Character") {
+                    ForEach(characters) { character in
+                        Button(character.name) { chooseSheet(for: character) }
+                    }
+                }
+            }
+        } label: {
+            if isPreparing {
+                ProgressView().controlSize(.small)
+                Text("Analyzing Character Sheet…")
+            } else {
+                Label("Import Character Sheet", systemImage: "photo.badge.plus")
+            }
+        }
+        .controlSize(.small)
+        .disabled(generationActive || isPreparing)
+        .help(generationActive
+              ? "Character Sheet analysis waits until video generation finishes."
+              : "Copy a PNG or JPEG into this project, then review local analysis before saving.")
+        .sheet(item: $session) { value in
+            CharacterSheetReviewSheet(session: value) { saved in
+                onSave(saved)
+                session = nil
+            } onCancel: {
+                store.removeManagedCharacterAsset(projectID: value.projectID, asset: value.asset)
+                session = nil
+            }
+        }
+        .alert("Character Sheet Import", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    @MainActor
+    private func chooseSheet(for current: BibleCharacter?) {
+        guard !generationActive else {
+            errorMessage = CharacterSheetAnalysisError.generationInProgress.localizedDescription
+            return
+        }
+        let panel = NSOpenPanel()
+        panel.title = "Import Character Sheet"
+        panel.prompt = "Import"
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.png, .jpeg]
+        guard panel.runModal() == .OK, let sourceURL = panel.url else { return }
+
+        let characterID = current?.id ?? UUID()
+        let asset: CharacterReferenceAsset
+        do {
+            asset = try store.importCharacterSheet(
+                from: sourceURL, projectID: projectID, characterID: characterID
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+        guard let relativePath = asset.projectRelativePath,
+              let managedURL = store.managedCharacterAssetURL(projectID: projectID, relativePath: relativePath) else {
+            store.removeManagedCharacterAsset(projectID: projectID, asset: asset)
+            errorMessage = FilmProjectStore.StoreError.invalidManagedAssetPath.localizedDescription
+            return
+        }
+
+        var enrichedAsset = asset
+        let size = CharacterSheetImagePreprocessor.pixelSize(of: managedURL)
+        enrichedAsset.pixelWidth = size.width
+        enrichedAsset.pixelHeight = size.height
+        let previewData = try? CharacterSheetImagePreprocessor.analysisData(from: managedURL)
+        isPreparing = true
+        Task {
+            let mode = CharacterSheetAnalysisMode(rawValue: modeRaw) ?? .auto
+            let environment = CharacterSheetVisionEnvironmentService()
+            let snapshot = await environment.refresh(mode: mode)
+            var candidate = CharacterSheetAnalysisCandidate(
+                sourceAssetID: enrichedAsset.id,
+                provider: "manual",
+                model: nil
+            )
+            var message: String?
+
+            if generationActive {
+                message = CharacterSheetAnalysisError.generationInProgress.localizedDescription
+            } else if snapshot.effectiveMode == .localVision,
+                      let model = snapshot.effectiveModel,
+                      let previewData {
+                let analyzer = CharacterSheetAnalyzer(
+                    provider: OllamaCharacterSheetVisionProvider(model: model),
+                    generationIsActive: { generationActive }
+                )
+                do {
+                    candidate = try await analyzer.analyze(
+                        imageData: previewData, sourceAssetID: enrichedAsset.id
+                    )
+                } catch {
+                    message = error.localizedDescription
+                }
+            } else if previewData == nil {
+                message = "The original sheet was saved, but local image preparation failed. Enter details manually."
+            } else {
+                message = "No compatible local Vision model is available. Enter details manually."
+            }
+
+            await MainActor.run {
+                session = CharacterSheetReviewSession(
+                    projectID: projectID,
+                    characterID: characterID,
+                    currentCharacter: current,
+                    asset: enrichedAsset,
+                    candidate: candidate,
+                    previewData: previewData,
+                    analysisMessage: message
+                )
+                isPreparing = false
+            }
+        }
+    }
+}
+
+private struct CharacterSheetReviewSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var candidate: CharacterSheetAnalysisCandidate
+    @State private var selection: CharacterSheetFieldSelection
+    @State private var viewsText: String
+    @State private var expressionsText: String
+
+    let session: CharacterSheetReviewSession
+    let onSave: (BibleCharacter) -> Void
+    let onCancel: () -> Void
+
+    init(
+        session: CharacterSheetReviewSession,
+        onSave: @escaping (BibleCharacter) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.session = session
+        self.onSave = onSave
+        self.onCancel = onCancel
+        _candidate = State(initialValue: session.candidate)
+        _selection = State(initialValue: .defaults(for: session.currentCharacter))
+        _viewsText = State(initialValue: session.candidate.detectedViews.map(\.rawValue).joined(separator: ", "))
+        _expressionsText = State(initialValue: session.candidate.expressions.joined(separator: ", "))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Review Character Sheet").font(.headline)
+                    Text(candidate.provider == "manual" ? "Manual Entry" : "Local Analysis · Review required")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text("Vision output is a candidate, not saved truth.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if let message = session.analysisMessage {
+                Label(message, systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+            HSplitView {
+                preview
+                    .frame(minWidth: 280, idealWidth: 340, maxWidth: 400)
+                Form {
+                    Section("Extracted Character Data") {
+                        reviewField("Name", value: $candidate.nameCandidate, apply: $selection.name,
+                                    current: session.currentCharacter?.name)
+                        reviewField("Face", value: $candidate.appearance.faceDescription, apply: $selection.face,
+                                    current: session.currentCharacter?.appearance.faceDescription)
+                        reviewField("Hair", value: $candidate.appearance.hair, apply: $selection.hair,
+                                    current: session.currentCharacter?.appearance.hair)
+                        reviewField("Eyes", value: $candidate.appearance.eyes, apply: $selection.eyes,
+                                    current: session.currentCharacter?.appearance.eyes)
+                        reviewField("Age Impression", value: $candidate.appearance.ageImpression,
+                                    apply: $selection.ageImpression,
+                                    current: session.currentCharacter?.appearance.ageImpression)
+                        reviewField("Build", value: $candidate.appearance.build, apply: $selection.build,
+                                    current: session.currentCharacter?.appearance.build)
+                        reviewField("Complexion", value: $candidate.appearance.complexion,
+                                    apply: $selection.complexion,
+                                    current: session.currentCharacter?.appearance.complexion)
+                        reviewField("Distinguishing Features",
+                                    value: $candidate.appearance.distinguishingFeatures,
+                                    apply: $selection.distinguishingFeatures,
+                                    current: session.currentCharacter?.appearance.distinguishingFeatures)
+                        reviewField("Default Costume", value: $candidate.defaultCostumeDescription,
+                                    apply: $selection.costume,
+                                    current: session.currentCharacter?.defaultCostume)
+                        reviewField("Accessories", value: $candidate.accessories,
+                                    apply: $selection.accessories,
+                                    current: session.currentCharacter?.accessories)
+                    }
+                    Section("Sheet Contents") {
+                        TextField("Detected Views", text: $viewsText)
+                        TextField("Expressions", text: $expressionsText)
+                        if !candidate.uncertainties.isEmpty {
+                            Text("Uncertain: " + candidate.uncertainties.joined(separator: "; "))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    Section("Continuity Guidance") {
+                        Toggle("Apply suggestions", isOn: $selection.continuityNotes)
+                        TextField(
+                            "Continuity Notes",
+                            text: Binding(
+                                get: { candidate.continuitySuggestions.joined(separator: " ") },
+                                set: { candidate.continuitySuggestions = $0.isEmpty ? [] : [$0] }
+                            ),
+                            axis: .vertical
+                        )
+                        Text("Personality, speaking style, and trait locks are not inferred or changed by image analysis.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .formStyle(.grouped)
+                .frame(minWidth: 520)
+            }
+            HStack {
+                Text("The original project-owned sheet is retained for future local workflows; it is not sent to LTX.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Cancel") { onCancel(); dismiss() }
+                Button(session.currentCharacter == nil ? "Create Character" : "Apply Selected") {
+                    candidate.detectedViews = commaValues(viewsText).map(DetectedCharacterView.init(rawValue:))
+                    candidate.expressions = commaValues(expressionsText)
+                    let saved = candidate.applying(
+                        to: session.currentCharacter,
+                        characterID: session.characterID,
+                        asset: session.asset,
+                        selection: selection
+                    )
+                    onSave(saved)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(resolvedName.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 980, height: 760)
+        .interactiveDismissDisabled()
+    }
+
+    private var preview: some View {
+        VStack(spacing: 8) {
+            if let data = session.previewData, let image = NSImage(data: data) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .accessibilityLabel("Imported Character Sheet preview")
+            } else {
+                ContentUnavailableView("Preview Unavailable", systemImage: "photo")
+            }
+            Text(session.asset.originalFilename ?? "Character Sheet")
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            if let width = session.asset.pixelWidth, let height = session.asset.pixelHeight {
+                Text("Original: \(width)×\(height)")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+        .padding(12)
+    }
+
+    @ViewBuilder
+    private func reviewField(
+        _ label: String,
+        value: Binding<String>,
+        apply: Binding<Bool>,
+        current: String?
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(label).font(.caption.bold())
+                Spacer()
+                Toggle("Apply detected", isOn: apply).toggleStyle(.checkbox).controlSize(.small)
+            }
+            if let current, !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("Current: \(current)").font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+            }
+            TextField("Detected", text: value, axis: .vertical)
+        }
+    }
+
+    private var resolvedName: String {
+        if selection.name { return candidate.nameCandidate.trimmingCharacters(in: .whitespacesAndNewlines) }
+        return session.currentCharacter?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private func commaValues(_ value: String) -> [String] {
+        value.components(separatedBy: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 }
 

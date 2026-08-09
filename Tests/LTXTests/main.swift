@@ -13,6 +13,7 @@ runCompatLabTests(t)
 runAutoQualityTests(t)
 runDirectorTests(t)
 runFilmProjectTests(t)
+runCharacterSheetTests(t)
 runStoryboardTests(t)
 runAPITests(t)
 

@@ -380,6 +380,11 @@ struct PreferencesView: View {
                     Label("Director", systemImage: "movieclapper")
                 }
 
+            CharacterSheetAnalysisPreferencesView()
+                .tabItem {
+                    Label("Analysis", systemImage: "photo.on.rectangle.angled")
+                }
+
             // Audio
             Form {
                 Section("ElevenLabs API") {
@@ -857,6 +862,110 @@ private struct DirectorPreferencesView: View {
         }
         isTesting = false
         await refresh()
+    }
+}
+
+// MARK: - Character Sheet Analysis
+
+private struct CharacterSheetAnalysisPreferencesView: View {
+    @AppStorage(CharacterSheetAnalysisMode.userDefaultsKey)
+    private var modeRaw = CharacterSheetAnalysisMode.auto.rawValue
+    @AppStorage(CharacterSheetVisionEnvironmentService.modelUserDefaultsKey)
+    private var visionModel = ""
+
+    @State private var snapshot = CharacterSheetVisionSnapshot(
+        requestedMode: .auto, effectiveMode: .manual, installedVisionModels: [],
+        configuredModel: nil, effectiveModel: nil, fallbackReason: nil
+    )
+    @State private var isRefreshing = false
+    @State private var showAdvanced = false
+    private let environment = CharacterSheetVisionEnvironmentService()
+
+    private var mode: CharacterSheetAnalysisMode {
+        CharacterSheetAnalysisMode(rawValue: modeRaw) ?? .auto
+    }
+
+    private var modelSelection: Binding<String> {
+        Binding(
+            get: { visionModel.isEmpty ? (snapshot.effectiveModel ?? "") : visionModel },
+            set: { visionModel = $0 }
+        )
+    }
+
+    var body: some View {
+        Form {
+            Section("Character Sheet Analysis") {
+                Picker("Mode", selection: $modeRaw) {
+                    ForEach(CharacterSheetAnalysisMode.allCases) { mode in
+                        Text(mode == .auto ? "Auto (Recommended)" : mode.displayName).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Text("Auto uses a compatible installed local Vision model when available. Otherwise Character Sheet import continues with manual review.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("Local Analysis") {
+                HStack {
+                    statusLabel
+                    Spacer()
+                    if isRefreshing { ProgressView().controlSize(.small) }
+                }
+                if mode != .manual {
+                    Picker("Vision Model", selection: modelSelection) {
+                        if snapshot.installedVisionModels.isEmpty {
+                            Text("No compatible installed models").tag("")
+                        } else {
+                            ForEach(snapshot.installedVisionModels, id: \.self) { Text($0).tag($0) }
+                        }
+                    }
+                    .disabled(snapshot.installedVisionModels.isEmpty || isRefreshing)
+                    Button("Refresh") { Task { await refresh() } }
+                        .disabled(isRefreshing)
+                }
+                Text("Models are detected by their reported Vision capability. This app never downloads one automatically.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            DisclosureGroup("Advanced", isExpanded: $showAdvanced) {
+                VStack(alignment: .leading, spacing: 5) {
+                    LabeledContent("Endpoint", value: OllamaCharacterSheetVisionEnvironmentClient.endpoint.absoluteString)
+                    LabeledContent("Compatible Models", value: "\(snapshot.installedVisionModels.count)")
+                    LabeledContent("Director Model Setting", value: "Separate")
+                }
+                .font(.caption).textSelection(.enabled).padding(.top, 6)
+            }
+
+            Section("Privacy & Capability") {
+                Text("Character Sheets stay local. Analysis creates editable text candidates; it does not provide face recognition, identity conditioning, or a same-person guarantee.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .task { await refresh() }
+        .onChange(of: modeRaw) { _, _ in Task { await refresh() } }
+        .onChange(of: visionModel) { _, _ in Task { await refresh() } }
+    }
+
+    @ViewBuilder
+    private var statusLabel: some View {
+        if isRefreshing {
+            Label("Checking…", systemImage: "clock").foregroundStyle(.secondary)
+        } else if snapshot.effectiveMode == .localVision, let model = snapshot.effectiveModel {
+            VStack(alignment: .leading, spacing: 2) {
+                Label("Local Analysis Ready", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                Text(model).font(.caption).foregroundStyle(.secondary)
+            }
+        } else {
+            Label("Manual Review Available", systemImage: "pencil.circle.fill").foregroundStyle(.orange)
+        }
+    }
+
+    @MainActor
+    private func refresh() async {
+        isRefreshing = true
+        snapshot = await environment.refresh(mode: mode)
+        isRefreshing = false
     }
 }
 

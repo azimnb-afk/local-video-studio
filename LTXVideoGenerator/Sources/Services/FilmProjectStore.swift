@@ -9,6 +9,9 @@ final class FilmProjectStore {
     enum StoreError: Error, Equatable {
         case schemaTooNew(Int)
         case projectNotFound(UUID)
+        case unsupportedCharacterSheetFormat(String)
+        case invalidCharacterSheetSource
+        case invalidManagedAssetPath
     }
 
     let projectsDirectory: URL
@@ -52,6 +55,79 @@ final class FilmProjectStore {
         let prefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
         guard candidate.path.hasPrefix(prefix) else { return nil }
         return candidate
+    }
+
+    /// Copies a PNG/JPG/JPEG into the FilmProject-owned character asset tree.
+    /// The external source is never moved, renamed, modified, or persisted as
+    /// an absolute path. A UUID filename prevents collisions and silent
+    /// overwrites. The asset record is returned only after the atomic move.
+    func importCharacterSheet(
+        from sourceURL: URL,
+        projectID: UUID,
+        characterID: UUID
+    ) throws -> CharacterReferenceAsset {
+        let source = sourceURL.standardizedFileURL
+        let ext = source.pathExtension.lowercased()
+        guard ["png", "jpg", "jpeg"].contains(ext) else {
+            throw StoreError.unsupportedCharacterSheetFormat(ext)
+        }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: source.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else {
+            throw StoreError.invalidCharacterSheetSource
+        }
+
+        let directory = characterAssetsDirectory(projectID: projectID, characterID: characterID)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let filename = "character-sheet-\(UUID().uuidString).\(ext)"
+        let destination = directory.appendingPathComponent(filename)
+        let temporary = directory.appendingPathComponent(".\(UUID().uuidString).importing")
+        do {
+            try FileManager.default.copyItem(at: source, to: temporary)
+            guard !FileManager.default.fileExists(atPath: destination.path) else {
+                throw CocoaError(.fileWriteFileExists)
+            }
+            try FileManager.default.moveItem(at: temporary, to: destination)
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
+
+        let relativePath = "Assets/Characters/\(characterID.uuidString)/\(filename)"
+        let size = (try? destination.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init)
+        return CharacterReferenceAsset(
+            type: .characterSheet,
+            label: "Character Sheet",
+            projectRelativePath: relativePath,
+            originalFilename: source.lastPathComponent,
+            mimeType: ext == "png" ? "image/png" : "image/jpeg",
+            fileSizeBytes: size
+        )
+    }
+
+    /// Removes only a validated project-owned file. External originals are
+    /// outside this ownership boundary and can never be deleted here.
+    func removeManagedCharacterAsset(projectID: UUID, asset: CharacterReferenceAsset) {
+        guard let relativePath = asset.projectRelativePath,
+              let url = managedCharacterAssetURL(projectID: projectID, relativePath: relativePath) else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Character directories are UUID-owned and never shared by another
+    /// BibleCharacter. Deleting this directory cannot affect the external
+    /// originals from which its files were copied.
+    func removeManagedCharacterAssets(projectID: UUID, characterID: UUID) {
+        let directory = characterAssetsDirectory(projectID: projectID, characterID: characterID)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    /// New-project sheets may stage assets before planning creates the JSON.
+    /// If that wizard is cancelled, remove only its uncommitted project tree.
+    func removeUncommittedProjectAssets(projectID: UUID) {
+        guard projects[projectID] == nil else { return }
+        let directory = projectsDirectory.appendingPathComponent(projectID.uuidString, isDirectory: true)
+        try? FileManager.default.removeItem(at: directory)
     }
 
     // MARK: Load

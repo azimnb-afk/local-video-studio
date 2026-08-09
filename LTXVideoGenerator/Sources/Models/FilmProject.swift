@@ -91,7 +91,82 @@ struct CharacterReferenceAsset: Codable, Equatable, Identifiable {
     var managedAssetIdentifier: String?
     var originalFilename: String?
     var notes: String = ""
+    var mimeType: String?
+    var pixelWidth: Int?
+    var pixelHeight: Int?
+    var fileSizeBytes: Int64?
+    var detectedViews: [String] = []
+    var expressions: [String] = []
+    var analysisProvider: String?
+    var analysisModel: String?
+    var analyzedAt: Date?
     var createdAt: Date = Date()
+
+    init(
+        id: UUID = UUID(),
+        type: CharacterReferenceAssetType,
+        label: String = "",
+        projectRelativePath: String? = nil,
+        managedAssetIdentifier: String? = nil,
+        originalFilename: String? = nil,
+        notes: String = "",
+        mimeType: String? = nil,
+        pixelWidth: Int? = nil,
+        pixelHeight: Int? = nil,
+        fileSizeBytes: Int64? = nil,
+        detectedViews: [String] = [],
+        expressions: [String] = [],
+        analysisProvider: String? = nil,
+        analysisModel: String? = nil,
+        analyzedAt: Date? = nil,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.type = type
+        self.label = label
+        self.projectRelativePath = projectRelativePath
+        self.managedAssetIdentifier = managedAssetIdentifier
+        self.originalFilename = originalFilename
+        self.notes = notes
+        self.mimeType = mimeType
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+        self.fileSizeBytes = fileSizeBytes
+        self.detectedViews = detectedViews
+        self.expressions = expressions
+        self.analysisProvider = analysisProvider
+        self.analysisModel = analysisModel
+        self.analyzedAt = analyzedAt
+        self.createdAt = createdAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, type, label, projectRelativePath, managedAssetIdentifier,
+             originalFilename, notes, mimeType, pixelWidth, pixelHeight,
+             fileSizeBytes, detectedViews, expressions, analysisProvider,
+             analysisModel, analyzedAt, createdAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        type = try container.decode(CharacterReferenceAssetType.self, forKey: .type)
+        label = try container.decodeIfPresent(String.self, forKey: .label) ?? ""
+        projectRelativePath = try container.decodeIfPresent(String.self, forKey: .projectRelativePath)
+        managedAssetIdentifier = try container.decodeIfPresent(String.self, forKey: .managedAssetIdentifier)
+        originalFilename = try container.decodeIfPresent(String.self, forKey: .originalFilename)
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        mimeType = try container.decodeIfPresent(String.self, forKey: .mimeType)
+        pixelWidth = try container.decodeIfPresent(Int.self, forKey: .pixelWidth)
+        pixelHeight = try container.decodeIfPresent(Int.self, forKey: .pixelHeight)
+        fileSizeBytes = try container.decodeIfPresent(Int64.self, forKey: .fileSizeBytes)
+        detectedViews = try container.decodeIfPresent([String].self, forKey: .detectedViews) ?? []
+        expressions = try container.decodeIfPresent([String].self, forKey: .expressions) ?? []
+        analysisProvider = try container.decodeIfPresent(String.self, forKey: .analysisProvider)
+        analysisModel = try container.decodeIfPresent(String.self, forKey: .analysisModel)
+        analyzedAt = try container.decodeIfPresent(Date.self, forKey: .analyzedAt)
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+    }
 }
 
 struct CharacterBibleEntry: Codable, Equatable, Identifiable {
@@ -100,6 +175,7 @@ struct CharacterBibleEntry: Codable, Equatable, Identifiable {
     var aliases: [String]
     var appearance: CharacterAppearance
     var defaultCostume: String
+    var accessories: String
     var personality: String
     var speakingStyle: String
     var roleNotes: String
@@ -115,6 +191,7 @@ struct CharacterBibleEntry: Codable, Equatable, Identifiable {
         aliases: [String] = [],
         appearance: CharacterAppearance = CharacterAppearance(),
         defaultCostume: String = "",
+        accessories: String = "",
         personality: String = "",
         speakingStyle: String = "",
         roleNotes: String = "",
@@ -129,6 +206,7 @@ struct CharacterBibleEntry: Codable, Equatable, Identifiable {
         self.aliases = aliases
         self.appearance = appearance
         self.defaultCostume = defaultCostume
+        self.accessories = accessories
         self.personality = personality
         self.speakingStyle = speakingStyle
         self.roleNotes = roleNotes
@@ -146,7 +224,7 @@ struct CharacterBibleEntry: Codable, Equatable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, aliases, appearance, defaultCostume, wardrobe, voice,
+        case id, name, aliases, appearance, defaultCostume, accessories, wardrobe, voice,
              personality, speakingStyle, roleNotes, continuityNotes,
              lockedTraits, referenceAssets, referenceImagePath, createdAt, updatedAt
     }
@@ -160,6 +238,7 @@ struct CharacterBibleEntry: Codable, Equatable, Identifiable {
         defaultCostume = try container.decodeIfPresent(String.self, forKey: .defaultCostume)
             ?? container.decodeIfPresent(String.self, forKey: .wardrobe)
             ?? ""
+        accessories = try container.decodeIfPresent(String.self, forKey: .accessories) ?? ""
         personality = try container.decodeIfPresent(String.self, forKey: .personality) ?? ""
         speakingStyle = try container.decodeIfPresent(String.self, forKey: .speakingStyle)
             ?? container.decodeIfPresent(String.self, forKey: .voice)
@@ -190,6 +269,7 @@ struct CharacterBibleEntry: Codable, Equatable, Identifiable {
         try container.encode(aliases, forKey: .aliases)
         try container.encode(appearance, forKey: .appearance)
         try container.encode(defaultCostume, forKey: .defaultCostume)
+        try container.encode(accessories, forKey: .accessories)
         try container.encode(personality, forKey: .personality)
         try container.encode(speakingStyle, forKey: .speakingStyle)
         try container.encode(roleNotes, forKey: .roleNotes)
@@ -540,7 +620,8 @@ struct FilmProject: Codable, Equatable, Identifiable {
     var shots: [Shot] = []
     var jobs: [GenerationJob] = []
 
-    init(title: String) {
+    init(id: UUID = UUID(), title: String) {
+        self.id = id
         self.title = title
     }
 

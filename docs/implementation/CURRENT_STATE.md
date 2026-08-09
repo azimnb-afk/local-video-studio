@@ -113,7 +113,7 @@ Record the three provenance values with the GUI acceptance result: `git_head`, `
 Builds created with a custom path such as `-derivedDataPath /tmp/...` are disposable test artifacts. They must not be treated as the normal development app or used to claim final GUI acceptance. Multiple old Debug apps with bundle id `com.ltxvideo.generator` may coexist, so bundle-name lookup is always ambiguous; `open -a LTXVideoGenerator` is prohibited for GUI verification.
 
 ## Test Status
-- `swift run LTXTests`: **444 checks, 0 failures** (including CharacterBible migration/persistence, stable rename/delete semantics, reference-asset codecs/path policy, Director/Basic/Hybrid character assignment, continuity precedence, compact multi-character prompts, and all prior Director/render regressions).
+- `swift run LTXTests`: **498 checks, 0 failures** (including CharacterBible migration/persistence, stable rename/delete semantics, Character Sheet parsing/repair/import/manual fallback/selective merge/model lifecycle, Director/Basic/Hybrid character assignment, continuity precedence, compact multi-character prompts, and all prior Director/render regressions).
 - Final concrete comparison on Mac16,11/48 GB, same prompt/model/seed 4242/target 5 s/audio ON: Quick=C3 512×320/121f/24fps/15 steps; Standard=S0 768×512/121f/24fps/25 steps; High=H0 768×512/121f/24fps/30 steps.
 
 ## 2026-08-09 Real Storyboard / Hybrid GUI E2E
@@ -158,6 +158,16 @@ Builds created with a custom path such as `-derivedDataPath /tmp/...` are dispos
 - Hybrid acceptance used the new `Generate first pass after planning` switch OFF. Its default remains ON, preserving prior Hybrid behavior. The saved project had zero Jobs/Takes; no MLX generation process, model download, or Ollama-loaded model remained.
 - Capability boundary shown in the GUI: trait locks are textual storyboard-continuity guidance and do not guarantee pixel-identical identity. Reference asset analysis/conditioning remains disabled.
 
+## 2026-08-09 CharacterBible Phase 1 — Character Sheet Import
+- Storyboard and Hybrid now share `Import Character Sheet` for PNG/JPG/JPEG. Import copies the untouched source into `Projects/<ProjectID>/Assets/Characters/<CharacterID>/character-sheet-<UUID>.<ext>` before creating reference metadata; collisions cannot overwrite an existing asset. Wizard Cancel removes only the staged project copy.
+- The project-owned original remains full resolution. A temporary, bounded analysis derivative is used for local Vision. Character reference metadata now persists dimensions, size, MIME type, detected views/expressions, provider/model provenance, and analysis date while continuing to decode Phase 0 assets that lack those fields.
+- Preferences > Analysis has an independent Character Sheet Analysis mode/model source of truth: Auto, Local Vision, or Manual. Compatibility comes from Ollama-reported capabilities (with `/api/show` only when tag capability metadata is absent), never from model-name matching. Requests are loopback-only, never download models, make one bounded repair retry, and unload after success or failure. Analysis is disabled while LTX generation is active.
+- Vision output is always an editable `CharacterSheetAnalysisCandidate`. New characters are created only after Review/Save. Existing characters show Current vs Detected and default all non-empty fields to not applied; selective apply preserves the UUID. Personality, speaking style, and trait locks are never inferred from appearance.
+- Canonical GUI acceptance used the locally created 1600×1600 synthetic `CharacterSheet-Phase1-Acceptance.png` because the exact user sample was not accessible and no external image was downloaded. Auto selected the already-installed reported-Vision model `agents-a1:32k`; its response still lacked the required appearance structure after one repair, so the product correctly entered Manual Review. No model pull occurred and `/api/ps` was empty afterward.
+- Saved Storyboard project `7F85893F-D234-41BC-97ED-635D4EAA533A` retained Maya plus the original Character Sheet and propagated reviewed face/hair/eyes/costume/accessories into the compiled prompt. Source and managed-copy SHA-256 were identical (`27a289b...d1b7a`). Existing-character import displayed selective merge controls; Cancel removed the staged second copy and preserved the original source and first managed asset.
+- Paragraph-separated Basic Director acceptance project `7DDDD8E2-C149-41CB-B49C-08A3CD7CDEC7` created three 5-second shots. Every Shot references stable UUID `9C0C46EE-DBF7-4F0B-BCA2-9C576618FD1B`; compiled prompts include reviewed visual data plus explicit Face/Hair/Eyes textual locks. Exact-path quit/relaunch restored the project, character, sheet metadata, and all assignments. Hybrid exposes the same shared import/character controls.
+- Deferred by design: PDF parsing, automatic crops, face recognition/embedding, identity conditioning, passing sheet bytes to LTX, multi-view conditioning, and any same-person guarantee.
+
 ## Feature Flags
 GUI-first defaults (D-007): modelRegistryV1 / autoQualityV1 / directorV1 / filmProjectV1 / storyboardV1 = **ON** by default; derivedModelsV1 / adultModelsV1 / lowRAMAdapterV1 / localAPIv1 = OFF (opt-in). All OFF (Preferences → Models & Features) = byte-identical legacy behavior (proven by MD5-identical regression render). Quality defaults to "Advanced" (= manual parameters untouched).
 
@@ -177,6 +187,7 @@ GUI-first defaults (D-007): modelRegistryV1 / autoQualityV1 / directorV1 / filmP
 - This document is included in the local `fix: harden storyboard director structured output` checkpoint, verified with 368 tests, Xcode Debug build, and canonical-app pure Storyboard GUI acceptance. No push was performed.
 - This update is included in the local `feat: add zero-setup storyboard director experience` checkpoint, verified with 396 tests and the three canonical-app GUI cases above. No push was performed.
 - CharacterBible Phase 0 is the reviewed worktree following `7a3d44b`; it is verified with 444 tests and the Storyboard/Hybrid GUI cases above and will be recorded as local `feat: add character bible foundation`. No push is performed.
+- CharacterBible Phase 1 is the reviewed worktree following `f111ba4`; it is verified with 498 tests and the canonical Character Sheet import/Manual Review/Storyboard propagation cases above and will be recorded as local `feat: add local character sheet import`. No push is performed.
 
 ## Exact Resume Action
 `cd /Users/azimnb/ltx23appdev/ltx-video-mac && git status && swift run LTXTests && xcodebuild -project LTXVideoGenerator/LTXVideoGenerator.xcodeproj -scheme LTXVideoGenerator -configuration Debug CODE_SIGNING_ALLOWED=NO build`.

@@ -56,3 +56,10 @@ Vision analysis is independent from Storyboard Director: it has separate Auto/Lo
 Model output is not truth. It becomes an editable `CharacterSheetAnalysisCandidate`; only user Save mutates the Bible. Existing-character merges are field-selective and preserve the UUID, with non-empty fields unselected by default. Visual analysis never infers personality, speaking style, role, aliases, or trait locks. Schema/provider failure falls back to Manual Review while keeping the imported sheet usable.
 
 Phase 1 remains textual continuity. Character Sheet bytes are not sent to LTX and no face crop, recognition, embedding, identity/reference conditioning, multi-view conditioning, or same-person guarantee is exposed.
+
+## D-016 (2026-08-09) User-reviewed normalized crops are truth; originals supply pixels
+Phase 2 separates semantic proposal, review geometry, and image materialization. The local Vision model may analyze a bounded derivative and return imperfect provider coordinates, but those values are only proposals. Persisted crop geometry uses normalized `x/y/width/height` in `0...1` with a top-left origin; only a user-reviewed rectangle becomes durable reference metadata.
+
+All derived pixels come from the project-owned original after explicit orientation normalization. The extraction service writes lossless PNGs at native crop resolution, never from the analysis derivative and never with automatic upscale or visual filters. Derived assets retain optional source UUID/crop/source-dimension provenance and remain usable if the source sheet is later absent because each is an independent project-owned pixel file.
+
+Real-sheet testing with installed `agents-a1:32k` is classified C: semantic panels can be identified, but localization varies enough to require correction. Auto Detect is therefore a best-effort accelerator, while manual crop remains fully supported without Vision. Reference presence does not change trait locks and is not connected to PromptCompiler, GenerationRequest, LTXBridge, MLX conditioning, face recognition, or an identity guarantee.

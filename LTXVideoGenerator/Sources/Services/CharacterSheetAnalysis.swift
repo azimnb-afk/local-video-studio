@@ -336,7 +336,12 @@ protocol CharacterSheetVisionProvider {
     var name: String { get }
     var modelIdentifier: String? { get }
     func isAvailable() async -> Bool
-    func complete(imageData: Data, system: String, prompt: String) async throws -> String
+    func complete(
+        imageData: Data,
+        system: String,
+        prompt: String,
+        outputSchema: [String: Any]
+    ) async throws -> String
     func terminate() async
 }
 
@@ -362,14 +367,20 @@ final class OllamaCharacterSheetVisionProvider: CharacterSheetVisionProvider {
         return http.statusCode == 200
     }
 
-    func complete(imageData: Data, system: String, prompt: String) async throws -> String {
+    func complete(
+        imageData: Data,
+        system: String,
+        prompt: String,
+        outputSchema: [String: Any]
+    ) async throws -> String {
         guard let modelIdentifier else { throw CharacterSheetAnalysisError.localVisionUnavailable }
         var request = URLRequest(url: baseURL.appendingPathComponent("api/generate"))
         request.httpMethod = "POST"
         request.timeoutInterval = 300
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: Self.requestPayload(
-            model: modelIdentifier, imageData: imageData, system: system, prompt: prompt
+            model: modelIdentifier, imageData: imageData, system: system,
+            prompt: prompt, outputSchema: outputSchema
         ))
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
@@ -382,7 +393,8 @@ final class OllamaCharacterSheetVisionProvider: CharacterSheetVisionProvider {
         model: String,
         imageData: Data,
         system: String,
-        prompt: String
+        prompt: String,
+        outputSchema: [String: Any] = CharacterSheetAnalyzer.outputSchema
     ) -> [String: Any] {
         [
             "model": model,
@@ -391,7 +403,7 @@ final class OllamaCharacterSheetVisionProvider: CharacterSheetVisionProvider {
             "images": [imageData.base64EncodedString()],
             "stream": false,
             "think": false,
-            "format": CharacterSheetAnalyzer.outputSchema,
+            "format": outputSchema,
         ]
     }
 
@@ -519,7 +531,8 @@ final class CharacterSheetAnalyzer {
                 let response = try await provider.complete(
                     imageData: imageData,
                     system: Self.systemPrompt,
-                    prompt: prompt
+                    prompt: prompt,
+                    outputSchema: Self.outputSchema
                 )
                 previousInvalidResponse = response
                 let parsed = try Self.parse(response: response, sourceAssetID: sourceAssetID,

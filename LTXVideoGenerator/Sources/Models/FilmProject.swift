@@ -80,6 +80,43 @@ struct CharacterReferenceAssetType: RawRepresentable, Codable, Hashable, Identif
     ]
 }
 
+/// Stable crop provenance stored independently of any analysis derivative.
+/// Coordinates use the visually oriented source image with a top-left origin.
+/// Every component is normalized to 0...1 so the crop can always be mapped
+/// back to the project-owned original at its native resolution.
+struct NormalizedCropRect: Codable, Equatable, Hashable {
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+
+    static let fullImage = Self(x: 0, y: 0, width: 1, height: 1)
+
+    /// Accepts only tiny floating-point overflow at the right/bottom edge.
+    /// Invalid geometry is never silently converted into a reference asset.
+    func validated(edgeEpsilon: Double = 0.000_1) -> Self? {
+        guard x.isFinite, y.isFinite, width.isFinite, height.isFinite,
+              x >= 0, y >= 0, width > 0, height > 0,
+              x <= 1, y <= 1,
+              x + width <= 1 + edgeEpsilon,
+              y + height <= 1 + edgeEpsilon else { return nil }
+        let clampedWidth = min(width, 1 - x)
+        let clampedHeight = min(height, 1 - y)
+        guard clampedWidth > 0, clampedHeight > 0 else { return nil }
+        return Self(x: x, y: y, width: clampedWidth, height: clampedHeight)
+    }
+}
+
+/// String-backed for forward-compatible provenance. Vision proposals are not
+/// truth until reviewed; manual and user-adjusted results remain distinct.
+struct CharacterReferenceExtractionMethod: RawRepresentable, Codable, Hashable {
+    var rawValue: String
+
+    static let visionProposed = Self(rawValue: "visionProposed")
+    static let manual = Self(rawValue: "manual")
+    static let visionProposedUserAdjusted = Self(rawValue: "visionProposedUserAdjusted")
+}
+
 struct CharacterReferenceAsset: Codable, Equatable, Identifiable {
     var id: UUID = UUID()
     var type: CharacterReferenceAssetType
@@ -100,6 +137,14 @@ struct CharacterReferenceAsset: Codable, Equatable, Identifiable {
     var analysisProvider: String?
     var analysisModel: String?
     var analyzedAt: Date?
+    /// Optional because deleting the source sheet does not invalidate an
+    /// already-extracted project-owned reference image.
+    var sourceAssetID: UUID?
+    var sourceCropRect: NormalizedCropRect?
+    var sourceImageWidth: Int?
+    var sourceImageHeight: Int?
+    var extractionMethod: CharacterReferenceExtractionMethod?
+    var isUserAdjusted: Bool?
     var createdAt: Date = Date()
 
     init(
@@ -119,6 +164,12 @@ struct CharacterReferenceAsset: Codable, Equatable, Identifiable {
         analysisProvider: String? = nil,
         analysisModel: String? = nil,
         analyzedAt: Date? = nil,
+        sourceAssetID: UUID? = nil,
+        sourceCropRect: NormalizedCropRect? = nil,
+        sourceImageWidth: Int? = nil,
+        sourceImageHeight: Int? = nil,
+        extractionMethod: CharacterReferenceExtractionMethod? = nil,
+        isUserAdjusted: Bool? = nil,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -137,6 +188,12 @@ struct CharacterReferenceAsset: Codable, Equatable, Identifiable {
         self.analysisProvider = analysisProvider
         self.analysisModel = analysisModel
         self.analyzedAt = analyzedAt
+        self.sourceAssetID = sourceAssetID
+        self.sourceCropRect = sourceCropRect
+        self.sourceImageWidth = sourceImageWidth
+        self.sourceImageHeight = sourceImageHeight
+        self.extractionMethod = extractionMethod
+        self.isUserAdjusted = isUserAdjusted
         self.createdAt = createdAt
     }
 
@@ -144,7 +201,9 @@ struct CharacterReferenceAsset: Codable, Equatable, Identifiable {
         case id, type, label, projectRelativePath, managedAssetIdentifier,
              originalFilename, notes, mimeType, pixelWidth, pixelHeight,
              fileSizeBytes, detectedViews, expressions, analysisProvider,
-             analysisModel, analyzedAt, createdAt
+             analysisModel, analyzedAt, sourceAssetID, sourceCropRect,
+             sourceImageWidth, sourceImageHeight, extractionMethod,
+             isUserAdjusted, createdAt
     }
 
     init(from decoder: Decoder) throws {
@@ -165,6 +224,12 @@ struct CharacterReferenceAsset: Codable, Equatable, Identifiable {
         analysisProvider = try container.decodeIfPresent(String.self, forKey: .analysisProvider)
         analysisModel = try container.decodeIfPresent(String.self, forKey: .analysisModel)
         analyzedAt = try container.decodeIfPresent(Date.self, forKey: .analyzedAt)
+        sourceAssetID = try container.decodeIfPresent(UUID.self, forKey: .sourceAssetID)
+        sourceCropRect = try container.decodeIfPresent(NormalizedCropRect.self, forKey: .sourceCropRect)
+        sourceImageWidth = try container.decodeIfPresent(Int.self, forKey: .sourceImageWidth)
+        sourceImageHeight = try container.decodeIfPresent(Int.self, forKey: .sourceImageHeight)
+        extractionMethod = try container.decodeIfPresent(CharacterReferenceExtractionMethod.self, forKey: .extractionMethod)
+        isUserAdjusted = try container.decodeIfPresent(Bool.self, forKey: .isUserAdjusted)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
     }
 }

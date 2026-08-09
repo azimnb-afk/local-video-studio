@@ -846,11 +846,20 @@ private struct CharacterBibleDraftSection: View {
             .padding(.top, 6)
         }
         .sheet(item: $editingCharacter) { character in
-            CharacterEditorSheet(character: character) { saved in
+            CharacterEditorSheet(
+                projectID: projectID,
+                generationActive: generationActive,
+                character: character
+            ) { saved in
                 if let index = bible.characters.firstIndex(where: { $0.id == saved.id }) {
                     bible.characters[index] = saved
                 } else {
                     bible.characters.append(saved)
+                }
+            } onReferenceAssetsChanged: { characterID, assets in
+                if let index = bible.characters.firstIndex(where: { $0.id == characterID }) {
+                    bible.characters[index].referenceAssets = assets
+                    bible.characters[index].updatedAt = Date()
                 }
             }
         }
@@ -905,10 +914,22 @@ private struct ProjectCharactersSection: View {
             .padding(.top, 6)
         }
         .sheet(item: $editingCharacter) { character in
-            CharacterEditorSheet(character: character) { saved in
+            CharacterEditorSheet(
+                projectID: project.id,
+                generationActive: generationActive,
+                character: character
+            ) { saved in
                 guard var updated = store.project(id: project.id) else { return }
                 updated.upsertCharacter(saved)
                 store.save(updated)
+                onChanged()
+            } onReferenceAssetsChanged: { characterID, assets in
+                guard var updated = store.project(id: project.id),
+                      var saved = updated.characterBible.character(id: characterID) else { return }
+                saved.referenceAssets = assets
+                saved.updatedAt = Date()
+                updated.upsertCharacter(saved)
+                try store.saveThrowing(updated)
                 onChanged()
             }
         }
@@ -996,12 +1017,27 @@ private struct CharacterEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: BibleCharacter
     @State private var aliasesText: String
+    @State private var extractingFromSheet: CharacterReferenceAsset?
+    @State private var assetToDelete: CharacterReferenceAsset?
+    @State private var assetOperationError: String?
+    let projectID: UUID
+    let generationActive: Bool
     let onSave: (BibleCharacter) -> Void
+    let onReferenceAssetsChanged: (UUID, [CharacterReferenceAsset]) throws -> Void
 
-    init(character: BibleCharacter, onSave: @escaping (BibleCharacter) -> Void) {
+    init(
+        projectID: UUID,
+        generationActive: Bool,
+        character: BibleCharacter,
+        onSave: @escaping (BibleCharacter) -> Void,
+        onReferenceAssetsChanged: @escaping (UUID, [CharacterReferenceAsset]) throws -> Void
+    ) {
+        self.projectID = projectID
+        self.generationActive = generationActive
         _draft = State(initialValue: character)
         _aliasesText = State(initialValue: character.aliases.joined(separator: ", "))
         self.onSave = onSave
+        self.onReferenceAssetsChanged = onReferenceAssetsChanged
     }
 
     var body: some View {
@@ -1042,10 +1078,41 @@ private struct CharacterEditorSheet: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Section("Reference Assets") {
-                    Text(draft.referenceAssets.isEmpty
-                         ? "No managed reference assets. Character Sheet analysis is optional; identity conditioning is not enabled."
-                         : "\(draft.referenceAssets.count) managed reference asset metadata item(s).")
+                Section("Reference Images") {
+                    if draft.referenceAssets.isEmpty {
+                        Text("No managed reference images. Character Sheet analysis is optional; identity conditioning is not enabled.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(draft.referenceAssets) { asset in
+                        HStack(spacing: 10) {
+                            ManagedCharacterReferenceThumbnail(projectID: projectID, asset: asset)
+                                .frame(width: 64, height: 64)
+                                .background(Color.black.opacity(0.04))
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(asset.label.isEmpty ? asset.type.referenceDisplayName : asset.label)
+                                    .font(.body.bold())
+                                Text(asset.type.referenceDisplayName)
+                                    .font(.caption).foregroundStyle(.secondary)
+                                if let width = asset.pixelWidth, let height = asset.pixelHeight {
+                                    Text("\(width)×\(height) · project-owned")
+                                        .font(.caption2).foregroundStyle(.tertiary)
+                                }
+                            }
+                            Spacer()
+                            if asset.type == .characterSheet {
+                                Button("Extract References") { extractingFromSheet = asset }
+                                    .controlSize(.small)
+                                    .disabled(generationActive || assetURL(asset) == nil)
+                            }
+                            Button(role: .destructive) { assetToDelete = asset } label: {
+                                Image(systemName: "trash")
+                            }
+                            .controlSize(.small)
+                        }
+                    }
+                    Text("Reference images are local project assets. They are not currently used as an identity guarantee during video generation.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1068,6 +1135,64 @@ private struct CharacterEditorSheet: View {
         }
         .padding(20)
         .frame(width: 650, height: 720)
+        .interactiveDismissDisabled()
+        .sheet(item: $extractingFromSheet) { sourceAsset in
+            CharacterReferenceExtractionSheet(
+                projectID: projectID,
+                characterID: draft.id,
+                sourceAsset: sourceAsset,
+                generationActive: generationActive
+            ) { assets in
+                let updatedAssets = draft.referenceAssets + assets
+                do {
+                    try onReferenceAssetsChanged(draft.id, updatedAssets)
+                    draft.referenceAssets = updatedAssets
+                    draft.updatedAt = Date()
+                } catch {
+                    for asset in assets {
+                        FilmProjectStore.shared.removeManagedCharacterAsset(projectID: projectID, asset: asset)
+                    }
+                    assetOperationError = "Reference images were not saved: \(error.localizedDescription)"
+                }
+                extractingFromSheet = nil
+            }
+        }
+        .alert(
+            "Delete Reference Image?",
+            isPresented: Binding(
+                get: { assetToDelete != nil },
+                set: { if !$0 { assetToDelete = nil } }
+            ),
+            presenting: assetToDelete
+        ) { asset in
+            Button("Cancel", role: .cancel) { assetToDelete = nil }
+            Button("Delete", role: .destructive) {
+                let updatedAssets = draft.referenceAssets.filter { $0.id != asset.id }
+                do {
+                    try onReferenceAssetsChanged(draft.id, updatedAssets)
+                    FilmProjectStore.shared.removeManagedCharacterAsset(projectID: projectID, asset: asset)
+                    draft.referenceAssets = updatedAssets
+                    draft.updatedAt = Date()
+                } catch {
+                    assetOperationError = "Reference image was not deleted: \(error.localizedDescription)"
+                }
+                assetToDelete = nil
+            }
+        } message: { asset in
+            if asset.type == .characterSheet {
+                Text("The project-owned Character Sheet will be deleted. Existing derived Reference Images are retained.")
+            } else {
+                Text("The project-owned derived image will be deleted. The original Character Sheet is retained.")
+            }
+        }
+        .alert("Reference Images", isPresented: Binding(
+            get: { assetOperationError != nil },
+            set: { if !$0 { assetOperationError = nil } }
+        )) {
+            Button("OK", role: .cancel) { assetOperationError = nil }
+        } message: {
+            Text(assetOperationError ?? "")
+        }
     }
 
     private func lockBinding(_ trait: CharacterTraitLock) -> Binding<Bool> {
@@ -1078,6 +1203,14 @@ private struct CharacterEditorSheet: View {
                 else { draft.lockedTraits.remove(trait) }
             }
         )
+    }
+
+    private func assetURL(_ asset: CharacterReferenceAsset) -> URL? {
+        guard let relativePath = asset.projectRelativePath,
+              let url = FilmProjectStore.shared.managedCharacterAssetURL(
+                projectID: projectID, relativePath: relativePath
+              ), FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
     }
 }
 

@@ -167,11 +167,18 @@ final class FilmProjectStore {
     // MARK: Save
 
     func save(_ project: FilmProject) {
+        try? saveThrowing(project)
+    }
+
+    /// Throwing boundary used when a managed file and its metadata must be
+    /// committed as one user-visible operation. Existing callers retain the
+    /// legacy best-effort `save` API.
+    func saveThrowing(_ project: FilmProject) throws {
         var updated = project
         updated.touch()
+        let data = try JSONEncoder().encode(updated)
+        try data.write(to: fileURL(for: updated.id), options: .atomic)
         projects[updated.id] = updated
-        guard let data = try? JSONEncoder().encode(updated) else { return }
-        try? data.write(to: fileURL(for: updated.id), options: .atomic)
     }
 
     func delete(_ id: UUID) {

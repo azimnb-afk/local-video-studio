@@ -199,3 +199,16 @@ TOKEN=$(cat ~/Library/Application\ Support/LTXVideoGenerator/api_token)
 - [x] App quit/relaunch後にproject、3 shots、UUID assignment、Character Sheet metadataを復元。Hybrid既存projectにも同じshared import controlを確認。
 - [x] `swift build`; `swift run LTXTests` = 498 passed / 0 failed; Xcode Debug `BUILD SUCCEEDED`; `git diff --check` clean。
 - [ ] Exact user sampleによるVision extraction品質E2Eはsample未アクセスのためPending。Local provider/schema failureからManual Reviewまでのproduct fallbackはPASS。
+
+## K. CharacterBible Phase 2 — Reference Extraction（2026-08-09）
+
+- [x] Exact user sample 1086×1448 PNGをcanonical DerivedData appへimportし、project-owned originalのSHA-256が外部sourceと一致することを確認。
+- [x] Installed `agents-a1:32k`でDetect References。Front / Side / Back / Expression / Costume Detailの5 proposalを取得し、model download/cloud/OpenClawなし。
+- [x] 実画像localizationを **C: semantic detectionは可能だがbounding boxは不安定** と判定。Side/Backは近似、Front/Expression/Costumeは手動補正、Faceはmanual cropで追加。
+- [x] Overlay、checkbox/remove、Reference Type変更、label変更、numeric rect、drag resize、manual Add Reference Cropを実GUIで確認。Vision proposalをtruthとして即保存しない。
+- [x] Normalized `x/y/width/height`、0...1、top-left originを表示・永続化。補正済みauto proposalは`visionProposedUserAdjusted`、manual Faceは`manual`として保存。
+- [x] ORIGINAL 1086×1448からFront 287×774、Side 174×751、Back 272×769、Expression 191×228、Costume Detail 145×202、Close-Up 344×499のPNGを生成。analysis derivativeからのcrop/upscaleなし。
+- [x] 全assetが`Projects/<ProjectID>/Assets/Characters/<CharacterID>/References/<UUID>.png`に存在し、sourceAssetID、sourceCropRect、source dimensionsを持つことをJSON/file inspectionで確認。
+- [x] Review Cancel時にderived file/metadataなし。Save後はCharacter Editorにefficient thumbnailとdelete controlを表示。source sheetとderived assetの削除責務を分離。
+- [x] App quit/relaunch後、Character Sheet + 6 referencesのthumbnail/type/dimensionsを復元。Shotのstable Character UUIDとcompiled textual promptも維持。
+- [x] Vision modelは検出後にunload。LTX generation、PromptCompilerへのpath注入、identity conditioning、face recognition、cloud、downloadはなし。

@@ -29,7 +29,12 @@ private final class MockVisionProvider: CharacterSheetVisionProvider {
 
     init(responses: [String]) { self.responses = responses }
     func isAvailable() async -> Bool { available }
-    func complete(imageData: Data, system: String, prompt: String) async throws -> String {
+    func complete(
+        imageData: Data,
+        system: String,
+        prompt: String,
+        outputSchema: [String: Any]
+    ) async throws -> String {
         completeCalls += 1
         prompts.append(prompt)
         return responses.isEmpty ? "" : responses.removeFirst()

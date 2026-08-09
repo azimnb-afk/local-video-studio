@@ -37,6 +37,8 @@
 		AA000194 /* GenerationFailureRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000195; };
 		AA000240 /* StoryboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000241; };
 		AA000242 /* CharacterSheetAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000243; };
+		AA000244 /* CharacterReferenceExtraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000245; };
+		AA000246 /* CharacterReferenceExtractionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000247; };
 		AA000200 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000201; };
 		AA000202 /* ModelRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000203; };
 		AA000204 /* QualityProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000205; };
@@ -92,6 +94,8 @@
 		AA000036 /* CharacterProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterProfile.swift; sourceTree = "<group>"; };
 		AA000241 /* StoryboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryboardView.swift; sourceTree = "<group>"; };
 		AA000243 /* CharacterSheetAnalysis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterSheetAnalysis.swift; sourceTree = "<group>"; };
+		AA000245 /* CharacterReferenceExtraction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterReferenceExtraction.swift; sourceTree = "<group>"; };
+		AA000247 /* CharacterReferenceExtractionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterReferenceExtractionView.swift; sourceTree = "<group>"; };
 		AA000201 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlags.swift; sourceTree = "<group>"; };
 		AA000203 /* ModelRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelRegistry.swift; sourceTree = "<group>"; };
 		AA000205 /* QualityProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QualityProfile.swift; sourceTree = "<group>"; };
@@ -223,6 +227,7 @@
 				AA000229 /* FinalAssemblyService.swift */,
 				AA00022B /* FilmProjectStore.swift */,
 				AA000243 /* CharacterSheetAnalysis.swift */,
+				AA000245 /* CharacterReferenceExtraction.swift */,
 				AA00022D /* TakeGenerationCoordinator.swift */,
 				AA00022F /* APIv1Handler.swift */,
 				AA000231 /* LocalAPIServer.swift */,
@@ -241,6 +246,7 @@
 				AA00001E /* PreferencesView.swift */,
 				AA00002E /* AddAudioView.swift */,
 				AA000241 /* StoryboardView.swift */,
+				AA000247 /* CharacterReferenceExtractionView.swift */,
 				AA000233 /* ModelsAndFeaturesPreferences.swift */,
 			);
 			path = Views;
@@ -348,6 +354,7 @@
 				AA00002B /* AudioService.swift in Sources */,
 				AA00002D /* AddAudioView.swift in Sources */,
 				AA000240 /* StoryboardView.swift in Sources */,
+				AA000246 /* CharacterReferenceExtractionView.swift in Sources */,
 				AA000200 /* FeatureFlags.swift in Sources */,
 				AA000202 /* ModelRegistry.swift in Sources */,
 				AA000204 /* QualityProfile.swift in Sources */,
@@ -371,6 +378,7 @@
 				AA000228 /* FinalAssemblyService.swift in Sources */,
 				AA00022A /* FilmProjectStore.swift in Sources */,
 				AA000242 /* CharacterSheetAnalysis.swift in Sources */,
+				AA000244 /* CharacterReferenceExtraction.swift in Sources */,
 				AA00022C /* TakeGenerationCoordinator.swift in Sources */,
 				AA00022E /* APIv1Handler.swift in Sources */,
 				AA000230 /* LocalAPIServer.swift in Sources */,

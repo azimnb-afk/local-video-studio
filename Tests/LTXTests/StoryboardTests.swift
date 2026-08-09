@@ -258,7 +258,9 @@ func runStoryboardTests(_ t: TestKit) {
                 t.check(project.characterBible.character(named: "Kei") != nil, "character bible seeded")
                 t.checkEqual(project.shots[0].continuityBefore?.location, "street", "shot 1 sees initial state")
                 t.checkEqual(project.shots[1].continuityBefore?.weather, "rain", "shot 2 sees shot 1's changes")
-                t.checkEqual(project.shots[1].continuityBefore?.wetness["Kei"], "rain-soaked", "wetness propagated")
+                let keiID = project.characterBible.character(named: "Kei")?.id.uuidString ?? ""
+                t.checkEqual(project.shots[1].continuityBefore?.wetness[keiID], "rain-soaked",
+                             "wetness propagated under stable Character ID")
                 t.check(project.shots[0].compiledPrompt.contains("sprints"), "shot 1 prompt compiled")
                 t.check(project.shots[0].compiledPrompt.contains("Location:"), "continuity context prepended")
                 t.check(project.shots[1].compiledPrompt.contains("間に合う"), "Japanese dialogue kept in shot prompt")
@@ -378,6 +380,160 @@ func runStoryboardTests(_ t: TestKit) {
         t.check(!StoryboardDirector.validate(StoryboardDirector.StoryboardDraft(
             logline: "", synopsis: nil, setting: nil, tone: nil, initialState: nil, shots: []
         )).isEmpty, "empty draft rejected")
+    }
+
+    t.suite("CharacterBible Director and prompt propagation") {
+        var heroineAppearance = CharacterAppearance()
+        heroineAppearance.faceDescription = "young adult woman with a soft oval face"
+        heroineAppearance.hair = "dark brown high ponytail with straight bangs"
+        heroineAppearance.eyes = "dark brown"
+        heroineAppearance.ageImpression = "young adult"
+        heroineAppearance.build = "slim"
+        let heroine = BibleCharacter(
+            name: "Adventurer Heroine",
+            aliases: ["Heroine"],
+            appearance: heroineAppearance,
+            defaultCostume: "navy-and-white fantasy adventurer academy outfit",
+            personality: "cheerful, adventurous, friendly",
+            speakingStyle: "warm and energetic",
+            continuityNotes: "keep the same facial characteristics and dark brown ponytail",
+            lockedTraits: [.face, .hair, .eyes]
+        )
+        let bible = CharacterBible(characters: [heroine])
+        let brief = """
+        Adventurer Heroine explores an ancient seaside ruin at sunset.
+        First, she walks through the ruined stone entrance.
+        Next, she discovers a glowing magical compass.
+        Finally, she picks up the compass and smiles.
+        """
+
+        let localJSON = """
+        {"logline":"A heroine discovers a compass.","shots":[
+          {"title":"Entrance","summary":"Adventurer Heroine enters the ruin.","durationSeconds":5,"characterIDs":["\(heroine.id.uuidString)"]},
+          {"title":"Discovery","summary":"She examines a compass.","durationSeconds":5,"characterIDs":["\(heroine.id.uuidString)","unknown-id"]},
+          {"title":"Horizon","summary":"She smiles toward the horizon.","durationSeconds":5,"characterIDs":["Adventurer Heroine"]}
+        ]}
+        """
+        let provider = MockDirectorProvider(responses: [localJSON])
+        let director = StoryboardDirector(providers: [provider])
+        let sem = DispatchSemaphore(value: 0)
+        Task {
+            do {
+                let (project, violations, _) = try await director.makeProject(
+                    title: "Character AI", brief: brief, characterBible: bible
+                )
+                t.check(provider.systems.first?.contains(heroine.id.uuidString) == true,
+                        "Director prompt contains stable Character ID")
+                t.check(provider.systems.first?.contains("Personality: cheerful") == true,
+                        "Director receives planning-only personality")
+                t.check(project.shots.allSatisfy { $0.characterIDs == [heroine.id] },
+                        "AI IDs and exact unique name fallback resolve to one stable ID")
+                t.check(violations.contains { $0.message.contains("unknown-id") },
+                        "unknown Character ID is dropped with diagnostic")
+                t.check(project.shots.allSatisfy { $0.compiledPrompt.contains("dark brown high ponytail") },
+                        "hair reaches every relevant compiled prompt")
+                t.check(project.shots.allSatisfy { $0.compiledPrompt.contains("soft oval face") },
+                        "face guidance reaches every relevant compiled prompt")
+                t.check(project.shots.allSatisfy { $0.compiledPrompt.contains("Current costume:") },
+                        "default costume reaches every relevant compiled prompt")
+                t.check(project.shots.allSatisfy { !$0.compiledPrompt.contains("cheerful, adventurous") },
+                        "planning personality is not dumped into visual prompts")
+            } catch {
+                t.check(false, "CharacterBible Local AI pipeline threw \(error)")
+            }
+            sem.signal()
+        }
+        sem.wait()
+
+        let basic = StoryboardDirector(providers: [TemplateStoryboardProvider()], requestedMode: .basic)
+        let basicSem = DispatchSemaphore(value: 0)
+        Task {
+            do {
+                let (project, _, _) = try await basic.makeProject(
+                    title: "Character Basic", brief: brief, characterBible: bible
+                )
+                t.checkEqual(project.shots.count, 3, "Basic makes three explicit beats")
+                t.check(project.shots.allSatisfy { $0.characterIDs == [heroine.id] },
+                        "Basic assigns the exact unique mentioned Bible character")
+                t.check(project.shots.allSatisfy { $0.compiledPrompt.contains("CHARACTER 1: Adventurer Heroine") },
+                        "Basic uses the shared Character prompt path")
+            } catch {
+                t.check(false, "CharacterBible Basic pipeline threw \(error)")
+            }
+            basicSem.signal()
+        }
+        basicSem.wait()
+
+        let hybridDirector = StoryboardDirector(providers: [TemplateStoryboardProvider()], requestedMode: .basic)
+        let hybrid = HybridProjectCoordinator(director: hybridDirector)
+        let hybridSem = DispatchSemaphore(value: 0)
+        Task {
+            do {
+                var settings = ProjectSettings()
+                settings.targetDurationSeconds = 15
+                let (project, _, _) = try await hybrid.makeProject(
+                    title: "Character Hybrid", brief: brief, settings: settings, characterBible: bible
+                )
+                t.checkEqual(project.workflowMode, "hybrid", "Hybrid retains shared FilmProject mode")
+                t.check(project.shots.allSatisfy { $0.characterIDs == [heroine.id] },
+                        "Hybrid reuses the same Bible and stable Shot IDs")
+                t.check(project.shots.allSatisfy { $0.compiledPrompt.contains("dark brown high ponytail") },
+                        "Hybrid uses the shared compiled Character context")
+            } catch {
+                t.check(false, "CharacterBible Hybrid pipeline threw \(error)")
+            }
+            hybridSem.signal()
+        }
+        hybridSem.wait()
+    }
+
+    t.suite("Character prompt isolation and continuity precedence") {
+        var appearanceA = CharacterAppearance()
+        appearanceA.faceDescription = "oval face A"
+        appearanceA.hair = "red braid A"
+        var appearanceB = CharacterAppearance()
+        appearanceB.faceDescription = "angular face B"
+        appearanceB.hair = "black bob B"
+        let a = BibleCharacter(
+            name: "Ari", appearance: appearanceA, defaultCostume: "white coat A",
+            continuityNotes: "silver compass A", lockedTraits: [.face, .hair, .costume]
+        )
+        let b = BibleCharacter(
+            name: "Bea", appearance: appearanceB, defaultCostume: "blue robe B",
+            continuityNotes: "gold staff B", lockedTraits: [.face]
+        )
+        var project = FilmProject(title: "Two Characters")
+        project.characterBible = CharacterBible(characters: [a, b])
+        var shot = Shot(
+            index: 0,
+            summary: "Ari and Bea enter.",
+            explicitChanges: ["outfit:\(a.id.uuidString)=red cloak A"],
+            characterIDs: [a.id, b.id],
+            compiledPrompt: "The camera tracks both characters."
+        )
+        shot.continuityBefore = ContinuitySnapshot()
+        project.shots = [shot]
+        CharacterPromptPipeline.recompile(project: &project)
+        let prompt = project.shots[0].compiledPrompt
+        t.check(prompt.contains("CHARACTER 1: Ari") && prompt.contains("CHARACTER 2: Bea"),
+                "multiple characters compile as separate labeled blocks")
+        t.check(prompt.range(of: "red braid A")!.lowerBound < prompt.range(of: "CHARACTER 2: Bea")!.lowerBound,
+                "Character A traits remain inside A block")
+        t.check(prompt.range(of: "black bob B")!.lowerBound > prompt.range(of: "CHARACTER 2: Bea")!.lowerBound,
+                "Character B traits remain inside B block")
+        t.check(prompt.contains("Current costume: red cloak A"),
+                "explicit Shot outfit overrides Bible default")
+        t.check(prompt.contains("Current costume: blue robe B"),
+                "unmodified character uses Bible default costume")
+
+        var editedA = a
+        editedA.lockedTraits.remove(.costume)
+        project.upsertCharacter(editedA)
+        t.checkEqual(project.shots[0].characterIDs, [a.id, b.id], "lock edit preserves Character IDs")
+        t.check(project.shots[0].compiledPrompt.contains("Face, Hair"),
+                "face/hair guidance remains after costume lock off")
+        t.check(!project.shots[0].compiledPrompt.contains("Costume, Face"),
+                "costume is not added to locked trait guidance")
     }
 
     t.suite("Final assembly") {

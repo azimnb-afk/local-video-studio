@@ -82,6 +82,24 @@ No new LTX render was queued for this Planning-only acceptance. The same downstr
 - [x] Canonical app provenance: base HEAD `da86397` plus reviewed worktree; executable mtime `2026-08-09 08:45:59 +0900`; running PID 59844 executable `/Users/azimnb/Library/Developer/Xcode/DerivedData/LTXVideoGenerator-amthplfqixfwzxgnoumxohoqainn/Build/Products/Debug/LTXVideoGenerator.app/Contents/MacOS/LTXVideoGenerator`.
 - [x] Automated validation: `swift build`; `swift run LTXTests` = 396 passed / 0 failed; Xcode Debug `BUILD SUCCEEDED`; `git diff --check` clean.
 
+## 2026-08-09 CharacterBible Phase 0 acceptance
+
+- [x] Audited and preserved existing CharacterProfile; expanded the existing CharacterBible stub instead of introducing a competing model. No automatic profile migration occurred.
+- [x] Storyboard and Hybrid creation sheets expose Characters, Add Character, and the Phase 0 form fields/trait locks with the textual-guidance limitation clearly stated.
+- [x] Pure Storyboard project `F9C4AC55-B1A4-4962-9869-FBE477A8B6B2` was created through Basic Director from the requested First/Next/Finally Brief and produced exactly three shots.
+- [x] All three Storyboard shots reference stable UUID `C7133C84-7791-4F7F-AFC8-0A31ADD2A140`, not a name string.
+- [x] Renaming Adventurer Heroine to Maya preserved all three UUID references; Shot UI and compiled prompts resolved the new name.
+- [x] Quit and exact-path relaunch restored the CharacterBible, Maya, every Shot assignment, locks, and compiled prompts.
+- [x] Compiled prompts contain compact face/hair/eyes/default-costume/continuity guidance and exclude planning-only personality text; the Bible is not dumped wholesale.
+- [x] Hybrid project `9F8F7FF6-852E-48EF-9627-E9A9A8D65D7C` used the same shared Bible/planner/continuity/compiler path; all three shots reference UUID `B04A90CE-85AA-40AE-9121-E370FA1BFAA5`.
+- [x] Hybrid Shot assignment removal removed the Maya prompt block; re-adding Maya restored it. No separate Hybrid character model exists.
+- [x] Added and deleted a temporary character through the confirmation alert. The final project contains only Maya and no dangling Shot IDs; Takes would be preserved.
+- [x] Hybrid planning-only acceptance left Jobs and Takes empty. The production default still generates the first pass unless the user explicitly turns that option off.
+- [x] Reference asset model/storage boundary is present, but GUI makes no face lock, identity guarantee, image analysis, or conditioning claim.
+- [x] No Vision/face pipeline, cloud request, Ollama pull, Hugging Face download, LTX generation process, or loaded Ollama model was introduced during acceptance.
+- [x] Canonical app was launched by full path: `/Users/azimnb/Library/Developer/Xcode/DerivedData/LTXVideoGenerator-amthplfqixfwzxgnoumxohoqainn/Build/Products/Debug/LTXVideoGenerator.app`. Final checkpoint HEAD, executable mtime, and running path are captured after the committed rebuild.
+- [x] Automated validation: `swift build`; `swift run LTXTests` = 444 passed / 0 failed; Xcode Debug `BUILD SUCCEEDED`; `git diff --check` clean.
+
 ---
 
 ## A. Regression — 全flag OFF = 従来動作（最優先）

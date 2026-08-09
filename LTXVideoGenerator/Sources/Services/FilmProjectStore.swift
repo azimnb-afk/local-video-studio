@@ -31,6 +31,29 @@ final class FilmProjectStore {
         projectsDirectory.appendingPathComponent("\(id.uuidString).json")
     }
 
+    /// Canonical ownership boundary for future Character Sheet imports.
+    /// Phase 0 does not copy/analyze files, but all future imports have a
+    /// project-managed destination instead of persisting fragile external
+    /// absolute paths.
+    func characterAssetsDirectory(projectID: UUID, characterID: UUID) -> URL {
+        projectsDirectory
+            .appendingPathComponent(projectID.uuidString, isDirectory: true)
+            .appendingPathComponent("Assets", isDirectory: true)
+            .appendingPathComponent("Characters", isDirectory: true)
+            .appendingPathComponent(characterID.uuidString, isDirectory: true)
+    }
+
+    func managedCharacterAssetURL(projectID: UUID, relativePath: String) -> URL? {
+        guard !relativePath.isEmpty, !relativePath.hasPrefix("/") else { return nil }
+        let root = projectsDirectory
+            .appendingPathComponent(projectID.uuidString, isDirectory: true)
+            .standardizedFileURL
+        let candidate = root.appendingPathComponent(relativePath).standardizedFileURL
+        let prefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        guard candidate.path.hasPrefix(prefix) else { return nil }
+        return candidate
+    }
+
     // MARK: Load
 
     func loadAll() {

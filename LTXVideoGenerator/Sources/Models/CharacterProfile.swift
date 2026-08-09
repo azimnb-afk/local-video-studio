@@ -49,6 +49,21 @@ struct CharacterProfile: Identifiable, Codable, Equatable, Hashable {
     }
 }
 
+/// Explicit, non-mutating boundary for a future "Add from Character Profile"
+/// action. Profiles are never migrated automatically, and an external source
+/// image path is deliberately not adopted as a managed Character asset.
+enum CharacterProfileBibleBridge {
+    static func candidate(from profile: CharacterProfile) -> BibleCharacter {
+        var appearance = CharacterAppearance()
+        appearance.generalNotes = profile.prompt
+        return BibleCharacter(
+            name: profile.name,
+            appearance: appearance,
+            roleNotes: "Candidate imported from Character Profile. Review before saving."
+        )
+    }
+}
+
 @MainActor
 class CharacterProfileManager: ObservableObject {
     @Published var profiles: [CharacterProfile] = []

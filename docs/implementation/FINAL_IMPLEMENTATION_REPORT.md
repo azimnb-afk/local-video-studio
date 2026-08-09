@@ -65,7 +65,7 @@ modelRegistryV1 · autoQualityV1 · directorV1 · filmProjectV1 · storyboardV1 
 Automated acceptance against the running .app: API v1 socket-level security suite passed (401/401/403/400, loopback-only lsof, no CORS) and a full E2E job (POST /v1/jobs, quality=compact) ran a real generation through the GUI app's queue — Auto Quality applied C2 (512×320/65f), completed with actual ffprobe metadata (2.708 s), output re-verified on disk. Remaining distribution step: Developer ID signing + notarization (credentials required).
 
 ## 9. Test Results
-`swift run LTXTests`: **396 checks, 0 failures**. Includes exact Quick/Standard/High final-request comparison, Director Auto/Local AI/Basic resolution, installed-model parsing/refresh/persistence, offline/model-missing fallback, Basic no-network behavior, requested/effective metadata migration, Storyboard structured-output extraction/repair/failure-stage coverage, live syscall checks, real-MP4 MediaProbe, and real ffmpeg concat assembly.
+`swift run LTXTests`: **444 checks, 0 failures**. Includes CharacterBible persistence/migration, stable-ID rename/delete behavior, reference-asset codecs/storage policy, Director/Basic/Hybrid assignment, continuity precedence and multi-character prompt separation, plus exact Quick/Standard/High final-request comparison and all prior Director/render regressions.
 
 ## 10. Regression Results
 Same seed/settings re-render after all changes produced a **byte-identical MP4** (MD5 bf8020b1f55f73a62c075f2df1c65a8d = Phase 0 baseline). Peak memory 23.46 GB ≤ baseline 23.66 GB. Official fast path: 0% regression.
@@ -107,7 +107,7 @@ Post-Xcode human GUI acceptance checklist: [GUI_ACCEPTANCE_CHECKLIST.md](GUI_ACC
 5. Optionally evaluate additional local Ollama models for creative planning quality. `qwen3.6-claw-fast:latest` is installed and now passes the pure Storyboard structured-output path; deterministic template fallback remains available.
 
 ## 18. Exact Resume Prompt
-> /Users/azimnb/ltx23appdev/ltx-video-mac の docs/implementation/CURRENT_STATE.md と FINAL_IMPLEMENTATION_REPORT.md を読んでください。branch は director-extensions、テストは `swift run LTXTests`（396 checks）です。Remaining Human Actions のうち完了したものを教えるので、対応する Runtime Verification（10Eros compat lab / 16GB lowram bench / full queue soak / post-fix real Preset comparison）を進め、結果を Compatibility Lab・BENCHMARK_RESULTS.md・TEST_MATRIX.md へ記録してください。Official fast path の regression 判定は同一 seed の MD5 比較（bf8020b1f55f73a62c075f2df1c65a8d）を基準にしてください。
+> /Users/azimnb/ltx23appdev/ltx-video-mac の docs/implementation/CURRENT_STATE.md と FINAL_IMPLEMENTATION_REPORT.md を読んでください。branch は director-extensions、テストは `swift run LTXTests`（444 checks）です。Remaining Human Actions のうち完了したものを教えるので、対応する Runtime Verification（10Eros compat lab / 16GB lowram bench / full queue soak）を進め、結果を Compatibility Lab・BENCHMARK_RESULTS.md・TEST_MATRIX.md へ記録してください。Official fast path の regression 判定は同一 seed の MD5 比較（bf8020b1f55f73a62c075f2df1c65a8d）を基準にしてください。
 
 ## 19. Preset / Quality propagation root-cause closure
 
@@ -211,3 +211,34 @@ The canonical app executable mtime was `2026-08-09 08:45:59 +0900`; PID 59844 ra
 | Auto, Ollama stopped | `B37EC01D-47A1-441F-A9D1-2B22210A8DC6` | auto | basic | fallback | 3×5 s, `localAIServerUnavailable` |
 
 The Homebrew Ollama service was restored to its original started state after the offline test. Mode is Auto, preferred model is `qwen3.6-claw-fast:latest`, and `/api/ps` is empty. Every project retained Official Q4 + Gemma 12B 4-bit. No download or video generation was initiated.
+
+## 22. CharacterBible Phase 0 — Foundation
+
+### Shared architecture and capability boundary
+The former minimal `CharacterBibleEntry` stub was expanded rather than replaced. `FilmProject` now owns a schema-versioned `CharacterBible`; each `BibleCharacter` has a stable UUID, name/aliases, structured visual appearance, default costume, personality, speaking style, role notes, continuity notes, trait locks, future reference-asset metadata, and timestamps. `Shot.characterIDs` stores only UUIDs, so rename cannot break identity relationships.
+
+Storyboard and Hybrid use one common path:
+
+`CharacterBible → StoryboardDirector/Basic Director → Shot.characterIDs → ContinuityEngine → PromptCompiler → Generation prompt`
+
+The Director sees concise planning-relevant summaries and is instructed to return exact available UUIDs. Old responses may omit the optional field. Exact unique name/alias resolution is supported as a narrow compatibility path; unknown IDs are removed with a diagnostic rather than invalidating the entire plan, and ad-hoc Brief characters remain allowed without silently creating Bible records. Basic Director assigns an exactly mentioned Bible character and carries a sole Brief character across explicit First/Next/Finally beats. Hybrid calls the same planner and compiler and has no duplicate character model.
+
+Continuity resolves explicit/current state before Bible defaults. PromptCompiler emits separate compact blocks only for characters assigned to the Shot. It includes visual identity, current/default costume, relevant locks, and continuity-critical notes, but excludes long personality/speaking-style text from visual render prompts. Known Bible characters are removed from the older name-keyed global continuity dump so UUIDs and unrelated Bible characters cannot leak into every Shot.
+
+### Persistence, assets, and legacy coexistence
+- FilmProject schema version 2 decodes missing Bible, `characterIDs`, and base prompt fields with safe defaults while preserving existing Shots, Takes, Jobs, and assembly metadata.
+- The old CharacterProfile feature remains unchanged for Generate. An explicit non-mutating candidate bridge exists for a future “Add from Character Profile” action; no profile is automatically migrated or rewritten.
+- Reference assets have string-backed forward-compatible types and metadata for character sheet, face, front, side, back, expression, costume detail, and other. The store reserves project-owned `Assets/Characters/<CharacterID>` paths and rejects absolute/path-traversal references.
+- Phase 0 does not import or inspect files. It adds no Vision model, face detection/crop/embedding, identity extraction, LTX reference input, cloud upload, or same-face guarantee. Trait locks are textual continuity guidance only.
+
+### User interface
+Storyboard and Hybrid creation and project detail share the same Characters UI. A lightweight sheet supports Add/Edit/Cancel/Save for all Phase 0 fields and clear Face/Hair/Eyes/Body/Costume/Accessories locks. The UI states that locks guide continuity and do not guarantee pixel-identical identity. Same-name records show an ID prefix. Each Shot has a native multi-selection menu and live prompt recompilation.
+
+Delete requires confirmation and removes the UUID from every Shot before autosave while preserving existing Takes. Rename updates only Bible display data. Hybrid retains automatic first-pass generation as the default; an explicit “Generate first pass after planning” option permits a planning-only acceptance workflow without changing the established production default.
+
+### Automated and canonical-app evidence
+`swift build` passed; `swift run LTXTests` passed **444 / 444**; unsigned Debug `xcodebuild` succeeded; `git diff --check` was clean. Coverage includes old-project migration, UUID stability, delete/reload integrity, all asset-type round trips including unknown future types, managed-path rejection, CharacterProfile bridge non-mutation, AI/Basic/Hybrid assignment, unknown-ID diagnostics, continuity precedence, lock changes, and separated two-character prompts.
+
+Pure Storyboard project `F9C4AC55-B1A4-4962-9869-FBE477A8B6B2` contains three shots that all reference `C7133C84-7791-4F7F-AFC8-0A31ADD2A140`. The character was entered as Adventurer Heroine, renamed to Maya, and remained assigned by the same UUID after rename and app restart. The restored compiled prompts use Maya and the selected face/hair/eyes/costume guidance.
+
+Hybrid project `9F8F7FF6-852E-48EF-9627-E9A9A8D65D7C` contains three shots that all reference `B04A90CE-85AA-40AE-9121-E370FA1BFAA5`. Removing and restoring the Shot assignment removed and restored the character prompt block. A temporary character passed confirmed delete with no dangling references. Planning-only mode left Jobs/Takes empty, and no LTX generation or model download was started.

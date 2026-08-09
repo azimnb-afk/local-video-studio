@@ -15,6 +15,15 @@ import Foundation
 ///     dialogueState=<value>       storyState=<value>
 enum ContinuityEngine {
 
+    struct ResolvedCharacterState: Equatable {
+        var id: UUID
+        var name: String
+        var appearance: CharacterAppearance
+        var currentCostume: String
+        var continuityNotes: String
+        var lockedTraits: Set<CharacterTraitLock>
+    }
+
     struct Violation: Equatable, CustomStringConvertible {
         enum Severity: String { case warning, error }
         var severity: Severity
@@ -86,7 +95,12 @@ enum ContinuityEngine {
 
     /// Detects contradictions between what a shot's snapshots claim and what
     /// its explicit changes justify. Deterministic — no LLM judgement.
-    static func validate(previous: ContinuitySnapshot, next: ContinuitySnapshot, explicitChanges: [String]) -> [Violation] {
+    static func validate(
+        previous: ContinuitySnapshot,
+        next: ContinuitySnapshot,
+        explicitChanges: [String],
+        bible: CharacterBible? = nil
+    ) -> [Violation] {
         var violations: [Violation] = []
         let changesText = explicitChanges.joined(separator: "\n")
 
@@ -102,7 +116,7 @@ enum ContinuityEngine {
 
         for (character, outfit) in next.characterOutfit {
             if let before = previous.characterOutfit[character], before != outfit,
-               !changesText.contains("outfit:\(character)=") {
+               !hasCharacterDirective("outfit", key: character, text: changesText, bible: bible) {
                 violations.append(Violation(severity: .error,
                     message: "\(character)'s outfit changed ('\(before)' → '\(outfit)') without an explicit change."))
             }
@@ -120,13 +134,13 @@ enum ContinuityEngine {
         }
         // Injuries/wetness never silently disappear.
         for (character, injury) in previous.injuries where next.injuries[character] == nil {
-            if !changesText.contains("injury:\(character)=") {
+            if !hasCharacterDirective("injury", key: character, text: changesText, bible: bible) {
                 violations.append(Violation(severity: .warning,
                     message: "\(character)'s injury ('\(injury)') vanished without an explicit change."))
             }
         }
         for (character, wet) in previous.wetness where next.wetness[character] == nil {
-            if !changesText.contains("wet:\(character)=") {
+            if !hasCharacterDirective("wet", key: character, text: changesText, bible: bible) {
                 violations.append(Violation(severity: .warning,
                     message: "\(character)'s wetness ('\(wet)') vanished without an explicit change."))
             }
@@ -163,15 +177,84 @@ enum ContinuityEngine {
 
     /// Continuity context sentences for the prompt compiler (keeps prompts
     /// consistent across shots without re-describing everything).
-    static func promptContext(for snapshot: ContinuitySnapshot) -> String {
+    static func promptContext(for snapshot: ContinuitySnapshot, bible: CharacterBible? = nil) -> String {
         var parts: [String] = []
         if !snapshot.location.isEmpty { parts.append("Location: \(snapshot.location)") }
         if !snapshot.timeOfDay.isEmpty { parts.append("time: \(snapshot.timeOfDay)") }
         if !snapshot.weather.isEmpty { parts.append("weather: \(snapshot.weather)") }
         if !snapshot.lighting.isEmpty { parts.append("lighting: \(snapshot.lighting)") }
         for (character, outfit) in snapshot.characterOutfit.sorted(by: { $0.key < $1.key }) {
+            if let bible, let id = UUID(uuidString: character), bible.character(id: id) != nil {
+                // Assigned Bible characters are compiled separately so an
+                // unassigned character never leaks into this Shot prompt.
+                continue
+            }
             parts.append("\(character) wears \(outfit)")
         }
         return parts.isEmpty ? "" : parts.joined(separator: ", ") + "."
+    }
+
+    /// Converts legacy/name-based continuity keys to stable Character IDs.
+    /// Unknown/ad-hoc names remain untouched instead of being guessed.
+    static func normalizedCharacterReferences(
+        in snapshot: ContinuitySnapshot,
+        bible: CharacterBible
+    ) -> ContinuitySnapshot {
+        var normalized = snapshot
+        normalized.characterOutfit = normalize(snapshot.characterOutfit, bible: bible)
+        normalized.characterPosition = normalize(snapshot.characterPosition, bible: bible)
+        normalized.characterCondition = normalize(snapshot.characterCondition, bible: bible)
+        normalized.wetness = normalize(snapshot.wetness, bible: bible)
+        normalized.injuries = normalize(snapshot.injuries, bible: bible)
+        normalized.propOwner = snapshot.propOwner.mapValues { stableKey(for: $0, bible: bible) }
+        return normalized
+    }
+
+    /// Resolves only the characters assigned to this shot. Explicit/current
+    /// continuity values win over CharacterBible defaults.
+    static func resolveCharacters(
+        ids: [UUID],
+        bible: CharacterBible,
+        snapshot: ContinuitySnapshot?
+    ) -> [ResolvedCharacterState] {
+        let state = snapshot.map { normalizedCharacterReferences(in: $0, bible: bible) }
+        return ids.compactMap { id in
+            guard let character = bible.character(id: id) else { return nil }
+            let key = id.uuidString
+            return ResolvedCharacterState(
+                id: id,
+                name: character.name,
+                appearance: character.appearance,
+                currentCostume: state?.characterOutfit[key] ?? character.defaultCostume,
+                continuityNotes: character.continuityNotes,
+                lockedTraits: character.lockedTraits
+            )
+        }
+    }
+
+    private static func normalize(_ values: [String: String], bible: CharacterBible) -> [String: String] {
+        var result: [String: String] = [:]
+        for (key, value) in values {
+            result[stableKey(for: key, bible: bible)] = value
+        }
+        return result
+    }
+
+    private static func stableKey(for value: String, bible: CharacterBible) -> String {
+        if let id = UUID(uuidString: value), bible.character(id: id) != nil { return id.uuidString }
+        return bible.character(named: value)?.id.uuidString ?? value
+    }
+
+    private static func hasCharacterDirective(
+        _ kind: String,
+        key: String,
+        text: String,
+        bible: CharacterBible?
+    ) -> Bool {
+        if text.contains("\(kind):\(key)=") { return true }
+        guard let bible, let id = UUID(uuidString: key), let character = bible.character(id: id) else {
+            return false
+        }
+        return character.matchingNames.contains { text.contains("\(kind):\($0)=") }
     }
 }

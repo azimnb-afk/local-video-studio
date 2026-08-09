@@ -53,8 +53,14 @@ struct StoryboardView: View {
         .onAppear(perform: refresh)
         .onReceive(refreshTimer) { _ in refresh() }
         .sheet(isPresented: $showNewProjectSheet) {
-            NewStoryboardSheet(isCreating: $isCreating, mode: mode) { title, brief, settings in
-                createProject(title: title, brief: brief, settings: settings)
+            NewStoryboardSheet(isCreating: $isCreating, mode: mode) { title, brief, settings, characterBible, generateFirstPass in
+                createProject(
+                    title: title,
+                    brief: brief,
+                    settings: settings,
+                    characterBible: characterBible,
+                    generateFirstPass: generateFirstPass
+                )
             }
         }
     }
@@ -134,18 +140,28 @@ struct StoryboardView: View {
         }
     }
 
-    private func createProject(title: String, brief: String, settings: ProjectSettings) {
+    private func createProject(
+        title: String,
+        brief: String,
+        settings: ProjectSettings,
+        characterBible: CharacterBible,
+        generateFirstPass: Bool
+    ) {
         isCreating = true
         statusMessage = "Planning storyboard…"
         Task {
             defer { isCreating = false }
             do {
                 var (project, violations, _) = mode == .hybrid
-                    ? try await HybridProjectCoordinator().makeProject(title: title, brief: brief, settings: settings)
-                    : try await StoryboardDirector().makeProject(title: title, brief: brief, settings: settings)
+                    ? try await HybridProjectCoordinator().makeProject(
+                        title: title, brief: brief, settings: settings, characterBible: characterBible
+                    )
+                    : try await StoryboardDirector().makeProject(
+                        title: title, brief: brief, settings: settings, characterBible: characterBible
+                    )
                 project.workflowMode = mode.workflowValue
                 store.save(project)
-                if mode == .hybrid {
+                if mode == .hybrid, generateFirstPass {
                     let coordinator = TakeGenerationCoordinator(store: store, generationService: generationService)
                     for shot in project.shots {
                         _ = try coordinator.planTakes(projectID: project.id, shotID: shot.id, count: 1)
@@ -162,7 +178,7 @@ struct StoryboardView: View {
                 default: planningSource = "Local AI Director"
                 }
                 statusMessage = "Planned \(project.shots.count) shots via \(planningSource)"
-                    + (mode == .hybrid ? "; queued one take per shot sequentially" : "")
+                    + (mode == .hybrid && generateFirstPass ? "; queued one take per shot sequentially" : "")
                     + (violations.isEmpty ? "" : " (\(errors) continuity errors, \(warnings) warnings)")
                 showNewProjectSheet = false
             } catch {
@@ -178,7 +194,7 @@ private struct NewStoryboardSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var isCreating: Bool
     let mode: StoryboardWorkspaceMode
-    let onCreate: (String, String, ProjectSettings) -> Void
+    let onCreate: (String, String, ProjectSettings, CharacterBible, Bool) -> Void
 
     @State private var title = ""
     @State private var brief = ""
@@ -186,8 +202,10 @@ private struct NewStoryboardSheet: View {
     @State private var modelID = LTXModelCatalog.selectedModel().id
     @State private var audioEnabled = true
     @State private var targetDuration = 20.0
+    @State private var generateFirstPass = true
     @State private var width = 768
     @State private var height = 512
+    @State private var characterBible = CharacterBible()
     @AppStorage(DirectorMode.userDefaultsKey) private var directorModeRaw = DirectorMode.auto.rawValue
     @State private var directorSnapshot = DirectorSetupSnapshot.checking(mode: .auto)
     @State private var isCheckingDirector = false
@@ -211,6 +229,7 @@ private struct NewStoryboardSheet: View {
                 .frame(height: 110)
                 .padding(6)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+            CharacterBibleDraftSection(bible: $characterBible)
             HStack {
                 Picker("Preset", selection: $presetRaw) {
                     ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
@@ -238,6 +257,8 @@ private struct NewStoryboardSheet: View {
             }
             if mode == .hybrid {
                 Stepper("Target Duration: \(targetDuration, specifier: "%.0f")s", value: $targetDuration, in: 5...60, step: 5)
+                Toggle("Generate first pass after planning", isOn: $generateFirstPass)
+                    .help("Turn off to review the Character Bible, shot assignments and compiled prompts before rendering.")
             }
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
@@ -272,12 +293,20 @@ private struct NewStoryboardSheet: View {
                     settings.width = width
                     settings.height = height
                     settings.targetDurationSeconds = mode == .hybrid ? targetDuration : nil
-                    onCreate(title.isEmpty ? (mode == .hybrid ? "Untitled Hybrid Project" : "Untitled Storyboard") : title, brief, settings)
+                    onCreate(
+                        title.isEmpty ? (mode == .hybrid ? "Untitled Hybrid Project" : "Untitled Storyboard") : title,
+                        brief,
+                        settings,
+                        characterBible,
+                        generateFirstPass
+                    )
                 } label: {
                     if isCreating {
                         ProgressView().controlSize(.small)
                     } else {
-                        Text(mode == .hybrid ? "Create & Generate" : "Create Storyboard")
+                        Text(mode == .hybrid
+                             ? (generateFirstPass ? "Create & Generate" : "Create Hybrid Project")
+                             : "Create Storyboard")
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -416,6 +445,7 @@ private struct ProjectDetailView: View {
             ProjectSettingsEditor(project: project) {
                 onChanged()
             }
+            ProjectCharactersSection(project: project, onChanged: onChanged)
             HStack(spacing: 12) {
                 // Generate one take for every shot that has none yet.
                 Button {
@@ -642,6 +672,8 @@ private struct ShotCard: View {
                 .font(.body)
                 .foregroundStyle(.secondary)
 
+            characterAssignment
+
             DisclosureGroup("Compiled prompt", isExpanded: $showPrompt) {
                 Text(shot.compiledPrompt)
                     .font(.caption.monospaced())
@@ -699,6 +731,287 @@ private struct ShotCard: View {
         } catch {
             statusMessage = "Could not queue takes: \(error)"
         }
+    }
+
+    @ViewBuilder
+    private var characterAssignment: some View {
+        if !project.characterBible.characters.isEmpty {
+            HStack(spacing: 8) {
+                Text("Characters")
+                    .font(.caption.bold())
+                let assigned = project.characterBible.characters.filter { shot.characterIDs.contains($0.id) }
+                if assigned.isEmpty {
+                    Text("None")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(assigned) { character in
+                        Text(character.name)
+                            .font(.caption)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.accentColor.opacity(0.12)))
+                    }
+                }
+                Menu("Change…") {
+                    ForEach(project.characterBible.characters) { character in
+                        let selected = shot.characterIDs.contains(character.id)
+                        Button {
+                            setCharacter(character.id, present: !selected)
+                        } label: {
+                            Label(
+                                "\(character.name) · \(character.id.uuidString.prefix(6))",
+                                systemImage: selected ? "checkmark.square.fill" : "square"
+                            )
+                        }
+                    }
+                }
+                .controlSize(.small)
+                Spacer()
+            }
+        }
+    }
+
+    private func setCharacter(_ characterID: UUID, present: Bool) {
+        guard var updated = FilmProjectStore.shared.project(id: project.id) else { return }
+        updated.setCharacter(characterID, present: present, inShot: shot.id)
+        FilmProjectStore.shared.save(updated)
+        onChanged()
+    }
+}
+
+// MARK: - Character Bible
+
+private struct CharacterBibleDraftSection: View {
+    @Binding var bible: CharacterBible
+    @State private var isExpanded = true
+    @State private var editingCharacter: BibleCharacter?
+
+    var body: some View {
+        DisclosureGroup("Characters", isExpanded: $isExpanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Character Bible · used by Director and every assigned shot")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(bible.characters) { character in
+                    CharacterSummaryRow(character: character) {
+                        editingCharacter = character
+                    } onDelete: {
+                        bible.characters.removeAll { $0.id == character.id }
+                    }
+                }
+                Button {
+                    editingCharacter = BibleCharacter(name: "", lockedTraits: [.face, .hair, .eyes])
+                } label: {
+                    Label("Add Character", systemImage: "person.badge.plus")
+                }
+                .controlSize(.small)
+            }
+            .padding(.top, 6)
+        }
+        .sheet(item: $editingCharacter) { character in
+            CharacterEditorSheet(character: character) { saved in
+                if let index = bible.characters.firstIndex(where: { $0.id == saved.id }) {
+                    bible.characters[index] = saved
+                } else {
+                    bible.characters.append(saved)
+                }
+            }
+        }
+    }
+}
+
+private struct ProjectCharactersSection: View {
+    let project: FilmProject
+    let onChanged: () -> Void
+
+    @State private var isExpanded = true
+    @State private var editingCharacter: BibleCharacter?
+    @State private var characterToDelete: BibleCharacter?
+    private let store = FilmProjectStore.shared
+
+    var body: some View {
+        DisclosureGroup("Characters", isExpanded: $isExpanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Character Bible · shared by Storyboard and Hybrid")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if project.characterBible.characters.isEmpty {
+                    Text("No characters yet")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(project.characterBible.characters) { character in
+                    CharacterSummaryRow(character: character) {
+                        editingCharacter = character
+                    } onDelete: {
+                        characterToDelete = character
+                    }
+                }
+                Button {
+                    editingCharacter = BibleCharacter(name: "", lockedTraits: [.face, .hair, .eyes])
+                } label: {
+                    Label("Add Character", systemImage: "person.badge.plus")
+                }
+                .controlSize(.small)
+            }
+            .padding(.top, 6)
+        }
+        .sheet(item: $editingCharacter) { character in
+            CharacterEditorSheet(character: character) { saved in
+                guard var updated = store.project(id: project.id) else { return }
+                updated.upsertCharacter(saved)
+                store.save(updated)
+                onChanged()
+            }
+        }
+        .alert(
+            "Delete Character?",
+            isPresented: Binding(
+                get: { characterToDelete != nil },
+                set: { if !$0 { characterToDelete = nil } }
+            ),
+            presenting: characterToDelete
+        ) { character in
+            Button("Cancel", role: .cancel) { characterToDelete = nil }
+            Button("Delete", role: .destructive) {
+                guard var updated = store.project(id: project.id) else { return }
+                updated.removeCharacter(id: character.id)
+                store.save(updated)
+                characterToDelete = nil
+                onChanged()
+            }
+        } message: { character in
+            Text("\(character.name) will be removed from Characters and from every shot. Existing takes are kept.")
+        }
+    }
+}
+
+private struct CharacterSummaryRow: View {
+    let character: BibleCharacter
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "person.crop.circle")
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(character.name.isEmpty ? "New Character" : character.name)
+                    .font(.body.bold())
+                let appearance = [character.appearance.hair, character.appearance.eyes]
+                    .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                    .joined(separator: " · ")
+                if !appearance.isEmpty {
+                    Text(appearance).font(.caption).foregroundStyle(.secondary)
+                }
+                if !character.defaultCostume.isEmpty {
+                    Text("Default costume: \(character.defaultCostume)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Text("ID \(character.id.uuidString.prefix(8))")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer()
+            Button("Edit", action: onEdit).controlSize(.small)
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "trash")
+            }
+            .controlSize(.small)
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+    }
+}
+
+private struct CharacterEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: BibleCharacter
+    @State private var aliasesText: String
+    let onSave: (BibleCharacter) -> Void
+
+    init(character: BibleCharacter, onSave: @escaping (BibleCharacter) -> Void) {
+        _draft = State(initialValue: character)
+        _aliasesText = State(initialValue: character.aliases.joined(separator: ", "))
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(draft.name.isEmpty ? "Add Character" : "Edit Character")
+                .font(.headline)
+            Form {
+                Section("Identity") {
+                    TextField("Name", text: $draft.name)
+                    TextField("Aliases (comma separated)", text: $aliasesText)
+                    TextField("Role / Notes", text: $draft.roleNotes, axis: .vertical)
+                }
+                Section("Appearance") {
+                    TextField("Face Description", text: $draft.appearance.faceDescription, axis: .vertical)
+                    TextField("Hair", text: $draft.appearance.hair, axis: .vertical)
+                    TextField("Eyes", text: $draft.appearance.eyes)
+                    TextField("Age Impression", text: $draft.appearance.ageImpression)
+                    TextField("Build", text: $draft.appearance.build)
+                    TextField("Skin / Complexion", text: $draft.appearance.complexion)
+                    TextField("Distinguishing Features", text: $draft.appearance.distinguishingFeatures, axis: .vertical)
+                    TextField("General Appearance Notes", text: $draft.appearance.generalNotes, axis: .vertical)
+                }
+                Section("Character") {
+                    TextField("Default Costume", text: $draft.defaultCostume, axis: .vertical)
+                    TextField("Personality", text: $draft.personality, axis: .vertical)
+                    TextField("Speaking Style", text: $draft.speakingStyle, axis: .vertical)
+                    TextField("Continuity Notes", text: $draft.continuityNotes, axis: .vertical)
+                }
+                Section("Keep Consistent") {
+                    HStack {
+                        ForEach(CharacterTraitLock.allCases) { trait in
+                            Toggle(trait.displayName, isOn: lockBinding(trait))
+                                .toggleStyle(.checkbox)
+                        }
+                    }
+                    Text("These settings guide storyboard continuity. They do not guarantee pixel-identical identity.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Section("Reference Assets") {
+                    Text(draft.referenceAssets.isEmpty
+                         ? "No managed reference assets. Image analysis and identity conditioning are not enabled."
+                         : "\(draft.referenceAssets.count) managed reference asset metadata item(s).")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Save") {
+                    draft.name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    draft.aliases = aliasesText.components(separatedBy: ",")
+                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+                    draft.updatedAt = Date()
+                    onSave(draft)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 650, height: 720)
+    }
+
+    private func lockBinding(_ trait: CharacterTraitLock) -> Binding<Bool> {
+        Binding(
+            get: { draft.lockedTraits.contains(trait) },
+            set: { enabled in
+                if enabled { draft.lockedTraits.insert(trait) }
+                else { draft.lockedTraits.remove(trait) }
+            }
+        )
     }
 }
 

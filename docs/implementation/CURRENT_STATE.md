@@ -3,7 +3,7 @@
 Updated: 2026-08-09
 
 ## Current Phase
-Preset/Quality and text-encoder propagation hardening is complete. Storyboard Director is now a zero-setup Auto / Local AI / Basic product workflow, with real GUI acceptance for Local AI, explicit Basic, and Ollama-unavailable fallback. The previously verified cached-model render, mixed-resolution assembly, and cancellation paths were not changed.
+CharacterBible Phase 0 foundation is complete on top of the zero-setup Storyboard Director. Storyboard and Hybrid now share one stable-ID character source of truth through planning, Shot assignment, continuity resolution, prompt compilation, persistence, and GUI editing. The previously verified Preset/text-encoder, cached-model render, Take queue, assembly, and cancellation paths were not changed.
 
 ## Completed
 - Source acquisition: cloned `james-see/ltx-video-mac` (MIT) @ `a441dc2` → branch `director-extensions`.
@@ -34,9 +34,14 @@ Preset/Quality and text-encoder propagation hardening is complete. Storyboard Di
 - Director UX: Auto is the default and resolves an installed preferred model through the loopback `/api/tags` API; unavailable server/model conditions become a visible Basic Director result instead of blocking Storyboard creation. No shell-based discovery, automatic model download, cloud fallback, or OpenClaw coupling was added.
 - Settings now has a Director tab with Auto / Local AI / Basic, friendly readiness state, installed-model picker backed by the existing `directorOllamaModel` preference, manual refresh, lightweight Test, and an Advanced-only endpoint/technical status disclosure.
 - Requested/effective Director mode is persisted as optional FilmProject metadata. Explicit Basic is labeled Basic rather than AI/failure, bypasses Ollama entirely, and safely decomposes briefs containing explicit first/next/final shot cues into multiple deterministic shots.
+- CharacterBible Phase 0: `FilmProject.characterBible` owns versioned `BibleCharacter` records with stable UUIDs, structured appearance, costume, dialogue/planning metadata, continuity notes, trait locks, and future reference-asset metadata. `Shot.characterIDs` is the only durable identity relation; names remain freely editable display data.
+- Character data follows one shared path for Storyboard and Hybrid: CharacterBible → Director/Basic planning → `Shot.characterIDs` → ContinuityEngine → PromptCompiler. Only assigned characters contribute compact visual guidance to a Shot; personality and speaking style remain available to planning but are not dumped into render prompts.
+- Storyboard/Hybrid GUI supports Add, Edit, Cancel, confirmed Delete, per-Shot multi-selection, same-name disambiguation by ID prefix, and live prompt recompilation. Deleting a character removes all Shot references without deleting Takes; renaming preserves the UUID.
+- Existing FilmProject JSON without CharacterBible or `characterIDs` loads with an empty Bible and intact Shots/Takes/assembly state. Existing `CharacterProfile` remains the separate Generate/legacy model; an explicit non-mutating bridge can create a candidate but no profiles are automatically migrated.
+- Reference assets are metadata/storage foundation only. Safe project-relative paths resolve under `Projects/<ProjectID>/Assets/Characters/<CharacterID>`; absolute and traversal paths are rejected. No image import, Vision parsing, face crop/embedding, LTX reference conditioning, or same-person guarantee was added.
 
 ## In Progress
-- No open item in the Storyboard structured-output repair scope. Optional broader planning-quality evaluation remains separate from schema transport and validation correctness.
+- No open item in CharacterBible Phase 0. Character Sheet Vision analysis and actual identity/reference conditioning are explicitly deferred to later phases.
 
 ## Build Status
 - `swift build` clean (final GUI implementation).
@@ -108,7 +113,7 @@ Record the three provenance values with the GUI acceptance result: `git_head`, `
 Builds created with a custom path such as `-derivedDataPath /tmp/...` are disposable test artifacts. They must not be treated as the normal development app or used to claim final GUI acceptance. Multiple old Debug apps with bundle id `com.ltxvideo.generator` may coexist, so bundle-name lookup is always ambiguous; `open -a LTXVideoGenerator` is prohibited for GUI verification.
 
 ## Test Status
-- `swift run LTXTests`: **396 checks, 0 failures** (including Auto/Local AI/Basic resolution, installed model parsing/refresh, preferred-model persistence, model-missing/offline fallback, Basic no-network behavior, requested/effective metadata migration, and all prior structured-output/render regressions).
+- `swift run LTXTests`: **444 checks, 0 failures** (including CharacterBible migration/persistence, stable rename/delete semantics, reference-asset codecs/path policy, Director/Basic/Hybrid character assignment, continuity precedence, compact multi-character prompts, and all prior Director/render regressions).
 - Final concrete comparison on Mac16,11/48 GB, same prompt/model/seed 4242/target 5 s/audio ON: Quick=C3 512×320/121f/24fps/15 steps; Standard=S0 768×512/121f/24fps/25 steps; High=H0 768×512/121f/24fps/30 steps.
 
 ## 2026-08-09 Real Storyboard / Hybrid GUI E2E
@@ -145,6 +150,14 @@ Builds created with a custom path such as `-derivedDataPath /tmp/...` are dispos
 5. ~~Fresh post-fix Quick/High real render pending~~ → RESOLVED: the 2026-08-09 canonical-app E2E completed three Quick renders, one High retake, mixed-resolution assembly, QuickTime playback and cancellation using cached Q4 + 4-bit weights.
 6. Storyboard real-generation root cause (resolved): the shared Storyboard/Hybrid creation sheet previously initialized `ProjectSettings()` and captured schema default `gemma3_12b_bf16`; it now inherits the current `gemma3_12b_4bit` selection. Existing projects intentionally retain their stored encoder snapshot. A pre-fix scratch project that was cancelled before cancellation-persistence existed may still contain queued status; there is intentionally no automatic migration of old project intent/state.
 
+## 2026-08-09 CharacterBible Phase 0 GUI E2E
+- Canonical app: `/Users/azimnb/Library/Developer/Xcode/DerivedData/LTXVideoGenerator-amthplfqixfwzxgnoumxohoqainn/Build/Products/Debug/LTXVideoGenerator.app`, always launched by full path. Final checkpoint HEAD/mtime/PID provenance is recorded after the checkpoint build.
+- Pure Storyboard project `F9C4AC55-B1A4-4962-9869-FBE477A8B6B2`: the acceptance character was entered manually, saved, and assigned to three Basic Director shots using UUID `C7133C84-7791-4F7F-AFC8-0A31ADD2A140`. Renaming Adventurer Heroine to Maya changed GUI/prompt resolution but left every Shot UUID unchanged. Quit/relaunch restored the Bible, assignments, and prompts.
+- Each compiled prompt contained the assigned character's compact face/hair/eyes/costume/lock/continuity guidance and excluded planning-only personality text. No unassigned Bible character was injected.
+- Hybrid project `9F8F7FF6-852E-48EF-9627-E9A9A8D65D7C`: the same shared model/UI/planning/compiler path produced three shots assigned to UUID `B04A90CE-85AA-40AE-9121-E370FA1`. Per-Shot removal removed the character block and re-adding restored it. A temporary character was added and deleted through confirmation; no dangling IDs remained.
+- Hybrid acceptance used the new `Generate first pass after planning` switch OFF. Its default remains ON, preserving prior Hybrid behavior. The saved project had zero Jobs/Takes; no MLX generation process, model download, or Ollama-loaded model remained.
+- Capability boundary shown in the GUI: trait locks are textual storyboard-continuity guidance and do not guarantee pixel-identical identity. Reference asset analysis/conditioning remains disabled.
+
 ## Feature Flags
 GUI-first defaults (D-007): modelRegistryV1 / autoQualityV1 / directorV1 / filmProjectV1 / storyboardV1 = **ON** by default; derivedModelsV1 / adultModelsV1 / lowRAMAdapterV1 / localAPIv1 = OFF (opt-in). All OFF (Preferences → Models & Features) = byte-identical legacy behavior (proven by MD5-identical regression render). Quality defaults to "Advanced" (= manual parameters untouched).
 
@@ -163,6 +176,7 @@ GUI-first defaults (D-007): modelRegistryV1 / autoQualityV1 / directorV1 / filmP
 - Previous downstream checkpoint: `7302c67` on `director-extensions` (`docs: record storyboard 4bit e2e acceptance`).
 - This document is included in the local `fix: harden storyboard director structured output` checkpoint, verified with 368 tests, Xcode Debug build, and canonical-app pure Storyboard GUI acceptance. No push was performed.
 - This update is included in the local `feat: add zero-setup storyboard director experience` checkpoint, verified with 396 tests and the three canonical-app GUI cases above. No push was performed.
+- CharacterBible Phase 0 is the reviewed worktree following `7a3d44b`; it is verified with 444 tests and the Storyboard/Hybrid GUI cases above and will be recorded as local `feat: add character bible foundation`. No push is performed.
 
 ## Exact Resume Action
 `cd /Users/azimnb/ltx23appdev/ltx-video-mac && git status && swift run LTXTests && xcodebuild -project LTXVideoGenerator/LTXVideoGenerator.xcodeproj -scheme LTXVideoGenerator -configuration Debug CODE_SIGNING_ALLOWED=NO build`.

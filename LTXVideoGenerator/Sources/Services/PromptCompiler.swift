@@ -81,6 +81,45 @@ enum PromptCompiler {
             .joined(separator: " ")
     }
 
+    /// Compact visual-only CharacterBible context. Personality and speaking
+    /// style stay available to planning, but are not dumped into every render
+    /// prompt. Each character is isolated in its own sentence group.
+    static func compile(characters: [ContinuityEngine.ResolvedCharacterState]) -> String {
+        characters.enumerated().map { index, character in
+            var parts = ["CHARACTER \(index + 1): \(character.name)."]
+            let appearance = character.appearance
+            if !appearance.faceDescription.trimmed.isEmpty {
+                parts.append("Face: \(appearance.faceDescription.trimmed).")
+            }
+            if !appearance.hair.trimmed.isEmpty { parts.append("Hair: \(appearance.hair.trimmed).") }
+            if !appearance.eyes.trimmed.isEmpty { parts.append("Eyes: \(appearance.eyes.trimmed).") }
+            if !appearance.ageImpression.trimmed.isEmpty {
+                parts.append("Age impression: \(appearance.ageImpression.trimmed).")
+            }
+            if !appearance.build.trimmed.isEmpty { parts.append("Build: \(appearance.build.trimmed).") }
+            if !appearance.complexion.trimmed.isEmpty {
+                parts.append("Complexion: \(appearance.complexion.trimmed).")
+            }
+            if !appearance.distinguishingFeatures.trimmed.isEmpty {
+                parts.append("Distinctive features: \(appearance.distinguishingFeatures.trimmed).")
+            }
+            if !character.currentCostume.trimmed.isEmpty {
+                parts.append("Current costume: \(character.currentCostume.trimmed).")
+            }
+            if !character.lockedTraits.isEmpty {
+                let locks = character.lockedTraits
+                    .sorted { $0.rawValue < $1.rawValue }
+                    .map(\.displayName)
+                    .joined(separator: ", ")
+                parts.append("Keep these traits visually consistent across shots: \(locks).")
+            }
+            if !character.continuityNotes.trimmed.isEmpty {
+                parts.append("Continuity: \(character.continuityNotes.trimmed.prefixText(220)).")
+            }
+            return parts.joined(separator: " ")
+        }.joined(separator: " ")
+    }
+
     /// Suggested frame count for a duration intent (24fps, backend-friendly
     /// 8k+1 frame counts: 25/49/73/97/121...).
     static func frameCount(forSeconds seconds: Double, fps: Int = 24) -> Int {
@@ -105,5 +144,80 @@ enum PromptCompiler {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let last = trimmed.last else { return trimmed }
         return ".!?。！？\"".contains(last) ? trimmed : trimmed + "."
+    }
+}
+
+/// Shared Storyboard/Hybrid character propagation boundary.
+enum CharacterPromptPipeline {
+    static func recompile(project: inout FilmProject) {
+        for index in project.shots.indices {
+            var shot = project.shots[index]
+            let base = shot.baseCompiledPrompt ?? shot.compiledPrompt
+            shot.baseCompiledPrompt = base
+            let promptSnapshot: ContinuitySnapshot?
+            if let before = shot.continuityBefore,
+               let after = try? ContinuityEngine.apply(changes: shot.explicitChanges, to: before) {
+                promptSnapshot = after
+            } else {
+                promptSnapshot = shot.continuityBefore
+            }
+            let resolved = ContinuityEngine.resolveCharacters(
+                ids: shot.characterIDs,
+                bible: project.characterBible,
+                snapshot: promptSnapshot
+            )
+            let characterContext = PromptCompiler.compile(characters: resolved)
+            shot.compiledPrompt = characterContext.isEmpty ? base : characterContext + " " + base
+            project.shots[index] = shot
+        }
+    }
+}
+
+extension FilmProject {
+    mutating func upsertCharacter(_ character: BibleCharacter) {
+        // Normalize old name-keyed snapshots before a rename makes the old
+        // display name unavailable. Stable Shot references never change.
+        for index in shots.indices {
+            if let snapshot = shots[index].continuityBefore {
+                shots[index].continuityBefore = ContinuityEngine.normalizedCharacterReferences(
+                    in: snapshot, bible: characterBible
+                )
+            }
+        }
+        if let index = characterBible.characters.firstIndex(where: { $0.id == character.id }) {
+            characterBible.characters[index] = character
+        } else {
+            characterBible.characters.append(character)
+        }
+        CharacterPromptPipeline.recompile(project: &self)
+        touch()
+    }
+
+    mutating func removeCharacter(id: UUID) {
+        characterBible.characters.removeAll { $0.id == id }
+        for index in shots.indices {
+            shots[index].characterIDs.removeAll { $0 == id }
+        }
+        CharacterPromptPipeline.recompile(project: &self)
+        touch()
+    }
+
+    mutating func setCharacter(_ id: UUID, present: Bool, inShot shotID: UUID) {
+        guard characterBible.character(id: id) != nil,
+              let shotIndex = shots.firstIndex(where: { $0.id == shotID }) else { return }
+        if present {
+            if !shots[shotIndex].characterIDs.contains(id) { shots[shotIndex].characterIDs.append(id) }
+        } else {
+            shots[shotIndex].characterIDs.removeAll { $0 == id }
+        }
+        CharacterPromptPipeline.recompile(project: &self)
+        touch()
+    }
+}
+
+private extension String {
+    var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
+    func prefixText(_ limit: Int) -> String {
+        count <= limit ? self : String(prefix(limit)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
     }
 }

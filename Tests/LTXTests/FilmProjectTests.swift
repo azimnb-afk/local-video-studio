@@ -70,6 +70,171 @@ func runFilmProjectTests(_ t: TestKit) {
         t.check(store4.project(id: project.id) == nil, "delete removes project")
     }
 
+    t.suite("CharacterBible persistence and migration") {
+        var appearance = CharacterAppearance()
+        appearance.faceDescription = "soft oval face"
+        appearance.hair = "dark brown ponytail"
+        appearance.eyes = "dark brown"
+        let allAssetTypes = CharacterReferenceAssetType.knownTypes + [
+            CharacterReferenceAssetType(rawValue: "futureMultiView")
+        ]
+        let assets = allAssetTypes.enumerated().map { index, type in
+            CharacterReferenceAsset(
+                type: type,
+                label: "Asset \(index)",
+                projectRelativePath: "Assets/Characters/hero/asset-\(index).png",
+                originalFilename: "source-\(index).png"
+            )
+        }
+        let hero = BibleCharacter(
+            name: "Adventurer Heroine",
+            aliases: ["Heroine"],
+            appearance: appearance,
+            defaultCostume: "navy-and-white adventurer outfit",
+            personality: "cheerful, adventurous",
+            speakingStyle: "friendly",
+            roleNotes: "lead",
+            continuityNotes: "keep the same facial characteristics",
+            lockedTraits: [.face, .hair, .eyes],
+            referenceAssets: assets
+        )
+        var project = FilmProject(title: "Bible")
+        project.characterBible.characters = [hero]
+        project.shots = [Shot(
+            index: 0,
+            title: "Entrance",
+            summary: "The heroine enters.",
+            characterIDs: [hero.id],
+            compiledPrompt: "base"
+        )]
+        let store = FilmProjectStore(projectsDirectory: tmpDir.appendingPathComponent("bible"))
+        store.save(project)
+        let loaded = FilmProjectStore(projectsDirectory: tmpDir.appendingPathComponent("bible")).project(id: project.id)
+        t.checkEqual(loaded?.characterBible.characters.first?.id, hero.id, "stable Character ID persists")
+        t.checkEqual(loaded?.shots.first?.characterIDs, [hero.id], "Shot Character IDs persist")
+        t.checkEqual(loaded?.characterBible.characters.first?.referenceAssets.count, allAssetTypes.count,
+                     "all reference asset metadata persists")
+        t.checkEqual(loaded?.characterBible.characters.first?.referenceAssets.last?.type.rawValue,
+                     "futureMultiView", "unknown future asset type round-trips")
+
+        // Simulate a schema-v1 project with no CharacterBible, no Shot IDs and
+        // no base prompt. Existing shots/takes/jobs must survive.
+        var legacyProject = FilmProject(title: "Legacy")
+        var legacyShot = Shot(index: 0, title: "Old Shot", summary: "Old summary", compiledPrompt: "old prompt")
+        legacyShot.takes = [Take(
+            shotID: legacyShot.id,
+            modelID: "legacy-model",
+            seed: 42,
+            promptSnapshot: "old prompt",
+            settingsSnapshot: .default,
+            requestedWidth: 512,
+            requestedHeight: 320,
+            fps: 24,
+            requestedDuration: 5
+        )]
+        legacyProject.shots = [legacyShot]
+        legacyProject.jobs = [GenerationJob(
+            projectID: legacyProject.id,
+            shotID: legacyShot.id,
+            takeID: legacyShot.takes[0].id,
+            requestID: UUID()
+        )]
+        do {
+            let encoded = try JSONEncoder().encode(legacyProject)
+            var root = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+            root["schemaVersion"] = 1
+            root.removeValue(forKey: "characterBible")
+            if var shots = root["shots"] as? [[String: Any]] {
+                shots[0].removeValue(forKey: "characterIDs")
+                shots[0].removeValue(forKey: "baseCompiledPrompt")
+                root["shots"] = shots
+            }
+            let migrated = try JSONDecoder().decode(
+                FilmProject.self,
+                from: JSONSerialization.data(withJSONObject: root)
+            )
+            t.checkEqual(migrated.schemaVersion, FilmProject.currentSchemaVersion, "legacy project migrates to current schema")
+            t.check(migrated.characterBible.characters.isEmpty, "missing Bible becomes empty Bible")
+            t.check(migrated.shots[0].characterIDs.isEmpty, "missing Shot IDs become empty")
+            t.checkEqual(migrated.shots[0].takes.count, 1, "legacy Takes preserved")
+            t.checkEqual(migrated.jobs.count, 1, "legacy Jobs preserved")
+            t.checkEqual(migrated.shots[0].compiledPrompt, "old prompt", "legacy compiled prompt preserved")
+        } catch {
+            t.check(false, "legacy CharacterBible migration threw \(error)")
+        }
+
+        let root = store.characterAssetsDirectory(projectID: project.id, characterID: hero.id)
+        t.check(root.path.contains("/\(project.id.uuidString)/Assets/Characters/\(hero.id.uuidString)"),
+                "managed Character asset root is project-owned")
+        t.check(store.managedCharacterAssetURL(projectID: project.id, relativePath: "Assets/Characters/x/a.png") != nil,
+                "safe managed relative asset path resolves")
+        t.check(store.managedCharacterAssetURL(projectID: project.id, relativePath: "../outside.png") == nil,
+                "asset traversal is rejected")
+        t.check(store.managedCharacterAssetURL(projectID: project.id, relativePath: "/tmp/external.png") == nil,
+                "absolute external asset path is rejected")
+    }
+
+    t.suite("Character rename and delete integrity") {
+        var appearance = CharacterAppearance()
+        appearance.hair = "dark brown ponytail"
+        let id = UUID()
+        let original = BibleCharacter(
+            id: id,
+            name: "Adventurer Heroine",
+            appearance: appearance,
+            defaultCostume: "navy outfit",
+            lockedTraits: [.hair]
+        )
+        var project = FilmProject(title: "Rename")
+        project.characterBible.characters = [original]
+        var shot = Shot(index: 0, summary: "She smiles.", characterIDs: [id], compiledPrompt: "The camera holds.")
+        shot.continuityBefore = ContinuitySnapshot(characterOutfit: ["Adventurer Heroine": "navy outfit"])
+        project.shots = [shot]
+        CharacterPromptPipeline.recompile(project: &project)
+
+        var renamed = original
+        renamed.name = "Maya"
+        renamed.updatedAt = Date()
+        project.upsertCharacter(renamed)
+        t.checkEqual(project.shots[0].characterIDs, [id], "rename preserves stable Shot reference")
+        t.check(project.shots[0].compiledPrompt.contains("Maya"), "renamed display name reaches compiled prompt")
+        t.check(!project.shots[0].compiledPrompt.contains("CHARACTER 1: Adventurer Heroine"),
+                "old display name is not retained as prompt identity")
+        t.checkEqual(project.shots[0].continuityBefore?.characterOutfit[id.uuidString], "navy outfit",
+                     "legacy name-keyed continuity normalizes before rename")
+
+        project.removeCharacter(id: id)
+        t.check(project.characterBible.characters.isEmpty, "delete removes Bible character")
+        t.check(project.shots[0].characterIDs.isEmpty, "delete clears every Shot reference")
+        let store = FilmProjectStore(projectsDirectory: tmpDir.appendingPathComponent("delete"))
+        store.save(project)
+        let reloaded = FilmProjectStore(projectsDirectory: tmpDir.appendingPathComponent("delete")).project(id: project.id)
+        t.check(reloaded != nil, "project reloads after referenced Character deletion")
+        t.check(reloaded?.shots[0].characterIDs.isEmpty == true, "no dangling ID after reload")
+    }
+
+    t.suite("CharacterProfile bridge is explicit and non-mutating") {
+        let profile = CharacterProfile(
+            name: "Legacy Hero",
+            prompt: "young explorer in a green coat",
+            negativePrompt: "",
+            sourceImagePath: "/tmp/external-reference.png",
+            voiceoverText: "",
+            voiceoverSource: "mlx-audio",
+            voiceoverVoice: "af_heart",
+            musicEnabled: false,
+            musicGenre: nil,
+            disableAudio: false,
+            modelId: LTXModelCatalog.defaultModelID,
+            parameters: .default
+        )
+        let candidate = CharacterProfileBibleBridge.candidate(from: profile)
+        t.checkEqual(candidate.name, profile.name, "bridge creates an explicit candidate")
+        t.checkEqual(candidate.appearance.generalNotes, profile.prompt, "profile prompt remains reviewable input")
+        t.check(candidate.referenceAssets.isEmpty, "external profile image path is not silently adopted")
+        t.checkEqual(profile.sourceImagePath, "/tmp/external-reference.png", "existing CharacterProfile is untouched")
+    }
+
     t.suite("Take planning (1-20, sequential)") {
         let store = FilmProjectStore(projectsDirectory: tmpDir.appendingPathComponent("p2"))
         let project = makeProject(store: store)

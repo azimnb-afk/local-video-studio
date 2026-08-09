@@ -10,22 +10,237 @@ struct StoryBible: Codable, Equatable {
     var themes: [String] = []
 }
 
-struct CharacterBibleEntry: Codable, Equatable, Identifiable {
-    var id: UUID = UUID()
-    var name: String
-    var appearance: String = ""
-    var wardrobe: String = ""
-    var voice: String = ""
-    var personality: String = ""
-    var referenceImagePath: String?
+struct CharacterAppearance: Codable, Equatable {
+    var faceDescription: String = ""
+    var hair: String = ""
+    var eyes: String = ""
+    var ageImpression: String = ""
+    var build: String = ""
+    var complexion: String = ""
+    var distinguishingFeatures: String = ""
+    var generalNotes: String = ""
+
+    var compactVisualSummary: String {
+        [faceDescription, hair, eyes, ageImpression, build, complexion,
+         distinguishingFeatures, generalNotes]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+    }
+
+    init() {}
+
+    /// Schema-v1 stored `appearance` as a single String. Preserve it as
+    /// general notes while all new projects encode the structured form.
+    init(from decoder: Decoder) throws {
+        if let legacy = try? decoder.singleValueContainer().decode(String.self) {
+            generalNotes = legacy
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        faceDescription = try container.decodeIfPresent(String.self, forKey: .faceDescription) ?? ""
+        hair = try container.decodeIfPresent(String.self, forKey: .hair) ?? ""
+        eyes = try container.decodeIfPresent(String.self, forKey: .eyes) ?? ""
+        ageImpression = try container.decodeIfPresent(String.self, forKey: .ageImpression) ?? ""
+        build = try container.decodeIfPresent(String.self, forKey: .build) ?? ""
+        complexion = try container.decodeIfPresent(String.self, forKey: .complexion) ?? ""
+        distinguishingFeatures = try container.decodeIfPresent(String.self, forKey: .distinguishingFeatures) ?? ""
+        generalNotes = try container.decodeIfPresent(String.self, forKey: .generalNotes) ?? ""
+    }
 }
 
-struct CharacterBible: Codable, Equatable {
-    var characters: [CharacterBibleEntry] = []
+enum CharacterTraitLock: String, Codable, CaseIterable, Identifiable {
+    case face
+    case hair
+    case eyes
+    case body
+    case costume
+    case accessories
 
-    func character(named name: String) -> CharacterBibleEntry? {
-        characters.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+    var id: String { rawValue }
+    var displayName: String { rawValue.capitalized }
+}
+
+/// String-backed so a future app can add asset types without making an older
+/// app reject the entire project. Unknown raw values round-trip unchanged.
+struct CharacterReferenceAssetType: RawRepresentable, Codable, Hashable, Identifiable {
+    var rawValue: String
+    var id: String { rawValue }
+
+    static let characterSheet = Self(rawValue: "characterSheet")
+    static let face = Self(rawValue: "face")
+    static let front = Self(rawValue: "front")
+    static let side = Self(rawValue: "side")
+    static let back = Self(rawValue: "back")
+    static let expression = Self(rawValue: "expression")
+    static let costumeDetail = Self(rawValue: "costumeDetail")
+    static let other = Self(rawValue: "other")
+    static let knownTypes: [Self] = [
+        .characterSheet, .face, .front, .side, .back, .expression, .costumeDetail, .other,
+    ]
+}
+
+struct CharacterReferenceAsset: Codable, Equatable, Identifiable {
+    var id: UUID = UUID()
+    var type: CharacterReferenceAssetType
+    var label: String = ""
+    /// Path relative to the FilmProject's managed asset root. Never an
+    /// external absolute path.
+    var projectRelativePath: String?
+    /// Reserved for a future content-addressed/local asset manager.
+    var managedAssetIdentifier: String?
+    var originalFilename: String?
+    var notes: String = ""
+    var createdAt: Date = Date()
+}
+
+struct CharacterBibleEntry: Codable, Equatable, Identifiable {
+    var id: UUID
+    var name: String
+    var aliases: [String]
+    var appearance: CharacterAppearance
+    var defaultCostume: String
+    var personality: String
+    var speakingStyle: String
+    var roleNotes: String
+    var continuityNotes: String
+    var lockedTraits: Set<CharacterTraitLock>
+    var referenceAssets: [CharacterReferenceAsset]
+    var createdAt: Date
+    var updatedAt: Date
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        aliases: [String] = [],
+        appearance: CharacterAppearance = CharacterAppearance(),
+        defaultCostume: String = "",
+        personality: String = "",
+        speakingStyle: String = "",
+        roleNotes: String = "",
+        continuityNotes: String = "",
+        lockedTraits: Set<CharacterTraitLock> = [],
+        referenceAssets: [CharacterReferenceAsset] = [],
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.name = name
+        self.aliases = aliases
+        self.appearance = appearance
+        self.defaultCostume = defaultCostume
+        self.personality = personality
+        self.speakingStyle = speakingStyle
+        self.roleNotes = roleNotes
+        self.continuityNotes = continuityNotes
+        self.lockedTraits = lockedTraits
+        self.referenceAssets = referenceAssets
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
     }
+
+    /// Source-compatible bridge for the original stub's wardrobe label.
+    var wardrobe: String {
+        get { defaultCostume }
+        set { defaultCostume = newValue }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, aliases, appearance, defaultCostume, wardrobe, voice,
+             personality, speakingStyle, roleNotes, continuityNotes,
+             lockedTraits, referenceAssets, referenceImagePath, createdAt, updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try container.decode(String.self, forKey: .name)
+        aliases = try container.decodeIfPresent([String].self, forKey: .aliases) ?? []
+        appearance = try container.decodeIfPresent(CharacterAppearance.self, forKey: .appearance) ?? CharacterAppearance()
+        defaultCostume = try container.decodeIfPresent(String.self, forKey: .defaultCostume)
+            ?? container.decodeIfPresent(String.self, forKey: .wardrobe)
+            ?? ""
+        personality = try container.decodeIfPresent(String.self, forKey: .personality) ?? ""
+        speakingStyle = try container.decodeIfPresent(String.self, forKey: .speakingStyle)
+            ?? container.decodeIfPresent(String.self, forKey: .voice)
+            ?? ""
+        roleNotes = try container.decodeIfPresent(String.self, forKey: .roleNotes) ?? ""
+        continuityNotes = try container.decodeIfPresent(String.self, forKey: .continuityNotes) ?? ""
+        lockedTraits = try container.decodeIfPresent(Set<CharacterTraitLock>.self, forKey: .lockedTraits) ?? []
+        referenceAssets = try container.decodeIfPresent([CharacterReferenceAsset].self, forKey: .referenceAssets) ?? []
+        if referenceAssets.isEmpty,
+           let legacyPath = try container.decodeIfPresent(String.self, forKey: .referenceImagePath),
+           !legacyPath.isEmpty {
+            referenceAssets = [CharacterReferenceAsset(
+                type: .other,
+                label: "Legacy reference",
+                projectRelativePath: legacyPath.hasPrefix("/") ? nil : legacyPath,
+                originalFilename: URL(fileURLWithPath: legacyPath).lastPathComponent,
+                notes: legacyPath.hasPrefix("/") ? "Legacy external path was not adopted as a managed asset." : ""
+            )]
+        }
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(aliases, forKey: .aliases)
+        try container.encode(appearance, forKey: .appearance)
+        try container.encode(defaultCostume, forKey: .defaultCostume)
+        try container.encode(personality, forKey: .personality)
+        try container.encode(speakingStyle, forKey: .speakingStyle)
+        try container.encode(roleNotes, forKey: .roleNotes)
+        try container.encode(continuityNotes, forKey: .continuityNotes)
+        try container.encode(lockedTraits, forKey: .lockedTraits)
+        try container.encode(referenceAssets, forKey: .referenceAssets)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+    }
+}
+
+typealias BibleCharacter = CharacterBibleEntry
+
+struct CharacterBible: Codable, Equatable {
+    static let currentSchemaVersion = 1
+    var schemaVersion: Int = CharacterBible.currentSchemaVersion
+    var characters: [BibleCharacter] = []
+
+    func character(id: UUID) -> BibleCharacter? {
+        characters.first { $0.id == id }
+    }
+
+    func character(named name: String) -> BibleCharacter? {
+        let matches = characters.filter { character in
+            character.matchingNames.contains { $0.caseInsensitiveCompare(name.trimmedForCharacterMatch) == .orderedSame }
+        }
+        return matches.count == 1 ? matches[0] : nil
+    }
+
+    init(schemaVersion: Int = CharacterBible.currentSchemaVersion, characters: [BibleCharacter] = []) {
+        self.schemaVersion = schemaVersion
+        self.characters = characters
+    }
+
+    private enum CodingKeys: String, CodingKey { case schemaVersion, characters }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? CharacterBible.currentSchemaVersion
+        characters = try container.decodeIfPresent([BibleCharacter].self, forKey: .characters) ?? []
+    }
+}
+
+private extension String {
+    var trimmedForCharacterMatch: String {
+        trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+extension CharacterBibleEntry {
+    var matchingNames: [String] { [name] + aliases }
 }
 
 // MARK: - Continuity snapshot (deterministic state carried between shots)
@@ -146,6 +361,12 @@ struct Shot: Codable, Equatable, Identifiable {
     var audio: AudioPlan = AudioPlan()
     var continuityBefore: ContinuitySnapshot?
     var explicitChanges: [String] = []   // changes this shot introduces
+    /// Stable references into FilmProject.characterBible. Names are display
+    /// data only and may be changed without invalidating these links.
+    var characterIDs: [UUID] = []
+    /// Character-free prompt retained so Bible edits can deterministically
+    /// recompile without repeatedly appending old character context.
+    var baseCompiledPrompt: String?
     var compiledPrompt: String = ""      // prompt compiler output
     var takes: [Take] = []
     var selectedTakeID: UUID?
@@ -153,6 +374,54 @@ struct Shot: Codable, Equatable, Identifiable {
     var selectedTake: Take? {
         guard let selectedTakeID else { return nil }
         return takes.first { $0.id == selectedTakeID }
+    }
+
+    init(
+        id: UUID = UUID(), index: Int, title: String = "", summary: String = "",
+        durationSeconds: Double = 5, camera: CameraPlan = CameraPlan(),
+        audio: AudioPlan = AudioPlan(), continuityBefore: ContinuitySnapshot? = nil,
+        explicitChanges: [String] = [], characterIDs: [UUID] = [],
+        baseCompiledPrompt: String? = nil, compiledPrompt: String = "",
+        takes: [Take] = [], selectedTakeID: UUID? = nil
+    ) {
+        self.id = id
+        self.index = index
+        self.title = title
+        self.summary = summary
+        self.durationSeconds = durationSeconds
+        self.camera = camera
+        self.audio = audio
+        self.continuityBefore = continuityBefore
+        self.explicitChanges = explicitChanges
+        self.characterIDs = characterIDs
+        self.baseCompiledPrompt = baseCompiledPrompt
+        self.compiledPrompt = compiledPrompt
+        self.takes = takes
+        self.selectedTakeID = selectedTakeID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, index, title, summary, durationSeconds, camera, audio,
+             continuityBefore, explicitChanges, characterIDs,
+             baseCompiledPrompt, compiledPrompt, takes, selectedTakeID
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        index = try container.decode(Int.self, forKey: .index)
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        summary = try container.decodeIfPresent(String.self, forKey: .summary) ?? ""
+        durationSeconds = try container.decodeIfPresent(Double.self, forKey: .durationSeconds) ?? 5
+        camera = try container.decodeIfPresent(CameraPlan.self, forKey: .camera) ?? CameraPlan()
+        audio = try container.decodeIfPresent(AudioPlan.self, forKey: .audio) ?? AudioPlan()
+        continuityBefore = try container.decodeIfPresent(ContinuitySnapshot.self, forKey: .continuityBefore)
+        explicitChanges = try container.decodeIfPresent([String].self, forKey: .explicitChanges) ?? []
+        characterIDs = try container.decodeIfPresent([UUID].self, forKey: .characterIDs) ?? []
+        baseCompiledPrompt = try container.decodeIfPresent(String.self, forKey: .baseCompiledPrompt)
+        compiledPrompt = try container.decodeIfPresent(String.self, forKey: .compiledPrompt) ?? ""
+        takes = try container.decodeIfPresent([Take].self, forKey: .takes) ?? []
+        selectedTakeID = try container.decodeIfPresent(UUID.self, forKey: .selectedTakeID)
     }
 }
 
@@ -249,7 +518,7 @@ struct GenerationJob: Codable, Equatable, Identifiable {
 }
 
 struct FilmProject: Codable, Equatable, Identifiable {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     var schemaVersion: Int = FilmProject.currentSchemaVersion
     var id: UUID = UUID()
@@ -270,6 +539,39 @@ struct FilmProject: Codable, Equatable, Identifiable {
     var characterBible: CharacterBible = CharacterBible()
     var shots: [Shot] = []
     var jobs: [GenerationJob] = []
+
+    init(title: String) {
+        self.title = title
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, id, title, createdAt, updatedAt, workflowMode,
+             directorProvider, directorModel, planningMode, fallbackReason,
+             requestedDirectorMode, effectiveDirectorMode, settings,
+             storyBible, characterBible, shots, jobs
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        _ = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        schemaVersion = FilmProject.currentSchemaVersion
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        title = try container.decode(String.self, forKey: .title)
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
+        workflowMode = try container.decodeIfPresent(String.self, forKey: .workflowMode)
+        directorProvider = try container.decodeIfPresent(String.self, forKey: .directorProvider)
+        directorModel = try container.decodeIfPresent(String.self, forKey: .directorModel)
+        planningMode = try container.decodeIfPresent(String.self, forKey: .planningMode)
+        fallbackReason = try container.decodeIfPresent(String.self, forKey: .fallbackReason)
+        requestedDirectorMode = try container.decodeIfPresent(String.self, forKey: .requestedDirectorMode)
+        effectiveDirectorMode = try container.decodeIfPresent(String.self, forKey: .effectiveDirectorMode)
+        settings = try container.decodeIfPresent(ProjectSettings.self, forKey: .settings) ?? ProjectSettings()
+        storyBible = try container.decodeIfPresent(StoryBible.self, forKey: .storyBible) ?? StoryBible()
+        characterBible = try container.decodeIfPresent(CharacterBible.self, forKey: .characterBible) ?? CharacterBible()
+        shots = try container.decodeIfPresent([Shot].self, forKey: .shots) ?? []
+        jobs = try container.decodeIfPresent([GenerationJob].self, forKey: .jobs) ?? []
+    }
 
     mutating func touch() {
         updatedAt = Date()

@@ -47,6 +47,11 @@ final class StoryboardDirector {
         var dialogue: [OneShotPlan.DialogueLine]?
         var audioCues: [String]?
         var explicitChanges: [String]?
+        /// Local AI should return stable UUID strings. String is used at the
+        /// transport boundary so unknown IDs/names can be repaired safely.
+        var characterIDs: [String]?
+        /// Narrow compatibility fallback for observed name-based output.
+        var characterNames: [String]?
     }
 
     struct StoryboardDraft: Codable, Equatable {
@@ -68,22 +73,46 @@ final class StoryboardDirector {
       "setting": "where/when",
       "tone": "mood",
       "initialState": {"location":"...","timeOfDay":"...","weather":"...","lighting":"...",
-                       "characterOutfit":{"Name":"outfit"},"characterPosition":{},"characterCondition":{},
+                       "characterOutfit":{"CharacterID":"outfit"},"characterPosition":{},"characterCondition":{},
                        "props":[],"propOwner":{},"wetness":{},"injuries":{},"dialogueState":"","storyState":""},
       "shots": [
         {"title":"...","summary":"present-tense visible action","durationSeconds":5,
          "shotScale":"extreme-wide|wide|medium-wide|medium|medium-close-up|close-up|extreme-close-up",
          "angle":"low|eye-level|high|overhead","movement":"static|pan|tilt|dolly|track|handheld",
          "lighting":"...","dialogue":[{"speaker":"Name","text":"line"}],"audioCues":["..."],
-         "explicitChanges":["location=...","outfit:Name=...","prop+:item"]}
+         "explicitChanges":["location=...","outfit:CharacterID=...","prop+:item"],
+         "characterIDs":["exact-character-uuid"]}
       ]
     }
     Vary shot scale/angle/movement between consecutive shots. explicitChanges
     uses only these directives: location=, timeOfDay=, weather=, lighting=,
-    outfit:Name=, position:Name=, condition:Name=, wet:Name=, injury:Name=,
+    outfit:CharacterID=, position:CharacterID=, condition:CharacterID=,
+    wet:CharacterID=, injury:CharacterID=,
     prop+:item, prop-:item, propOwner:item=Name, dialogueState=, storyState=.
     2 to 8 shots. Keep user-provided dialogue verbatim.
     """
+
+    static func storyboardSystemPrompt(characterBible: CharacterBible) -> String {
+        guard !characterBible.characters.isEmpty else { return storyboardSystemPrompt }
+        let characters = characterBible.characters.map { character in
+            var parts = ["ID: \(character.id.uuidString)", "Name: \(character.name)"]
+            if !character.aliases.isEmpty { parts.append("Aliases: \(character.aliases.joined(separator: ", "))") }
+            let appearance = character.appearance.compactVisualSummary
+            if !appearance.isEmpty { parts.append("Appearance: \(appearance)") }
+            if !character.defaultCostume.isEmpty { parts.append("Default costume: \(character.defaultCostume)") }
+            if !character.personality.isEmpty { parts.append("Personality: \(character.personality)") }
+            if !character.speakingStyle.isEmpty { parts.append("Speaking style: \(character.speakingStyle)") }
+            if !character.roleNotes.isEmpty { parts.append("Role/notes: \(character.roleNotes)") }
+            return "- " + parts.joined(separator: " | ")
+        }.joined(separator: "\n")
+        return storyboardSystemPrompt + """
+
+
+        AVAILABLE CHARACTERS (use these exact IDs in each shot's characterIDs):
+        \(characters)
+        A person mentioned in the brief but absent from this list may remain ad-hoc; do not invent an ID.
+        """
+    }
 
     private let providers: [DirectorProvider]
     private let requestedMode: DirectorMode
@@ -107,7 +136,10 @@ final class StoryboardDirector {
     }
 
     /// Brief → validated storyboard draft. Provider terminated before return.
-    func draft(brief: String) async throws -> (draft: StoryboardDraft, providerName: String) {
+    func draft(
+        brief: String,
+        characterBible: CharacterBible = CharacterBible()
+    ) async throws -> (draft: StoryboardDraft, providerName: String) {
         diagnostics = []
         lastProviderModel = nil
         lastPlanningMode = nil
@@ -135,7 +167,7 @@ final class StoryboardDirector {
                        message: "using deterministic template after structured planning failed")
             }
             do {
-                let draft = try await draftWithProvider(provider, brief: brief)
+                let draft = try await draftWithProvider(provider, brief: brief, characterBible: characterBible)
                 await provider.terminate()
                 lastPlanningMode = provider.isFallbackProvider
                     ? (requestedMode == .basic ? "basic" : "fallback")
@@ -154,13 +186,20 @@ final class StoryboardDirector {
         throw lastError
     }
 
-    private func draftWithProvider(_ provider: DirectorProvider, brief: String) async throws -> StoryboardDraft {
+    private func draftWithProvider(
+        _ provider: DirectorProvider,
+        brief: String,
+        characterBible: CharacterBible
+    ) async throws -> StoryboardDraft {
         var prompt = "BRIEF: \(brief)"
         var lastFailure = ""
         for attempt in 0...maxRepairAttempts {
             let response: String
             do {
-                response = try await provider.complete(system: Self.storyboardSystemPrompt, prompt: prompt)
+                response = try await provider.complete(
+                    system: Self.storyboardSystemPrompt(characterBible: characterBible),
+                    prompt: prompt
+                )
             } catch {
                 let stage: FailureStage
                 if case DirectorError.noResponse = error {
@@ -356,6 +395,8 @@ final class StoryboardDirector {
                 if shot["angle"] == nil { shot["angle"] = shot["cameraAngle"] }
                 if shot["movement"] == nil { shot["movement"] = shot["cameraMovement"] }
                 if shot["audioCues"] == nil { shot["audioCues"] = shot["audio"] }
+                if shot["characterIDs"] == nil { shot["characterIDs"] = shot["characters"] }
+                if shot["characterNames"] == nil { shot["characterNames"] = shot["character_names"] }
                 return shot
             }
         }
@@ -482,9 +523,10 @@ final class StoryboardDirector {
     func makeProject(
         title: String,
         brief: String,
-        settings: ProjectSettings = ProjectSettings()
+        settings: ProjectSettings = ProjectSettings(),
+        characterBible: CharacterBible = CharacterBible()
     ) async throws -> (project: FilmProject, violations: [ContinuityEngine.Violation], providerName: String) {
-        let (draft, providerName) = try await self.draft(brief: brief)
+        let (draft, providerName) = try await self.draft(brief: brief, characterBible: characterBible)
 
         var project = FilmProject(title: title)
         project.settings = settings
@@ -502,15 +544,20 @@ final class StoryboardDirector {
             setting: draft.setting ?? "",
             tone: draft.tone ?? ""
         )
-        // Character bible seeded from initial state outfits.
-        var bible = CharacterBible()
-        for (name, outfit) in (draft.initialState?.characterOutfit ?? [:]) {
-            bible.characters.append(CharacterBibleEntry(name: name, wardrobe: outfit))
+        // Preserve the user-owned Bible. Legacy/no-Bible planning may still
+        // seed lightweight entries from the provider's initial outfit state.
+        var bible = characterBible
+        if bible.characters.isEmpty {
+            for (name, outfit) in (draft.initialState?.characterOutfit ?? [:]) {
+                bible.characters.append(CharacterBibleEntry(name: name, defaultCostume: outfit))
+            }
         }
         project.characterBible = bible
 
         var violations: [ContinuityEngine.Violation] = []
-        var state = draft.initialState ?? ContinuitySnapshot()
+        var state = ContinuityEngine.normalizedCharacterReferences(
+            in: draft.initialState ?? ContinuitySnapshot(), bible: bible
+        )
         let japaneseHandling = JapaneseDialogueHandling(rawValue: settings.japaneseHandling) ?? .native
 
         for (index, shotDraft) in draft.shots.enumerated() {
@@ -529,11 +576,26 @@ final class StoryboardDirector {
             )
             shot.continuityBefore = state
             shot.explicitChanges = shotDraft.explicitChanges ?? []
+            let resolution = Self.resolveCharacterIDs(
+                for: shotDraft,
+                brief: brief,
+                bible: bible
+            )
+            shot.characterIDs = resolution.ids
+            for unknown in resolution.unknownReferences {
+                violations.append(ContinuityEngine.Violation(
+                    severity: .warning,
+                    message: "Shot \(index + 1): ignored unknown CharacterBible reference '\(unknown)'."
+                ))
+            }
 
             // Deterministic transition; malformed directives surface as violations.
             let nextState: ContinuitySnapshot
             do {
-                nextState = try ContinuityEngine.apply(changes: shot.explicitChanges, to: state)
+                nextState = ContinuityEngine.normalizedCharacterReferences(
+                    in: try ContinuityEngine.apply(changes: shot.explicitChanges, to: state),
+                    bible: bible
+                )
             } catch {
                 violations.append(ContinuityEngine.Violation(
                     severity: .error,
@@ -542,7 +604,10 @@ final class StoryboardDirector {
                 nextState = state
             }
             violations.append(contentsOf: ContinuityEngine.validate(
-                previous: state, next: nextState, explicitChanges: shot.explicitChanges
+                previous: state,
+                next: nextState,
+                explicitChanges: shot.explicitChanges,
+                bible: bible
             ))
 
             // Compile the shot prompt: continuity context + one-shot plan.
@@ -556,19 +621,64 @@ final class StoryboardDirector {
                 audioCues: shotDraft.audioCues ?? [],
                 durationIntentSeconds: shot.durationSeconds
             )
-            let context = ContinuityEngine.promptContext(for: nextState)
+            let context = ContinuityEngine.promptContext(for: nextState, bible: bible)
             let compiled = PromptCompiler.compile(
                 plan: plan,
                 options: PromptCompiler.Options(japaneseHandling: japaneseHandling)
             )
-            shot.compiledPrompt = context.isEmpty ? compiled : context + " " + compiled
+            shot.baseCompiledPrompt = context.isEmpty ? compiled : context + " " + compiled
+            shot.compiledPrompt = shot.baseCompiledPrompt ?? compiled
 
             project.shots.append(shot)
             state = nextState
         }
 
+        CharacterPromptPipeline.recompile(project: &project)
         violations.append(contentsOf: ContinuityEngine.monotonyWarnings(shots: project.shots))
         return (project, violations, providerName)
+    }
+
+    private static func resolveCharacterIDs(
+        for shot: ShotPlanDraft,
+        brief: String,
+        bible: CharacterBible
+    ) -> (ids: [UUID], unknownReferences: [String]) {
+        guard !bible.characters.isEmpty else { return ([], []) }
+        var ids: [UUID] = []
+        var unknown: [String] = []
+        let supplied = (shot.characterIDs ?? []) + (shot.characterNames ?? [])
+        for reference in supplied {
+            if let id = UUID(uuidString: reference), bible.character(id: id) != nil {
+                if !ids.contains(id) { ids.append(id) }
+            } else if let character = bible.character(named: reference) {
+                if !ids.contains(character.id) { ids.append(character.id) }
+            } else {
+                unknown.append(reference)
+            }
+        }
+        guard ids.isEmpty else { return (ids, unknown) }
+
+        let shotMatches = mentionedCharacters(in: shot.summary, bible: bible)
+        if !shotMatches.isEmpty { return (shotMatches, unknown) }
+        let briefMatches = mentionedCharacters(in: brief, bible: bible)
+        // A single explicitly mentioned project character may safely carry
+        // through pronoun-only shots. Multiple candidates are not guessed.
+        return briefMatches.count == 1 ? (briefMatches, unknown) : ([], unknown)
+    }
+
+    private static func mentionedCharacters(in text: String, bible: CharacterBible) -> [UUID] {
+        bible.characters.compactMap { character in
+            character.matchingNames.contains { exactMention($0, in: text) } ? character.id : nil
+        }
+    }
+
+    private static func exactMention(_ name: String, in text: String) -> Bool {
+        let escaped = NSRegularExpression.escapedPattern(for: name.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard !escaped.isEmpty else { return false }
+        return text.range(
+            of: "(?i)(?<![\\p{L}\\p{N}_])\(escaped)(?![\\p{L}\\p{N}_])",
+            options: .regularExpression
+        ) != nil
     }
 }
 
@@ -602,7 +712,9 @@ final class TemplateStoryboardProvider: DirectorProvider {
                 lighting: "soft natural lighting",
                 dialogue: [],
                 audioCues: [],
-                explicitChanges: []
+                explicitChanges: [],
+                characterIDs: nil,
+                characterNames: nil
             )
         }
         let draft = StoryboardDirector.StoryboardDraft(
@@ -631,7 +743,9 @@ final class TemplateStoryboardProvider: DirectorProvider {
         var current: String?
         for line in lines {
             let lower = line.lowercased()
-            if markers.contains(where: { lower.contains($0) }) {
+            let sequencePrefix = ["first,", "first ", "next,", "next ", "finally,", "finally "]
+                .contains { lower.hasPrefix($0) }
+            if markers.contains(where: { lower.contains($0) }) || sequencePrefix {
                 if let current { beats.append(current) }
                 current = line
             } else if let existing = current {
@@ -658,10 +772,11 @@ final class HybridProjectCoordinator {
     func makeProject(
         title: String,
         brief: String,
-        settings: ProjectSettings
+        settings: ProjectSettings,
+        characterBible: CharacterBible = CharacterBible()
     ) async throws -> (project: FilmProject, violations: [ContinuityEngine.Violation], providerName: String) {
         var (project, violations, providerName) = try await director.makeProject(
-            title: title, brief: brief, settings: settings
+            title: title, brief: brief, settings: settings, characterBible: characterBible
         )
         let target = min(60, max(5, settings.targetDurationSeconds ?? 20))
         let desiredCount = min(12, max(1, Int(ceil(target / 5))))
@@ -698,9 +813,10 @@ final class HybridProjectCoordinator {
                 audioCues: shot.audio.sfx,
                 durationIntentSeconds: duration
             )
-            let context = ContinuityEngine.promptContext(for: state)
+            let context = ContinuityEngine.promptContext(for: state, bible: project.characterBible)
             let compiled = PromptCompiler.compile(plan: plan)
-            shot.compiledPrompt = context.isEmpty ? compiled : context + " " + compiled
+            shot.baseCompiledPrompt = context.isEmpty ? compiled : context + " " + compiled
+            shot.compiledPrompt = shot.baseCompiledPrompt ?? compiled
             shots.append(shot)
 
             if let next = try? ContinuityEngine.apply(changes: shot.explicitChanges, to: state) {
@@ -709,6 +825,7 @@ final class HybridProjectCoordinator {
         }
         project.shots = shots
         project.workflowMode = "hybrid"
+        CharacterPromptPipeline.recompile(project: &project)
         violations.append(contentsOf: ContinuityEngine.monotonyWarnings(shots: shots))
         return (project, violations, providerName)
     }

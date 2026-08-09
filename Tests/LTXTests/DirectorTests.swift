@@ -8,6 +8,8 @@ final class MockDirectorProvider: DirectorProvider {
     var available: Bool
     private(set) var completeCalls = 0
     private(set) var terminated = false
+    private(set) var systems: [String] = []
+    private(set) var prompts: [String] = []
 
     init(responses: [String], available: Bool = true) {
         self.responses = responses
@@ -17,6 +19,8 @@ final class MockDirectorProvider: DirectorProvider {
     func isAvailable() async -> Bool { available }
 
     func complete(system: String, prompt: String) async throws -> String {
+        systems.append(system)
+        prompts.append(prompt)
         defer { completeCalls += 1 }
         guard completeCalls < responses.count else {
             throw DirectorError.providerFailed("no more scripted responses")

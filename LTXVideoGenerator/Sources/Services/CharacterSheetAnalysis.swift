@@ -368,20 +368,31 @@ final class OllamaCharacterSheetVisionProvider: CharacterSheetVisionProvider {
         request.httpMethod = "POST"
         request.timeoutInterval = 300
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "model": modelIdentifier,
-            "system": system,
-            "prompt": prompt,
-            "images": [imageData.base64EncodedString()],
-            "stream": false,
-            "think": false,
-            "format": "json",
-        ])
+        request.httpBody = try JSONSerialization.data(withJSONObject: Self.requestPayload(
+            model: modelIdentifier, imageData: imageData, system: system, prompt: prompt
+        ))
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw CharacterSheetAnalysisError.localVisionUnavailable
         }
         return try OllamaDirectorProvider.completionText(from: data)
+    }
+
+    static func requestPayload(
+        model: String,
+        imageData: Data,
+        system: String,
+        prompt: String
+    ) -> [String: Any] {
+        [
+            "model": model,
+            "system": system,
+            "prompt": prompt,
+            "images": [imageData.base64EncodedString()],
+            "stream": false,
+            "think": false,
+            "format": CharacterSheetAnalyzer.outputSchema,
+        ]
     }
 
     func terminate() async {
@@ -429,6 +440,45 @@ final class CharacterSheetAnalyzer {
     Use empty strings/arrays for unsupported observations. Do not output confidence numbers.
     """
 
+    static let outputSchema: [String: Any] = {
+        let string: [String: Any] = ["type": "string"]
+        let stringArray: [String: Any] = ["type": "array", "items": string]
+        let appearanceFields = [
+            "faceDescription", "hair", "eyes", "ageImpression", "build",
+            "complexion", "distinguishingFeatures", "generalNotes",
+        ]
+        let appearanceProperties = Dictionary(uniqueKeysWithValues: appearanceFields.map { ($0, string) })
+        let appearance: [String: Any] = [
+            "type": "object",
+            "additionalProperties": false,
+            "properties": appearanceProperties,
+            "required": appearanceFields,
+        ]
+        let viewItems: [String: Any] = [
+            "type": "string",
+            "enum": ["front", "side", "back", "closeUp", "expression", "costumeDetail", "unknown"],
+        ]
+        let properties: [String: Any] = [
+            "nameCandidate": string,
+            "appearance": appearance,
+            "defaultCostumeDescription": string,
+            "accessories": stringArray,
+            "detectedViews": ["type": "array", "items": viewItems],
+            "expressions": stringArray,
+            "continuitySuggestions": stringArray,
+            "uncertainties": stringArray,
+        ]
+        return [
+            "type": "object",
+            "additionalProperties": false,
+            "properties": properties,
+            "required": [
+                "nameCandidate", "appearance", "defaultCostumeDescription", "accessories",
+                "detectedViews", "expressions", "continuitySuggestions", "uncertainties",
+            ],
+        ]
+    }()
+
     private let provider: CharacterSheetVisionProvider
     private let generationIsActive: () async -> Bool
     private(set) var diagnostics: [Diagnostic] = []
@@ -452,15 +502,26 @@ final class CharacterSheetAnalyzer {
         }
 
         var lastError: Error = CharacterSheetAnalysisError.analysisFailed("Local analysis failed.")
+        var previousInvalidResponse: String?
         for attempt in 0...1 {
             do {
+                let prompt: String
+                if attempt == 0 {
+                    prompt = "Analyze this Character Sheet and return the required JSON only."
+                } else {
+                    let previous = String((previousInvalidResponse ?? "No completion text was returned.").prefix(8_000))
+                    prompt = """
+                    Rewrite the previous invalid output into the required JSON schema. Preserve only observations supported by the image and previous output. Return the JSON object only.
+                    PREVIOUS INVALID OUTPUT:
+                    \(previous)
+                    """
+                }
                 let response = try await provider.complete(
                     imageData: imageData,
                     system: Self.systemPrompt,
-                    prompt: attempt == 0
-                        ? "Analyze this Character Sheet and return the required JSON only."
-                        : "Repair the previous invalid result. Return the required JSON object only."
+                    prompt: prompt
                 )
+                previousInvalidResponse = response
                 let parsed = try Self.parse(response: response, sourceAssetID: sourceAssetID,
                                             provider: provider.name, model: provider.modelIdentifier)
                 await provider.terminate()

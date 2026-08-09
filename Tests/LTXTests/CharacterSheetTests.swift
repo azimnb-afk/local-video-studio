@@ -25,11 +25,13 @@ private final class MockVisionProvider: CharacterSheetVisionProvider {
     var responses: [String]
     private(set) var completeCalls = 0
     private(set) var terminateCalls = 0
+    private(set) var prompts: [String] = []
 
     init(responses: [String]) { self.responses = responses }
     func isAvailable() async -> Bool { available }
     func complete(imageData: Data, system: String, prompt: String) async throws -> String {
         completeCalls += 1
+        prompts.append(prompt)
         return responses.isEmpty ? "" : responses.removeFirst()
     }
     func terminate() async { terminateCalls += 1 }
@@ -123,6 +125,15 @@ func runCharacterSheetTests(_ t: TestKit) {
                 "Vision and Director model settings are separate")
         t.checkEqual(OllamaCharacterSheetVisionEnvironmentClient.endpoint.host, "127.0.0.1",
                      "Vision endpoint is loopback-only")
+        let payload = OllamaCharacterSheetVisionProvider.requestPayload(
+            model: "vision-test", imageData: Data([1, 2, 3]), system: "system", prompt: "prompt"
+        )
+        let schema = payload["format"] as? [String: Any]
+        let properties = schema?["properties"] as? [String: Any]
+        t.check(schema != nil && properties?["appearance"] != nil,
+                "Vision request uses exact JSON Schema format")
+        t.checkEqual(payload["format"] as? String, nil,
+                     "Vision request does not use unconstrained JSON mode")
 
         let suiteName = "LTXTests-vision-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -172,6 +183,8 @@ func runCharacterSheetTests(_ t: TestKit) {
                 t.checkEqual(result.nameCandidate, "Adventurer Heroine", "one repair retry recovers")
                 t.checkEqual(repairing.completeCalls, 2, "repair is bounded to one retry")
                 t.checkEqual(repairing.terminateCalls, 1, "Vision model unloaded after analysis")
+                t.check(repairing.prompts.last?.contains("{broken JSON}") == true,
+                        "repair request includes the previous invalid output")
             } catch { t.check(false, "repairing analyzer threw \(error)") }
             repairedDone.signal()
         }

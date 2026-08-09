@@ -779,6 +779,11 @@ final class HybridProjectCoordinator {
         let desiredCount = min(12, max(1, Int(ceil(target / 5))))
         guard project.shots.count == 1, desiredCount > 1, let source = project.shots.first else {
             project.workflowMode = "hybrid"
+            // The Director planned the shots directly. Reconcile its continuity
+            // decisions against the scene state it produced alongside them, so a
+            // continuous scene inherits its look instead of regenerating a new
+            // person and set for every shot. Auto Movie only.
+            project.shots = ContinuityReconciler.reconcile(shots: project.shots)
             return (project, violations, providerName)
         }
 
@@ -837,10 +842,13 @@ final class HybridProjectCoordinator {
                 state = next
             }
         }
-        project.shots = shots
+        // Split beats are one continuous action by construction, but they still
+        // go through the same reconciliation so every Auto Movie path records a
+        // planned mode, an effective mode and a reason.
+        project.shots = ContinuityReconciler.reconcile(shots: shots)
         project.workflowMode = "hybrid"
         CharacterPromptPipeline.recompile(project: &project)
-        violations.append(contentsOf: ContinuityEngine.monotonyWarnings(shots: shots))
+        violations.append(contentsOf: ContinuityEngine.monotonyWarnings(shots: project.shots))
         return (project, violations, providerName)
     }
 }

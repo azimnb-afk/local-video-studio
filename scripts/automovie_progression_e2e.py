@@ -31,8 +31,59 @@ OLLAMA_MODEL = os.environ.get("LTX_DIRECTOR_MODEL", "qwen3.6-claw-fast:latest")
 CONTINUITY_STRENGTH = 0.8
 W, H, FRAMES, STEPS, FPS, CFG, SEED = 512, 320, 25, 15, 24, 3.0, 42
 BRIEF = ("A young woman walks toward an old stone library, reaches the entrance, "
-         "opens the door, and steps inside.")
+         "unlocks the door, and steps inside.")
 
+# Mirrors ContinuityReconciler (Swift side is unit-tested); promotes a planned
+# cut to a continuation only on positive evidence of the same scene.
+SCENE_CHANGE = ("location=", "timeOfDay=", "weather=")
+INTERIOR = ["interior", "inside", "indoors", "within the", "hallway", "corridor"]
+EXTERIOR = ["exterior", "outside", "outdoors", "courtyard", "street", "path",
+            "facade", "rooftop"]
+
+
+def _side(text):
+    low = text.lower()
+    inside = any(m in low for m in INTERIOR)
+    outside = any(m in low for m in EXTERIOR)
+    if inside and not outside:
+        return "interior"
+    if outside and not inside:
+        return "exterior"
+    return None
+
+
+def reconcile(shots, initial_state):
+    """Returns [(effective_mode, reason)] aligned with shots."""
+    location = (initial_state or {}).get("location", "")
+    cast = set(((initial_state or {}).get("characterOutfit") or {}).keys())
+    results, previous = [], None
+    for i, shot in enumerate(shots):
+        planned = shot.get("continuity", "cut")
+        if i == 0:
+            results.append(("cut", "first shot"))
+        elif planned != "cut":
+            results.append((planned, "director decision kept"))
+        else:
+            changes = shot.get("explicitChanges") or []
+            blocker = next((c for c in changes
+                            if any(c.startswith(p) for p in SCENE_CHANGE)), None)
+            prev_side = _side(previous.get("summary", "") + " " + previous.get("title", ""))
+            cur_side = _side(shot.get("summary", "") + " " + shot.get("title", ""))
+            if blocker:
+                results.append(("cut", f"explicit scene change ({blocker})"))
+            elif prev_side and cur_side and prev_side != cur_side:
+                results.append(("cut", f"scene crosses from {prev_side} to {cur_side}"))
+            elif not location or not cast:
+                results.append(("cut", "no positive evidence of the same scene"))
+            else:
+                results.append(("continue", "continuous scene: same cast, same location"))
+        for change in (shot.get("explicitChanges") or []):
+            if change.startswith("location="):
+                location = change.split("=", 1)[1]
+        previous = shot
+    return results
+
+plan_initial_state = {}
 log_lines = []
 def log(msg):
     print(msg, flush=True)
@@ -56,6 +107,8 @@ def plan_shots() -> list:
     raw = json.load(urllib.request.urlopen(req, timeout=900)).get("response", "") or ""
     (OUT / "director_plan.json").write_text(raw)
     plan = json.loads(raw)
+    global plan_initial_state
+    plan_initial_state = plan.get("initialState", {}) or {}
     return plan.get("shots", [])[:4]
 
 
@@ -117,6 +170,15 @@ def main():
         log(f"   {s.get('summary','')}")
     log("")
 
+    reconciled = reconcile(shots, plan_initial_state)
+    log("Continuity reconciliation:")
+    log(f"   raw       : {[s.get('continuity','?') for s in shots]}")
+    log(f"   effective : {[m for m, _ in reconciled]}")
+    for i, (mode, reason) in enumerate(reconciled):
+        if mode != shots[i].get("continuity", "cut") and i > 0:
+            log(f"   shot {i+1}: {shots[i].get('continuity')} -> {mode}  ({reason})")
+    log("")
+
     previous_video = None
     videos = []
     for i, shot in enumerate(shots):
@@ -125,7 +187,7 @@ def main():
         (OUT / f"{label}_prompt.txt").write_text(prompt)
         image = None
         # The first shot never inherits; otherwise honour the Director's decision.
-        if i > 0 and shot.get("continuity") == "continue" and previous_video is not None:
+        if i > 0 and reconciled[i][0] == "continue" and previous_video is not None:
             frame = OUT / f"{label}_inherited.png"
             if extract_last_frame(previous_video, frame):
                 image = frame

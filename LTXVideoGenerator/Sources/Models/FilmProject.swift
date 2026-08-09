@@ -606,8 +606,15 @@ struct Shot: Codable, Equatable, Identifiable {
     // MARK: Continuity chain (all optional; absent in projects created before
     // the feature existed, which keep behaving exactly as before).
 
-    /// Planner/user intent for how this shot follows the previous one.
+    /// Effective mode used for generation, badges and the continuity chain.
+    /// For Auto Movie this is the reconciled value; everywhere else it is the
+    /// planner/user intent unchanged.
     var continuityMode: ShotContinuityMode?
+    /// What the Director originally asked for, kept so a reconciled promotion
+    /// stays visible after reload (Director: cut → effective: continue).
+    var plannedContinuityMode: ShotContinuityMode?
+    /// Why the effective mode differs from, or matches, the planned one.
+    var continuityReconciliationReason: String?
     /// Project-relative path of the frame inherited from the previous shot.
     var continuityImageRelativePath: String?
     /// Take the inherited frame was extracted from, so a Retake can be
@@ -649,6 +656,8 @@ struct Shot: Codable, Equatable, Identifiable {
         baseCompiledPrompt: String? = nil, compiledPrompt: String = "",
         takes: [Take] = [], selectedTakeID: UUID? = nil,
         continuityMode: ShotContinuityMode? = nil,
+        plannedContinuityMode: ShotContinuityMode? = nil,
+        continuityReconciliationReason: String? = nil,
         continuityImageRelativePath: String? = nil,
         continuitySourceTakeID: UUID? = nil,
         continuityBlockedReason: ContinuityBlockReason? = nil
@@ -669,6 +678,8 @@ struct Shot: Codable, Equatable, Identifiable {
         self.takes = takes
         self.selectedTakeID = selectedTakeID
         self.continuityMode = continuityMode
+        self.plannedContinuityMode = plannedContinuityMode
+        self.continuityReconciliationReason = continuityReconciliationReason
         self.continuityImageRelativePath = continuityImageRelativePath
         self.continuitySourceTakeID = continuitySourceTakeID
         self.continuityBlockedReason = continuityBlockedReason
@@ -679,7 +690,8 @@ struct Shot: Codable, Equatable, Identifiable {
              continuityBefore, explicitChanges, characterIDs,
              startingImageReferenceAssetID,
              baseCompiledPrompt, compiledPrompt, takes, selectedTakeID,
-             continuityMode, continuityImageRelativePath,
+             continuityMode, plannedContinuityMode, continuityReconciliationReason,
+             continuityImageRelativePath,
              continuitySourceTakeID, continuityBlockedReason
     }
 
@@ -701,6 +713,8 @@ struct Shot: Codable, Equatable, Identifiable {
         takes = try container.decodeIfPresent([Take].self, forKey: .takes) ?? []
         selectedTakeID = try container.decodeIfPresent(UUID.self, forKey: .selectedTakeID)
         continuityMode = try container.decodeIfPresent(ShotContinuityMode.self, forKey: .continuityMode)
+        plannedContinuityMode = try container.decodeIfPresent(ShotContinuityMode.self, forKey: .plannedContinuityMode)
+        continuityReconciliationReason = try container.decodeIfPresent(String.self, forKey: .continuityReconciliationReason)
         continuityImageRelativePath = try container.decodeIfPresent(String.self, forKey: .continuityImageRelativePath)
         continuitySourceTakeID = try container.decodeIfPresent(UUID.self, forKey: .continuitySourceTakeID)
         continuityBlockedReason = try container.decodeIfPresent(ContinuityBlockReason.self, forKey: .continuityBlockedReason)

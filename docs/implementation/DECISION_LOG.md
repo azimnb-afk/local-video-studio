@@ -369,3 +369,57 @@ truncated JSON — which burned the repair attempts and silently dropped the run
 to the Basic Director. The request now sets `num_predict` explicitly; three
 consecutive samples then returned valid plans. This is a reliability fix for a
 regression risk introduced by the longer instructions, not a new feature.
+
+## D-038 (2026-08-10) Continuity Reconciliation: the Director owns the story, not the hand-off
+Measured sampling showed the local planner marking an entire continuous scene as
+cuts (0/3 plans with a continuation under the conservative rule, 2/3 with a
+worked example, 2/4 with stronger wording). When every boundary is a cut nothing
+is inherited, and a real four-shot run produced a dark-haired woman in black, a
+woman in silver armour and a middle-aged man across one scene. Prompt wording
+alone did not fix this reliably, so the fix is a deterministic pass rather than
+more instruction text.
+
+`ContinuityReconciler` runs once, on the finished shot plan, inside the Auto
+Movie coordinator only. It uses the Director's own structured metadata:
+per-shot `explicitChanges`, the cumulative `ContinuitySnapshot` (location, time,
+weather, story state) and the cast. Cast evidence prefers stable CharacterBible
+identifiers and falls back to the planner's own continuity-state character keys,
+because a project without a Bible resolves `shot.characterIDs` to empty — the
+keys are structured planner output, not a guess pulled out of prose.
+
+Promotion requires positive evidence on both axes: the same non-empty location
+AND the same non-empty cast. One signal alone is not enough, and absent metadata
+keeps the conservative cut. Any of these keeps the planned cut: an explicit
+`location=`/`timeOfDay=`/`weather=` directive, differing scene state, a differing
+cast, a story-state jump between two stated states, or a shot that crosses an
+interior/exterior threshold.
+
+The pass only ever promotes `cut` to `continue`. It never demotes a planned
+continuation, never touches the first shot, and never overrules an explicit
+scene change. Storyboard, One Shot and Generate are untouched.
+
+## D-039 (2026-08-10) A framing change is not a scene change
+Shot scale, angle and camera movement are deliberately excluded from the
+promotion conditions. Requiring them to match would put continuity in direct
+conflict with the cinematic progression added in D-034/D-035, and it is
+unnecessary: inheriting at the calibrated 0.8 already leaves the camera free to
+move. A wide approach followed by an extreme close-up insert of the same moment
+is a continuation, and is promoted as one.
+
+The interior/exterior check reads the shot's own summary and title first and
+only falls back to the recorded location, because the case it exists for is a
+shot that has moved indoors while the location string still names the old place.
+A test caught the opposite ordering silently cancelling itself out.
+
+## D-040 (2026-08-10) Reconciled decisions are persisted and explainable
+`Shot` gained two optional fields: `plannedContinuityMode` (the Director's raw
+decision) and `continuityReconciliationReason`. `continuityMode` remains the
+effective value, so generation, the continuity chain and the shot badge all keep
+reading one field and needed no change. A reload therefore reproduces the same
+behaviour and still shows that the Director asked for a cut and why the boundary
+was promoted. Projects saved before this decode unchanged.
+
+Measured effect on real plans for the same brief: raw `cut,cut,cut,cut,cut`
+became `cut,continue,continue,continue,cut` — and the closing interior shot
+correctly stayed a cut. Plans that already contained continuations were left
+untouched.

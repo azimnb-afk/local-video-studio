@@ -183,3 +183,59 @@ scene-change directive exists — or simply a stronger planning model.
 
 Evidence: `/tmp/ltx_progression_e2e/` (director_plan.json, per-shot prompts and
 MP4s, `progression_sheet.png`, `auto_movie_final.mp4`).
+
+## Continuity Reconciliation (2026-08-10)
+
+### Effect on real Director plans
+Same brief, three fresh plans from the local Director, reconciled with the
+deterministic pass:
+
+| sample | raw Director | effective after reconciliation |
+|---|---|---|
+| 1 | cut, continue, continue, cut | unchanged |
+| 2 | **cut, cut, cut, cut, cut** | **cut, continue, continue, continue, cut** |
+| 3 | cut, cut, continue, continue, cut | unchanged |
+
+The all-cut failure case is repaired and plans that already contained
+continuations are left alone. The closing interior shot in sample 2 correctly
+stayed a cut. Every sampled plan now ends up with at least one continuation,
+against 2/4 for the prompt-only attempt.
+
+### Real four-shot run (`scripts/automovie_progression_e2e.py`)
+Plan: wide approach → medium-wide arrival → close-up key in lock → interior.
+Director itself chose cut, continue, continue, cut; reconciliation left it
+unchanged. 63/47/47/46 s, assembled to a playable 4.167 s h264 512×320 movie.
+
+**Character and environment continuity: clearly improved.** Shots 1–3 keep the
+same blonde woman in the same white dress with the same red bodice, the same
+arched stone facade, the same mossy courtyard and the same light. The previous
+all-cut run produced a dark-haired woman in black, then a woman in silver
+armour, then a middle-aged man across a single scene.
+
+| boundary | anchor SSIM (first frame vs inherited) | end drift |
+|---|---|---|
+| shot 2 | 0.937 | 0.716 |
+| shot 3 | 0.935 | 0.885 |
+
+Shot 1 first frame vs shot 3 last frame: 0.601 — the scene evolves while staying
+recognisably the same place and person.
+
+### Honest cost: detail inserts after a wide inherited frame
+Shot 3 was planned as a close-up of a key entering a lock. The render kept the
+full-figure framing and the key/lock action did not appear: inheriting a wide
+full-body frame at 0.8 constrains a requested detail insert more than the prompt
+can overcome. Shot 4, a genuine cut, was free to show a new interior — and, being
+a cut, shows a different person.
+
+So the trade-off moved rather than disappeared:
+
+| run | narrative/camera progression | character continuity |
+|---|---|---|
+| all-cut (previous) | strong | broken |
+| reconciled (now) | strong across cuts, weak inside a continued run | maintained within the scene |
+
+This is the insert-shot limitation anticipated during design. It is recorded
+rather than worked around: no per-shot strength levels were added, and detail
+inserts are not force-cut, because that would trade the continuity this pass
+just secured. A per-shot continuity strength — looser for a planned detail
+insert — is the natural next step and is deliberately not implemented here.

@@ -262,3 +262,40 @@ explicit Starting Images are untouched.
 - `swift run LTXTests`: **792 passed, 0 failed** (736 + 56)
 - `xcodebuild` Debug clean build: BUILD SUCCEEDED
 - `git diff --check`: PASS
+
+## 2026-08-10 Continuity Reconciliation
+
+The local Director's cut bias could not be fixed with prompt wording alone
+(0/3, then 2/3, then 2/4 plans with a continuation), and an all-cut plan means
+nothing is inherited — a real run produced three different-looking people inside
+one scene. `ContinuityReconciler` now runs once on the finished shot plan,
+inside the Auto Movie coordinator only, and promotes a planned cut to a
+continuation only on positive evidence from the Director's own metadata: the
+same non-empty location AND the same non-empty cast, with no explicit
+scene/time/weather directive, no story-state jump and no interior/exterior
+crossing. It never demotes, never touches the first shot, and never overrules an
+explicit scene change (D-038).
+
+Framing is deliberately excluded from the conditions — inheriting at 0.8 already
+frees the camera, so a wide shot followed by a detail insert of the same moment
+is still a continuation (D-039). `Shot` gained `plannedContinuityMode` and
+`continuityReconciliationReason`; `continuityMode` stays the effective value, so
+generation, the chain and the badge were unchanged and a reload stays
+explainable (D-040).
+
+Measured: raw `cut,cut,cut,cut,cut` became `cut,continue,continue,continue,cut`
+while plans that already had continuations were left alone. A real four-shot run
+kept the same woman, dress, facade and light across the continued shots, where
+the previous all-cut run had changed person entirely. The honest cost is that a
+planned detail insert after a wide inherited frame does not reach its intended
+framing — recorded in BENCHMARK_RESULTS, with per-shot continuity strength named
+as the natural next step.
+
+Continuity strength stays 0.8. Storyboard, One Shot and Generate are untouched.
+
+### Build & verification
+- `swift build`: PASS
+- `swift run LTXTests`: **830 passed, 0 failed** (792 + 38)
+- `xcodebuild` Debug clean build: BUILD SUCCEEDED
+- `git diff --check`: PASS
+- GUI: sidebar navigation pinned, Auto Movie page and projects load unchanged

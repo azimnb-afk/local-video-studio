@@ -423,3 +423,19 @@ reason as the previous pass (synthetic clicks cannot focus the SwiftUI brief
 editor). The equivalent pipeline — real Director planning, per-shot compilation,
 continuity decision, sequential generation and assembly — was run outside the
 GUI by `scripts/automovie_progression_e2e.py`.
+
+## 2026-08-10 Continuity Reconciliation GUI check
+
+Canonical Debug app, executable mtime `2026-08-10 07:06`, PID 5775.
+
+- [x] Sidebar shows all five entries, pinned at the top (2db0abc fix intact).
+- [x] Auto Movie page header and bilingual descriptions unchanged.
+- [x] Existing Auto Movie projects still load after the two new optional Shot
+  fields were added.
+- [x] Shot badges continue to read `continuityMode`, which is now the effective
+  (reconciled) value, so no badge change was required.
+
+Not re-exercised: a full in-app render to assembly (same SwiftUI brief-editor
+focus limitation as previous passes). The equivalent pipeline — Director
+planning, reconciliation, sequential generation with inheritance, and assembly —
+was run by `scripts/automovie_progression_e2e.py`.

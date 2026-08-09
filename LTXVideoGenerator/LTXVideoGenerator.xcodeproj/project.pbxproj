@@ -35,6 +35,8 @@
 		AA000190 /* MacOSSystemMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000191; };
 		AA000192 /* LTXGenerationLogSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000193; };
 		AA000194 /* GenerationFailureRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000195; };
+		AA000260 /* ContinuityFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000261; };
+		AA000262 /* AutoMovieRunCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000263; };
 		AA000240 /* StoryboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000241; };
 		AA000242 /* CharacterSheetAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000243; };
 		AA000244 /* CharacterReferenceExtraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000245; };
@@ -96,6 +98,8 @@
 		AA00002C /* AudioService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioService.swift; sourceTree = "<group>"; };
 		AA00002E /* AddAudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAudioView.swift; sourceTree = "<group>"; };
 		AA000036 /* CharacterProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterProfile.swift; sourceTree = "<group>"; };
+		AA000261 /* ContinuityFrameExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityFrameExtractor.swift; sourceTree = "<group>"; };
+		AA000263 /* AutoMovieRunCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoMovieRunCoordinator.swift; sourceTree = "<group>"; };
 		AA000241 /* StoryboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryboardView.swift; sourceTree = "<group>"; };
 		AA000243 /* CharacterSheetAnalysis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterSheetAnalysis.swift; sourceTree = "<group>"; };
 		AA000245 /* CharacterReferenceExtraction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterReferenceExtraction.swift; sourceTree = "<group>"; };
@@ -217,6 +221,8 @@
 				AA000014 /* PresetManager.swift */,
 				AA000026 /* APIServer.swift */,
 				AA00002C /* AudioService.swift */,
+				AA000261 /* ContinuityFrameExtractor.swift */,
+				AA000263 /* AutoMovieRunCoordinator.swift */,
 				AA00020B /* VideoGenerationAdapter.swift */,
 				AA00020D /* CompatibilityLab.swift */,
 				AA00020F /* ManifestValidator.swift */,
@@ -364,6 +370,8 @@
 				AA00001D /* PreferencesView.swift in Sources */,
 				AA000025 /* APIServer.swift in Sources */,
 				AA00002B /* AudioService.swift in Sources */,
+				AA000260 /* ContinuityFrameExtractor.swift in Sources */,
+				AA000262 /* AutoMovieRunCoordinator.swift in Sources */,
 				AA00002D /* AddAudioView.swift in Sources */,
 				AA000240 /* StoryboardView.swift in Sources */,
 				AA000246 /* CharacterReferenceExtractionView.swift in Sources */,

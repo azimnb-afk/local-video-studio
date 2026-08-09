@@ -46,6 +46,22 @@ final class FilmProjectStore {
             .appendingPathComponent(characterID.uuidString, isDirectory: true)
     }
 
+    /// Continuity frames inherited between shots live beside character assets
+    /// inside the project, so they survive relaunch and are removed with the
+    /// project instead of leaking into a temporary directory.
+    func continuityAssetsDirectory(projectID: UUID) -> URL {
+        projectsDirectory
+            .appendingPathComponent(projectID.uuidString, isDirectory: true)
+            .appendingPathComponent("Assets", isDirectory: true)
+            .appendingPathComponent("Continuity", isDirectory: true)
+    }
+
+    /// Resolves any project-relative asset path, refusing absolute paths and
+    /// anything that escapes the project directory.
+    func managedProjectAssetURL(projectID: UUID, relativePath: String) -> URL? {
+        managedCharacterAssetURL(projectID: projectID, relativePath: relativePath)
+    }
+
     func managedCharacterAssetURL(projectID: UUID, relativePath: String) -> URL? {
         guard !relativePath.isEmpty, !relativePath.hasPrefix("/") else { return nil }
         let root = projectsDirectory

@@ -532,6 +532,54 @@ struct Take: Codable, Equatable, Identifiable {
     var sourceImagePath: String?
 }
 
+// MARK: - Continuity chain
+
+/// How a shot relates visually to the shot before it.
+///
+/// `continueFromPrevious` reuses the previous shot's final frame as this
+/// shot's starting image (existing single-image I2V bridge), which visually
+/// carries the person, wardrobe, location and lighting forward. `cut` starts
+/// the shot independently. `auto` lets the planner decide, and resolves
+/// conservatively to `cut` when the relationship is unclear.
+///
+/// This is a visual anchor, not identity conditioning: it improves continuity
+/// but never guarantees the same person or place.
+enum ShotContinuityMode: String, Codable, CaseIterable {
+    case auto
+    case continueFromPrevious = "continue"
+    case cut
+
+    var displayName: String {
+        switch self {
+        case .auto: return "Auto"
+        case .continueFromPrevious: return "Continue"
+        case .cut: return "Cut"
+        }
+    }
+}
+
+/// Why a shot cannot currently generate because its continuity input is
+/// unavailable. Continuity is never silently downgraded to plain text-to-video.
+enum ContinuityBlockReason: String, Codable, Error {
+    case previousShotIncomplete
+    case previousOutputMissing
+    case frameExtractionFailed
+    case continuityAssetMissing
+
+    var userMessage: String {
+        switch self {
+        case .previousShotIncomplete:
+            return "Waiting for the previous shot to finish before this shot can continue from it."
+        case .previousOutputMissing:
+            return "The previous shot's video file is missing, so this shot cannot continue from it."
+        case .frameExtractionFailed:
+            return "Could not read the final frame of the previous shot."
+        case .continuityAssetMissing:
+            return "The inherited starting frame for this shot is missing."
+        }
+    }
+}
+
 // MARK: - Shot
 
 struct Shot: Codable, Equatable, Identifiable {
@@ -555,9 +603,41 @@ struct Shot: Codable, Equatable, Identifiable {
     var takes: [Take] = []
     var selectedTakeID: UUID?
 
+    // MARK: Continuity chain (all optional; absent in projects created before
+    // the feature existed, which keep behaving exactly as before).
+
+    /// Planner/user intent for how this shot follows the previous one.
+    var continuityMode: ShotContinuityMode?
+    /// Project-relative path of the frame inherited from the previous shot.
+    var continuityImageRelativePath: String?
+    /// Take the inherited frame was extracted from, so a Retake can be
+    /// detected as making this shot's continuity input stale.
+    var continuitySourceTakeID: UUID?
+    /// Set when a `continue` shot cannot resolve its inherited frame.
+    var continuityBlockedReason: ContinuityBlockReason?
+
     var selectedTake: Take? {
         guard let selectedTakeID else { return nil }
         return takes.first { $0.id == selectedTakeID }
+    }
+
+    /// Take usable for assembly: an explicit selection wins; otherwise a single
+    /// completed take may stand in. Multiple completed takes with no selection
+    /// stay ambiguous on purpose — the app never ranks takes automatically.
+    var assemblyCandidateTake: Take? {
+        if let selectedTake, selectedTake.status == .completed { return selectedTake }
+        if selectedTakeID != nil { return nil }
+        let completed = takes.filter { $0.status == .completed }
+        return completed.count == 1 ? completed[0] : nil
+    }
+
+    /// Latest completed take, used as the continuity source when no explicit
+    /// selection exists.
+    var continuitySourceTake: Take? {
+        if let selectedTake, selectedTake.status == .completed { return selectedTake }
+        return takes
+            .filter { $0.status == .completed }
+            .max { ($0.generationCompletedAt ?? .distantPast) < ($1.generationCompletedAt ?? .distantPast) }
     }
 
     init(
@@ -567,7 +647,11 @@ struct Shot: Codable, Equatable, Identifiable {
         explicitChanges: [String] = [], characterIDs: [UUID] = [],
         startingImageReferenceAssetID: UUID? = nil,
         baseCompiledPrompt: String? = nil, compiledPrompt: String = "",
-        takes: [Take] = [], selectedTakeID: UUID? = nil
+        takes: [Take] = [], selectedTakeID: UUID? = nil,
+        continuityMode: ShotContinuityMode? = nil,
+        continuityImageRelativePath: String? = nil,
+        continuitySourceTakeID: UUID? = nil,
+        continuityBlockedReason: ContinuityBlockReason? = nil
     ) {
         self.id = id
         self.index = index
@@ -584,13 +668,19 @@ struct Shot: Codable, Equatable, Identifiable {
         self.compiledPrompt = compiledPrompt
         self.takes = takes
         self.selectedTakeID = selectedTakeID
+        self.continuityMode = continuityMode
+        self.continuityImageRelativePath = continuityImageRelativePath
+        self.continuitySourceTakeID = continuitySourceTakeID
+        self.continuityBlockedReason = continuityBlockedReason
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, index, title, summary, durationSeconds, camera, audio,
              continuityBefore, explicitChanges, characterIDs,
              startingImageReferenceAssetID,
-             baseCompiledPrompt, compiledPrompt, takes, selectedTakeID
+             baseCompiledPrompt, compiledPrompt, takes, selectedTakeID,
+             continuityMode, continuityImageRelativePath,
+             continuitySourceTakeID, continuityBlockedReason
     }
 
     init(from decoder: Decoder) throws {
@@ -610,6 +700,10 @@ struct Shot: Codable, Equatable, Identifiable {
         compiledPrompt = try container.decodeIfPresent(String.self, forKey: .compiledPrompt) ?? ""
         takes = try container.decodeIfPresent([Take].self, forKey: .takes) ?? []
         selectedTakeID = try container.decodeIfPresent(UUID.self, forKey: .selectedTakeID)
+        continuityMode = try container.decodeIfPresent(ShotContinuityMode.self, forKey: .continuityMode)
+        continuityImageRelativePath = try container.decodeIfPresent(String.self, forKey: .continuityImageRelativePath)
+        continuitySourceTakeID = try container.decodeIfPresent(UUID.self, forKey: .continuitySourceTakeID)
+        continuityBlockedReason = try container.decodeIfPresent(ContinuityBlockReason.self, forKey: .continuityBlockedReason)
     }
 }
 
@@ -731,6 +825,19 @@ struct FilmProject: Codable, Equatable, Identifiable {
     var shots: [Shot] = []
     var jobs: [GenerationJob] = []
 
+    // MARK: Automatic assembly bookkeeping (optional; legacy projects decode
+    // with these absent and simply have no assembly recorded yet).
+
+    /// Ordered take identity the last successful assembly was produced from.
+    /// Re-running with an unchanged signature is skipped, which is what makes
+    /// automatic assembly fire exactly once per completed run.
+    var lastAssemblySignature: String?
+    var assembledMoviePath: String?
+    var assembledAt: Date?
+
+    /// Enabled continuity chaining for this project's automatic run.
+    var continuityChainEnabled: Bool?
+
     init(id: UUID = UUID(), title: String) {
         self.id = id
         self.title = title
@@ -740,7 +847,9 @@ struct FilmProject: Codable, Equatable, Identifiable {
         case schemaVersion, id, title, createdAt, updatedAt, workflowMode,
              directorProvider, directorModel, planningMode, fallbackReason,
              requestedDirectorMode, effectiveDirectorMode, settings,
-             storyBible, characterBible, shots, jobs
+             storyBible, characterBible, shots, jobs,
+             lastAssemblySignature, assembledMoviePath, assembledAt,
+             continuityChainEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -763,6 +872,10 @@ struct FilmProject: Codable, Equatable, Identifiable {
         characterBible = try container.decodeIfPresent(CharacterBible.self, forKey: .characterBible) ?? CharacterBible()
         shots = try container.decodeIfPresent([Shot].self, forKey: .shots) ?? []
         jobs = try container.decodeIfPresent([GenerationJob].self, forKey: .jobs) ?? []
+        lastAssemblySignature = try container.decodeIfPresent(String.self, forKey: .lastAssemblySignature)
+        assembledMoviePath = try container.decodeIfPresent(String.self, forKey: .assembledMoviePath)
+        assembledAt = try container.decodeIfPresent(Date.self, forKey: .assembledAt)
+        continuityChainEnabled = try container.decodeIfPresent(Bool.self, forKey: .continuityChainEnabled)
     }
 
     mutating func touch() {

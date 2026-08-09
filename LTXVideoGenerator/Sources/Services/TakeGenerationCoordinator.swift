@@ -12,6 +12,7 @@ final class TakeGenerationCoordinator {
         case shotNotFound(UUID)
         case startingImageNotFound(UUID)
         case startingImageUnavailable(UUID)
+        case continuityImageUnavailable(UUID)
 
         var errorDescription: String? {
             switch self {
@@ -23,6 +24,8 @@ final class TakeGenerationCoordinator {
                 return "Selected starting image asset (\(id.uuidString.prefix(6))) not found in project."
             case .startingImageUnavailable(let id):
                 return "Selected starting image file for asset (\(id.uuidString.prefix(6))) is unavailable on disk."
+            case .continuityImageUnavailable(let id):
+                return "Shot (\(id.uuidString.prefix(6))) should continue from the previous shot, but its inherited starting frame is unavailable. Retry the shot or switch it to Cut."
             }
         }
     }
@@ -57,6 +60,12 @@ final class TakeGenerationCoordinator {
         let targetDuration = settings.resolvedPreset == .custom ? nil : shot.durationSeconds
         let generationSource = project.workflowMode == "hybrid" ? "hybrid" : "storyboard"
 
+        // Starting image precedence:
+        //   1. the shot's explicit user/CharacterBible selection
+        //   2. a frame inherited from the previous shot (continuity chain)
+        //   3. none — ordinary text-to-video
+        // A shot that is supposed to continue but has an unusable inherited
+        // frame is rejected rather than quietly rendered as text-to-video.
         var sourceImagePath: String? = nil
         if let assetID = shot.startingImageReferenceAssetID {
             guard let (_, asset) = project.findReferenceAsset(id: assetID) else {
@@ -66,6 +75,12 @@ final class TakeGenerationCoordinator {
                   let url = store.managedCharacterAssetURL(projectID: projectID, relativePath: relativePath),
                   FileManager.default.fileExists(atPath: url.path) else {
                 throw CoordinatorError.startingImageUnavailable(assetID)
+            }
+            sourceImagePath = url.path
+        } else if let relativePath = shot.continuityImageRelativePath {
+            guard let url = store.managedProjectAssetURL(projectID: projectID, relativePath: relativePath),
+                  ContinuityFrameExtractor.isUsableImage(atPath: url.path) else {
+                throw CoordinatorError.continuityImageUnavailable(shotID)
             }
             sourceImagePath = url.path
         }

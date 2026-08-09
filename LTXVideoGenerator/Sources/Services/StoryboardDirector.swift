@@ -52,6 +52,10 @@ final class StoryboardDirector {
         var characterIDs: [String]?
         /// Narrow compatibility fallback for observed name-based output.
         var characterNames: [String]?
+        /// "continue" when this shot is a direct physical continuation of the
+        /// previous one, "cut" for a new scene. Absent/unknown values resolve
+        /// conservatively to a cut.
+        var continuity: String?
     }
 
     struct StoryboardDraft: Codable, Equatable {
@@ -81,7 +85,8 @@ final class StoryboardDirector {
          "angle":"low|eye-level|high|overhead","movement":"static|pan|tilt|dolly|track|handheld",
          "lighting":"...","dialogue":[{"speaker":"Name","text":"line"}],"audioCues":["..."],
          "explicitChanges":["location=...","outfit:CharacterID=...","prop+:item"],
-         "characterIDs":["exact-character-uuid"]}
+         "characterIDs":["exact-character-uuid"],
+         "continuity":"continue|cut"}
       ]
     }
     Vary shot scale/angle/movement between consecutive shots. explicitChanges
@@ -90,6 +95,11 @@ final class StoryboardDirector {
     wet:CharacterID=, injury:CharacterID=,
     prop+:item, prop-:item, propOwner:item=Name, dialogueState=, storyState=.
     2 to 8 shots. Keep user-provided dialogue verbatim.
+    Set "continuity":"continue" only when the shot is a direct physical
+    continuation of the previous one: same location, same active characters, no
+    time jump, one unbroken action. Use "cut" for a location change, a time
+    jump, a new establishing shot, a different character, or any intentional
+    cinematic cut. When unsure, use "cut". The first shot is always "cut".
     """
 
     static func storyboardSystemPrompt(characterBible: CharacterBible) -> String {
@@ -511,6 +521,12 @@ final class StoryboardDirector {
         for (index, shotDraft) in draft.shots.enumerated() {
             var shot = Shot(index: index, title: shotDraft.title, summary: shotDraft.summary)
             shot.durationSeconds = min(6, max(1, shotDraft.durationSeconds ?? 5))
+            // The first shot has nothing to continue from. Unknown or missing
+            // planner values fall back to `auto`, which the run coordinator
+            // resolves deterministically (and conservatively) at generation time.
+            shot.continuityMode = index == 0
+                ? .cut
+                : ShotContinuityMode(rawValue: (shotDraft.continuity ?? "").lowercased()) ?? .auto
             shot.camera = CameraPlan(
                 shotScale: shotDraft.shotScale ?? "medium",
                 angle: shotDraft.angle ?? "eye-level",
@@ -752,6 +768,13 @@ final class HybridProjectCoordinator {
             shot.continuityBefore = state
             shot.takes = []
             shot.selectedTakeID = nil
+            // These beats are one continuous action split by duration, so each
+            // one genuinely continues the previous. The first still has nothing
+            // to inherit from.
+            shot.continuityMode = index == 0 ? .cut : .continueFromPrevious
+            shot.continuityImageRelativePath = nil
+            shot.continuitySourceTakeID = nil
+            shot.continuityBlockedReason = nil
 
             let plan = OneShotPlan(
                 camera: "\(shot.camera.shotScale) shot, \(shot.camera.angle) angle, \(shot.camera.movement) camera",

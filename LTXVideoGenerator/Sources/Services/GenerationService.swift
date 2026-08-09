@@ -15,6 +15,10 @@ class GenerationService: ObservableObject {
     private let historyManager: HistoryManager
     private let bridge = LTXBridge.shared
     private var processingTask: Task<Void, Never>?
+    /// Film projects whose run should advance once the current take settles.
+    private var completedProjectIDsAwaitingAdvance: Set<UUID> = []
+    /// Prevents a second automatic assembly while one is already running.
+    private var autoAssemblingProjectIDs: Set<UUID> = []
     
     nonisolated init(historyManager: HistoryManager) {
         self.historyManager = historyManager
@@ -437,6 +441,9 @@ class GenerationService: ObservableObject {
             // Film project linkage: mark the corresponding take completed.
             if FeatureFlags.isEnabled(.filmProjectV1), generationResult.takeID != nil {
                 TakeGenerationCoordinator().recordCompletion(result: generationResult)
+                if let projectID = generationResult.filmProjectID {
+                    completedProjectIDsAwaitingAdvance.insert(projectID)
+                }
             }
             
             // Update queue
@@ -464,6 +471,80 @@ class GenerationService: ObservableObject {
         // Remove completed/failed/cancelled from queue
         queue.removeAll { $0.status != .pending }
 
+        // Auto Movie runs advance one shot at a time, so the next shot can only
+        // be queued now that this one's output (and its continuity frame) exist.
+        advanceFilmProjectRunsIfNeeded()
+    }
+
+    /// Continues automatic film-project runs after a take finishes: enqueue the
+    /// next shot, or assemble once when the whole run is done. Store access
+    /// stays on the main actor; only FFmpeg is moved off it.
+    private func advanceFilmProjectRunsIfNeeded() {
+        guard FeatureFlags.isEnabled(.filmProjectV1) else {
+            completedProjectIDsAwaitingAdvance.removeAll()
+            return
+        }
+        let projectIDs = completedProjectIDsAwaitingAdvance
+        completedProjectIDsAwaitingAdvance.removeAll()
+        let coordinator = AutoMovieRunCoordinator.shared
+
+        for projectID in projectIDs {
+            var pendingRequests: [GenerationRequest] = []
+            let step = coordinator.advance(projectID: projectID) { pendingRequests = $0 }
+            if !pendingRequests.isEmpty {
+                addBatch(pendingRequests)
+                continue
+            }
+            switch step {
+            case .assembling:
+                startAutoAssembly(projectID: projectID)
+            case .idle:
+                // Manual storyboards still get one automatic assembly when the
+                // last shot lands.
+                coordinator.autoSelectUnambiguousTakes(projectID: projectID)
+                if let project = FilmProjectStore.shared.project(id: projectID),
+                   coordinator.shouldAutoAssemble(project: project) {
+                    startAutoAssembly(projectID: projectID)
+                }
+            case .blocked(_, let reason):
+                statusMessage = reason.userMessage
+            case .shotFailed:
+                statusMessage = "A shot failed; the movie was not assembled."
+            default:
+                break
+            }
+        }
+    }
+
+    private func startAutoAssembly(projectID: UUID) {
+        let coordinator = AutoMovieRunCoordinator.shared
+        guard !autoAssemblingProjectIDs.contains(projectID),
+              let project = FilmProjectStore.shared.project(id: projectID),
+              let signature = coordinator.assemblySignature(for: project) else { return }
+        let outputPath = coordinator.assemblyOutputPath(projectID: projectID)
+        autoAssemblingProjectIDs.insert(projectID)
+        statusMessage = "Assembling final movie…"
+        Task { [weak self] in
+            let outcome: Result<Void, Error> = await Task.detached {
+                do {
+                    try AutoMovieRunCoordinator.assembleBlocking(project: project, outputPath: outputPath)
+                    return .success(())
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+            guard let self else { return }
+            self.autoAssemblingProjectIDs.remove(projectID)
+            switch outcome {
+            case .success:
+                coordinator.recordAssemblySuccess(
+                    projectID: projectID, signature: signature, outputPath: outputPath
+                )
+                self.statusMessage = "Final movie ready: \(outputPath)"
+            case .failure(let error):
+                self.statusMessage = "Final assembly failed: \(error.localizedDescription)"
+            }
+        }
     }
 
     private func recordCancellation(request: GenerationRequest, at index: Int) {

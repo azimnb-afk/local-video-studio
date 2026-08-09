@@ -4,7 +4,7 @@ private enum StoryboardWorkspaceMode {
     case storyboard
     case hybrid
 
-    var title: String { self == .hybrid ? "Hybrid Projects" : "Storyboards" }
+    var title: String { self == .hybrid ? "Auto Movies" : "Storyboards" }
     var workflowValue: String? { self == .hybrid ? "hybrid" : nil }
 }
 
@@ -37,12 +37,12 @@ struct StoryboardView: View {
     var body: some View {
         VStack(spacing: 0) {
             BilingualPageHeader(
-                title: mode == .hybrid ? "Hybrid" : "Storyboard",
+                title: mode == .hybrid ? "Auto Movie (Sora 2-like)" : "Storyboard",
                 englishDescription: mode == .hybrid
-                    ? "Combine automatic planning with manual storyboard control."
+                    ? "Turn a simple idea into multiple connected shots and automatically assemble them into a complete video."
                     : "Build and manage a video as multiple shots, takes, and characters.",
                 japaneseDescription: mode == .hybrid
-                    ? "AIによる自動構成とストーリーボードの手動編集を組み合わせて制作します。"
+                    ? "簡単なアイデアから連続した複数のショットを生成し、1本の動画として自動で仕上げます。"
                     : "複数のショット・テイク・キャラクターを管理しながら映像を制作します。"
             )
             .padding(.horizontal, 24)
@@ -91,7 +91,7 @@ struct StoryboardView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
-                .help(mode == .hybrid ? "Create a Hybrid project and generate its first pass" : "Create a storyboard from a short brief")
+                .help(mode == .hybrid ? "Create an Auto Movie and generate all of its shots automatically" : "Create a storyboard from a short brief")
             }
             .padding(12)
             Divider()
@@ -130,7 +130,7 @@ struct StoryboardView: View {
             Image(systemName: "movieclapper")
                 .font(.system(size: 48))
                 .foregroundStyle(.secondary)
-            Text(mode == .hybrid ? "Create and generate a first pass automatically" : "Create a storyboard from a short brief")
+            Text(mode == .hybrid ? "Create connected shots and assemble them automatically" : "Create a storyboard from a short brief")
                 .font(.title3)
             Text(mode == .hybrid
                  ? "The local director structures the story, splits it into short shots and queues one take per shot sequentially. Review, retake and assemble here."
@@ -139,7 +139,7 @@ struct StoryboardView: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 380)
                 .multilineTextAlignment(.center)
-            Button(mode == .hybrid ? "New Hybrid Project…" : "New Storyboard…") { showNewProjectSheet = true }
+            Button(mode == .hybrid ? "New Auto Movie…" : "New Storyboard…") { showNewProjectSheet = true }
                 .buttonStyle(.borderedProminent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -178,14 +178,23 @@ struct StoryboardView: View {
                         settings: settings, characterBible: characterBible
                     )
                 project.workflowMode = mode.workflowValue
+                if mode == .hybrid {
+                    project.continuityChainEnabled = true
+                }
                 store.save(project)
                 if mode == .hybrid, generateFirstPass {
                     if !DependencyHealthManager.shared.isGenerationReady {
                         DependencyHealthManager.shared.showSetupWizard = true
                     } else {
-                        let coordinator = TakeGenerationCoordinator(store: store, generationService: generationService)
-                        for shot in project.shots {
-                            _ = try coordinator.planTakes(projectID: project.id, shotID: shot.id, count: 1)
+                        // Only the first shot is queued here. A shot that
+                        // continues from the previous one can only be built
+                        // after that shot has actually rendered, so the run
+                        // advances itself as each take completes.
+                        var pending: [GenerationRequest] = []
+                        _ = AutoMovieRunCoordinator(store: store)
+                            .advance(projectID: project.id) { pending = $0 }
+                        if !pending.isEmpty {
+                            generationService.addBatch(pending)
                         }
                     }
                 }
@@ -241,7 +250,7 @@ private struct NewStoryboardSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(mode == .hybrid ? "New Hybrid Project" : "New Storyboard")
+            Text(mode == .hybrid ? "New Auto Movie" : "New Storyboard")
                 .font(.headline)
             TextField("Title", text: $title)
                 .textFieldStyle(.roundedBorder)
@@ -329,7 +338,7 @@ private struct NewStoryboardSheet: View {
                     settings.targetDurationSeconds = mode == .hybrid ? targetDuration : nil
                     onCreate(
                         projectID,
-                        title.isEmpty ? (mode == .hybrid ? "Untitled Hybrid Project" : "Untitled Storyboard") : title,
+                        title.isEmpty ? (mode == .hybrid ? "Untitled Auto Movie" : "Untitled Storyboard") : title,
                         brief,
                         settings,
                         characterBible,
@@ -340,7 +349,7 @@ private struct NewStoryboardSheet: View {
                         ProgressView().controlSize(.small)
                     } else {
                         Text(mode == .hybrid
-                             ? (generateFirstPass ? "Create & Generate" : "Create Hybrid Project")
+                             ? (generateFirstPass ? "Generate Movie" : "Create Auto Movie")
                              : "Create Storyboard")
                     }
                 }
@@ -530,6 +539,29 @@ private struct ProjectDetailView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            // Finished movie produced by automatic (or manual) assembly.
+            if let moviePath = project.assembledMoviePath,
+               FileManager.default.fileExists(atPath: moviePath) {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.seal.fill")
+                        .foregroundStyle(.green)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Completed movie ready")
+                            .font(.callout.bold())
+                        Text(URL(fileURLWithPath: moviePath).lastPathComponent)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Play") { NSWorkspace.shared.open(URL(fileURLWithPath: moviePath)) }
+                    Button("Reveal") {
+                        NSWorkspace.shared.selectFile(moviePath, inFileViewerRootedAtPath: "")
+                    }
+                }
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.green.opacity(0.08)))
+            }
         }
     }
 
@@ -710,6 +742,43 @@ private struct ShotCard: View {
     @State private var takeCount = 1
     @State private var showPrompt = false
 
+    /// Shows whether this shot starts from the previous shot's final frame.
+    /// The inherited frame is a visual anchor for the same scene and wardrobe;
+    /// it is not identity conditioning and cannot guarantee the same person.
+    @ViewBuilder
+    private var continuityBadge: some View {
+        let resolved = AutoMovieRunCoordinator.shared
+            .resolvedContinuityMode(forShotAt: shot.index, in: project)
+        if let blocked = shot.continuityBlockedReason {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Text(blocked.userMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } else if shot.index > 0, resolved == .continueFromPrevious {
+            HStack(spacing: 6) {
+                Image(systemName: "link").foregroundStyle(.blue)
+                Text("Continues from Shot \(shot.index)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if shot.startingImageReferenceAssetID != nil {
+                    Text("· using this shot's own starting image")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .help("This shot starts from the final frame of the previous shot, which carries the scene, wardrobe and lighting forward. It improves visual continuity but does not guarantee an identical person.")
+        } else if shot.index > 0 {
+            HStack(spacing: 6) {
+                Image(systemName: "scissors").foregroundStyle(.secondary)
+                Text("Cut — starts a new scene")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -723,6 +792,8 @@ private struct ShotCard: View {
             Text(shot.summary)
                 .font(.body)
                 .foregroundStyle(.secondary)
+
+            continuityBadge
 
             characterAssignment
 
@@ -1128,7 +1199,7 @@ private struct ProjectCharactersSection: View {
     var body: some View {
         DisclosureGroup("Characters", isExpanded: $isExpanded) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Character Bible · shared by Storyboard and Hybrid")
+                Text("Character Bible · shared by Storyboard and Auto Movie")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if project.characterBible.characters.isEmpty {
@@ -1474,7 +1545,7 @@ private struct CharacterSheetReviewSession: Identifiable {
     var analysisMessage: String?
 }
 
-/// One shared import surface for Storyboard and Hybrid. The managed asset is
+/// One shared import surface for Storyboard and Auto Movie. The managed asset is
 /// staged before analysis, but neither a new Character nor existing fields are
 /// changed until the user presses Save in the review sheet.
 private struct CharacterSheetImportButton: View {

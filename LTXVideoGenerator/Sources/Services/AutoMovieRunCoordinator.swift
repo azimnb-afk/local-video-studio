@@ -1,0 +1,350 @@
+import Foundation
+
+/// Drives an Auto Movie run from planned shots to a finished movie:
+/// sequential shot generation, continuity inheritance between consecutive
+/// shots, and exactly one automatic Final Assembly at the end of the run.
+///
+/// Deliberate invariants:
+/// - one generation at a time (shots are enqueued one after another, never in
+///   a single upfront batch, because shot N+1's starting image only exists
+///   after shot N has finished rendering)
+/// - a `continue` shot never silently degrades to plain text-to-video; if its
+///   inherited frame is unavailable the shot is blocked with a reason
+/// - assembly runs once per completed run, guarded by a take-identity
+///   signature so re-entry cannot produce duplicate movies
+final class AutoMovieRunCoordinator {
+    static let shared = AutoMovieRunCoordinator()
+
+    /// Projects whose workflowMode marks them as automatic (Auto Movie).
+    static let autoMovieWorkflowMode = "hybrid"
+
+    enum RunStep: Equatable {
+        /// Not an automatic project, or nothing left to do.
+        case idle
+        /// A generation is still in flight; the run resumes on completion.
+        case waiting
+        case enqueued(shotID: UUID)
+        case blocked(shotID: UUID, reason: ContinuityBlockReason)
+        case shotFailed(shotID: UUID)
+        /// Every shot rendered, but take selection is ambiguous.
+        case needsTakeSelection
+        case assembling
+        case assembled(path: String)
+        case assemblyFailed(String)
+        /// Already assembled for the current take selection.
+        case completed
+    }
+
+    private let store: FilmProjectStore
+    /// Guards against two assemblies for the same project overlapping.
+    private var assemblingProjectIDs: Set<UUID> = []
+    private let lock = NSLock()
+
+    init(store: FilmProjectStore = .shared) {
+        self.store = store
+    }
+
+    // MARK: - Continuity decisions
+
+    /// Resolves a shot's declared mode into a concrete decision.
+    /// The first shot never continues from anything, and `auto`/absent resolves
+    /// conservatively to `cut` — "if unsure, cut" — because forcing every shot
+    /// to inherit the previous frame drags composition and camera position
+    /// across intentional scene changes.
+    func resolvedContinuityMode(forShotAt index: Int, in project: FilmProject) -> ShotContinuityMode {
+        guard index > 0, index < project.shots.count else { return .cut }
+        guard project.continuityChainEnabled != false else { return .cut }
+        switch project.shots[index].continuityMode {
+        case .continueFromPrevious: return .continueFromPrevious
+        case .cut, .none: return .cut
+        case .auto: return inferContinuity(forShotAt: index, in: project)
+        }
+    }
+
+    /// Deterministic fallback used when the planner said `auto` (or a Basic
+    /// Director produced no continuity field at all). Only a clearly continuous
+    /// beat continues; any location, time or character change cuts.
+    func inferContinuity(forShotAt index: Int, in project: FilmProject) -> ShotContinuityMode {
+        guard index > 0, index < project.shots.count else { return .cut }
+        let previous = project.shots[index - 1]
+        let current = project.shots[index]
+
+        // An explicit continuity change between the shots means a new scene.
+        let sceneChangeDirectives = ["location=", "timeOfDay=", "weather="]
+        if current.explicitChanges.contains(where: { change in
+            sceneChangeDirectives.contains { change.hasPrefix($0) }
+        }) {
+            return .cut
+        }
+        // Different location in the deterministic continuity state = cut.
+        if let before = previous.continuityBefore, let now = current.continuityBefore {
+            if !before.location.isEmpty, !now.location.isEmpty, before.location != now.location {
+                return .cut
+            }
+            if !before.timeOfDay.isEmpty, !now.timeOfDay.isEmpty, before.timeOfDay != now.timeOfDay {
+                return .cut
+            }
+        }
+        // A different cast means we are not continuing the same action.
+        if !previous.characterIDs.isEmpty, !current.characterIDs.isEmpty,
+           Set(previous.characterIDs) != Set(current.characterIDs) {
+            return .cut
+        }
+        // Establishing-style widening usually reads as a new setup.
+        if current.camera.shotScale.contains("wide"), !previous.camera.shotScale.contains("wide") {
+            return .cut
+        }
+        // Positive evidence of the same scene is required; absence of evidence
+        // is not evidence of continuity, so anything unproven stays a cut.
+        let sameLocation = !(previous.continuityBefore?.location ?? "").isEmpty
+            && previous.continuityBefore?.location == current.continuityBefore?.location
+        let sameCast = !previous.characterIDs.isEmpty
+            && Set(previous.characterIDs) == Set(current.characterIDs)
+        return (sameLocation || sameCast) ? .continueFromPrevious : .cut
+    }
+
+    // MARK: - Continuity asset preparation
+
+    /// Extracts the previous shot's final frame into the project's continuity
+    /// asset directory and records where it came from. Returns the failure
+    /// reason instead of throwing so callers can persist it as shot state.
+    @discardableResult
+    func prepareContinuityAsset(projectID: UUID, shotIndex: Int) -> Result<String, ContinuityBlockReason> {
+        guard var project = store.project(id: projectID),
+              shotIndex > 0, shotIndex < project.shots.count else {
+            return .failure(.previousShotIncomplete)
+        }
+        let previous = project.shots[shotIndex - 1]
+        guard let sourceTake = previous.continuitySourceTake else {
+            return .failure(.previousShotIncomplete)
+        }
+        guard let videoPath = sourceTake.outputPath,
+              FileManager.default.fileExists(atPath: videoPath) else {
+            return .failure(.previousOutputMissing)
+        }
+
+        // Reuse an already-extracted frame when it still comes from the same
+        // take, so a resumed run does not redo work.
+        let shot = project.shots[shotIndex]
+        if let existing = shot.continuityImageRelativePath,
+           shot.continuitySourceTakeID == sourceTake.id,
+           let url = store.managedProjectAssetURL(projectID: projectID, relativePath: existing),
+           ContinuityFrameExtractor.isUsableImage(atPath: url.path) {
+            return .success(existing)
+        }
+
+        let relativePath = "Assets/Continuity/shot-\(String(format: "%03d", shotIndex + 1))-from-\(sourceTake.id.uuidString).png"
+        guard let destination = store.managedProjectAssetURL(projectID: projectID, relativePath: relativePath) else {
+            return .failure(.frameExtractionFailed)
+        }
+        do {
+            try ContinuityFrameExtractor.extractLastFrame(
+                videoPath: videoPath,
+                outputPath: destination.path
+            )
+        } catch {
+            return .failure(.frameExtractionFailed)
+        }
+        guard ContinuityFrameExtractor.isUsableImage(atPath: destination.path) else {
+            return .failure(.frameExtractionFailed)
+        }
+
+        project.shots[shotIndex].continuityImageRelativePath = relativePath
+        project.shots[shotIndex].continuitySourceTakeID = sourceTake.id
+        project.shots[shotIndex].continuityBlockedReason = nil
+        store.save(project)
+        return .success(relativePath)
+    }
+
+    /// True when a shot inherited its frame from a take that is no longer the
+    /// shot's continuity source (for example after a Retake upstream).
+    func continuityIsStale(shotIndex: Int, in project: FilmProject) -> Bool {
+        guard shotIndex > 0, shotIndex < project.shots.count else { return false }
+        let shot = project.shots[shotIndex]
+        guard shot.continuitySourceTakeID != nil else { return false }
+        let currentSource = project.shots[shotIndex - 1].continuitySourceTake
+        return shot.continuitySourceTakeID != currentSource?.id
+    }
+
+    // MARK: - Run advancement
+
+    /// Index of the next shot that still needs a rendered take.
+    func nextShotIndexNeedingGeneration(in project: FilmProject) -> Int? {
+        project.shots
+            .sorted { $0.index < $1.index }
+            .first { shot in shot.takes.allSatisfy { $0.status != .completed } }
+            .flatMap { shot in project.shots.firstIndex { $0.id == shot.id } }
+    }
+
+    func hasGenerationInFlight(in project: FilmProject) -> Bool {
+        project.shots.contains { shot in
+            shot.takes.contains { $0.status == .queued || $0.status == .generating }
+        }
+    }
+
+    /// Advances an automatic run by at most one step. Safe to call after every
+    /// take completion; it is a no-op for manual storyboards.
+    @discardableResult
+    func advance(projectID: UUID, enqueue: ([GenerationRequest]) -> Void) -> RunStep {
+        guard let project = store.project(id: projectID),
+              project.workflowMode == Self.autoMovieWorkflowMode else {
+            return .idle
+        }
+        guard !project.shots.isEmpty else { return .idle }
+        if hasGenerationInFlight(in: project) { return .waiting }
+
+        if let index = nextShotIndexNeedingGeneration(in: project) {
+            let shot = project.shots[index]
+            // A shot whose only attempts failed must not silently restart; the
+            // user retries explicitly, which keeps failures visible.
+            if shot.takes.contains(where: { $0.status == .failed || $0.status == .cancelled }) {
+                return .shotFailed(shotID: shot.id)
+            }
+            let mode = resolvedContinuityMode(forShotAt: index, in: project)
+            if mode == .continueFromPrevious, shot.startingImageReferenceAssetID == nil {
+                switch prepareContinuityAsset(projectID: projectID, shotIndex: index) {
+                case .failure(let reason):
+                    markBlocked(projectID: projectID, shotID: shot.id, reason: reason)
+                    return .blocked(shotID: shot.id, reason: reason)
+                case .success:
+                    break
+                }
+            }
+            do {
+                let coordinator = TakeGenerationCoordinator(store: store)
+                let requests = try coordinator.planTakes(projectID: projectID, shotID: shot.id, count: 1)
+                enqueue(requests)
+                return .enqueued(shotID: shot.id)
+            } catch {
+                markBlocked(projectID: projectID, shotID: shot.id, reason: .continuityAssetMissing)
+                return .blocked(shotID: shot.id, reason: .continuityAssetMissing)
+            }
+        }
+
+        // Every shot has a rendered take: finish the run.
+        autoSelectUnambiguousTakes(projectID: projectID)
+        guard let refreshed = store.project(id: projectID) else { return .idle }
+        return finishRun(project: refreshed)
+    }
+
+    private func markBlocked(projectID: UUID, shotID: UUID, reason: ContinuityBlockReason) {
+        guard var project = store.project(id: projectID),
+              let index = project.shots.firstIndex(where: { $0.id == shotID }) else { return }
+        project.shots[index].continuityBlockedReason = reason
+        store.save(project)
+    }
+
+    // MARK: - Take selection and assembly
+
+    /// Promotes a lone completed take to the selected take. Shots with several
+    /// completed takes and no selection are left alone: the app does not rank
+    /// takes for the user.
+    func autoSelectUnambiguousTakes(projectID: UUID) {
+        guard var project = store.project(id: projectID) else { return }
+        var changed = false
+        for index in project.shots.indices {
+            let shot = project.shots[index]
+            guard shot.selectedTakeID == nil else { continue }
+            let completed = shot.takes.filter { $0.status == .completed }
+            if completed.count == 1 {
+                project.shots[index].selectedTakeID = completed[0].id
+                changed = true
+            }
+        }
+        if changed { store.save(project) }
+    }
+
+    /// Identity of the takes an assembly would be built from. Assembly is
+    /// skipped when this matches the last successful assembly.
+    func assemblySignature(for project: FilmProject) -> String? {
+        let ordered = project.shots.sorted { $0.index < $1.index }
+        var parts: [String] = []
+        for shot in ordered {
+            guard let take = shot.assemblyCandidateTake, take.status == .completed,
+                  let path = take.outputPath else {
+                return nil
+            }
+            parts.append("\(take.id.uuidString):\(path)")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: "|")
+    }
+
+    /// Automatic assembly requires every shot rendered, nothing in flight, no
+    /// blocked continuity, and a selection that is not ambiguous.
+    func shouldAutoAssemble(project: FilmProject) -> Bool {
+        guard !project.shots.isEmpty else { return false }
+        guard !hasGenerationInFlight(in: project) else { return false }
+        guard !project.shots.contains(where: { $0.continuityBlockedReason != nil }) else { return false }
+        guard let signature = assemblySignature(for: project) else { return false }
+        return signature != project.lastAssemblySignature
+    }
+
+    private func finishRun(project: FilmProject) -> RunStep {
+        guard assemblySignature(for: project) != nil else { return .needsTakeSelection }
+        if !shouldAutoAssemble(project: project) { return .completed }
+        return .assembling
+    }
+
+    /// Runs Final Assembly once for the project. Blocking (FFmpeg); call from a
+    /// background context.
+    @discardableResult
+    func performAutoAssembly(projectID: UUID) -> RunStep {
+        guard let project = store.project(id: projectID) else { return .idle }
+        guard shouldAutoAssemble(project: project) else { return .completed }
+        guard let signature = assemblySignature(for: project) else { return .needsTakeSelection }
+
+        lock.lock()
+        if assemblingProjectIDs.contains(projectID) {
+            lock.unlock()
+            return .assembling
+        }
+        assemblingProjectIDs.insert(projectID)
+        lock.unlock()
+        defer {
+            lock.lock()
+            assemblingProjectIDs.remove(projectID)
+            lock.unlock()
+        }
+
+        let outputPath = assemblyOutputPath(projectID: projectID)
+        do {
+            try Self.assembleBlocking(project: project, outputPath: outputPath)
+        } catch {
+            return .assemblyFailed(error.localizedDescription)
+        }
+        recordAssemblySuccess(projectID: projectID, signature: signature, outputPath: outputPath)
+        return .assembled(path: outputPath)
+    }
+
+    func assemblyOutputPath(projectID: UUID) -> String {
+        store.projectsDirectory
+            .appendingPathComponent("\(projectID.uuidString)_final.mp4").path
+    }
+
+    /// Pure FFmpeg work on an immutable snapshot, so callers can run it off the
+    /// main actor without touching the project store from another thread.
+    static func assembleBlocking(project: FilmProject, outputPath: String) throws {
+        _ = try FinalAssemblyService.assemble(project: project, outputPath: outputPath)
+    }
+
+    /// Records a finished assembly. Must run wherever the store is owned.
+    func recordAssemblySuccess(projectID: UUID, signature: String, outputPath: String) {
+        guard var saved = store.project(id: projectID) else { return }
+        saved.lastAssemblySignature = signature
+        saved.assembledMoviePath = outputPath
+        saved.assembledAt = Date()
+        store.save(saved)
+    }
+
+    /// Storyboard projects keep manual generation, but still get one automatic
+    /// assembly when the last shot lands.
+    @discardableResult
+    func autoAssembleIfComplete(projectID: UUID) -> RunStep {
+        guard let project = store.project(id: projectID) else { return .idle }
+        guard !project.shots.isEmpty else { return .idle }
+        autoSelectUnambiguousTakes(projectID: projectID)
+        guard let refreshed = store.project(id: projectID) else { return .idle }
+        guard shouldAutoAssemble(project: refreshed) else { return .completed }
+        return performAutoAssembly(projectID: projectID)
+    }
+}

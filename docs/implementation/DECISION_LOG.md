@@ -77,3 +77,10 @@ CharacterReferenceAssets (derived Front, Side, Back, Face, Expression, Costume D
 
 No backend Python code, model dependency, or identity adapter was added. If a selected reference asset ID is unknown or its file is missing on disk, preflight throws `CoordinatorError` (`startingImageNotFound` / `startingImageUnavailable`), preventing silent T2V fallback. The UI strictly uses the term `Starting Image`; terms `Face Lock`, `Identity Lock`, `Same Face`, `Same Person`, and `Character Identity Conditioning` remain prohibited.
 
+## D-019 (2026-08-09) Phase 5 Starting Image Evaluation: Default to None, Front Optional for Shot 1, Face Advanced
+Controlled 3-condition real generation evaluation (A: None, B: Front, C: Face) demonstrated that while Starting Images increase visual resemblance to reference sheets, they introduce significant composition, posture, and studio background leakage.
+
+1. `None` (Text-only CharacterBible) provides the highest camera freedom, motion naturalness, and zero composition leakage. It remains the recommended default for general users and multi-shot storyboards.
+2. `Front` reference is the best Starting Image option when a visual anchor is desired for Shot 1, providing full-body costume/boots/cape continuity at the cost of initial frontal pose framing.
+3. `Face / Close-Up` reference causes extreme composition leakage, locking the entire video into a static close-up framing. It must be treated as Advanced/Optional and never presented as "Face Lock".
+4. Phase 6 UX will preserve `None` as the default recommendation, allow `Front` as an optional anchor for Shot 1, and present clear warning badges regarding composition lock when a Starting Image is selected.

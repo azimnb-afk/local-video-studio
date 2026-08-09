@@ -202,6 +202,16 @@ GUI-first defaults (D-007): modelRegistryV1 / autoQualityV1 / directorV1 / filmP
 - Naming & product boundaries: UI terms use strictly `Starting Image`. Terms `Face Lock`, `Identity Lock`, `Same Face`, `Same Person`, and `Character Identity Conditioning` are prohibited.
 - Verification: `swift build` PASS; `swift run LTXTests` **575 passed / 0 failed**; unsigned Debug `xcodebuild` **BUILD SUCCEEDED**; `git diff --check` PASS. Canonical executable mtime `2026-08-09 17:45:46 +0900`; running PID 77875 resolved to exact DerivedData path.
 
+## 2026-08-09 CharacterBible Phase 5 — Starting Image Real Generation / Continuity Evaluation
+- Conducted controlled 3-condition real generation comparison (Condition A: None, Condition B: Front, Condition C: Face) using project `07FA8292-0C89-4545-9D27-F1F64942C108` ("Adventurer Heroine"), fixed seed `42`, 768×512 landscape resolution, and audio OFF.
+- Full evaluation document: `docs/implementation/STARTING_IMAGE_EVALUATION.md`.
+- Key empirical findings:
+  - **Condition A (None / Text-only Bible)**: Highest camera freedom, natural walking motion, and zero composition leakage. `PromptCompiler` alone achieved high costume and hair continuity. **Best overall default.**
+  - **Condition B (Front)**: Very high visual resemblance for full costume/boots/belt, but introduces composition leakage (front standing pose & studio background). **Recommended optional choice for Shot 1.**
+  - **Condition C (Face / Close-Up)**: Highest facial resemblance, but **extremely high composition leakage** (forces close-up framing across the entire 5s video). **Advanced option only; not recommended as default or Face Lock.**
+- Verification: `swift build` PASS; `swift run LTXTests` **600 passed / 0 failed**; unsigned Debug `xcodebuild` **BUILD SUCCEEDED**; `git diff --check` PASS.
+
+
 ## GUI (verified in the final running .app, 2026-08-08)
 - Sidebar: Generate / One Shot / Storyboard / Director / Hybrid / Video Archive, with concise mode descriptions.
 - Generate: Model + Preset picker; no primary Quality picker; non-Custom shows a preset explanation, Custom restores all legacy manual controls.

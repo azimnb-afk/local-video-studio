@@ -510,6 +510,10 @@ private struct ProjectDetailView: View {
     }
 
     private func generateMissingTakes() {
+        if !DependencyHealthManager.shared.isGenerationReady {
+            DependencyHealthManager.shared.showSetupWizard = true
+            return
+        }
         var queued = 0
         for shot in shotsMissingTakes {
             if (try? coordinator.planTakes(projectID: project.id, shotID: shot.id, count: 1)) != nil {
@@ -521,6 +525,10 @@ private struct ProjectDetailView: View {
     }
 
     private func regenerateSelectedShots() {
+        if !DependencyHealthManager.shared.isGenerationReady {
+            DependencyHealthManager.shared.showSetupWizard = true
+            return
+        }
         var queued = 0
         for shot in project.shots where shot.selectedTakeID != nil {
             if (try? coordinator.planTakes(projectID: project.id, shotID: shot.id, count: 1)) != nil {

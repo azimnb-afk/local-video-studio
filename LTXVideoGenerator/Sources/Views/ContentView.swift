@@ -279,6 +279,10 @@ private struct OneShotView: View {
     }
 
     private func planAndGenerate() {
+        if !DependencyHealthManager.shared.isGenerationReady {
+            DependencyHealthManager.shared.showSetupWizard = true
+            return
+        }
         let trimmed = brief.trimmingCharacters(in: .whitespacesAndNewlines)
         isPlanning = true
         status = "Planning locally…"

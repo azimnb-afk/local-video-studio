@@ -19,5 +19,6 @@ runStartingImageBridgeTests(t)
 runStartingImageUXTests(t)
 runStoryboardTests(t)
 runAPITests(t)
+runDependencyHealthTests(t)
 
 t.finish()

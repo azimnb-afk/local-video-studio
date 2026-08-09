@@ -705,14 +705,23 @@ struct PromptInputView: View {
                 } else {
                     // Normal state - generate button
                     Button {
-                        requestSingleGeneration()
+                        if DependencyHealthManager.shared.isGenerationReady {
+                            requestSingleGeneration()
+                        } else {
+                            DependencyHealthManager.shared.showSetupWizard = true
+                        }
                     } label: {
-                        Label("Generate", systemImage: "play.fill")
-                            .frame(maxWidth: .infinity)
+                        if DependencyHealthManager.shared.isGenerationReady {
+                            Label("Generate", systemImage: "play.fill")
+                                .frame(maxWidth: .infinity)
+                        } else {
+                            Label("Setup Required", systemImage: "exclamationmark.triangle.fill")
+                                .frame(maxWidth: .infinity)
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-                    .disabled(generationActionsDisabled)
+                    .disabled(generationActionsDisabled && DependencyHealthManager.shared.isGenerationReady)
                 }
                 
                 // Track completion - only when currentRequest goes away (actual generation done)
@@ -971,6 +980,10 @@ struct PromptInputView: View {
     }
 
     private func requestSingleGeneration() {
+        if !DependencyHealthManager.shared.isGenerationReady {
+            DependencyHealthManager.shared.showSetupWizard = true
+            return
+        }
         if isHighMemoryRisk {
             pendingQueueAction = .single
             showMemoryRiskAlert = true
@@ -1015,6 +1028,10 @@ struct PromptInputView: View {
     }
 
     private func requestBatchGeneration(count: Int) {
+        if !DependencyHealthManager.shared.isGenerationReady {
+            DependencyHealthManager.shared.showSetupWizard = true
+            return
+        }
         if isHighMemoryRisk {
             pendingQueueAction = .batch(count)
             showMemoryRiskAlert = true

@@ -61,7 +61,21 @@ struct ContentView: View {
         NavigationSplitView {
             sidebarContent
         } detail: {
-            detailContent
+            // Detail views embed AppKit-backed `HSplitView`s (Generate,
+            // Storyboard, Video Archive, Character Reference). NSSplitView
+            // reports its arranged subviews' intrinsic content height instead
+            // of accepting the proposed viewport height, so the enclosing
+            // NavigationSplitView was laid out at that intrinsic height
+            // (measured: 1685pt inside a 948pt window). The oversized layout is
+            // bottom-anchored, which pushed the top of BOTH columns above the
+            // visible content area and hid the sidebar navigation entirely.
+            // GeometryReader accepts the proposed size, and the explicit frame
+            // makes the column report exactly the offered viewport, so an inner
+            // split view can no longer inflate the window layout.
+            GeometryReader { proxy in
+                detailContent
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+            }
         }
         // Issue #52: relax the hard minimum so the window can shrink on small
         // displays (e.g. 13" MacBook Air with a non-default text size). Inner
@@ -90,18 +104,29 @@ struct ContentView: View {
     }
     
     private var sidebarContent: some View {
-        // Issue #52: allow the sidebar to scroll vertically when the window is
-        // very short, so QueueView and ModelStatusView are both still reachable.
-        ScrollView(.vertical, showsIndicators: false) {
+        // Primary navigation is pinned; only the secondary panes scroll. When
+        // the whole sidebar shared one ScrollView, a tall Queue could scroll the
+        // navigation out of reach, and the ScrollView reported its content's
+        // ideal height to the enclosing split view. Clamping to the offered
+        // viewport (same reason as the detail column) keeps the navigation
+        // anchored at the top at every window size.
+        // Issue #52 is still honoured: QueueView and ModelStatusView remain
+        // reachable by scrolling when the window is short.
+        GeometryReader { proxy in
             VStack(spacing: 0) {
                 tabSelector
                 Divider()
-                QueueView()
-                    .frame(minHeight: 160, maxHeight: 300)
-                Divider()
-                ModelStatusView()
-                    .padding()
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        QueueView()
+                            .frame(minHeight: 160, maxHeight: 300)
+                        Divider()
+                        ModelStatusView()
+                            .padding()
+                    }
+                }
             }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
         }
         .frame(width: 320)
         .background(Color(nsColor: .windowBackgroundColor))

@@ -118,3 +118,27 @@ compressed the shared Settings page description; assigning the existing page
 header layout priority keeps both header lines visible while the form remains
 scrollable. The accepted executable was the full canonical DerivedData path,
 mtime `2026-08-09 22:38:15 +0900`, running as PID `89377`.
+
+## 2026-08-09 Sidebar navigation layout fix
+
+Primary sidebar navigation (Generate / One Shot / Storyboard / Hybrid / Video
+Archive) could be clipped above the visible window area, leaving only the Queue
+and Model Status panes reachable. The cause was detail-column size inflation:
+AppKit-backed `HSplitView`s inside the `NavigationSplitView` detail column
+reported their intrinsic content height (measured 1685pt inside a 948pt
+window) instead of the offered viewport, and the oversized, bottom-anchored
+layout pushed the top of both columns off-screen. See DECISION_LOG D-025 for
+the measurements and the hypotheses this ruled out.
+
+The detail column now clamps to the offered viewport, and the sidebar pins
+navigation outside its scroll area so Queue/Model Status growth can never push
+it out. Canonical Debug GUI acceptance re-verified fresh launch, relaunch,
+small (900×500) and large (1680×948) windows, reopening at a small window,
+window tab bar ON and OFF, and clicking all five navigation entries — the split
+view measured exactly the window height (948) in every case. Settings bilingual
+descriptions were unaffected and re-confirmed in the running app. No generation,
+model download, or backend change was involved.
+
+- `swift build`: PASS
+- `swift run LTXTests`: **659 passed, 0 failed** (unchanged baseline)
+- `xcodebuild -configuration Debug CODE_SIGNING_ALLOWED=NO clean build`: **BUILD SUCCEEDED**

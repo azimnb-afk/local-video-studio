@@ -148,3 +148,35 @@ capability. Text-only One Shot is represented by a nil image path. A non-nil
 path must resolve to a readable decodable image both before planning and just
 before queue insertion. Missing or invalid state is actionable failure, never
 an implicit downgrade to T2V; only explicit Clear returns to text-only.
+
+## D-025 (2026-08-09) Sidebar navigation loss was detail-column size inflation, not scroll state
+Symptom: the sidebar showed only Queue/Model Status; Generate / One Shot /
+Storyboard / Hybrid / Video Archive were clipped above the visible window area,
+while remaining present in the accessibility tree.
+
+Measured root cause: the detail views embed AppKit-backed `HSplitView`s
+(Generate, Storyboard, Video Archive, Character Reference). `NSSplitView`
+reports its arranged subviews' intrinsic content height rather than accepting
+the proposed viewport height, so the enclosing `NavigationSplitView` was laid
+out at that intrinsic height. Evidence: the saved split-view geometry was
+`328×1685` / `1680×1685` inside a `1680×948` window, and switching to the
+`One Shot` tab — the only detail view with no `HSplitView` — produced
+`328×948` / `1680×948` with identical sidebar code. The oversized layout is
+bottom-anchored, so the top of BOTH columns was pushed above the content area.
+
+Rejected hypotheses, with evidence:
+- ScrollView restoration / scroll offset: the sidebar was not scrolled; the
+  whole layout was oversized, and the detail column's header was clipped too.
+- Saved split-view state corruption: deleting the autosave key **while the app
+  was fully quit** still regenerated 1685 on the next launch, and the app wrote
+  1685 on quit, so the value reflects live layout rather than stale state.
+- Window tab bar: the tab bar was visible in both the broken (Generate) and
+  working (One Shot) cases, and the fix holds with the tab bar ON and OFF.
+
+Fix: the detail column is wrapped in a `GeometryReader` and clamped to the
+offered viewport, so an inner AppKit split view can no longer inflate the
+window layout. The sidebar additionally pins primary navigation outside the
+scroll area and clamps to the same viewport, satisfying the invariant that
+navigation stays anchored regardless of how much Queue/Model Status content
+grows. No fixed pixel sizes, delayed `scrollTo`, or per-launch UserDefaults
+deletion are used. Change is confined to `ContentView.swift`.

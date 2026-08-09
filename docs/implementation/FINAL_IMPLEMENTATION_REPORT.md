@@ -296,3 +296,14 @@ Product boundaries and naming are strictly enforced: UI uses `Starting Image`. T
 
 Final verification passed: `swift build` PASS; `swift run LTXTests` (**575 passed / 0 failed**); unsigned Debug `xcodebuild clean build` **BUILD SUCCEEDED**; `git diff --check` PASS. Canonical executable mtime `2026-08-09 17:45:46 +0900`; running PID 77875 resolved to the exact DerivedData executable path.
 
+## CharacterBible Phase 6B — Production UX / Final Polish & Acceptance
+
+Phase 6B completed the Production UX enhancements for CharacterBible based on the approved Phase 6A Product & UX Specification and empirical findings from Phase 5.
+
+- **Starting Image Default**: Standard default display and fallback state is `None (Recommended)`. This emphasizes that CharacterBible textual prompts handle character traits without image conditioning and preserve maximum camera movement freedom.
+- **Information Architecture**: Candidate reference assets are cleanly grouped into `Recommended Anchor (Front)`, `Other Views (Side / Back)`, and `Advanced (Face / Close-Up, Expression, Costume Detail)`. Raw Character Sheets remain strictly excluded.
+- **Wording & Terminology**: Updated `CharacterTraitLock.displayName` from raw capitalized strings to non-guarantee continuity names (`Facial Features`, `Hair`, `Eyes`, `Body Appearance`, `Costume`, `Accessories`) under section header `Keep Consistent`. Identity lock terms (`Face Lock`, `Identity Lock`, `Same Face`, `Same Person`, `Identity Reference`, `Multi-view Identity`) remain zero across all user-facing code and documentation.
+- **Guidance & Warnings**: Added inline camera freedom guidance; added framing constraint warning for Face images; integrated `AspectMismatchCalculator` warning when source image aspect ratio differs from output video (orientation mismatch or ratio diff >=20%) without blocking video generation.
+- **Missing Asset Safety**: Project load retains the user's selected Starting Image UUID even if missing on disk, displaying a red `Image unavailable` status with explicit `Clear` and `Change...` actions. Preflight throws `CoordinatorError.startingImageUnavailable` to prevent silent T2V fallback.
+- **Shared Workflow UX**: Storyboard and Hybrid workflows share identical UI elements, menus, missing asset handling, and warnings. Generate and One Shot remain unmutated with legacy `CharacterProfile`.
+- **Verification**: `swift build` PASS; `swift run LTXTests` (**593 passed / 0 failed**); unsigned Debug `xcodebuild` **BUILD SUCCEEDED**; `git diff --check` PASS. Canonical app build provenance verified with executable mtime `2026-08-09 19:19:57 +0900`.

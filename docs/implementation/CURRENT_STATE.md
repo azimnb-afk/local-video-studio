@@ -211,6 +211,16 @@ GUI-first defaults (D-007): modelRegistryV1 / autoQualityV1 / directorV1 / filmP
   - **Condition C (Face / Close-Up)**: Highest facial resemblance, but **extremely high composition leakage** (forces close-up framing across the entire 5s video). **Advanced option only; not recommended as default or Face Lock.**
 - Verification: `swift build` PASS; `swift run LTXTests` **600 passed / 0 failed**; unsigned Debug `xcodebuild` **BUILD SUCCEEDED**; `git diff --check` PASS.
 
+## 2026-08-09 CharacterBible Phase 6B — Production UX / Final Polish
+- Implemented Production UX specification based on Phase 5 empirical findings and Phase 6A Product Decisions.
+- **Starting Image Default**: `None (Recommended)` is the standard UI representation, clearly conveying that CharacterBible textual continuity functions without an image condition and preserves full camera freedom.
+- **Information Architecture**: Starting Image picker organizes candidate assets into `None (Recommended — Max camera freedom)`, `Recommended Anchor (Front)`, `Other Views (Side / Back)`, and `Advanced (Face / Close-Up, Expression, Costume Detail)`. Raw Character Sheets remain excluded.
+- **Wording & Terminology**: Updated `CharacterTraitLock.displayName` from raw capitalized strings to non-guarantee continuity labels (`Facial Features`, `Hair`, `Eyes`, `Body Appearance`, `Costume`, `Accessories`) under section `Keep Consistent`. Forbidden terms (`Face Lock`, `Identity Lock`, `Same Face`, `Same Person`, `Identity Reference`, `Multi-view Identity`) remain zero across sources.
+- **Guidance & Warnings**: Added inline guidance explaining Starting Image initial frame/pose/background influence; added explicit `Close-up starting images strongly constrain camera framing` warning for `Face`; added `AspectMismatchCalculator` warning when source image aspect ratio differs from video output (orientation mismatch or >=20% ratio diff) without blocking video generation.
+- **Missing Asset State**: If a selected Starting Image is missing on disk, project loading preserves the user's ID choice, displays a clear red `Image unavailable` status, and provides explicit `Clear` and `Change...` actions. Generation preflight throws `CoordinatorError.startingImageUnavailable`, preventing silent T2V fallback.
+- **Storyboard / Hybrid Shared UX**: Storyboard and Hybrid modes share the identical Starting Image picker, menu structure, missing asset handling, and warnings. Generate / One Shot modes remain unmutated with legacy `CharacterProfile`.
+- **Verification**: `swift build` PASS; `swift run LTXTests` **593 passed / 0 failed** (including new `StartingImageUXTests` suite); unsigned Debug `xcodebuild` **BUILD SUCCEEDED**; `git diff --check` PASS. Canonical executable mtime `2026-08-09 19:19:57 +0900`; running PID 80764 resolved to exact DerivedData path.
+
 
 ## GUI (verified in the final running .app, 2026-08-08)
 - Sidebar: Generate / One Shot / Storyboard / Director / Hybrid / Video Archive, with concise mode descriptions.

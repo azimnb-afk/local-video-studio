@@ -199,7 +199,7 @@ struct PromptInputView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        Text("Describe what should happen in plain language. The local director turns it into a structured, LTX-optimized prompt (replaces the prompt above). Uses Ollama on localhost when available; otherwise a deterministic template.")
+                        Text("Describe what should happen in plain language. The local director turns it into a structured, LTX-optimized prompt (replaces the prompt above). Uses Local AI Director when available; otherwise a deterministic template.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

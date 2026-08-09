@@ -530,7 +530,7 @@ func runStoryboardTests(_ t: TestKit) {
         editedA.lockedTraits.remove(.costume)
         project.upsertCharacter(editedA)
         t.checkEqual(project.shots[0].characterIDs, [a.id, b.id], "lock edit preserves Character IDs")
-        t.check(project.shots[0].compiledPrompt.contains("Face, Hair"),
+        t.check(project.shots[0].compiledPrompt.contains("Facial Features, Hair"),
                 "face/hair guidance remains after costume lock off")
         t.check(!project.shots[0].compiledPrompt.contains("Costume, Face"),
                 "costume is not added to locked trait guidance")

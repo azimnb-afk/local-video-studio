@@ -84,3 +84,12 @@ Controlled 3-condition real generation evaluation (A: None, B: Front, C: Face) d
 2. `Front` reference is the best Starting Image option when a visual anchor is desired for Shot 1, providing full-body costume/boots/cape continuity at the cost of initial frontal pose framing.
 3. `Face / Close-Up` reference causes extreme composition leakage, locking the entire video into a static close-up framing. It must be treated as Advanced/Optional and never presented as "Face Lock".
 4. Phase 6 UX will preserve `None` as the default recommendation, allow `Front` as an optional anchor for Shot 1, and present clear warning badges regarding composition lock when a Starting Image is selected.
+
+## D-020 (2026-08-09) CharacterBible Phase 6B — Production UX Specification Implementation
+The Production UX specification approved in Phase 6A has been fully implemented across `FilmProject.swift`, `StoryboardView.swift`, `PromptInputView.swift`, and `StartingImageUXTests.swift`.
+
+1. **Default & IA**: Starting Image defaults to `None (Recommended)`. The candidate menu categorizes reference assets into `Recommended Anchor (Front)`, `Other Views (Side / Back)`, and `Advanced (Face / Close-Up, Expression, Costume Detail)`. Raw Character Sheets remain strictly excluded.
+2. **Terminology & Wording**: Trait locks use non-guarantee continuity names (`Facial Features`, `Hair`, `Eyes`, `Body Appearance`, `Costume`, `Accessories`) under section header `Keep Consistent`. Identity lock terms (`Face Lock`, `Identity Lock`, `Same Face`, `Same Person`, `Identity Reference`, `Multi-view Identity`) remain zero across all user-facing code and docs.
+3. **Warnings & Assistance**: Displays inline camera freedom guidance, framing constraint warning for Face images, and `AspectMismatchCalculator` warnings for aspect ratio/orientation mismatch (threshold >=20%) without blocking video generation.
+4. **Missing Asset Safety**: Missing starting image files on disk retain user selection, present a red `Image unavailable` badge with explicit `Clear` and `Change...` buttons, and fail preflight (`CoordinatorError.startingImageUnavailable`) to block silent T2V fallback.
+5. **Shared Workflow UX**: Storyboard and Hybrid workflows share identical UI elements and missing asset behavior. Generate and One Shot remain unmutated with legacy `CharacterProfile`.

@@ -225,3 +225,16 @@ TOKEN=$(cat ~/Library/Application\ Support/LTXVideoGenerator/api_token)
 - [x] UIおよびコード上の用語は`Starting Image`に統一。`Face Lock`, `Identity Lock`, `Same Face`, `Same Person`, `Character Identity Conditioning`等の不適当な用語が存在しないことを確認。
 - [x] `swift build` PASS; `swift run LTXTests` = **575 passed / 0 failed**; Xcode Debug `BUILD SUCCEEDED`; `git diff --check` clean。
 
+## M. CharacterBible Phase 6B — Production UX / Final Polish & Acceptance（2026-08-09）
+
+- [x] StoryboardおよびHybridのShot UIにおいて、Starting Imageの標準デフォルトおよび「未選択」表示が `None (Recommended)` と表記され、文字プロンプト主体の生成を推奨することが明確に示される。
+- [x] Starting Image選択Menuが `Recommended Anchor (Front)`, `Other Views (Side / Back)`, `Advanced (Face / Close-Up, Expression, Costume Detail)` の3カテゴリーに整理され、Character Sheet原紙は露出しない。
+- [x] Frontには `Recommended Anchor` バッジ、Faceには `Advanced` バッジが適切に表示される。
+- [x] Trait Locksの表示名が `Facial Features`, `Hair`, `Eyes`, `Body Appearance`, `Costume`, `Accessories` に更新され、ヘッダー `Keep Consistent` の下に配置されている。
+- [x] 禁止用語（`Face Lock`, `Identity Lock`, `Same Face`, `Same Person`, `Identity Reference`, `Multi-view Identity`）がGUIおよびソースコード上に一切存在しない。
+- [x] Starting Image選択時にカメラ構図・初期フレーム影響に関するインラインガイダンスが表示され、Face選択時に `Close-up starting images strongly constrain camera framing` 警告が表示される。
+- [x] `AspectMismatchCalculator` により、アスペクト比差異（縦横の不一致または20%以上の比率差）がある場合に `Aspect ratio mismatch` 警告が表示され、動画生成自体は妨げない。
+- [x] Starting Image実ファイルがディスク上から消失しているプロジェクトをロードした際、ID選択が勝手に `nil` へリセットされず、赤字の `⚠ Image unavailable` バッジと `Clear`, `Change...` ボタンが表示される。
+- [x] アセット消失状態で生成を実行すると、`CoordinatorError.startingImageUnavailable` がスローされ、サイレントなT2Vフォールバックが防止される。
+- [x] StoryboardとHybridで同一のUI構造、Menu構成、アセット消失保護、警告ロジックが共通化されている。
+- [x] `swift build` PASS; `swift run LTXTests` = **593 passed / 0 failed** (新規 `StartingImageUXTests` 含む); Xcode Debug `BUILD SUCCEEDED`; `git diff --check` clean。

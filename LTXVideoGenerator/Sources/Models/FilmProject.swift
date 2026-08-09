@@ -58,7 +58,16 @@ enum CharacterTraitLock: String, Codable, CaseIterable, Identifiable {
     case accessories
 
     var id: String { rawValue }
-    var displayName: String { rawValue.capitalized }
+    var displayName: String {
+        switch self {
+        case .face: return "Facial Features"
+        case .hair: return "Hair"
+        case .eyes: return "Eyes"
+        case .body: return "Body Appearance"
+        case .costume: return "Costume"
+        case .accessories: return "Accessories"
+        }
+    }
 }
 
 /// String-backed so a future app can add asset types without making an older
@@ -630,6 +639,9 @@ struct ProjectSettings: Codable, Equatable {
     var resolvedAudioEnabled: Bool { audioEnabled ?? true }
     var resolvedInferenceSteps: Int { numInferenceSteps ?? 30 }
 
+    var effectiveWidth: Int { (width / 64) * 64 }
+    var effectiveHeight: Int { (height / 64) * 64 }
+
     /// New GUI projects inherit the user's current model/text-encoder choices.
     /// Codable defaults above remain stable for legacy project migration.
     static func usingCurrentSelections(userDefaults: UserDefaults = .standard) -> ProjectSettings {
@@ -790,5 +802,32 @@ struct FilmProject: Codable, Equatable, Identifiable {
                 shots[i].startingImageReferenceAssetID = nil
             }
         }
+    }
+}
+
+struct AspectMismatchCalculator {
+    /// Returns true if aspect ratio difference is >= 20% or orientation differs between source and target.
+    static func hasAspectMismatch(
+        sourceWidth: Int?,
+        sourceHeight: Int?,
+        targetWidth: Int,
+        targetHeight: Int,
+        threshold: Double = 0.20
+    ) -> Bool {
+        guard let sw = sourceWidth, let sh = sourceHeight, sw > 0, sh > 0, targetWidth > 0, targetHeight > 0 else {
+            return false
+        }
+
+        // Orientation mismatch check (portrait vs landscape)
+        let sourceIsPortrait = sw < sh
+        let targetIsPortrait = targetWidth < targetHeight
+        if sourceIsPortrait != targetIsPortrait {
+            return true
+        }
+
+        let sourceAspect = Double(sw) / Double(sh)
+        let targetAspect = Double(targetWidth) / Double(targetHeight)
+        let ratio = sourceAspect / targetAspect
+        return abs(ratio - 1.0) >= threshold
     }
 }

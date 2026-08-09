@@ -29,6 +29,27 @@ ENCODER = os.environ.get("LTX_ENCODER_REPO", "mlx-community/gemma-3-12b-it-4bit"
 OLLAMA_MODEL = os.environ.get("LTX_DIRECTOR_MODEL", "qwen3.6-claw-fast:latest")
 # AutoMovieRunCoordinator.continuityImageStrength
 CONTINUITY_STRENGTH = 0.8
+# AutoMovieRunCoordinator.reframeContinuityImageStrength
+REFRAME_STRENGTH = 0.5
+SCALE_LADDER = ["extreme-wide", "wide", "medium-wide", "medium",
+                "medium-close-up", "close-up", "extreme-close-up"]
+REFRAME_RANK_DISTANCE = 3
+
+
+def scale_rank(scale):
+    n = (scale or "").lower().strip().replace(" ", "-").replace("closeup", "close-up")
+    if n in SCALE_LADDER:
+        return SCALE_LADDER.index(n)
+    hits = [s for s in SCALE_LADDER if s in n]
+    return SCALE_LADDER.index(max(hits, key=len)) if hits else None
+
+
+def strength_for(previous, current):
+    """Mirrors ContinuityStrengthResolver (Swift side is unit-tested)."""
+    a, b = scale_rank(previous.get("shotScale")), scale_rank(current.get("shotScale"))
+    if a is not None and b is not None and abs(b - a) >= REFRAME_RANK_DISTANCE:
+        return REFRAME_STRENGTH, "reframe"
+    return CONTINUITY_STRENGTH, "standard"
 W, H, FRAMES, STEPS, FPS, CFG, SEED = 512, 320, 25, 15, 24, 3.0, 42
 BRIEF = ("A young woman walks toward an old stone library, reaches the entrance, "
          "unlocks the door, and steps inside.")
@@ -138,7 +159,8 @@ def extract_last_frame(video: pathlib.Path, out: pathlib.Path) -> bool:
     return False
 
 
-def generate(label: str, prompt: str, image: pathlib.Path | None) -> pathlib.Path:
+def generate(label: str, prompt: str, image: pathlib.Path | None,
+             strength: float = CONTINUITY_STRENGTH, policy: str = "standard") -> pathlib.Path:
     out = OUT / f"{label}.mp4"
     cmd = [PYTHON, "-m", "mlx_video.generate_av", "--prompt", prompt,
            "--height", str(H), "--width", str(W), "--num-frames", str(FRAMES),
@@ -147,7 +169,7 @@ def generate(label: str, prompt: str, image: pathlib.Path | None) -> pathlib.Pat
            "--model-repo", MODEL_REPO, "--text-encoder-repo", ENCODER,
            "--tiling", "auto", "--no-audio"]
     if image is not None:
-        cmd += ["--image", str(image), "--image-strength", str(CONTINUITY_STRENGTH)]
+        cmd += ["--image", str(image), "--image-strength", str(strength)]
     env = dict(os.environ, HF_HUB_OFFLINE="1")
     import time
     start = time.time()
@@ -156,7 +178,7 @@ def generate(label: str, prompt: str, image: pathlib.Path | None) -> pathlib.Pat
     if r.returncode != 0:
         raise RuntimeError(f"{label} generation failed; see {label}.log")
     log(f"[{label}] rendered in {int(time.time() - start)}s"
-        + (f" (continuing from {image.name} @ {CONTINUITY_STRENGTH})" if image else " (text-to-video)"))
+        + (f" (continuing from {image.name} @ {strength} · {policy})" if image else " (text-to-video)"))
     return out
 
 
@@ -186,14 +208,18 @@ def main():
         prompt = compile_prompt(shot)
         (OUT / f"{label}_prompt.txt").write_text(prompt)
         image = None
+        strength, policy = CONTINUITY_STRENGTH, "standard"
         # The first shot never inherits; otherwise honour the Director's decision.
         if i > 0 and reconciled[i][0] == "continue" and previous_video is not None:
             frame = OUT / f"{label}_inherited.png"
             if extract_last_frame(previous_video, frame):
                 image = frame
+                strength, policy = strength_for(shots[i - 1], shot)
+                log(f"   strength policy: {policy} "
+                    f"({shots[i-1].get('shotScale')} -> {shot.get('shotScale')}) @ {strength}")
             else:
                 raise RuntimeError(f"{label}: continuity frame extraction failed")
-        video = generate(label, prompt, image)
+        video = generate(label, prompt, image, strength, policy)
         videos.append(video)
         previous_video = video
 

@@ -299,3 +299,48 @@ Continuity strength stays 0.8. Storyboard, One Shot and Generate are untouched.
 - `xcodebuild` Debug clean build: BUILD SUCCEEDED
 - `git diff --check`: PASS
 - GUI: sidebar navigation pinned, Auto Movie page and projects load unchanged
+
+## 2026-08-10 Adaptive Continuity Strength
+
+Reconciliation made shots inherit correctly, but one honest cost remained: a
+planned detail insert after a wide inherited frame never reached its framing,
+because 0.8 holds the previous composition. This round asked whether a lower
+strength recovers the reframe.
+
+Calibrated on the real failing case (the same source frame, prompt, seed and
+render settings; only `--image-strength` varied): 0.8, 0.65, 0.5, 0.35, 0.2,
+plus a pure text-to-video control and a second case asking for a face close-up
+instead of an object detail. **No strength achieved the reframe.** SSIM against
+the source loosens monotonically (0.935 / 0.909 / 0.871 / 0.842) but the framing
+stays full-figure at the same distance; at 0.2 the image degenerates. The
+text-to-video control — zero conditioning — did not produce the intended
+key-in-lock insert either, which places the failure in the model/prompt at
+512x320, 25 frames, 15 steps rather than in the conditioning strength (D-041).
+
+So the change is scoped to what the measurements do support. `standard` keeps
+the calibrated 0.8; `reframe` uses 0.5, the loosest setting that still preserved
+the person, wardrobe and set in every sample. `ContinuityStrengthResolver` picks
+between them deterministically from the Director's own shot-scale ladder
+(extreme-wide -> extreme-close-up): a jump of three or more rungs in either
+direction is a reframe, otherwise standard, with a detail-insert text fallback
+only when the scale vocabulary is unrecognised. Camera angle and movement are
+read nowhere, and the policy never feeds back into cut vs continue (D-042).
+
+Applied at the single existing site in `TakeGenerationCoordinator`, so it covers
+Auto Movie inherited frames only. A user-selected starting image, Storyboard,
+One Shot and Generate are untouched, and there is no user-facing slider.
+
+A real four-shot run selected `standard 0.8` for wide -> medium-wide and
+`reframe 0.5` for medium-wide -> extreme-close-up, kept the same woman, coat and
+colonnade across shots 1-3, and still did not reach the planned insert framing
+(SSIM 0.891 vs 0.934) — consistent with the calibration and recorded as such.
+
+### Build & verification
+- `swift build`: PASS
+- `swift run LTXTests`: **863 passed, 0 failed** (830 + 33)
+- `xcodebuild` Debug clean build: BUILD SUCCEEDED
+- `xcodebuild` Release clean build: compiles; Developer ID signing unavailable
+  on this machine, so Release was verified with an ad-hoc signing override and
+  no project setting was changed
+- `git diff --check`: PASS
+- GUI: sidebar navigation pinned, Auto Movie page and projects load unchanged

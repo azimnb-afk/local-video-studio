@@ -239,3 +239,59 @@ rather than worked around: no per-shot strength levels were added, and detail
 inserts are not force-cut, because that would trade the continuity this pass
 just secured. A per-shot continuity strength — looser for a planned detail
 insert — is the natural next step and is deliberately not implemented here.
+
+## Adaptive Continuity Strength calibration (2026-08-10)
+
+Case: the real failure from the previous run — a medium-wide full figure
+inherited into a planned close-up of a key entering a lock. Same source frame,
+prompt, seed, model, encoder, 512×320 / 25f / 15 steps / 24fps, audio off; only
+`--image-strength` varied.
+
+| strength | SSIM vs inherited (first) | reframed? | coherent? |
+|---|---|---|---|
+| 0.80 | 0.935 | no | yes |
+| 0.65 | 0.909 | no | yes |
+| 0.50 | 0.871 | no | yes |
+| 0.35 | — | no | yes |
+| 0.20 | — | partly | **no** — a hand pasted over the old composition |
+
+**Controls that settle the cause**
+- Same prompt with **no inherited image at all**: still no key-in-lock insert —
+  it rendered a different woman indoors. The prompt/duration cannot produce this
+  insert even unconstrained.
+- A second, easier reframe (a face close-up rather than an object detail) behaved
+  identically at 0.8 and 0.5: SSIM fell 0.881 → 0.803 while the framing stayed
+  full-figure.
+
+So loosening the anchor changes pixels but not composition, and it loses
+coherence (0.2) before it releases framing. There is no good intermediate value.
+This is a single-frame-conditioning and duration limit at this profile, not a
+tuning failure.
+
+**Selected:** standard 0.8 (unchanged), reframe **0.5** — the loosest setting
+that preserved person, wardrobe and set in every sample.
+
+### Real four-shot run with adaptive strength
+Director planned wide → medium-wide → extreme-close-up → medium; reconciliation
+promoted shot 2 (`cut → continue`); the resolver then chose:
+
+| boundary | framing | policy | strength |
+|---|---|---|---|
+| shot 2 | wide → medium-wide (1 rung) | standard | 0.8 |
+| shot 3 | medium-wide → extreme-close-up (4 rungs) | **reframe** | **0.5** |
+| shot 4 | — | cut | none |
+
+57/47/47/46 s, assembled to a playable 4.167 s movie. Character and environment
+continuity held across both continuations (same dark-haired woman, same coat,
+same colonnade, same light). Shot 3 moved further from its inherited frame than
+a standard continuation (SSIM 0.891 vs 0.934) but **kept the full-figure framing
+— the planned detail insert still did not happen**.
+
+### Conclusion
+The classification mechanism works and is correctly scoped, and the looser anchor
+measurably increases freedom without harming continuity. It does not deliver a
+large reframe, and no strength does. Achieving a planned detail insert needs
+something other than single-frame conditioning at this profile — a longer or
+higher-step render, or conditioning that is not a single first frame. Two
+policies are sufficient for now precisely because finer granularity would be
+tuning noise across a range with no measurable framing benefit.

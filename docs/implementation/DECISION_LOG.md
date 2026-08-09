@@ -423,3 +423,53 @@ Measured effect on real plans for the same brief: raw `cut,cut,cut,cut,cut`
 became `cut,continue,continue,continue,cut` — and the closing interior shot
 correctly stayed a cut. Plans that already contained continuations were left
 untouched.
+
+## D-041 (2026-08-10) Adaptive Continuity Strength: policy is separate from the cut decision
+`ContinuityReconciler` answers "should the previous look carry over"; the new
+`ContinuityStrengthResolver` answers "how hard should it hold". Framing is read
+only by the second question and never feeds back into the first, so a large
+camera change still cannot turn a continuation into a cut.
+
+Two policies, not a continuous curve: `standard` for an ordinary continuation and
+`reframe` for a large framing jump. Classification uses the Director's own
+shot-scale vocabulary as an ordered ladder (extreme-wide → wide → medium-wide →
+medium → medium-close-up → close-up → extreme-close-up); a jump of three rungs
+or more in either direction is a reframe. Angle and camera movement are
+deliberately excluded because they do not change how much of the subject fills
+the frame. Unrecognised vocabulary falls back to whether the shot describes a
+detail insert. The resolver applies only to an Auto Movie inherited frame, after
+CONTINUE is already decided, and never to an explicit user or CharacterBible
+starting image, Generate, One Shot or Storyboard.
+
+## D-042 (2026-08-10) Reframe strength is 0.5, and it does not buy a reframe
+Calibrated on the real failure: a medium-wide full figure inherited into a
+planned close-up of a key entering a lock, same source frame, prompt, seed and
+settings, only the strength varied.
+
+| strength | SSIM vs inherited | reframed? | coherent? |
+|---|---|---|---|
+| 0.80 | 0.935 | no | yes |
+| 0.65 | 0.909 | no | yes |
+| 0.50 | 0.871 | no | yes |
+| 0.35 | — | no | yes |
+| 0.20 | — | partly | no — a hand pasted over the old composition |
+
+No value in the usable range released the framing, and loosening degrades
+coherence before it frees composition. A control render of the same prompt with
+**no inherited image at all** did not produce the insert either: it produced a
+different woman indoors. A second case asking only for a face close-up behaved
+the same way at both 0.8 and 0.5.
+
+So the detail-insert failure is a model/duration limit at this profile
+(512×320, 25 frames, 15 steps), not a strength-tuning problem. This is recorded
+as a genuine limitation rather than being declared a success.
+
+0.5 is nevertheless adopted as the reframe value: it is the loosest setting that
+preserved the person, wardrobe and set in every sample, so it gives the renderer
+the most room where the plan asks for a big framing change. What it buys is
+measurably more freedom, not a guaranteed reframe.
+
+Standard continuity remains 0.8 and no user-facing strength control was added.
+A per-shot continuous strength curve was deliberately not introduced: with no
+measurable framing benefit across 0.8–0.35, finer granularity would be tuning
+noise.

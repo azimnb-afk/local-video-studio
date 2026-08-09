@@ -25,7 +25,9 @@ MODEL_REPO="${LTX_MODEL_REPO:-notapalindrome/ltx23-mlx-av-q4}"
 ENCODER_REPO="${LTX_ENCODER_REPO:-mlx-community/gemma-3-12b-it-4bit}"
 W=512; H=320; FRAMES=25; STEPS=15; FPS=24; CFG=3.0; SEED=42
 
-PROMPT="The same woman continues toward the entrance of the same old stone library. The camera moves closer into a medium shot. She reaches the doorway and raises her hand toward the door handle."
+# Override with LTX_CALIB_PROMPT to calibrate a different transition (for
+# example a detail insert, where the target framing differs from the source).
+PROMPT="${LTX_CALIB_PROMPT:-The same woman continues toward the entrance of the same old stone library. The camera moves closer into a medium shot. She reaches the doorway and raises her hand toward the door handle.}"
 
 mkdir -p "$OUTDIR"
 SUMMARY="$OUTDIR/summary.txt"

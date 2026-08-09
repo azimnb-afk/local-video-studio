@@ -50,6 +50,32 @@ final class AutoMovieRunCoordinator {
     /// continuity without guaranteeing the same person.
     static let continuityImageStrength: Double = 0.8
 
+    /// Conditioning strength for a continuation that also asks for a large
+    /// framing change, such as a full-figure shot followed by a detail insert.
+    ///
+    /// Measured on the real failing case (a medium-wide full figure inherited
+    /// into a planned close-up of a key entering a lock; same source frame,
+    /// prompt, seed and settings, only the strength varied):
+    ///
+    ///     strength  SSIM vs inherited   reframed?   coherent?
+    ///     0.80      0.935               no          yes
+    ///     0.65      0.909               no          yes
+    ///     0.50      0.871               no          yes
+    ///     0.35      —                   no          yes
+    ///     0.20      —                   partly      no (a hand pasted over the old frame)
+    ///
+    /// No value in the usable range released the framing, and a text-to-video
+    /// control with no inherited image at all did not produce the insert either
+    /// — so the detail insert is a model/duration limit at this profile, not a
+    /// strength-tuning problem. Loosening degrades coherence before it frees
+    /// composition.
+    ///
+    /// 0.5 is therefore chosen as the loosest setting that still preserved the
+    /// person, wardrobe and set in every sample, giving the renderer the most
+    /// room where the plan asks for a big framing change. It is honest about
+    /// what it buys: measurably more freedom, not a guaranteed reframe.
+    static let reframeContinuityImageStrength: Double = 0.5
+
     enum RunStep: Equatable {
         /// Not an automatic project, or nothing left to do.
         case idle

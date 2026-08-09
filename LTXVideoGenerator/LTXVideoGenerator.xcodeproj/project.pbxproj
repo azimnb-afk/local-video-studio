@@ -35,6 +35,7 @@
 		AA000190 /* MacOSSystemMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000191; };
 		AA000192 /* LTXGenerationLogSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000193; };
 		AA000194 /* GenerationFailureRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000195; };
+		AA000290 /* ContinuityStrengthPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000291; };
 		AA000280 /* ContinuityReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000281; };
 		AA000270 /* AutoMovieBeatPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000271; };
 		AA000260 /* ContinuityFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000261; };
@@ -100,6 +101,7 @@
 		AA00002C /* AudioService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioService.swift; sourceTree = "<group>"; };
 		AA00002E /* AddAudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAudioView.swift; sourceTree = "<group>"; };
 		AA000036 /* CharacterProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterProfile.swift; sourceTree = "<group>"; };
+		AA000291 /* ContinuityStrengthPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityStrengthPolicy.swift; sourceTree = "<group>"; };
 		AA000281 /* ContinuityReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityReconciler.swift; sourceTree = "<group>"; };
 		AA000271 /* AutoMovieBeatPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoMovieBeatPlanner.swift; sourceTree = "<group>"; };
 		AA000261 /* ContinuityFrameExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityFrameExtractor.swift; sourceTree = "<group>"; };
@@ -225,6 +227,7 @@
 				AA000014 /* PresetManager.swift */,
 				AA000026 /* APIServer.swift */,
 				AA00002C /* AudioService.swift */,
+				AA000291 /* ContinuityStrengthPolicy.swift */,
 				AA000281 /* ContinuityReconciler.swift */,
 				AA000271 /* AutoMovieBeatPlanner.swift */,
 				AA000261 /* ContinuityFrameExtractor.swift */,
@@ -376,6 +379,7 @@
 				AA00001D /* PreferencesView.swift in Sources */,
 				AA000025 /* APIServer.swift in Sources */,
 				AA00002B /* AudioService.swift in Sources */,
+				AA000290 /* ContinuityStrengthPolicy.swift in Sources */,
 				AA000280 /* ContinuityReconciler.swift in Sources */,
 				AA000270 /* AutoMovieBeatPlanner.swift in Sources */,
 				AA000260 /* ContinuityFrameExtractor.swift in Sources */,

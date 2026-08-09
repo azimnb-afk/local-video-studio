@@ -90,6 +90,15 @@ final class TakeGenerationCoordinator {
             usesInheritedContinuityFrame = true
         }
 
+        // How hard the inherited frame should hold. Only meaningful once the
+        // shot is already inheriting: this never decides cut vs continue.
+        var continuityStrengthPolicy: ContinuityStrengthPolicy = .standard
+        if usesInheritedContinuityFrame, shotIndex > 0 {
+            continuityStrengthPolicy = ContinuityStrengthResolver.policy(
+                previous: project.shots[shotIndex - 1], current: shot
+            )
+        }
+
         var requests: [GenerationRequest] = []
         for i in 0..<count {
             let seed = baseSeed.map { $0 + i } ?? Int.random(in: 0..<Int(Int32.max))
@@ -106,8 +115,9 @@ final class TakeGenerationCoordinator {
                 // Pinning the first frame exactly (1.0) preserved the scene but
                 // froze the composition, so continuing shots never progressed.
                 // The calibrated value keeps the set, wardrobe and lighting
-                // while letting the camera and action move on.
-                params.imageStrength = AutoMovieRunCoordinator.continuityImageStrength
+                // while letting the camera and action move on, and a shot that
+                // also asks for a large framing change gets the looser anchor.
+                params.imageStrength = ContinuityStrengthResolver.strength(for: continuityStrengthPolicy)
             }
 
             let take = Take(

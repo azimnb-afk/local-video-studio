@@ -295,3 +295,85 @@ something other than single-frame conditioning at this profile — a longer or
 higher-step render, or conditioning that is not a single first frame. Two
 policies are sufficient for now precisely because finer granularity would be
 tuning noise across a range with no measurable framing benefit.
+
+## Capability-Aware Shot Planning (2026-08-10)
+
+### Plan sampling across four unrelated briefs
+Real plans from the local Director (`qwen3.6-claw-fast`, the app's own system
+prompt), each handed to the shipping Swift policy via
+`swift run LTXTests --capability-plan` — the rules are not reimplemented in the
+harness. Script: `scripts/capability_plan_sampling.py`.
+
+| brief | shots | adjusted | what changed |
+|---|---|---|---|
+| library / unlock door | 5 | 1 | close-up → medium-close-up (3-rung reframe + fine hand/object action) |
+| forest / glowing shrine | 4 | 1 | medium-close-up → medium (3-rung reframe) |
+| parked car / get inside | 4 | 2 | medium-close-up → medium; medium-wide → medium (3-rung pull-back) |
+| control room / start machine | 4 | 1 | close-up → medium-close-up (3-rung reframe) |
+
+Every brief triggered at least one adjustment, so the policy is not specific to
+the library case that motivated it. In all four, the action text kept its
+subject, verb and object; the only additions were a visibility note where a fine
+manipulation was detected. Camera variety survived: the effective plans still
+range from wide to close-up.
+
+One conservative over-trigger is visible and accepted: the car brief's fourth
+shot is a planned cut with no explicit scene directive and no interior/exterior
+crossing, so it is treated as inheriting and its framing is pulled from
+medium-wide to medium. Reconciliation would very likely promote that boundary
+anyway, and the cost is one rung.
+
+### Controlled single shot, previous failing case
+Same inherited frame, prompt lineage, seed and render settings; only the plan
+differs.
+
+| plan | framing | strength | result |
+|---|---|---|---|
+| previous (Director's) | close-up | 0.5 (reframe) | full-figure, no unlock action |
+| capability-aware | medium-close-up | 0.8 (standard) | full-figure, no unlock action |
+
+Honest result: the rewrite did not rescue this shot. The inherited frame here
+shows the subject on the path, not at the door, so the unlock beat has no
+precondition in the image to act on. This is a plan-level problem, which is what
+the full run tests.
+
+### Real four-shot Quick Auto Movie E2E
+Brief: "A young woman walks toward an old stone library, reaches the entrance,
+unlocks the door, and steps inside." 512×320, 25f, 15 steps, seed 42, audio off.
+
+Pipeline behaved exactly as designed:
+
+| stage | result |
+|---|---|
+| Director plan | wide / medium-wide / **close-up** / medium, all `cut` |
+| capability planning | shot 3 `highRisk` → **medium-close-up** (3-rung reframe while inheriting) |
+| reconciliation | shots 2 and 3 promoted `cut → continue` (framing changes did not block it) |
+| strength policy | shot 2 standard 0.8, shot 3 **standard 0.8** — the reframe fallback was no longer needed |
+| assembly | 4 shots → 4.167 s playable movie |
+
+Outcome per success criterion:
+
+| criterion | result |
+|---|---|
+| character continuity | **PASS** — same woman, same teal dress across shots 1–3 |
+| environment continuity | **PASS** — same colonnade, doorway and light |
+| narrative progression | **FAIL** — approach / arrive / unlock are not distinguishable |
+| camera progression | **FAIL** — shots 1–3 hold the inherited composition |
+| beat feasibility | **FAIL** — the unlock beat is still not visible |
+
+SSIM against the inherited frame: shot 2 first 0.942 → last 0.815 (it does move);
+shot 3 first 0.930 → last 0.940 (it barely moves at all).
+
+### Conclusion
+The classification and rewrite work, generalise across briefs, and interact with
+reconciliation and adaptive strength exactly as intended — the plan is now honest
+about what this profile can render, and the reframe fallback stopped being needed
+in the target scenario. What did not improve is the outcome that matters: at 0.8
+the inherited composition is held so firmly that even a planned two-rung change
+does not happen, so the unlock beat still is not shown.
+
+The limit is therefore not the plan and not the strength in isolation, but
+single-frame conditioning at this profile: an inherited frame that does not
+already contain the preconditions for the next beat cannot be moved to them in
+25 frames. Wording stays scoped to what was tested — at this Quick profile, large
+reframes and fine object-detail inserts were unreliable.

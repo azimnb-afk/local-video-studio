@@ -513,9 +513,22 @@ final class StoryboardDirector {
         title: String,
         brief: String,
         settings: ProjectSettings = ProjectSettings(),
-        characterBible: CharacterBible = CharacterBible()
+        characterBible: CharacterBible = CharacterBible(),
+        capabilityAwarePlanning: Bool = false
     ) async throws -> (project: FilmProject, violations: [ContinuityEngine.Violation], providerName: String) {
-        let (draft, providerName) = try await self.draft(brief: brief, characterBible: characterBible)
+        let (rawDraft, providerName) = try await self.draft(brief: brief, characterBible: characterBible)
+        var draft = rawDraft
+
+        // Auto Movie steers the plan toward shots this profile actually renders
+        // before anything is compiled, so the prompt, the camera fields and the
+        // persisted plan all describe the same effective shot. Storyboard and
+        // every manual path opt out and keep the Director's plan verbatim.
+        var capabilityAdjustments: [CapabilityAwareShotPlanner.Adjustment] = []
+        if capabilityAwarePlanning {
+            let planned = CapabilityAwareShotPlanner.plan(shots: draft.shots, brief: brief)
+            draft.shots = planned.shots
+            capabilityAdjustments = planned.adjustments
+        }
 
         var project = FilmProject(id: projectID, title: title)
         project.settings = settings
@@ -623,6 +636,16 @@ final class StoryboardDirector {
             )
             shot.baseCompiledPrompt = context.isEmpty ? compiled : context + " " + compiled
             shot.compiledPrompt = shot.baseCompiledPrompt ?? compiled
+
+            // Keep the original framing and the reason on the shot so a run
+            // stays explainable after a reload.
+            if let adjustment = capabilityAdjustments.first(where: { $0.index == index }),
+               adjustment.risk == .highRisk {
+                shot.capabilityAdjustmentReason = adjustment.explanation
+                if adjustment.originalScale != adjustment.effectiveScale {
+                    shot.originalCameraScale = adjustment.originalScale
+                }
+            }
 
             project.shots.append(shot)
             state = nextState
@@ -773,7 +796,11 @@ final class HybridProjectCoordinator {
     ) async throws -> (project: FilmProject, violations: [ContinuityEngine.Violation], providerName: String) {
         var (project, violations, providerName) = try await director.makeProject(
             projectID: projectID, title: title, brief: brief,
-            settings: settings, characterBible: characterBible
+            settings: settings, characterBible: characterBible,
+            // Auto Movie only. The same pass runs for the local AI planner and
+            // for the no-LLM template, so generation feasibility does not depend
+            // on whether a local model happened to be available.
+            capabilityAwarePlanning: true
         )
         let target = min(60, max(5, settings.targetDurationSeconds ?? 20))
         let desiredCount = min(12, max(1, Int(ceil(target / 5))))
@@ -821,6 +848,11 @@ final class HybridProjectCoordinator {
             shot.continuityImageRelativePath = nil
             shot.continuitySourceTakeID = nil
             shot.continuityBlockedReason = nil
+            // The beat ladder replaces whatever framing the source shot had, so
+            // any capability note from the unsplit draft no longer describes
+            // this shot. The ladder itself is already capability-bounded.
+            shot.originalCameraScale = nil
+            shot.capabilityAdjustmentReason = nil
 
             let plan = OneShotPlan(
                 camera: "\(shot.camera.shotScale) shot, \(shot.camera.angle) angle, \(shot.camera.movement) camera",

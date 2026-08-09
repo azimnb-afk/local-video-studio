@@ -623,6 +623,14 @@ struct Shot: Codable, Equatable, Identifiable {
     /// Set when a `continue` shot cannot resolve its inherited frame.
     var continuityBlockedReason: ContinuityBlockReason?
 
+    // MARK: Capability-aware planning (Auto Movie only, both optional)
+
+    /// The framing the Director asked for, when the capability pass planned a
+    /// different one. Absent when the shot was planned as-is.
+    var originalCameraScale: String?
+    /// Why the effective plan differs from the planned one.
+    var capabilityAdjustmentReason: String?
+
     var selectedTake: Take? {
         guard let selectedTakeID else { return nil }
         return takes.first { $0.id == selectedTakeID }
@@ -660,7 +668,9 @@ struct Shot: Codable, Equatable, Identifiable {
         continuityReconciliationReason: String? = nil,
         continuityImageRelativePath: String? = nil,
         continuitySourceTakeID: UUID? = nil,
-        continuityBlockedReason: ContinuityBlockReason? = nil
+        continuityBlockedReason: ContinuityBlockReason? = nil,
+        originalCameraScale: String? = nil,
+        capabilityAdjustmentReason: String? = nil
     ) {
         self.id = id
         self.index = index
@@ -683,6 +693,8 @@ struct Shot: Codable, Equatable, Identifiable {
         self.continuityImageRelativePath = continuityImageRelativePath
         self.continuitySourceTakeID = continuitySourceTakeID
         self.continuityBlockedReason = continuityBlockedReason
+        self.originalCameraScale = originalCameraScale
+        self.capabilityAdjustmentReason = capabilityAdjustmentReason
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -692,7 +704,8 @@ struct Shot: Codable, Equatable, Identifiable {
              baseCompiledPrompt, compiledPrompt, takes, selectedTakeID,
              continuityMode, plannedContinuityMode, continuityReconciliationReason,
              continuityImageRelativePath,
-             continuitySourceTakeID, continuityBlockedReason
+             continuitySourceTakeID, continuityBlockedReason,
+             originalCameraScale, capabilityAdjustmentReason
     }
 
     init(from decoder: Decoder) throws {
@@ -718,6 +731,8 @@ struct Shot: Codable, Equatable, Identifiable {
         continuityImageRelativePath = try container.decodeIfPresent(String.self, forKey: .continuityImageRelativePath)
         continuitySourceTakeID = try container.decodeIfPresent(UUID.self, forKey: .continuitySourceTakeID)
         continuityBlockedReason = try container.decodeIfPresent(ContinuityBlockReason.self, forKey: .continuityBlockedReason)
+        originalCameraScale = try container.decodeIfPresent(String.self, forKey: .originalCameraScale)
+        capabilityAdjustmentReason = try container.decodeIfPresent(String.self, forKey: .capabilityAdjustmentReason)
     }
 }
 

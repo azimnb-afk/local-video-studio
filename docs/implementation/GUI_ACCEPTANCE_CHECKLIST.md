@@ -463,3 +463,30 @@ brief-editor focus limitation as previous passes). The equivalent pipeline —
 Director planning, reconciliation, per-shot policy selection, sequential
 generation with inheritance, and assembly — was run by
 `scripts/automovie_progression_e2e.py`.
+
+## 2026-08-10 Capability-Aware Shot Planning GUI check
+
+Canonical Debug app, executable mtime `2026-08-10 08:23`, PID 9418, 1 window at
+1680x948 (no HSplitView height inflation).
+
+- [x] Sidebar shows Generate / One Shot / Storyboard / Director / Auto Movie
+  (Sora 2-like connected shots) / Video Archive, pinned at the top
+  (2db0abc sidebar fix intact).
+- [x] Auto Movie page header and bilingual descriptions render unchanged.
+- [x] Existing Auto Movie projects load and list correctly (3 projects, shot and
+  selected-take counts intact) after `originalCameraScale` and
+  `capabilityAdjustmentReason` were added to Shot.
+- [x] Video Archive still lists prior takes.
+- [x] No layout regression from this change (ContentView untouched this round).
+
+No user-facing control was added: the policy is chosen deterministically from the
+Director's own shot scales, so there is nothing new to exercise in the GUI.
+
+Not re-exercised: selecting a project to inspect shot cards and continuity
+badges, and a full in-app render to assembly. Synthetic clicks still cannot
+select a SwiftUI list row or focus the brief editor (same limitation as previous
+passes). The projects list rendering correct per-project shot and take counts is
+the meaningful compatibility check for the extended Shot schema, and it passes.
+The equivalent pipeline — Director planning, capability planning, reconciliation,
+per-shot strength policy, sequential generation and assembly — was run by
+`scripts/automovie_progression_e2e.py`.

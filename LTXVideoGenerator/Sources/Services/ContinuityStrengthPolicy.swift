@@ -27,19 +27,6 @@ enum ContinuityStrengthPolicy: String, Equatable {
 
 enum ContinuityStrengthResolver {
 
-    /// Ordered coarse-to-tight, matching the shot-scale vocabulary the Director
-    /// is asked to use. Rank distance between two shots is what "how big is this
-    /// reframe" means.
-    private static let scaleLadder: [String] = [
-        "extreme-wide",
-        "wide",
-        "medium-wide",
-        "medium",
-        "medium-close-up",
-        "close-up",
-        "extreme-close-up",
-    ]
-
     /// A jump of this many rungs or more is treated as a reframe. A wide shot
     /// followed by a close-up (wide → close-up is 4) qualifies; the gentler
     /// steps a scene normally takes do not.
@@ -52,21 +39,9 @@ enum ContinuityStrengthResolver {
         "close-up of", "closeup of", "close up of",
     ]
 
-    /// Rank on the ladder, or nil when the term is not recognised.
+    /// Rank on the shared ladder, or nil when the term is not recognised.
     static func rank(ofScale scale: String) -> Int? {
-        let normalized = scale
-            .lowercased()
-            .trimmingCharacters(in: .whitespaces)
-            .replacingOccurrences(of: " ", with: "-")
-            .replacingOccurrences(of: "closeup", with: "close-up")
-            .replacingOccurrences(of: "-shot", with: "")
-        if let exact = scaleLadder.firstIndex(of: normalized) { return exact }
-        // Tolerate unseen spellings by matching the longest known term the value
-        // contains, so "extreme-close-up-insert" still ranks as a detail.
-        let matches = scaleLadder.enumerated()
-            .filter { normalized.contains($0.element) }
-            .max { $0.element.count < $1.element.count }
-        return matches?.offset
+        ShotScaleLadder.rank(of: scale)
     }
 
     /// Decides the policy for a continuation from `previous` to `current`.
@@ -96,7 +71,7 @@ enum ContinuityStrengthResolver {
     /// True when the shot is framed on an object or body detail.
     static func isDetailInsert(_ shot: Shot) -> Bool {
         if let rank = rank(ofScale: shot.camera.shotScale),
-           rank >= scaleLadder.count - 1 {
+           rank >= ShotScaleLadder.tightestRank {
             return true
         }
         let text = (shot.camera.composition + " " + shot.summary + " " + shot.title).lowercased()

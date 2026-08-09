@@ -69,15 +69,42 @@ enum AutoMovieBeatPlanner {
 
     /// Shot scale per beat. The opening establishes, the middle stays with the
     /// subject, and the closing beat sits tighter on the resolving action.
+    ///
+    /// Split beats are one continuous action, so every beat after the first
+    /// inherits a frame. The ladder is therefore held to the same maximum jump
+    /// the capability planner allows an inheriting shot: a two-beat movie used
+    /// to go straight from wide to close-up, which is exactly the reframe that
+    /// measurement showed does not happen.
     static func shotScales(count: Int) -> [String] {
         guard count > 1 else { return ["medium"] }
-        return (0..<count).map { index in
+        let intended = (0..<count).map { index -> String in
             switch stage(index: index, count: count) {
             case .opening: return "wide"
             case .development: return index % 2 == 1 ? "medium" : "medium-close-up"
             case .resolution: return "close-up"
             }
         }
+        return clampToReachableSteps(intended)
+    }
+
+    /// Pulls each beat back to within one capability step of the beat before it.
+    static func clampToReachableSteps(_ scales: [String]) -> [String] {
+        let maxJump = CapabilityAwareShotPlanner.maxInheritedRankJump
+        var result: [String] = []
+        var previousRank: Int?
+        for scale in scales {
+            guard var rank = ShotScaleLadder.rank(of: scale) else {
+                result.append(scale)
+                previousRank = nil
+                continue
+            }
+            if let previousRank {
+                rank = min(max(rank, previousRank - maxJump), previousRank + maxJump)
+            }
+            result.append(ShotScaleLadder.name(atRank: rank))
+            previousRank = rank
+        }
+        return result
     }
 
     /// Camera angle per beat. Varied so a longer movie does not hold one angle

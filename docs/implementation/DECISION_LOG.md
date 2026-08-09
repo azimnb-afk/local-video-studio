@@ -473,3 +473,73 @@ Standard continuity remains 0.8 and no user-facing strength control was added.
 A per-shot continuous strength curve was deliberately not introduced: with no
 measurable framing benefit across 0.8–0.35, finer granularity would be tuning
 noise.
+
+## D-043 (2026-08-10) Capability-Aware Shot Planning steers the plan, before generation
+
+The previous round established that a planned detail insert could not be reached
+by any conditioning strength, and that the same prompt failed even with no
+inherited image. That leaves one honest lever: stop planning the shot.
+
+`CapabilityAwareShotPlanner` runs once, on the Director's draft, inside Auto
+Movie only. It classifies each shot as `normal` or `highRisk` — two levels, not
+a score, because the measurements do not support finer precision — and where a
+shot is high risk it plans a framing that renders instead. The narrative beat is
+never deleted: a key still goes into a lock, at body scale rather than as a macro
+insert.
+
+Four rules, each traceable to something measured:
+- a framing jump of three or more rungs at a boundary that inherits a frame;
+- the tightest rung on the ladder (a detail insert);
+- a hand or finger operating something described as small;
+- four or more action clauses in one short take.
+
+Close-ups are deliberately not banned. A close-up reached from a medium shot is
+a two-rung step and is planned exactly as the Director asked. What the pass
+targets is the combination that failed: a large jump, into detail, off an
+inherited frame.
+
+The pass runs on the draft rather than on built shots so the camera fields, the
+compiled prompt and the persisted plan all describe the same effective shot —
+compiling first and rewriting afterwards would have left the prompt asking for a
+framing the plan no longer intended.
+
+Placement relative to reconciliation is a non-issue by construction:
+reconciliation reads location, time, cast and story state, never framing, so its
+decisions are identical whichever order the two passes run in. Confirmed by a
+test that reconciles the same scene at two very different framings.
+
+## D-044 (2026-08-10) One ladder, one definition of a large reframe
+
+`ShotScaleLadder` now owns the seven-rung scale vocabulary and its ranking, and
+both `ContinuityStrengthResolver` and the capability planner use it. The largest
+jump the planner will allow an inheriting shot is derived as
+`reframeRankDistance - 1` rather than chosen independently, so the two passes
+cannot drift into disagreeing about what "a large reframe" means.
+
+This makes the relationship between the two features explicit: capability
+planning is the first defence and tries to avoid planning a large reframe at
+all; adaptive strength is the fallback that loosens the anchor for the reframes
+that survive — for example one the user asked for themselves. Standard strength
+stays 0.8 and the reframe fallback stays 0.5; neither was recalibrated.
+
+The split-beat ladder in `AutoMovieBeatPlanner` is held to the same bound. A
+two-beat movie previously went straight from wide to close-up, a four-rung jump
+across a boundary that always inherits.
+
+## D-045 (2026-08-10) Framing the user asked for is not rewritten
+
+When the brief itself names a tight framing ("extreme close-up", "macro shot",
+「マクロ」), the pass records the shot as high risk and changes nothing. An
+automatic feasibility policy should not delete a visual choice the user made
+deliberately; the shot may fail, but that is the user's stated intent, and the
+reason is recorded either way.
+
+The check is brief-level and therefore coarse — it stands the pass down for the
+whole plan rather than for one shot. Distinguishing per-shot user intent would
+need the brief to be attributed to individual shots, which is a schema change
+this MVP does not justify.
+
+`Shot` gained two optional fields, `originalCameraScale` and
+`capabilityAdjustmentReason`, so a reloaded project still shows what the Director
+asked for and why the effective plan differs. Old projects decode unchanged and
+report no adjustment.

@@ -133,6 +133,29 @@ def plan_shots() -> list:
     return plan.get("shots", [])[:4]
 
 
+def capability_plan(shots: list) -> list:
+    """Runs the shipping Swift capability policy over the Director's plan.
+
+    The rules are NOT mirrored here: the plan is handed to
+    `swift run LTXTests --capability-plan`, which uses the same
+    CapabilityAwareShotPlanner the app calls, and the effective plan is read
+    back. A failure is fatal rather than silently falling through to the raw
+    plan, so this harness can never report a run the app would not have made.
+    """
+    src = OUT / "capability_input.json"
+    src.write_text(json.dumps({"logline": BRIEF, "shots": shots}))
+    result = subprocess.run(
+        ["swift", "run", "LTXTests", "--capability-plan", str(src), BRIEF],
+        cwd=REPO, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"capability planning failed: {result.stderr.strip()[:400]}")
+    for line in result.stdout.strip().split("\n"):
+        if line.startswith(("---", "    ", "brief:")):
+            log("   " + line.rstrip())
+    effective = json.loads((OUT / "capability_input.json.effective.json").read_text())
+    return effective["shots"]
+
+
 def compile_prompt(shot: dict) -> str:
     """Mirrors PromptCompiler: camera sentence, then the action."""
     camera = (f"{shot.get('shotScale', 'medium')} shot, "
@@ -190,6 +213,10 @@ def main():
         log(f"Shot {i} [{s.get('shotScale','?')} · {s.get('angle','?')} · {s.get('movement','?')}]"
             f" continuity={s.get('continuity','?')}")
         log(f"   {s.get('summary','')}")
+    log("")
+
+    log("Capability-aware shot planning:")
+    shots = capability_plan(shots)
     log("")
 
     reconciled = reconcile(shots, plan_initial_state)

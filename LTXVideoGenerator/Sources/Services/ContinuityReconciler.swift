@@ -31,18 +31,10 @@ enum ContinuityReconciler {
         var wasPromoted: Bool { planned != effective }
     }
 
-    // Directives that mean the story moved somewhere or somewhen else.
-    private static let sceneChangeDirectives = ["location=", "timeOfDay=", "weather="]
-
-    // Words that indicate which side of a doorway a shot is on. Used only to
-    // BLOCK a promotion, never to justify one, so a vocabulary miss is safe.
-    private static let interiorMarkers = [
-        "interior", "inside", "indoors", "within the", "hallway", "corridor",
-    ]
-    private static let exteriorMarkers = [
-        "exterior", "outside", "outdoors", "courtyard", "street", "path",
-        "facade", "rooftop",
-    ]
+    /// Directives that mean the story moved somewhere or somewhen else. Shared
+    /// with the capability planner, which must not treat such a boundary as an
+    /// inherited frame.
+    static let sceneChangeDirectives = ["location=", "timeOfDay=", "weather="]
 
     /// Produces one decision per shot, in shot order.
     static func decisions(for shots: [Shot]) -> [Decision] {
@@ -179,22 +171,45 @@ enum ContinuityReconciler {
     /// Detects an inside/outside transition from the shot text. Returns a reason
     /// when the two shots sit on opposite sides of a threshold.
     private static func thresholdCrossing(previous: Shot, current: Shot) -> String? {
-        func side(of text: String) -> String? {
-            let lower = text.lowercased()
-            let interior = interiorMarkers.contains { lower.contains($0) }
-            let exterior = exteriorMarkers.contains { lower.contains($0) }
-            if interior && !exterior { return "interior" }
-            if exterior && !interior { return "exterior" }
-            return nil
-        }
         // What the shot depicts comes first. The recorded location is only a
         // fallback, because the case this rule exists for is a shot that has
         // moved indoors while the location string still names the old place.
         func side(_ shot: Shot) -> String? {
-            side(of: shot.summary + " " + shot.title)
-                ?? side(of: shot.continuityBefore?.location ?? "")
+            SceneThreshold.side(of: shot.summary + " " + shot.title)
+                ?? SceneThreshold.side(of: shot.continuityBefore?.location ?? "")
         }
         guard let a = side(previous), let b = side(current), a != b else { return nil }
         return "scene crosses from \(a) to \(b)"
+    }
+}
+
+/// Which side of a doorway a piece of shot text describes.
+///
+/// Used only to BLOCK an assumption of continuity, never to justify one, so a
+/// vocabulary miss is safe in both users: the reconciler keeps a planned cut,
+/// and the capability planner leaves the framing alone.
+enum SceneThreshold {
+
+    private static let interiorMarkers = [
+        "interior", "inside", "indoors", "within the", "hallway", "corridor",
+    ]
+    private static let exteriorMarkers = [
+        "exterior", "outside", "outdoors", "courtyard", "street", "path",
+        "facade", "rooftop",
+    ]
+
+    static func side(of text: String) -> String? {
+        let lower = text.lowercased()
+        let interior = interiorMarkers.contains { lower.contains($0) }
+        let exterior = exteriorMarkers.contains { lower.contains($0) }
+        if interior && !exterior { return "interior" }
+        if exterior && !interior { return "exterior" }
+        return nil
+    }
+
+    /// True when the two texts sit on opposite, identifiable sides.
+    static func crosses(_ previousText: String, _ currentText: String) -> Bool {
+        guard let a = side(of: previousText), let b = side(of: currentText) else { return false }
+        return a != b
     }
 }

@@ -344,3 +344,56 @@ colonnade across shots 1-3, and still did not reach the planned insert framing
   no project setting was changed
 - `git diff --check`: PASS
 - GUI: sidebar navigation pinned, Auto Movie page and projects load unchanged
+
+## 2026-08-10 Capability-Aware Shot Planning
+
+With strength tuning exhausted — no value reached the planned detail insert, and
+a zero-conditioning control failed the same prompt — the remaining lever was to
+stop planning shots this profile cannot render.
+
+`CapabilityAwareShotPlanner` runs once on the Director's draft, inside Auto Movie
+only, and classifies each shot `normal` or `highRisk` on four measured rules: a
+three-rung-or-larger framing jump at a boundary that inherits a frame, the
+tightest rung on the ladder, a hand or finger operating something small, and four
+or more action clauses in one short take. High-risk shots get a framing that
+renders and language that stops asking for a macro rendering; the beat itself is
+never deleted (D-043). Close-ups are not banned — a close-up two rungs from the
+previous shot is planned exactly as asked.
+
+`ShotScaleLadder` now owns the scale vocabulary for both this pass and
+`ContinuityStrengthResolver`, and the largest planned jump is derived from the
+reframe threshold rather than chosen separately, so the two can never disagree.
+Capability planning is the first defence, adaptive strength the fallback for
+reframes that survive — including one the user asked for by name, which is left
+untouched (D-044, D-045). `AutoMovieBeatPlanner`'s split ladder is held to the
+same bound; a two-beat movie used to jump wide → close-up.
+
+The pass runs on the draft so the camera fields, the compiled prompt and the
+persisted plan all describe the same effective shot. `Shot` gained optional
+`originalCameraScale` and `capabilityAdjustmentReason`; old projects decode
+unchanged. Storyboard, One Shot, Generate and CharacterBible are untouched, and
+the Basic (no-LLM) path gets the same policy.
+
+Measured across four unrelated briefs (library, forest shrine, parked car,
+control room): every brief triggered at least one adjustment, every action kept
+its subject/verb/object, camera variety survived. In the real four-shot run the
+Director's close-up became medium-close-up, which in turn meant the reframe
+fallback was no longer needed (standard 0.8 throughout), and reconciliation still
+promoted both boundaries.
+
+Honestly recorded as **PARTIAL**: character and environment continuity held, but
+the unlock beat is still not visible and shots 1–3 hold the inherited
+composition (SSIM 0.930 → 0.940 on shot 3). At this Quick profile an inherited
+frame that does not already contain the preconditions for the next beat cannot
+be moved to them in 25 frames — a single-frame-conditioning limit, not a
+planning bug.
+
+### Build & verification
+- `swift build`: PASS
+- `swift run LTXTests`: **945 passed, 0 failed** (863 + 82)
+- `xcodebuild` Debug clean build: BUILD SUCCEEDED
+- `xcodebuild` Release clean build: BUILD SUCCEEDED (ad-hoc signing override;
+  Developer ID unavailable on this machine, no project setting changed)
+- `git diff --check`: PASS
+- GUI: sidebar navigation pinned, Auto Movie page and existing projects load
+  after the two new optional Shot fields

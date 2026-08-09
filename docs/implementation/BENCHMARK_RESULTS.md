@@ -41,3 +41,52 @@ matching the app's single-flight queue).
 
 ## Regression acceptance
 Post-change official-path runs must stay within 1.05x of: wall 49 s (audio ON) / 46 s (audio OFF); peak 23.66 / 17.23 GB; identical actual resolution/fps/duration/audio streams.
+
+## Auto Movie continuity chain — real LTX run (2026-08-10)
+
+Harness: `scripts/automovie_continuity_e2e.sh` (M4 Pro / 48 GB, ltx23_distilled_q4
++ gemma-3-12b-4bit, 512×320 / 25f / 15 steps / 24fps, audio off, `HF_HUB_OFFLINE=1`).
+Brief: a woman approaches an old stone library, reaches the entrance, opens the
+door and steps inside — shot 1 text-to-video, shots 2 and 3 continuing from the
+previous shot's final frame.
+
+| Step | Result |
+|---|---|
+| Shot 1 (T2V) | 45 s → 512×320, 1.04 s |
+| Shot 1 → 2 frame extraction | 185,845-byte PNG |
+| Shot 2 (I2V from inherited frame) | 44 s → 512×320, 1.04 s |
+| Shot 2 → 3 frame extraction | 182,035-byte PNG |
+| Shot 3 (I2V from inherited frame) | 44 s → 512×320, 1.04 s |
+| Final assembly (stream copy) | h264 512×320, **3.125 s**, playable |
+
+Sequential throughout; one generation at a time.
+
+### Observed continuity (honest assessment)
+- **Building / set: strongly preserved.** The same stone facade, red-brown
+  doors, window rhythm and background spire persist across all three shots.
+- **Lighting and colour: preserved.** Consistent overcast palette.
+- **Wardrobe and general figure: preserved.** Dark coat and long light hair
+  stay consistent.
+- **Hand-off is real.** Each continuing shot's first frame matches the previous
+  shot's final frame, confirming the inherited image reached the renderer.
+- **Identity: not verifiable and not claimed.** The face is small and
+  motion-blurred at this resolution. This mechanism is a visual anchor, not
+  identity conditioning; the same person is never guaranteed.
+- **Composition leakage is real and significant.** Camera angle and framing
+  stayed essentially locked across all three shots, and the narrative beats did
+  not progress: the subject kept walking along the same facade instead of
+  reaching the entrance and entering. With `imageStrength = 1.0` the inherited
+  frame dominates the prompt.
+
+### Consequences
+1. Chaining every shot would be wrong; this run is direct evidence for the
+   `cut`-by-default rule (D-029). Scene changes and establishing shots must cut.
+2. Continuous action across a chained shot needs either a lower image strength
+   or fewer chained shots in a row. Exposing per-shot continuity strength is a
+   sensible follow-up, deliberately **not** implemented here.
+3. Continuity quality should be described as *improved visual continuity*, never
+   as guaranteed identity or guaranteed scene progression.
+
+Evidence: `/tmp/ltx_automovie_e2e/` (per-shot MP4s, extracted frames,
+`continuity_sheet.png` comparing each shot's first and last frame, and
+`auto_movie_final.mp4`).

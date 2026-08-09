@@ -180,3 +180,80 @@ scroll area and clamps to the same viewport, satisfying the invariant that
 navigation stays anchored regardless of how much Queue/Model Status content
 grows. No fixed pixel sizes, delayed `scrollTo`, or per-launch UserDefaults
 deletion are used. Change is confined to `ContentView.swift`.
+
+## D-026 (2026-08-10) Hybrid is presented as Auto Movie (Sora 2-like)
+The workspace that turns one idea into several connected shots is now called
+Auto Movie (Sora 2-like) in the sidebar, page header and bilingual description.
+Only presentation changed: the `hybrid` enum case, the `"hybrid"` workflowMode
+value, persistence keys and schema identifiers are unchanged, so existing
+projects keep loading and are still recognised as automatic runs. The tab's
+raw value changed, so a user who had that tab selected reopens on Generate
+once; tab selection is transient UI state, not project data.
+
+## D-027 (2026-08-10) Auto Movie queues one shot at a time
+Hybrid previously queued every shot upfront in a single loop. That cannot work
+with continuity, because shot N+1's starting image only exists after shot N has
+rendered. `AutoMovieRunCoordinator` now enqueues exactly one shot, and the run
+advances from `GenerationService` as each take completes. Generation
+concurrency stays 1, and the dependency order (render → extract frame →
+enqueue next) is explicit rather than implied by queue position.
+
+## D-028 (2026-08-10) Continuity chain reuses the existing single-image I2V bridge
+Continuity between consecutive shots is implemented by extracting the previous
+shot's final usable frame and passing it as the next shot's
+`GenerationRequest.sourceImagePath` — the same bridge the Starting Image
+feature already uses. No new model conditioning, no video-to-video, no
+multi-frame conditioning, no new media dependency: frames are extracted with
+the FFmpeg binary already required for assembly.
+
+Seek offsets are derived from the real probed duration and clamped to stay
+inside the clip, so a 1-second take never seeks before its first frame. Three
+strategies are tried in order (end-relative seek, absolute seek, full decode)
+and the output is validated as a non-empty PNG before it is ever handed to the
+renderer.
+
+This improves visual continuity of person, wardrobe, location and lighting. It
+is explicitly **not** identity conditioning and is never described as face or
+identity lock; the same person is not guaranteed.
+
+## D-029 (2026-08-10) Continue/Cut, and "if unsure, cut"
+Chaining every shot would drag composition, camera position and pose across
+intentional scene changes and prevent establishing shots. Shots therefore carry
+a continuity mode. The Director schema gained an optional `"continuity"` field
+("continue"/"cut"); missing or unknown values become `auto` and are resolved
+deterministically at generation time.
+
+The deterministic rule cuts on any scene-change directive, a different location
+or time of day, a different cast, or a widening establishing shot, and requires
+*positive* evidence of the same scene (same non-empty location or same
+non-empty cast) before continuing. Absence of evidence is not evidence of
+continuity, so unknown cases cut. The first shot is always a cut. The Auto
+Movie duration-splitting path is the one place that marks shots as continuing
+directly, because those beats are one continuous action split by construction.
+
+## D-030 (2026-08-10) Starting image precedence and no silent text-to-video fallback
+Precedence is: the shot's explicit user/CharacterBible starting image, then the
+inherited continuity frame, then plain text-to-video. Continuity never
+overwrites a user's own choice.
+
+A shot that is supposed to continue but whose inherited frame is missing,
+unreadable or zero-byte is **blocked with a reason** and surfaced in the UI. It
+is never quietly rendered as text-to-video, because that would silently produce
+a discontinuous shot that looks like a model failure. Blocked shots also
+prevent automatic assembly.
+
+## D-031 (2026-08-10) Automatic assembly fires once per completed run
+Assembly is triggered from the run advance, not per shot. It requires every
+shot to have a usable take, nothing in flight, no blocked continuity, and a
+non-ambiguous selection. A take-identity signature of the ordered selected
+takes is persisted; assembly is skipped when the signature is unchanged, which
+makes the trigger idempotent across re-entry, resume and manual retries.
+
+A single completed take is auto-selected. Several completed takes with no
+selection stay ambiguous on purpose: the app does not rank takes for the user
+(AI best-take selection is explicitly out of scope). Failures and cancellations
+block assembly. Storyboard keeps manual generation and manual continuity, but
+also receives the one automatic assembly when its last shot lands.
+
+Store access stays on the main actor; only the blocking FFmpeg work is moved
+off it, and the result is written back on the main actor.

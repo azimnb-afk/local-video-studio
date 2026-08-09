@@ -337,3 +337,43 @@ TOKEN=$(cat ~/Library/Application\ Support/LTXVideoGenerator/api_token)
 - [x] AnalysisのVision Model pickerを開閉し、選択値を変えずにcontrol interactionを確認した。
 - [x] 起動前にHEAD `257fece`、canonical executable mtime `2026-08-09 22:38:15 +0900`を確認。旧processを終了後、PID `89377`が同じfull executable pathから動作することを確認した。
 - [x] `swift build` PASS; `swift run LTXTests` = **659 passed / 0 failed**; Xcode Debug clean build `BUILD SUCCEEDED`; `git diff --check` PASS。
+
+## Auto Movie (Sora 2-like) — long-form acceptance
+
+Added 2026-08-10 with the continuity chain. Run on the canonical Debug app.
+
+### J. Auto Movie end-to-end
+- [ ] J1. Sidebar shows **Auto Movie** with the subtitle "Sora 2-like connected shots"
+- [ ] J2. The page header reads "Auto Movie (Sora 2-like)" with the English and Japanese descriptions
+- [ ] J3. **New Auto Movie…** → enter a brief (e.g. "A young woman walks toward an old stone library, reaches the entrance, opens the door and steps inside"), target duration ~15s → **Generate Movie**
+- [ ] J4. The director plans multiple shots and **only the first shot is queued** (Queue shows one item, not all shots)
+- [ ] J5. Shot cards show a continuity badge: "Continues from Shot N" (link icon) or "Cut — starts a new scene"
+- [ ] J6. As each shot completes, the next shot is queued automatically — never two generations at once
+- [ ] J7. A continuing shot's take shows an inherited starting frame (its request is image-to-video)
+- [ ] J8. When the last shot completes, **Final Assembly runs automatically once**
+- [ ] J9. A green "Completed movie ready" panel appears with **Play** and **Reveal**
+- [ ] J10. Play opens a single continuous movie containing every shot in order
+
+### K. Auto Movie continuity behaviour
+- [ ] K1. Give one shot its own Starting Image → that image is used, not the inherited frame
+- [ ] K2. Delete a completed shot's output file, then let a continuing shot run → the shot is **blocked with a reason**, and no movie is assembled (it must NOT silently render text-to-video)
+- [ ] K3. Retake an earlier shot and select the new take → downstream continuity is reported stale
+- [ ] K4. Cancel mid-run → no further shots start and nothing is assembled
+
+### L. Storyboard automatic assembly
+- [ ] L1. Create a 2-shot storyboard, generate one take per shot manually
+- [ ] L2. When the last take completes, assembly runs **once** automatically
+- [ ] L3. Re-opening the project does not assemble again
+- [ ] L4. Manual **Assemble Final Video** still works
+
+### M. Regression / window matrix after the Auto Movie work
+- [ ] M1. Generate, One Shot, Storyboard / Director, Auto Movie, Video Archive all reachable
+- [ ] M2. Navigation stays pinned at normal window size, small window (900×500) and after relaunch
+- [ ] M3. Settings bilingual descriptions unchanged
+- [ ] M4. Existing storyboards created before this change still open
+
+**Status 2026-08-10:** not executed. The graphical session was not vending
+windows during the unattended run (every app, including TextEdit, reported zero
+windows and screen captures were blank), so this matrix is pending a session
+with an awake, unlocked display. Implementation, unit tests and a real
+three-shot LTX continuity run were verified without the GUI.

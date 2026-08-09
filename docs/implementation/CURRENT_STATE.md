@@ -142,3 +142,48 @@ model download, or backend change was involved.
 - `swift build`: PASS
 - `swift run LTXTests`: **659 passed, 0 failed** (unchanged baseline)
 - `xcodebuild -configuration Debug CODE_SIGNING_ALLOWED=NO clean build`: **BUILD SUCCEEDED**
+
+## 2026-08-10 Auto Movie continuity chain and automatic assembly
+
+The long-form vertical slice is complete: an Auto Movie brief becomes multiple
+shots that generate sequentially, inherit visual continuity from one another,
+and assemble into a single finished movie without manual steps.
+
+Hybrid is presented as **Auto Movie (Sora 2-like)**; the internal `hybrid`
+workflow value, enum case and persistence keys are unchanged, so existing
+projects keep loading (D-026).
+
+Continuity chain: the previous shot's final usable frame is extracted with the
+FFmpeg binary already used for assembly and passed as the next shot's
+`sourceImagePath` through the existing single-image I2V bridge (D-028). Shots
+carry `auto` / `continue` / `cut`; unknown values resolve deterministically and
+conservatively — a shot only continues on positive evidence of the same scene,
+otherwise it cuts, and the first shot always cuts (D-029). Starting image
+precedence is explicit user selection, then the inherited frame, then plain
+text-to-video; a shot that should continue but has no usable frame is blocked
+with a reason and never silently downgraded (D-030).
+
+Auto Movie enqueues one shot at a time because shot N+1's starting image only
+exists once shot N has rendered; generation concurrency stays 1 (D-027).
+Automatic Final Assembly runs once per completed run, guarded by a persisted
+take-identity signature, and is blocked by failures, cancellations, blocked
+continuity or ambiguous take selection. Storyboard keeps manual generation and
+manual continuity but also gets the single automatic assembly (D-031).
+
+Continuity is a visual anchor, not identity conditioning. It improves
+continuity of person, wardrobe, location and lighting without guaranteeing an
+identical person or place.
+
+### Build & verification
+- `swift build`: PASS
+- `swift run LTXTests`: **718 passed, 0 failed** (659 baseline + 59 new)
+- `xcodebuild -configuration Debug CODE_SIGNING_ALLOWED=NO clean build`: **BUILD SUCCEEDED**
+- `git diff --check`: PASS
+- Real three-shot LTX continuity run: `scripts/automovie_continuity_e2e.sh`
+
+### Pending
+GUI acceptance for Auto Movie (GUI_ACCEPTANCE_CHECKLIST sections J–M) was not
+executed: during the unattended run the graphical session was not vending
+windows — every application, including TextEdit, reported zero windows and
+screen captures were blank — so no app UI could be inspected. It needs one
+session with an awake, unlocked display.

@@ -50,7 +50,7 @@ LTX Video Generator is a beautiful, native macOS application built with SwiftUI.
 | Processor | Apple M1 | Apple M2 Pro/M3/M4 |
 | Unified Memory | 32GB | 64GB+ |
 | Storage | 100GB free | 150GB+ free |
-| Python | 3.10+ | 3.12+ |
+| Python | 3.11+ | 3.11+ (3.14.5 exercised) |
 
 {: .warning }
 **First Run Download**: The LTX-2 Unified model (~42GB) downloads automatically on first generation. This is a one-time download cached in `~/.cache/huggingface/`.

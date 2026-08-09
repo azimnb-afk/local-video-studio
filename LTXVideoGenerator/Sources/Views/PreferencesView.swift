@@ -9,8 +9,6 @@ struct PreferencesView: View {
     @AppStorage("defaultAudioSource") private var defaultAudioSource = "elevenlabs"
     @AppStorage("enableGemmaPromptEnhancement") private var enableGemmaPromptEnhancement = false
     @AppStorage("saveAudioTrackSeparately") private var saveAudioTrackSeparately = false
-    /// When true, always prepend ~/projects/mlx-video-with-audio to PYTHONPATH if present (dev override).
-    @AppStorage("useLocalMlxVideoRepo") private var useLocalMlxVideoRepo = false
     @AppStorage(LTXModelCatalog.selectedModelIDKey) private var selectedModelID = LTXModelCatalog.defaultModelID
     @AppStorage(LTXTextEncoderCatalog.selectedTextEncoderIDKey) private var selectedTextEncoderID = LTXTextEncoderCatalog.defaultTextEncoderID
     @AppStorage(LTXTextEncoderCatalog.customTextEncoderRepoKey) private var customTextEncoderRepo = ""
@@ -217,13 +215,6 @@ struct PreferencesView: View {
                     Text("Supports both Python executable (e.g., /opt/homebrew/bin/python3) and dylib paths. Auto Detect will search common locations including Homebrew, pyenv, conda, and virtualenvs.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-
-                    Toggle("Use local mlx-video-with-audio repo (dev)", isOn: $useLocalMlxVideoRepo)
-                    Text(
-                        "If ~/projects/mlx-video-with-audio exists, the app normally uses your pip install unless the local checkout is newer. Turn this on to always prefer the local repo. Otherwise pip install -U can look ineffective because PYTHONPATH was overriding site-packages."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 }
                 
                 Section("Model") {
@@ -599,7 +590,10 @@ struct PreferencesView: View {
         
         Task {
             // Use safe subprocess validation - won't crash
-            let result = await PythonEnvironment.shared.validateWithSubprocess(path: pythonPath)
+            let result = await PythonEnvironment.shared.validateWithSubprocess(
+                path: pythonPath,
+                automaticInstallAndUpgrade: false
+            )
             
             await MainActor.run {
                 pythonStatus = (result.success, result.message)
@@ -1068,7 +1062,10 @@ struct DetectedPathsView: View {
         isValidating = true
         
         for path in paths {
-            let result = await PythonEnvironment.shared.validateWithSubprocess(path: path)
+            let result = await PythonEnvironment.shared.validateWithSubprocess(
+                path: path,
+                automaticInstallAndUpgrade: false
+            )
             await MainActor.run {
                 validationResults[path] = (result.success, result.details?.version)
             }

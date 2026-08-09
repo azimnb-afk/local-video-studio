@@ -234,7 +234,6 @@ class LTXBridge {
         
         let enableGemmaPromptEnhancement = UserDefaults.standard.bool(forKey: "enableGemmaPromptEnhancement")
         let saveAudioTrackSeparately = UserDefaults.standard.bool(forKey: "saveAudioTrackSeparately")
-        let useLocalMlxVideoRepoPref = UserDefaults.standard.bool(forKey: "useLocalMlxVideoRepo")
 
         // Apply prompt enhancement up-front so generation can continue safely even
         // when upstream enhancer internals fail.
@@ -285,8 +284,6 @@ class LTXBridge {
         let genWidth = (params.width / 64) * 64
         let genHeight = (params.height / 64) * 64
         
-        let resourcesPath = Bundle.main.bundlePath + "/Contents/Resources"
-        
         let script: String
         // LTX-2 Unified - uses mlx-video-with-audio package
         script = """
@@ -316,65 +313,14 @@ try:
     text_encoder_repo = "\(textEncoderRepo)"
     log(f"Model: {model_repo}")
     log(f"Text encoder: {text_encoder_repo}")
-    local_mlx_video_repo = os.path.expanduser("~/projects/mlx-video-with-audio")
-    local_has_mlx = os.path.exists(os.path.join(local_mlx_video_repo, "mlx_video", "generate_av.py"))
-
-    def _mlx_version_subprocess(extra_env):
-        env = os.environ.copy()
-        env.pop("PYTHONPATH", None)
-        for k, v in extra_env.items():
-            env[k] = v
-        r = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                "import mlx_video.version; print(mlx_video.version.__version__)",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=120,
-        )
-        if r.returncode != 0:
-            return None
-        return (r.stdout or "").strip() or None
-
-    def _parse_version_tuple(s):
-        if not s:
-            return None
-        parts = []
-        for seg in s.split("."):
-            digits = "".join(c for c in seg if c.isdigit())
-            try:
-                parts.append(int(digits) if digits else 0)
-            except Exception:
-                parts.append(0)
-        return tuple(parts)
-
-    pip_ver = _mlx_version_subprocess({})
-    local_ver = _mlx_version_subprocess({"PYTHONPATH": local_mlx_video_repo}) if local_has_mlx else None
-    use_local_pref = \(useLocalMlxVideoRepoPref ? "True" : "False")
-    force_local = os.environ.get("LTX_FORCE_LOCAL_MLX_VIDEO") == "1" or use_local_pref
-
-    if not local_has_mlx:
-        use_local_mlx_video_repo = False
-    elif force_local:
-        use_local_mlx_video_repo = True
-    elif pip_ver and local_ver:
-        use_local_mlx_video_repo = _parse_version_tuple(local_ver) > _parse_version_tuple(pip_ver)
-    else:
-        use_local_mlx_video_repo = bool(local_ver) and not pip_ver
-
-    log(
-        "mlx-video-with-audio versions: pip=%r local_repo=%r -> use_local_repo=%s"
-        % (pip_ver, local_ver, use_local_mlx_video_repo)
-    )
-    if local_has_mlx and not use_local_mlx_video_repo and pip_ver and local_ver:
-        if _parse_version_tuple(pip_ver) >= _parse_version_tuple(local_ver):
-            log(
-                "Using pip/site-packages (newer or same as ~/projects/mlx-video-with-audio). "
-                "Preferences: enable 'Use local mlx-video-with-audio repo' or set LTX_FORCE_LOCAL_MLX_VIDEO=1 to override."
-            )
+    # Distribution always resolves mlx-video-with-audio from the configured
+    # external Python environment. Do not let a developer checkout override it
+    # through PYTHONPATH or a machine-specific home-directory path.
+    try:
+        import mlx_video.version
+        log(f"mlx-video-with-audio version: {mlx_video.version.__version__}")
+    except Exception as e:
+        raise RuntimeError(f"Unable to import mlx-video-with-audio from configured Python: {e}")
 
     # Image-to-video mode
     source_image_path = "\(escapedImagePath)" if "\(escapedImagePath)" else None
@@ -424,10 +370,9 @@ try:
     log("Starting generation...")
     log(f"Command: {' '.join(cmd)}")
     child_env = os.environ.copy()
-    # Drop inherited PYTHONPATH so venv site-packages wins unless we explicitly use a local checkout.
+    # Drop inherited PYTHONPATH so the configured Python environment is the
+    # only backend import source.
     child_env.pop("PYTHONPATH", None)
-    if use_local_mlx_video_repo:
-        child_env["PYTHONPATH"] = local_mlx_video_repo
     
     # Run the CLI module and stream combined output (binary read so we see tqdm \\r updates)
     process = subprocess.Popen(
@@ -647,19 +592,19 @@ except Exception as e:
                     } else if cleanLine.hasPrefix("TEXT_ENCODER_CONFIG_ERROR:") {
                         let detail = String(cleanLine.dropFirst("TEXT_ENCODER_CONFIG_ERROR:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
                         failureHintLock.lock()
-                        capturedFailureHint = "Text encoder configuration mismatch detected. \(detail) Update with: pip install -U \"mlx-video-with-audio>=0.1.34\" and retry. If it persists, clear the Hugging Face cache: huggingface-cli delete-cache"
+                        capturedFailureHint = "Text encoder configuration mismatch detected. \(detail) Reinstall the supported backend: pip install -U \"mlx-video-with-audio==0.1.36\" and retry."
                         failureHintLock.unlock()
                     } else if lower.contains("keyerror: 'text_config'") || lower.contains("missing expected keys") || lower.contains("missing `text_config`") {
                         failureHintLock.lock()
-                        capturedFailureHint = "Text encoder config mismatch (`text_config` missing). Update with: pip install -U \"mlx-video-with-audio>=0.1.34\" and retry. If it persists, clear the Hugging Face cache: huggingface-cli delete-cache"
+                        capturedFailureHint = "Text encoder config mismatch (`text_config` missing). Reinstall the supported backend: pip install -U \"mlx-video-with-audio==0.1.36\" and retry."
                         failureHintLock.unlock()
                     } else if lower.contains("mlx-video-with-audio not installed") || lower.contains("cannot import name 'generate_av'") {
                         failureHintLock.lock()
-                        capturedFailureHint = "The mlx-video-with-audio package is installed but incomplete or outdated. Update with: pip install -U mlx-video-with-audio and retry."
+                        capturedFailureHint = "The mlx-video-with-audio package is installed but incomplete or outdated. Reinstall the supported backend: pip install -U \"mlx-video-with-audio==0.1.36\" and retry."
                         failureHintLock.unlock()
                     } else if lower.contains("valueerror: [conv] expect the input channels") {
                         failureHintLock.lock()
-                        capturedFailureHint = "Detected MLX VAE channel mismatch during decoding. Update with: pip install -U \"mlx-video-with-audio>=0.1.36\". If it persists, the selected Hugging Face model snapshot may be incomplete or stale. Try Preferences → General → Model and select LTX-2.3 Distilled Q4, clear the cached model under ~/.cache/huggingface/hub, or pre-download a fresh copy with: hf download \(modelRepo). Full log: /tmp/ltx_generation.log"
+                        capturedFailureHint = "Detected MLX VAE channel mismatch during decoding. Reinstall the supported backend: pip install -U \"mlx-video-with-audio==0.1.36\". If it persists, verify the selected LTX-2.3 Distilled Q4 model in Preferences and inspect the generation log. Full log: /tmp/ltx_generation.log"
                         failureHintLock.unlock()
                     } else if lower.contains("diagnostic_sigkill")
                                 || (lower.contains("sigkill") && lower.contains("-9"))
@@ -692,7 +637,7 @@ except Exception as e:
                                 GenerationFailureRecovery.recordMetalInteractivityFailureWithAggressiveTiling()
                             }
                         } else {
-                            capturedFailureHint = "The MLX generation process aborted with SIGABRT (code -6). Update with: pip install -U \"mlx-video-with-audio>=0.1.36\" and retry. If it still fails, try 512x320 resolution, 25/33/49 frames, 24 FPS, and tuning VAE tiling, then attach /tmp/ltx_generation.log to the GitHub issue."
+                            capturedFailureHint = "The MLX generation process aborted with SIGABRT (code -6). Reinstall the supported backend: pip install -U \"mlx-video-with-audio==0.1.36\". If it still fails, try 512x320 resolution, 25/33/49 frames, 24 FPS, and tuning VAE tiling, then attach /tmp/ltx_generation.log to the GitHub issue."
                         }
                         failureHintLock.unlock()
                     } else if lower.contains("kiogpucommandbuffercallbackerroroutofmemory")

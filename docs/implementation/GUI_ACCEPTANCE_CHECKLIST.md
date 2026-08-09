@@ -9,7 +9,9 @@ Python: `~/ltx-venv/bin/python3`（設定済みのはず）。モデル: ltx23_d
 ## 2026-08-09 Phase A1 First Run / Dependency Onboarding Acceptance
 
 - [x] Canonical Debug app built with Xcode 26.6 (`xcodebuild -scheme LTXVideoGenerator clean build` → BUILD SUCCEEDED).
-- [x] Subprocess Python validation: verifies Python executable, version 3.10+, PyTorch, diffusers, `mlx_video`.
+- [x] Subprocess Python validation: verifies Python executable, version 3.11+,
+  `mlx_video.generate_av`, and the LTX text-encoder import. `torch` and
+  `diffusers` are not core MLX-video readiness gates.
 - [x] Auto-detection recovery path: if configured `pythonPath` is deleted or invalid, `DefaultPythonChecker` automatically executes `autoDetectPython()` as a recovery path.
 - [x] DependencyHealthManager aggregates statuses (`.python`, `.ffmpeg`, `.videoModel`, `.textEncoder`, `.localDirector`, `.vision`).
 - [x] Required vs Optional: Python, FFmpeg, Video Model, and Text Encoder are Required (`isGenerationReady = true` when all 4 ready); Ollama and Local Vision are Optional.
@@ -19,6 +21,30 @@ Python: `~/ltx-venv/bin/python3`（設定済みのはず）。モデル: ltx23_d
 - [x] Legacy Alert Replacement: Removed legacy `showPythonSetupAlert` and `launchPackageUpgradeMessage` alerts; `SetupWizardView` displays detailed package/dependency diagnostic copy and directs users to Preferences.
 - [x] Privacy & Safety: No silent network access, automatic pip/brew installs, or background model downloads. Diagnostics copy contains zero secrets or tokens.
 - [x] Unit Test Suite: 598 passed / 0 failed in `swift run LTXTests`. TestKit test harness handles async MainActor dispatch via `RunLoop.main` without deadlocks.
+
+## 2026-08-09 Phase A2 Release local-test runtime acceptance
+
+- [x] Exact Release artifact launched by full path, not `open -a`:
+  `build/LTXVideoGenerator.app` from HEAD
+  `62d198ee2fe66c89482ae6f19ee712412a50abc3`; executable mtime
+  `2026-08-09 20:49:42 +0900`; PID `84763` resolved to that executable.
+- [x] Settings → Validate Setup used the external
+  `/Users/azimnb/ltx-venv/bin/python3` and displayed **Python 3.14.5
+  configured with MLX** / **MLX Ready**.
+- [x] Generate, One Shot, Storyboard / Director, Hybrid, Video Archive, and
+  Settings opened in the Release local-test app.
+- [x] One existing-cache render completed through the Release app's external
+  Python/MLX path. Archive count increased from 117 to 118; output
+  `295A5926-B886-4A10-817B-3668C68CB705.mp4` is H.264, 512×320, 24 fps,
+  2.708333 seconds, 228,392 bytes. No MLX child remained afterward.
+- [x] External FFmpeg `8.1.1` was available. Existing Ollama localhost models
+  were reachable and did not block video readiness.
+- [x] The app displayed a high-memory warning because persisted Custom values
+  yielded 512×768 / 121 frames / 30 steps even while Quick Preview was selected;
+  no second render was queued. This is a pre-existing preset-state issue outside
+  the Phase A2 packaging scope, not a Hardened Runtime failure.
+- [x] Release local-test artifact is ad-hoc signed and therefore expected to be
+  rejected by Gatekeeper. It is not a distribution claim.
 
 ---
 

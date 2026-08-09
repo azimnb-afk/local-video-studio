@@ -193,21 +193,19 @@ When this file is absent (unified model), hardcoded defaults are used.
 
 On launch, the app validates the configured Python environment:
 
-1. Checks Python version (3.10+ required)
-2. Checks installed packages via `pip show`
+1. Checks Python version (3.11+ required by the packaged backend)
+2. Imports the production video entry point and LTX text encoder in a subprocess
 3. Compares `mlx-video-with-audio` version against `mlxVideoMinVersion`
 4. If packages are missing or outdated in a venv, prompts the user to upgrade
 
 ### PYTHONPATH Resolution
 
-`LTXBridge.swift` determines whether to use the pip-installed package or a local developer checkout:
+`LTXBridge.swift` has one runtime source of truth:
 
-1. **Default**: Use pip-installed `mlx-video-with-audio` from site-packages
-2. **Developer override**: If `~/projects/mlx-video-with-audio` exists AND either:
-   - The Preferences toggle "Use local mlx-video-with-audio repo" is enabled, OR
-   - The env var `LTX_FORCE_LOCAL_MLX_VIDEO=1` is set, OR
-   - The local repo version is strictly newer than the pip version
-3. When using pip, `PYTHONPATH` is explicitly cleared to prevent stale shell values from shadowing
+1. **Distribution/runtime source of truth**: Use the configured Python
+   environment's pip-installed `mlx-video-with-audio` from site-packages.
+2. **Isolation**: the wrapper clears inherited `PYTHONPATH`; it does not select
+   a local source checkout or a developer-only preference.
 
 ### Version Cache
 
@@ -271,7 +269,6 @@ pip show mlx-video-with-audio
 
 | Variable | Effect |
 |:---------|:-------|
-| `LTX_FORCE_LOCAL_MLX_VIDEO=1` | Force use of `~/projects/mlx-video-with-audio` |
 | `PYTHONPATH` | Cleared by the app unless local repo is active |
 
 ---

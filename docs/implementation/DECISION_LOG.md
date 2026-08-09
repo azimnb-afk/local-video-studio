@@ -18,8 +18,12 @@ Full-default generation (768x512x121f/30steps) takes very long on Q4+12b-4bit; b
 ## D-007 (2026-08-08) GUI-first feature-flag defaults
 User acceptance of the built .app showed the new features were invisible because every flag defaulted OFF. Per the GUI-first product definition, defaults changed to: modelRegistryV1 / autoQualityV1 / directorV1 / filmProjectV1 / storyboardV1 = ON by default; derivedModelsV1 / adultModelsV1 / lowRAMAdapterV1 / localAPIv1 stay OFF (unverified models, adult content, unverified backends, network listeners remain opt-in). The §45 rollback guarantee is preserved: FeatureFlags.disableAll / Preferences toggles restore the exact legacy path. Quality picker defaults to "Advanced" so default generation parameters are still exactly what the user set manually.
 
-## D-006 (2026-08-08) useLocalMlxVideoRepo pref is stale
-User pref useLocalMlxVideoRepo=1 but ~/projects/mlx-video-with-audio does not exist; bridge logic falls back to pip package (0.1.36). No action needed; noted for support.
+## D-006 (2026-08-08) Development source override retired in Phase A2
+The former `useLocalMlxVideoRepo` preference and `LTX_FORCE_LOCAL_MLX_VIDEO`
+override could make a Release build depend on `~/projects/mlx-video-with-audio`.
+Phase A2 removes that runtime behavior and clears inherited `PYTHONPATH` in the
+render wrapper. The configured external Python environment's installed
+`mlx-video-with-audio` package is the sole runtime source of truth.
 
 ## D-008 (2026-08-08) Preset is the GUI concept; QualityMode stays internal
 The existing AutoQualityEngine and QualityMode execution strategy remain unchanged. A shared `GenerationPreset` maps Quick Preview→Compact, Standard→Auto, High Quality→High and Custom→Advanced across Generate, One Shot, Storyboard and Hybrid. Manual controls are shown under Custom, avoiding contradictory preset/manual states. Existing legacy custom parameter bundles remain available only inside Custom. Preset changes are project settings changes, not storyboard rebuilds; Take creation is append-only and snapshots Preset/Quality/effective profile metadata.
@@ -98,7 +102,20 @@ The Production UX specification approved in Phase 6A has been fully implemented 
 Centralized dependency health checking (`DependencyHealthManager`) replaces fragmented launch alerts (`showPythonSetupAlert`, `showLaunchPackageUpgradePrompt`) and ensures non-blocking app onboarding.
 
 1. **Required vs Optional Dependencies**: Python Environment, FFmpeg, Video Model, and Text Encoder are classified as Required for video generation (`isGenerationReady = true` when all 4 are `.ready`). Ollama (Local Director) and Local Vision are classified as Optional and do not block Generation readiness.
-2. **Subprocess Python Validation**: Validates executable existence, version (3.10+), PyTorch, diffusers, and `mlx_video` package import. If a user-configured `pythonPath` is invalid or deleted, `DefaultPythonChecker` automatically executes `autoDetectPython()` as a non-mutating recovery path.
+2. **Subprocess Python Validation**: Phase A2 accepts Python 3.11+ (the backend package minimum) and probes `mlx_video.generate_av` plus the LTX text-encoder import. It does not gate MLX video on unrelated PyTorch or diffusers imports. Invalid saved paths recover through non-mutating `autoDetectPython()`.
 3. **No Silent Mutations**: Managed Python environment installation/upgrade (pip/Homebrew/bundled binaries) is deferred. The app never runs `sudo`, silent `pip install`, `brew install`, or background model/encoder downloads.
 4. **Unified Generation Gating**: All video generation triggers across all UI views (Generate, Add to Queue, Batch, One Shot, Storyboard Take, Generate Missing Takes, Regenerate Selected Shots, Hybrid auto generation, Retake, History) check `isGenerationReady` and present `SetupWizardView` when required dependencies are missing.
 5. **App Exploration Unblocked**: Missing dependencies only block video rendering actions. Users may dismiss `SetupWizardView` ("Continue to App") to browse Archive, existing Projects, CharacterBible, and Settings.
+
+## D-022 (2026-08-09) Phase A2 Thin Client distribution boundary
+v1 direct distribution is a thin client: external isolated Python with
+`mlx-video-with-audio` 0.1.36, external FFmpeg, and external Hugging Face model
+and encoder caches. The app bundles none of those assets. App Sandbox remains
+OFF for direct Developer ID distribution; Hardened Runtime remains ON with an
+empty entitlement set and no CS exceptions. Local-test packaging is an explicit
+ad-hoc Release artifact only. Distribution mode requires a valid Developer ID
+Application identity and notary credentials before replacing generated
+artifacts, then requires accepted notarization, stapling, and Gatekeeper checks.
+
+Normal validation and generation readiness do not mutate Python environments or
+start package/model downloads; any setup mutation is a visible user action.

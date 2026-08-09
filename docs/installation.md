@@ -23,11 +23,14 @@ Complete setup instructions for LTX Video Generator.
 1. Go to the [Releases page](https://github.com/james-see/ltx-video-mac/releases)
 2. Download the latest `.dmg` file
 3. Open the DMG and drag **LTX Video Generator** to your Applications folder
-4. Right-click the app and select **Open** (required for first launch of notarized apps)
+4. Open the app normally. A released DMG will be Developer ID signed and
+   notarized; a `-local-test.dmg` is for the developer's own Mac only.
 
 ## Configure Python
 
-LTX Video Generator needs Python 3.10+ with MLX and related packages.
+LTX Video Generator uses an external isolated Python environment. The exercised
+production combination is Python 3.14.5 with `mlx-video-with-audio` 0.1.36;
+the backend package requires Python 3.11 or newer.
 
 ### Step 1: Open Preferences
 
@@ -39,16 +42,9 @@ The app will search common locations including Homebrew, pyenv, conda, and syste
 
 ### Step 2: Validate Setup
 
-Click **Validate Setup** to check for required packages:
-- `mlx` - Apple's machine learning framework
-- `mlx-vlm` - Vision-language models for MLX
-- `mlx-video-with-audio` - Unified audio-video generation (LTX-2)
-- `transformers` - Hugging Face transformers
-- `safetensors` - Fast tensor serialization
-- `huggingface_hub` - Model downloading
-- `numpy` - Numerical computing
-- `opencv-python` - Video encoding
-- `tqdm` - Progress bars
+Click **Validate Setup** to check the actual MLX video entry point and LTX
+text-encoder imports supplied by `mlx-video-with-audio` 0.1.36. The app does
+not require `torch` or `diffusers` for this backend.
 
 ### Step 3: Install Missing Packages
 
@@ -56,12 +52,13 @@ If packages are missing, you have two options:
 
 **Option A: One-Click Install (Recommended)**
 
-Click the **Install Missing Packages** button in Preferences. The app will run pip install automatically.
+Click the visible **Install Missing Packages** button in Preferences. No normal
+first-run or generation check runs `pip` automatically.
 
 **Option B: Manual Install**
 
 ```bash
-pip install mlx mlx-vlm mlx-video-with-audio transformers safetensors huggingface_hub numpy opencv-python tqdm
+python3 -m pip install "mlx-video-with-audio==0.1.36"
 ```
 
 {: .note }
@@ -70,7 +67,9 @@ If using a virtual environment, make sure to activate it first, or point the app
 ## First Run - Model Download
 
 {: .warning }
-**Important**: On your first generation, the app downloads the model selected in Preferences from Hugging Face. This is a one-time download.
+**Important**: Models and encoders are external Hugging Face cache assets. Any
+download is an explicit user-controlled setup action; generation readiness does
+not silently begin a multi-gigabyte download.
 
 ### What to Expect
 
@@ -156,7 +155,7 @@ xcode-select --install
 
 ### "Missing packages" after install
 - Make sure you're using the same Python the app is configured to use
-- Try: `/path/to/your/python3 -m pip install mlx mlx-vlm mlx-video-with-audio transformers safetensors huggingface_hub numpy opencv-python tqdm`
+- Try: `/path/to/your/python3 -m pip install "mlx-video-with-audio==0.1.36"`
 
 ### "Out of memory" during generation
 - Use smaller resolution (512x320)

@@ -2,10 +2,50 @@ import Foundation
 
 public struct HuggingFaceCacheChecker {
     public static func isCached(repository: String) -> Bool {
-        let repoName = repository.replacingOccurrences(of: "/", with: "--")
         let home = FileManager.default.homeDirectoryForCurrentUser
-        let path = home.appendingPathComponent(".cache/huggingface/hub/models--\(repoName)")
-        return FileManager.default.fileExists(atPath: path.path)
+        let hubDirectory = home.appendingPathComponent(".cache/huggingface/hub")
+        return isCached(repository: repository, hubDirectory: hubDirectory)
+    }
+
+    /// Low-cost readiness check for a Hugging Face model cache. A repository
+    /// directory alone can be left behind by an interrupted download, so a
+    /// usable snapshot must contain both metadata and a non-empty weight file.
+    /// This intentionally does not hash or load multi-gigabyte weights.
+    static func isCached(repository: String, hubDirectory: URL) -> Bool {
+        let repoName = repository.replacingOccurrences(of: "/", with: "--")
+        let basePath = hubDirectory.appendingPathComponent("models--\(repoName)")
+
+        guard FileManager.default.fileExists(atPath: basePath.path) else { return false }
+
+        let snapshotsPath = basePath.appendingPathComponent("snapshots")
+        guard let snapshots = try? FileManager.default.contentsOfDirectory(atPath: snapshotsPath.path),
+              !snapshots.isEmpty else {
+            return false
+        }
+
+        for snapshot in snapshots {
+            let snapshotDir = snapshotsPath.appendingPathComponent(snapshot)
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: snapshotDir.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue,
+                  let files = try? FileManager.default.contentsOfDirectory(atPath: snapshotDir.path) else {
+                continue
+            }
+
+            let hasMetadata = files.contains("config.json") || files.contains("model_index.json")
+            let hasNonEmptySafetensors = files.contains { filename in
+                guard filename.hasSuffix(".safetensors") else { return false }
+                let weightURL = snapshotDir.appendingPathComponent(filename)
+                let size = (try? weightURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                return size > 0
+            }
+
+            if hasMetadata && hasNonEmptySafetensors {
+                return true
+            }
+        }
+
+        return false
     }
 }
 

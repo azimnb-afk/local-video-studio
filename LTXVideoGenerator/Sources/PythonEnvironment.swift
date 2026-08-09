@@ -8,7 +8,7 @@ struct PythonDetails {
     let pythonHome: String
     let hasRequiredPackages: Bool
     let missingPackages: [String]
-    let packagesNeedingUpgrade: [String]  // e.g. ["mlx-video-with-audio>=0.1.5"]
+    let packagesNeedingUpgrade: [String]  // e.g. ["mlx-video-with-audio==0.1.36"]
     let hasMLX: Bool  // True if MLX is available
 
     init(version: String, executablePath: String, dylibPath: String?, pythonHome: String, hasRequiredPackages: Bool, missingPackages: [String], packagesNeedingUpgrade: [String] = [], hasMLX: Bool = false) {
@@ -89,9 +89,6 @@ class PythonEnvironment {
     /// Convert executable path to dylib path
     /// e.g., /opt/homebrew/bin/python3 -> /opt/homebrew/.../libpython3.11.dylib
     func executableToDylib(_ execPath: String) -> String? {
-        // First, resolve symlinks to get the real path
-        let realPath = (try? FileManager.default.destinationOfSymbolicLink(atPath: execPath)) ?? execPath
-        
         // Try to find dylib by running python to get its paths
         let script = """
         import sys
@@ -179,11 +176,13 @@ class PythonEnvironment {
     // MARK: - Subprocess Validation (Safe - Won't Crash)
     
     /// Validate Python installation using subprocess - safe and won't crash the app.
-    /// When `automaticInstallAndUpgrade` is true (default), installs missing packages in virtualenvs and upgrades outdated packages, then re-validates.
-    /// When false, returns `pendingUserConsent: true` for venvs that need install/upgrade so the UI can prompt before running pip.
+    /// Validation never mutates the selected Python environment unless an
+    /// explicit caller opts in. Normal first-run and generation checks return
+    /// `pendingUserConsent: true` so the user can choose the visible install
+    /// action in Preferences.
     func validateWithSubprocess(
         path: String,
-        automaticInstallAndUpgrade: Bool = true,
+        automaticInstallAndUpgrade: Bool = false,
         alreadyTriedUpgrade: Bool = false,
         alreadyTriedInstall: Bool = false
     ) async -> (success: Bool, message: String, details: PythonDetails?, pendingUserConsent: Bool) {
@@ -231,13 +230,15 @@ class PythonEnvironment {
         
         let version = versionOutput.trimmingCharacters(in: .whitespacesAndNewlines)
         
-        // Step 5: Check Python version is 3.10+
+        // Step 5: The installed production backend declares Python >= 3.11.
+        // The currently proven runtime is Python 3.14.5; do not claim an
+        // untested older range in the first-run setup flow.
         let versionParts = version.split(separator: ".").compactMap { Int($0) }
         if versionParts.count >= 2 {
             let major = versionParts[0]
             let minor = versionParts[1]
-            if major < 3 || (major == 3 && minor < 10) {
-                return (false, "Python \(version) is too old. LTX Video requires Python 3.10 or newer.", nil, false)
+            if major < 3 || (major == 3 && minor < 11) {
+                return (false, "Python \(version) is too old. The current LTX runtime requires Python 3.11 or newer.", nil, false)
             }
         }
         
@@ -246,46 +247,30 @@ class PythonEnvironment {
         let pythonHome = runPythonSync(executable: executablePath, script: homeScript)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         
-        // Step 7: Check for required packages (mlx_video and audio generation)
+        // Step 7: Probe the exact backend entry point and text-encoder module
+        // the production wrapper uses. Their package metadata owns transitive
+        // dependencies; we do not gate core video generation on unrelated
+        // torch, diffusers, or optional mlx-audio/TTS imports.
         var missingPackages: [String] = []
         var hasMLX = false
-        
-        // Required packages for mlx_video and audio generation
-        // Format: (importName, pipName, isGitPackage)
-        let requiredPackages: [(String, String, Bool)] = [
-            ("mlx.core", "mlx", false),
-            ("mlx_vlm", "mlx-vlm", false),
-            ("transformers", "transformers", false),
-            ("safetensors", "safetensors", false),
-            ("huggingface_hub", "huggingface_hub", false),
-            ("numpy", "numpy", false),
-            ("PIL", "Pillow", false),
-            ("cv2", "opencv-python", false),
-            ("tqdm", "tqdm", false),
-            ("mlx_audio", "mlx-audio", false),  // For TTS audio generation
-            ("mlx_video.generate_av", "mlx-video-with-audio", false)  // For unified AV model
-        ]
-        
-        for (importName, pipName, _) in requiredPackages {
-            let check = "import \(importName); print('OK')"
-            let result = runPythonSync(executable: executablePath, script: check)
-            if result == nil || !result!.contains("OK") {
-                missingPackages.append(pipName)
-            }
-            if importName == "mlx.core" && result != nil && result!.contains("OK") {
-                hasMLX = true
-            }
+
+        let backendImportCheck = "import mlx_video.generate_av; import mlx_video.models.ltx.text_encoder; print('OK')"
+        let backendImportResult = runPythonSync(executable: executablePath, script: backendImportCheck)
+        let backendImportSucceeded = backendImportResult?.contains("OK") == true
+        if !backendImportSucceeded {
+            missingPackages.append("mlx-video-with-audio==\(mlxVideoMinVersion)")
         }
+        hasMLX = backendImportSucceeded
 
         // Check mlx-video-with-audio version if installed (not in missingPackages)
         var packagesNeedingUpgrade: [String] = []
-        if !missingPackages.contains("mlx-video-with-audio") {
+        if backendImportSucceeded {
             let versionScript = "import mlx_video.version; print(mlx_video.version.__version__)"
             if let installedVersion = runPythonSync(executable: executablePath, script: versionScript)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
                !installedVersion.isEmpty,
                compareVersions(installedVersion, lessThan: mlxVideoMinVersion) {
-                packagesNeedingUpgrade.append("mlx-video-with-audio>=\(mlxVideoMinVersion)")
+                packagesNeedingUpgrade.append("mlx-video-with-audio==\(mlxVideoMinVersion)")
             }
         }
 
@@ -312,7 +297,7 @@ class PythonEnvironment {
                     true
                 )
             }
-            // Auto-install missing packages for virtualenvs (safe path for managed dependencies)
+            // Explicit opt-in only; ordinary readiness checks never invoke pip.
             if !alreadyTriedInstall && isVirtualEnvironment(executablePath) {
                 // Use -U here so "missing" also self-heals stale/broken installs.
                 let (installSuccess, installMessage) = await installPackages(
@@ -338,7 +323,7 @@ class PythonEnvironment {
             return (false, "Python \(version) found but MLX not properly configured. Ensure you're on Apple Silicon.", details, false)
         }
 
-        // Auto-upgrade outdated packages (e.g. mlx-video-with-audio) and re-validate
+        // Explicit opt-in only; ordinary readiness checks never invoke pip.
         if !packagesNeedingUpgrade.isEmpty && !alreadyTriedUpgrade {
             if !automaticInstallAndUpgrade && isVirtualEnvironment(executablePath) {
                 return (
@@ -361,14 +346,15 @@ class PythonEnvironment {
         }
 
         if !packagesNeedingUpgrade.isEmpty {
-            return (false, "Python \(version) found but mlx-video-with-audio needs upgrade. Run: pip install -U \"mlx-video-with-audio>=\(mlxVideoMinVersion)\"", details, false)
+            return (false, "Python \(version) found but mlx-video-with-audio \(mlxVideoMinVersion) is required. Run: pip install -U \"mlx-video-with-audio==\(mlxVideoMinVersion)\"", details, false)
         }
 
         return (true, "Python \(version) configured with MLX", details, false)
     }
 
-    /// Ensures the configured Python path has required packages and minimum `mlx-video-with-audio` (auto-install / upgrade in venvs).
-    /// Call before generation so users do not need to open Preferences and click Validate.
+    /// Ensures the configured Python path has the required package and version
+    /// without installing or upgrading anything. Call before generation so an
+    /// incomplete environment fails before the renderer starts.
     func ensureReadyForGeneration(path: String) async -> (success: Bool, message: String, details: PythonDetails?) {
         let now = Date()
         if let c = generationValidationCache,
@@ -377,7 +363,7 @@ class PythonEnvironment {
            now.timeIntervalSince(c.timestamp) < generationValidationCacheTTL {
             return (true, "Python environment ready", c.details)
         }
-        let result = await validateWithSubprocess(path: path)
+        let result = await validateWithSubprocess(path: path, automaticInstallAndUpgrade: false)
         if result.success, let d = result.details {
             generationValidationCache = (path, mlxVideoMinVersion, now, d)
         } else {
@@ -583,7 +569,7 @@ class PythonEnvironment {
         let homebrewArm = "/opt/homebrew"
         let homebrewIntel = "/usr/local"
         
-        for version in ["3.13", "3.12", "3.11", "3.10"] {
+        for version in ["3.13", "3.12", "3.11"] {
             let execArm = "\(homebrewArm)/opt/python@\(version)/bin/python\(version)"
             if fm.isExecutableFile(atPath: execArm) {
                 systemPaths.append(execArm)
@@ -627,7 +613,7 @@ class PythonEnvironment {
         let candidates = discoverPythonPaths()
         
         if candidates.isEmpty {
-            return (nil, (false, "No Python installations found. Please install Python 3.10+.", nil))
+            return (nil, (false, "No Python installations found. Please install Python 3.11+.", nil))
         }
         
         // Separate venvs from system Python
@@ -635,7 +621,7 @@ class PythonEnvironment {
         var systemCandidates: [(path: String, result: (success: Bool, message: String, details: PythonDetails?))] = []
         
         for path in candidates {
-            let raw = await validateWithSubprocess(path: path)
+            let raw = await validateWithSubprocess(path: path, automaticInstallAndUpgrade: false)
             let result = (success: raw.success, message: raw.message, details: raw.details)
             let isVenv = isVirtualEnvironment(path)
             
@@ -675,7 +661,7 @@ class PythonEnvironment {
             return (system.path, result)
         }
         
-        return (nil, (false, "Found \(candidates.count) Python installation(s) but none are compatible. Please install Python 3.10+.", nil))
+        return (nil, (false, "Found \(candidates.count) Python installation(s) but none are compatible. Please install Python 3.11+.", nil))
     }
     
     // MARK: - Package Installation

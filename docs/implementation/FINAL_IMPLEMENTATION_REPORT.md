@@ -308,3 +308,48 @@ Phase 6B completed the Production UX enhancements for CharacterBible based on th
 - **Missing Asset Safety**: Project load retains the user's selected Starting Image UUID even if missing on disk, displaying a red `Image unavailable` status with explicit `Clear` and `Change...` actions. Preflight throws `CoordinatorError.startingImageUnavailable` to prevent silent T2V fallback.
 - **Shared Workflow UX**: Storyboard and Hybrid workflows share identical UI elements, menus, missing asset handling, and warnings. Generate and One Shot remain unmutated with legacy `CharacterProfile`.
 - **Verification**: `swift build` PASS; `swift run LTXTests` (**593 passed / 0 failed**); unsigned Debug `xcodebuild` **BUILD SUCCEEDED**; `git diff --check` PASS. Canonical app build provenance verified with executable mtime `2026-08-09 19:19:57 +0900`.
+
+## Phase A2 — Distribution Runtime / Packaging
+
+v1 distribution is now explicitly a **thin client**. The signed app contains
+only the native Swift application: Python, `mlx-video-with-audio`, FFmpeg,
+video models, and text encoders stay in user-managed external locations. The
+runtime source is the configured Python environment; the render wrapper clears
+`PYTHONPATH` and no longer contains a developer-checkout fallback. The actually
+exercised backend combination is Python 3.14.5 and
+`mlx-video-with-audio` 0.1.36; readiness requires Python 3.11+ and probes the
+real `generate_av` and LTX text-encoder imports, not torch or diffusers.
+
+The model/cache gate now requires snapshot metadata plus a non-empty safetensors
+artifact, avoiding false-ready results from incomplete Hugging Face download
+directories without hashing or loading multi-gigabyte weights. Normal setup and
+generation checks do not run pip, create a venv, install FFmpeg, or download
+models; package mutation stays behind a visible Preferences action.
+
+`scripts/build-release.sh` now requires an explicit `local-test` or
+`distribution` mode. `local-test` produces a clearly named ad-hoc Release DMG
+without notarization and is not distributable. `distribution` validates a
+locally available Developer ID Application identity and notary credentials
+before clearing generated artifacts, then performs secure-timestamp signing,
+notarization, stapling, and `codesign`/`stapler`/`spctl` verification. The app
+has App Sandbox OFF, Hardened Runtime ON, and an empty entitlement set; no CS
+exception entitlement was added.
+
+The local archive succeeded and includes the universal app plus dSYM. The
+local-test DMG passed DMG checksum validation and its app passed strict
+ad-hoc-signature verification with the hardened-runtime flag. Bundle inventory
+found no nested framework, dylib, Python executable, FFmpeg executable, model,
+or encoder weight. A local-test app is expected to be rejected by Gatekeeper.
+The exact local-test Release app was launched by full path; the external Python
+validation reported Python 3.14.5 / MLX Ready, Generate, One Shot, Storyboard,
+Hybrid, Archive, and Settings opened, and one existing-cache renderer run
+created an H.264 512×320 / 24 fps / 2.708333-second output. External FFmpeg
+8.1.1 and existing localhost Ollama were available. The run's saved Custom
+settings produced an unexpected high-memory preflight (512×768 / 121 frames /
+30 steps) despite the Quick Preview label, so no second render was queued; this
+is recorded as a pre-existing preset-state issue rather than a packaging or
+Hardened Runtime failure.
+No valid Developer ID identity or notary keychain profile exists on this Mac,
+so the final status remains **PARTIAL — Packaging Ready — Apple Credentials
+Required**. No distribution artifact, notarization, stapling, or Gatekeeper
+acceptance is claimed.

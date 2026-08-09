@@ -3,7 +3,10 @@
 Updated: 2026-08-09
 
 ## Current Phase
-Phase A1 — First Run / Dependency Onboarding is PRODUCTION COMPLETE. Centralized dependency health management (`DependencyHealthManager`) and non-blocking onboarding UI (`SetupWizardView`) are fully integrated and verified across all app generation triggers (Generate, One Shot, Storyboard, Hybrid, Retakes, History).
+Phase A2 — Distribution Runtime / Packaging is packaging-complete pending Apple
+Developer ID and notarization credentials. The v1 app is a thin client:
+external Python/MLX, FFmpeg, and Hugging Face model/encoder caches; App Sandbox
+OFF; Hardened Runtime ON with no CS exception entitlements.
 
 ## Completed
 - Source acquisition: cloned `james-see/ltx-video-mac` (MIT) @ `a441dc2` → branch `director-extensions`.
@@ -19,13 +22,30 @@ Phase A1 — First Run / Dependency Onboarding is PRODUCTION COMPLETE. Centraliz
 - **Phase A1: First Run / Dependency Onboarding**:
   - `DependencyHealthManager` singleton aggregating `SetupRequirement` statuses (`.python`, `.ffmpeg`, `.videoModel`, `.textEncoder`, `.localDirector`, `.vision`).
   - Required vs Optional dependency split: Python, FFmpeg, Video Model, and Text Encoder are Required (`isGenerationReady = true` when all 4 are `.ready`); Ollama / Vision are Optional and do not block Generation.
-  - Python validation uses subprocess execution, version check, and `mlx_video` import verification. Invalid saved path triggers automatic recovery via `autoDetectPython()`.
+  - Python validation accepts Python 3.11+ and probes the production
+    `mlx_video.generate_av` plus LTX text-encoder imports. The exercised
+    combination is Python 3.14.5 with `mlx-video-with-audio` 0.1.36; torch and
+    diffusers are not generation gates. Invalid saved paths trigger
+    non-mutating `autoDetectPython()` recovery.
   - Non-blocking UI: App browsing, Archive, Projects, CharacterBible, and Settings remain fully accessible even if required dependencies are missing.
   - Unified Generation Gating: Every generation trigger (Generate, Add to Queue, Batch, One Shot, Storyboard Take, Generate Missing Takes, Regenerate Selected Shots, Hybrid auto generation, Retake, History) checks `isGenerationReady` and routes to `SetupWizardView` when dependencies are lacking.
   - Safety & Privacy: No silent `pip install`, `brew install`, `sudo`, system Python mutation, or auto-downloads. No API keys or credentials exported in `copyDiagnostics()`.
 
 ## Build & Verification Status
-- `swift build`: CLEAN
-- `swift run LTXTests`: **598 passed, 0 failed**
+- `swift build`: PASS
+- `swift run LTXTests`: **603 passed, 0 failed**
 - `xcodebuild -scheme LTXVideoGenerator -configuration Debug CODE_SIGNING_ALLOWED=NO clean build`: **BUILD SUCCEEDED**
-- `git diff --check`: CLEAN
+- `xcodebuild -scheme LTXVideoGenerator -configuration Release CODE_SIGNING_ALLOWED=NO clean build`: **BUILD SUCCEEDED**
+- `git diff --check`: PASS
+
+## Phase A2 Packaging Status
+- `scripts/build-release.sh local-test` produces an ad-hoc signed, clearly
+  named Release DMG and does not notarize or claim distribution readiness.
+- `scripts/build-release.sh distribution` has explicit credential preflight;
+  no valid Developer ID identity or notary profile is present on this Mac, so
+  it safely stops before replacing existing artifacts.
+- Archive contains the universal app and dSYM. Bundle inventory contains no
+  embedded Python runtime, FFmpeg executable, model weights, or encoder
+  weights.
+- See `DISTRIBUTION_ARCHITECTURE.md` and `RELEASE_PROCESS.md` for the exact
+  delivery path and human credential hand-off.

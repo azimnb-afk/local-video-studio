@@ -20,5 +20,6 @@ runStartingImageUXTests(t)
 runStoryboardTests(t)
 runAPITests(t)
 runDependencyHealthTests(t)
+runHuggingFaceCacheCheckerTests(t)
 
 t.finish()

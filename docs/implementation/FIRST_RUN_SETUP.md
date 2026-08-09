@@ -39,3 +39,16 @@ if !DependencyHealthManager.shared.isGenerationReady {
 
 ## Testing
 Tested via `Tests/LTXTests/Dependencies/DependencyHealthTests.swift`. Dependency checkers are mocked with `FakeCheckers` to ensure test independence from the local Mac environment. tests use `RunLoop.main.run` to wait for actor execution synchronously to avoid test suite deadlocks.
+
+## Runtime contract (Phase A2)
+
+- Select an external isolated Python 3.11+ environment. The exercised
+  production combination is Python 3.14.5 and `mlx-video-with-audio` 0.1.36.
+- Readiness probes the actual `mlx_video.generate_av` and LTX text-encoder
+  imports. It does not require unrelated `torch` or `diffusers` packages.
+- Missing or old packages are reported. Generation and normal validation never
+  invoke `pip`, create a venv, install FFmpeg, or download models without a
+  visible user action.
+- FFmpeg, the video model, and text encoder remain external dependencies. A
+  cache check requires snapshot metadata and a non-empty safetensors artifact;
+  it does not hash or load the model at app launch.

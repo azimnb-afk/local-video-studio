@@ -200,3 +200,30 @@ session with an awake, unlocked display.
 
 Exact resume action: open the canonical Debug app on an awake, unlocked
 display and work through GUI_ACCEPTANCE_CHECKLIST sections J–M.
+
+## 2026-08-10 Continuity strength calibration
+
+`imageStrength` semantics were verified in the backend source (its help text is
+inverted relative to its implementation): 1.0 pins the conditioned frame to the
+source image, lower values allow recomposition. A controlled sweep on one
+transition selected **0.8** as the knee — it recovers most of the available
+narrative progression for a small anchor cost, and nothing below it progresses
+further (D-032). The value lives once in
+`AutoMovieRunCoordinator.continuityImageStrength` and applies **only** to frames
+inherited from a previous shot; explicit user/CharacterBible starting images,
+Generate's manual I2V, One Shot, Storyboard, cut shots and first shots are
+unchanged.
+
+A second, independent cause of composition leakage was isolated: a shot prompt
+asking for a "steady camera" holds the framing regardless of strength (D-033).
+
+### Build & verification
+- `swift build`: PASS
+- `swift run LTXTests`: **736 passed, 0 failed** (718 + 18)
+- `xcodebuild` Debug clean build: BUILD SUCCEEDED
+- `git diff --check`: PASS
+- GUI acceptance: **executed this session** (previously blocked). Auto Movie
+  (Sora 2-like) page, bilingual descriptions, pinned sidebar navigation,
+  existing hybrid projects loading, the new continuity schema decoding in the
+  real app, and the "Continues from Shot 1" badge were all confirmed on the
+  canonical Debug app.

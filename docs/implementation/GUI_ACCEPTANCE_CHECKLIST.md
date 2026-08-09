@@ -377,3 +377,33 @@ windows during the unattended run (every app, including TextEdit, reported zero
 windows and screen captures were blank), so this matrix is pending a session
 with an awake, unlocked display. Implementation, unit tests and a real
 three-shot LTX continuity run were verified without the GUI.
+
+## 2026-08-10 Auto Movie GUI acceptance (executed)
+
+Canonical Debug app from HEAD `6a3e290` + calibration work; executable mtime
+`2026-08-10 05:33`; PID 2139.
+
+- [x] Sidebar shows Generate / One Shot / Storyboard / Director / **Auto Movie**
+  ("Sora 2-like connected shots") / Video Archive, all pinned at the top —
+  the 2db0abc sidebar fix is intact.
+- [x] Page header reads "Auto Movie (Sora 2-like)" with the English and Japanese
+  descriptions.
+- [x] Existing Hybrid projects created before the rename still load and are
+  listed under "Auto Movies" (backward compatibility).
+- [x] A project persisted with the new continuity schema decodes and renders in
+  the real app.
+- [x] Shot 2 shows the **"Continues from Shot 1"** badge with the link icon;
+  Shot 1 correctly shows no badge.
+- [x] "Generate Missing Takes" enabled and "Assemble Final Video" disabled while
+  no takes exist.
+- [x] New Auto Movie sheet shows Title / Brief / Characters / Preset / Model /
+  Audio / Target Duration / "Generate first pass after planning" / Director
+  (Auto · Local AI · Basic, reporting "Local AI Ready").
+- [x] Clearing "Generate first pass after planning" changes the action button to
+  "Create Auto Movie", so a project can be planned without starting a render.
+
+Not exercised in this pass: driving a full in-app Auto Movie render to
+assembly. Synthetic clicks cannot focus the SwiftUI brief editor, and a render
+was deliberately not started while the calibration generations were running.
+The equivalent pipeline was verified end to end outside the GUI
+(`scripts/automovie_continuity_e2e.sh`) and by unit tests.

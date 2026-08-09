@@ -16,6 +16,8 @@
 set -euo pipefail
 
 OUTDIR="${1:-/tmp/ltx_automovie_e2e}"
+# Calibrated continuity strength (AutoMovieRunCoordinator.continuityImageStrength).
+CONT_STRENGTH="${LTX_CONTINUITY_STRENGTH:-0.8}"
 PYTHON="${LTX_PYTHON:-$HOME/ltx-venv/bin/python3}"
 MODEL_REPO="${LTX_MODEL_REPO:-notapalindrome/ltx23-mlx-av-q4}"
 ENCODER_REPO="${LTX_ENCODER_REPO:-mlx-community/gemma-3-12b-it-4bit}"
@@ -49,8 +51,8 @@ generate() {
               --output-path "$out" --model-repo "$MODEL_REPO"
               --text-encoder-repo "$ENCODER_REPO" --tiling auto --no-audio)
   if [ -n "$image" ]; then
-    args+=(--image "$image" --image-strength 1.0)
-    log "[$label] image-to-video, starting frame: $(basename "$image")"
+    args+=(--image "$image" --image-strength "$CONT_STRENGTH")
+    log "[$label] image-to-video, starting frame: $(basename "$image") (continuity strength $CONT_STRENGTH)"
   else
     log "[$label] text-to-video (no starting frame)"
   fi

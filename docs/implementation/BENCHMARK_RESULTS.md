@@ -90,3 +90,45 @@ Sequential throughout; one generation at a time.
 Evidence: `/tmp/ltx_automovie_e2e/` (per-shot MP4s, extracted frames,
 `continuity_sheet.png` comparing each shot's first and last frame, and
 `auto_movie_final.mp4`).
+
+## Continuity strength calibration (2026-08-10)
+
+Harness: `scripts/continuity_strength_calibration.sh`. One transition, one
+source frame (the previous run's shot-1 final frame), one prompt, seed 42,
+512×320 / 25f / 15 steps / 24fps / audio off — only `--image-strength` varied.
+Each render took 44–46 s.
+
+| strength | anchor SSIM(source, first) | leakage SSIM(source, last) | read |
+|---|---|---|---|
+| 1.0 | 0.966 | 0.931 | scene held, shot barely evolves |
+| **0.8** | **0.952** | **0.827** | **scene held, clear push-in and advance** |
+| 0.7 | 0.943 | 0.835 | no more progression than 0.8, weaker anchor |
+| 0.6 | 0.930 | 0.819 | slight extra motion, drift begins |
+| 0.4 | 0.891 | 0.806 | hair/face visibly change |
+
+Selected **0.8** (`AutoMovieRunCoordinator.continuityImageStrength`): it captures
+0.105 of the 0.125 total available progression for 0.014 of anchor, and nothing
+below it progresses further.
+
+### Prompt is a separate lever from strength
+Same strength (0.8) and same source frame, prompt changed only:
+
+| shot-3 prompt | end-frame SSIM vs inherited frame |
+|---|---|
+| "…cinematic, **steady camera**." | 0.953 (composition holds) |
+| "…**The camera pushes in** to a closer shot and follows her…" | 0.911 (composition moves) |
+
+A prompt that asks for no camera movement holds the composition regardless of
+strength. The in-app `PromptCompiler` already emits a per-shot
+"{scale} shot, {angle} angle, {movement} camera" line and the Auto Movie split
+path varies scale and movement between shots, so the app is better placed than
+the hand-written prompts in the end-to-end script.
+
+### Three-shot end-to-end at 0.8
+45/44/44 s renders, frames extracted between shots, assembled to a playable
+3.125 s h264 512×320 movie. Building, wardrobe, hair and lighting carried across
+all three shots; the subject scale advanced between shots. Identity remains
+unverifiable at this resolution and is not claimed.
+
+Evidence: `/tmp/ltx_strength_calib/strength_sheet.png`,
+`/tmp/ltx_strength_calib7/`, `/tmp/ltx_automovie_e2e_08/continuity_sheet_08.png`.

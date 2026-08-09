@@ -496,3 +496,186 @@ func runAutoMovieContinuityTests(_ t: TestKit) {
                 "downstream continuity is flagged stale after a retake")
     }
 }
+
+/// Continuity image-strength calibration: the calibrated value must reach
+/// inherited frames only, and every explicit starting-image path must keep its
+/// original exact-first-frame behaviour.
+func runContinuityStrengthTests(_ t: TestKit) {
+    let fixtureA = "/tmp/ltx_baseline/T2V-A-ON.mp4"
+    let hasFixtures = FileManager.default.fileExists(atPath: fixtureA)
+        && FinalAssemblyService.ffmpegPath() != nil
+
+    let tmpRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("LTXTests-strength-\(UUID().uuidString)", isDirectory: true)
+    try? FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+
+    func makeStore(_ name: String) -> FilmProjectStore {
+        FilmProjectStore(projectsDirectory: tmpRoot.appendingPathComponent(name, isDirectory: true))
+    }
+
+    func makeProject(store: FilmProjectStore, shotCount: Int,
+                     workflowMode: String? = AutoMovieRunCoordinator.autoMovieWorkflowMode,
+                     continuity: ShotContinuityMode = .continueFromPrevious) -> FilmProject {
+        var project = FilmProject(title: "Strength Test")
+        project.workflowMode = workflowMode
+        project.continuityChainEnabled = true
+        for index in 0..<shotCount {
+            var shot = Shot(index: index, title: "Shot \(index + 1)", summary: "beat")
+            shot.compiledPrompt = "prompt \(index + 1)"
+            shot.durationSeconds = 1
+            shot.continuityMode = index == 0 ? .cut : continuity
+            project.shots.append(shot)
+        }
+        store.save(project)
+        return store.project(id: project.id)!
+    }
+
+    func completeShot(store: FilmProjectStore, projectID: UUID, shotIndex: Int, videoPath: String) {
+        var project = store.project(id: projectID)!
+        var take = Take(
+            shotID: project.shots[shotIndex].id, modelID: "m", seed: 7,
+            promptSnapshot: "p", settingsSnapshot: .default,
+            requestedWidth: 512, requestedHeight: 320, fps: 24,
+            requestedDuration: 1, status: .completed
+        )
+        take.outputPath = videoPath
+        take.generationCompletedAt = Date()
+        project.shots[shotIndex].takes.append(take)
+        store.save(project)
+    }
+
+    t.suite("Continuity strength — calibrated value and scope") {
+        // The calibrated constant must stay in the range the backend accepts and
+        // below 1.0, which is what caused the frozen-composition regression.
+        let strength = AutoMovieRunCoordinator.continuityImageStrength
+        t.check(strength > 0 && strength < 1.0, "calibrated continuity strength is inside (0, 1)")
+        t.checkEqual(strength, 0.8, "calibrated continuity strength is the measured knee value")
+
+        // Defaults for every non-continuity path stay at the original 1.0.
+        t.checkEqual(GenerationParameters.default.imageStrength, 1.0,
+                     "E: default parameters keep exact-first-frame strength")
+        t.checkEqual(GenerationParameters.preview.imageStrength, 1.0,
+                     "E: preview parameters keep exact-first-frame strength")
+        t.checkEqual(GenerationParameters.highQuality.imageStrength, 1.0,
+                     "E: high quality parameters keep exact-first-frame strength")
+
+        guard hasFixtures else {
+            t.check(true, "fixture video unavailable — strength wiring checks skipped")
+            return
+        }
+
+        // A. An inherited continuity frame receives the calibrated strength.
+        let store = makeStore("inherited")
+        let project = makeProject(store: store, shotCount: 2)
+        completeShot(store: store, projectID: project.id, shotIndex: 0, videoPath: fixtureA)
+        var pending: [GenerationRequest] = []
+        _ = AutoMovieRunCoordinator(store: store).advance(projectID: project.id) { pending = $0 }
+        t.check(pending.first?.sourceImagePath != nil, "A: continuing shot inherits a frame")
+        t.checkEqual(pending.first?.parameters.imageStrength,
+                     AutoMovieRunCoordinator.continuityImageStrength,
+                     "A: inherited frame uses the calibrated continuity strength")
+        // The value is snapshotted on the Take, so a run stays reproducible.
+        let savedTake = store.project(id: project.id)!.shots[1].takes.first
+        t.checkEqual(savedTake?.settingsSnapshot.imageStrength,
+                     AutoMovieRunCoordinator.continuityImageStrength,
+                     "A: persisted Take records the effective continuity strength")
+
+        // B. An explicit starting image is untouched by the calibration.
+        let explicitStore = makeStore("explicit")
+        var explicitProject = makeProject(store: explicitStore, shotCount: 2)
+        let characterID = UUID()
+        var character = BibleCharacter(id: characterID, name: "Mika")
+        let assetID = UUID()
+        let assetsDir = explicitStore.characterAssetsDirectory(projectID: explicitProject.id, characterID: characterID)
+        try? FileManager.default.createDirectory(at: assetsDir, withIntermediateDirectories: true)
+        FileManager.default.createFile(
+            atPath: assetsDir.appendingPathComponent("front.png").path,
+            contents: Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        )
+        character.referenceAssets = [CharacterReferenceAsset(
+            id: assetID, type: .front,
+            projectRelativePath: "Assets/Characters/\(characterID.uuidString)/front.png"
+        )]
+        explicitProject.characterBible.characters = [character]
+        explicitProject.shots[1].startingImageReferenceAssetID = assetID
+        explicitStore.save(explicitProject)
+        completeShot(store: explicitStore, projectID: explicitProject.id, shotIndex: 0, videoPath: fixtureA)
+        var explicitPending: [GenerationRequest] = []
+        _ = AutoMovieRunCoordinator(store: explicitStore)
+            .advance(projectID: explicitProject.id) { explicitPending = $0 }
+        t.check(explicitPending.first?.sourceImagePath?.hasSuffix("front.png") == true,
+                "B: explicit starting image still wins")
+        t.checkEqual(explicitPending.first?.parameters.imageStrength, 1.0,
+                     "B: explicit starting image keeps exact-first-frame strength")
+
+        // C. A cut shot gets neither an image nor the continuity strength.
+        let cutStore = makeStore("cut")
+        let cutProject = makeProject(store: cutStore, shotCount: 2, continuity: .cut)
+        completeShot(store: cutStore, projectID: cutProject.id, shotIndex: 0, videoPath: fixtureA)
+        var cutPending: [GenerationRequest] = []
+        _ = AutoMovieRunCoordinator(store: cutStore).advance(projectID: cutProject.id) { cutPending = $0 }
+        t.check(cutPending.first?.sourceImagePath == nil, "C: cut shot inherits no image")
+        t.checkEqual(cutPending.first?.parameters.imageStrength, 1.0,
+                     "C: cut shot keeps the default strength")
+
+        // D. The first shot has nothing to inherit, so it is unaffected.
+        let firstStore = makeStore("first")
+        let firstProject = makeProject(store: firstStore, shotCount: 2)
+        var firstPending: [GenerationRequest] = []
+        _ = AutoMovieRunCoordinator(store: firstStore).advance(projectID: firstProject.id) { firstPending = $0 }
+        t.check(firstPending.first?.sourceImagePath == nil, "D: first shot has no inherited image")
+        t.checkEqual(firstPending.first?.parameters.imageStrength, 1.0,
+                     "D: first shot keeps the default strength")
+
+        // G. A manual storyboard shot with an explicit image is unaffected.
+        let sbStore = makeStore("storyboard")
+        var sbProject = makeProject(store: sbStore, shotCount: 1, workflowMode: nil)
+        let sbCharacterID = UUID()
+        var sbCharacter = BibleCharacter(id: sbCharacterID, name: "Ken")
+        let sbAssetID = UUID()
+        let sbAssets = sbStore.characterAssetsDirectory(projectID: sbProject.id, characterID: sbCharacterID)
+        try? FileManager.default.createDirectory(at: sbAssets, withIntermediateDirectories: true)
+        FileManager.default.createFile(
+            atPath: sbAssets.appendingPathComponent("front.png").path,
+            contents: Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        )
+        sbCharacter.referenceAssets = [CharacterReferenceAsset(
+            id: sbAssetID, type: .front,
+            projectRelativePath: "Assets/Characters/\(sbCharacterID.uuidString)/front.png"
+        )]
+        sbProject.characterBible.characters = [sbCharacter]
+        sbProject.shots[0].startingImageReferenceAssetID = sbAssetID
+        sbStore.save(sbProject)
+        do {
+            let requests = try TakeGenerationCoordinator(store: sbStore)
+                .planTakes(projectID: sbProject.id, shotID: sbProject.shots[0].id, count: 1)
+            t.checkEqual(requests.first?.parameters.imageStrength, 1.0,
+                         "G: storyboard explicit starting image keeps exact-first-frame strength")
+        } catch {
+            t.check(false, "G: storyboard planTakes threw \(error)")
+        }
+    }
+
+    t.suite("Continuity strength — unrelated surfaces unchanged") {
+        // F. One Shot and Generate build requests without the coordinator, so
+        // their strength comes from the shared parameter defaults.
+        var params = GenerationParameters.default
+        t.checkEqual(params.imageStrength, 1.0, "F: One Shot / Generate default strength unchanged")
+        params.imageStrength = 0.5
+        let request = GenerationRequest(prompt: "p", sourceImagePath: "/tmp/x.png", parameters: params)
+        t.checkEqual(request.parameters.imageStrength, 0.5,
+                     "F: a manually chosen strength is still carried through unchanged")
+
+        // H. Projects persisted before the calibration still decode.
+        let legacy = """
+        {"schemaVersion":1,"id":"\(UUID().uuidString)","title":"Legacy","workflowMode":"hybrid","shots":[]}
+        """.data(using: .utf8)!
+        do {
+            let project = try JSONDecoder().decode(FilmProject.self, from: legacy)
+            t.checkEqual(project.workflowMode, "hybrid", "H: legacy auto movie project still decodes")
+        } catch {
+            t.check(false, "H: legacy project failed to decode: \(error)")
+        }
+    }
+}

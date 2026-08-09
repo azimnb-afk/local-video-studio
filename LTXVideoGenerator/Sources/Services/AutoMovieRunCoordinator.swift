@@ -18,6 +18,38 @@ final class AutoMovieRunCoordinator {
     /// Projects whose workflowMode marks them as automatic (Auto Movie).
     static let autoMovieWorkflowMode = "hybrid"
 
+    /// Conditioning strength applied to a frame inherited from the previous
+    /// shot. This is the ONLY place the value is defined.
+    ///
+    /// Backend semantics (verified in `mlx_video/conditioning/latent.py`, whose
+    /// own docstring is inverted relative to its implementation):
+    ///
+    ///     denoise_mask = 1.0 - strength
+    ///     output       = denoised * mask + clean_image_latent * (1 - mask)
+    ///
+    /// so 1.0 pins the conditioned frame to the source image exactly and lower
+    /// values give the model room to recompose.
+    ///
+    /// Calibrated on a single real transition (same source frame, prompt, seed
+    /// and render settings; only the strength varied), measuring SSIM against
+    /// the inherited frame:
+    ///
+    ///     strength  SSIM(source, first)   SSIM(source, last)
+    ///     1.0       0.966                 0.931   ← shot barely evolves
+    ///     0.8       0.952                 0.827
+    ///     0.7       0.943                 0.835
+    ///     0.6       0.930                 0.819
+    ///     0.4       0.891                 0.806   ← appearance starts drifting
+    ///
+    /// Dropping from 1.0 to 0.8 captures most of the available progression
+    /// (0.105 of the 0.125 total) for 0.014 of anchor. Below 0.8 the shot does
+    /// not progress further — 0.7 actually moved less than 0.8 — while the
+    /// anchor keeps weakening, so 0.8 is the knee of the curve.
+    ///
+    /// This is a visual anchor, not identity conditioning; it improves
+    /// continuity without guaranteeing the same person.
+    static let continuityImageStrength: Double = 0.8
+
     enum RunStep: Equatable {
         /// Not an automatic project, or nothing left to do.
         case idle

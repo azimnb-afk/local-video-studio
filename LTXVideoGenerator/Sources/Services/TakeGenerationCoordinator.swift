@@ -67,6 +67,10 @@ final class TakeGenerationCoordinator {
         // A shot that is supposed to continue but has an unusable inherited
         // frame is rejected rather than quietly rendered as text-to-video.
         var sourceImagePath: String? = nil
+        // Only a frame inherited from the previous shot gets the calibrated
+        // continuity strength; an image the user chose keeps the existing
+        // exact-first-frame behaviour.
+        var usesInheritedContinuityFrame = false
         if let assetID = shot.startingImageReferenceAssetID {
             guard let (_, asset) = project.findReferenceAsset(id: assetID) else {
                 throw CoordinatorError.startingImageNotFound(assetID)
@@ -83,6 +87,7 @@ final class TakeGenerationCoordinator {
                 throw CoordinatorError.continuityImageUnavailable(shotID)
             }
             sourceImagePath = url.path
+            usesInheritedContinuityFrame = true
         }
 
         var requests: [GenerationRequest] = []
@@ -97,6 +102,13 @@ final class TakeGenerationCoordinator {
                 : PromptCompiler.frameCount(forSeconds: shot.durationSeconds, fps: settings.fps)
             params.numInferenceSteps = settings.resolvedInferenceSteps
             params.seed = seed
+            if usesInheritedContinuityFrame {
+                // Pinning the first frame exactly (1.0) preserved the scene but
+                // froze the composition, so continuing shots never progressed.
+                // The calibrated value keeps the set, wardrobe and lighting
+                // while letting the camera and action move on.
+                params.imageStrength = AutoMovieRunCoordinator.continuityImageStrength
+            }
 
             let take = Take(
                 shotID: shotID,

@@ -257,3 +257,56 @@ also receives the one automatic assembly when its last shot lands.
 
 Store access stays on the main actor; only the blocking FFmpeg work is moved
 off it, and the result is written back on the main actor.
+
+## D-032 (2026-08-10) Continuity image strength is 0.8, measured not guessed
+`--image-strength` semantics were verified in the backend source rather than
+taken from its help text, which is inverted relative to its own implementation.
+`mlx_video/conditioning/latent.py` computes `denoise_mask = 1.0 - strength` and
+blends `denoised * mask + clean_latent * (1 - mask)`, so **1.0 pins the
+conditioned frame to the source image exactly** and lower values give the model
+room to recompose. The app's UI label ("1.0 = exact first frame") is correct;
+the backend docstring ("1.0 = full denoise") is not.
+
+Calibrated on one isolated transition — same source frame, prompt, seed,
+resolution, frames, steps, model and encoder; only the strength varied —
+scoring SSIM against the inherited frame:
+
+| strength | SSIM(source, first) = anchor | SSIM(source, last) = leakage |
+|---|---|---|
+| 1.0 | 0.966 | 0.931 |
+| 0.8 | 0.952 | 0.827 |
+| 0.7 | 0.943 | 0.835 |
+| 0.6 | 0.930 | 0.819 |
+| 0.4 | 0.891 | 0.806 |
+
+Going from 1.0 to 0.8 captures 0.105 of the total 0.125 available progression
+for 0.014 of anchor. Below 0.8 the shot does not progress further — 0.7 moved
+*less* than 0.8 — while the anchor keeps weakening and, by 0.4, the character's
+hair and face visibly drift. 0.8 is therefore the knee of the curve, and is
+defined once as `AutoMovieRunCoordinator.continuityImageStrength`.
+
+Scope: the value applies **only** to a frame inherited from the previous shot.
+An explicit user or CharacterBible starting image, Generate's manual I2V, One
+Shot and Storyboard all keep the existing exact-first-frame behaviour, and cut
+shots and the first shot are unaffected. The effective value is snapshotted in
+each Take's `settingsSnapshot`, so runs stay reproducible without a schema
+change.
+
+## D-033 (2026-08-10) Prompt camera direction is a separate factor from strength
+Composition leakage has two independent causes. With strength and source frame
+held constant at 0.8, a shot prompt ending in "steady camera" produced an
+end-frame SSIM of 0.953 against its inherited frame, while a prompt asking the
+camera to push in produced 0.911. A prompt that asks for no camera movement will
+therefore hold composition regardless of strength.
+
+This is why the calibration harness and the three-shot end-to-end script differ:
+the calibration prompt requested a camera move and showed clear progression at
+0.8, while the end-to-end script's hand-written prompts said "steady camera" for
+every shot and progressed less. The app itself is better placed than that
+script, because `PromptCompiler` emits a per-shot
+"{scale} shot, {angle} angle, {movement} camera" line and the Auto Movie split
+path already varies scale and movement between consecutive shots.
+
+No Director or PromptCompiler change was made for this: the finding is recorded
+so a future camera-progression improvement is not mistaken for a strength
+regression.

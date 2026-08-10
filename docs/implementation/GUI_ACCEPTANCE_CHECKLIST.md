@@ -620,3 +620,26 @@ Real generation from the dialog: shot 1 rendered at 768x512 / 121 frames and its
 first frame is the chosen reference, continuing into the same plaza scene. The
 render was preserved as
 `OPENREF_CREATEFLOW_shot01_from_dialog_768x512_*.mp4` for review.
+
+## 2026-08-11 Global Production Queue — GUI acceptance PARTIAL
+
+Canonical Debug app, executable mtime `2026-08-11 07:49`.
+
+- [x] Sidebar shows Generate / One Shot / Storyboard / Auto Movie / Video
+      Archive, pinned, no layout inflation at 1680x948.
+- [x] **"Production Queue" panel renders in the sidebar** below the existing
+      render queue, with its empty-state copy.
+- [x] Auto Movie page and existing projects load.
+- [x] Creating an Auto Movie routes through the queue and starts it (verified by
+      the persisted queue file recording the job and its stage).
+
+Not completed — the display went to sleep mid-session and the dialog automation
+proved unreliable for a repeat run:
+
+- [ ] Two jobs visible together, one Running and one Waiting.
+- [ ] Move Up / Move Down exercised in the panel.
+- [ ] Cancel from the panel, and the next job starting automatically.
+- [ ] Completed / Failed rows and their Retry / Reveal actions.
+
+These are covered by unit tests, but not yet seen on screen. A human should
+queue two short jobs and watch the panel once.

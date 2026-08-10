@@ -150,6 +150,13 @@ struct StoryboardView: View {
         project.shots.filter { $0.selectedTake?.status == .completed }.count
     }
 
+    /// Recorded on the job so a movie that waits in the queue still plans with
+    /// the Director mode chosen when it was created.
+    private var directorModeForSnapshot: String {
+        UserDefaults.standard.string(forKey: DirectorMode.userDefaultsKey)
+            ?? DirectorMode.auto.rawValue
+    }
+
     private func refresh() {
         projects = store.allProjects.filter { project in
             mode == .hybrid ? project.workflowMode == "hybrid" : project.workflowMode != "hybrid"
@@ -205,16 +212,34 @@ struct StoryboardView: View {
                     if !DependencyHealthManager.shared.isGenerationReady {
                         DependencyHealthManager.shared.showSetupWizard = true
                     } else {
-                        // Only the first shot is queued here. A shot that
-                        // continues from the previous one can only be built
-                        // after that shot has actually rendered, so the run
-                        // advances itself as each take completes.
-                        var pending: [GenerationRequest] = []
-                        _ = AutoMovieRunCoordinator(store: store)
-                            .advance(projectID: project.id) { pending = $0 }
-                        if !pending.isEmpty {
-                            generationService.addBatch(pending)
-                        }
+                        // Rendering goes through the global production queue so
+                        // several movies can be lined up and left to run. The
+                        // queue starts this immediately when idle, so a single
+                        // movie behaves exactly as it did before; when another
+                        // job is already running this one waits its turn instead
+                        // of interleaving its shots with the other movie's.
+                        var snapshot = ProductionJobSnapshot()
+                        snapshot.projectID = project.id
+                        snapshot.brief = brief
+                        snapshot.preset = settings.preset
+                        snapshot.qualityMode = settings.qualityMode
+                        snapshot.modelID = settings.modelID
+                        snapshot.textEncoderID = settings.textEncoderID
+                        snapshot.audioEnabled = settings.audioEnabled
+                        snapshot.targetDurationSeconds = settings.targetDurationSeconds
+                        snapshot.directorMode = directorModeForSnapshot
+                        // The opening reference and character anchor are already
+                        // project-managed copies, so recording their paths keeps
+                        // the job deterministic without duplicating image bytes.
+                        snapshot.openingReferenceRelativePath =
+                            project.openingReferenceImage?.projectRelativePath
+                        snapshot.characterAnchorCharacterID = project.characterAnchor.characterID
+                        snapshot.characterAnchorAssetID = project.characterAnchor.referenceAssetID
+                        ProductionQueueService.shared.enqueueNext(ProductionJob(
+                            kind: mode == .hybrid ? .autoMovie : .storyboard,
+                            title: project.title,
+                            snapshot: snapshot
+                        ))
                     }
                 }
                 selectedProjectID = project.id

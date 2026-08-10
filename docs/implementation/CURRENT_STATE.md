@@ -746,3 +746,47 @@ waiting on continuity.
 - `swift run LTXTests`: **1038 passed, 0 failed** (1031 + 7)
 - `xcodebuild` Debug clean build: BUILD SUCCEEDED
 - `git diff --check`: PASS
+
+## 2026-08-11 Global Production Queue
+
+Several movies or renders can now be queued and left to run unattended, one
+after another.
+
+Architecture: `ProductionQueueCoordinator` (ordering, states, persistence,
+one-active-job rule) + `ProductionQueueService` (starts each job through its
+mode and watches for it finishing) + `ProductionQueueStore` (atomic JSON at
+`Application Support/LTXVideoGenerator/production_queue.json`). It sits *above*
+`GenerationService`, which was already the single-render gate; what it adds is
+the job boundary that stops two movies interleaving their shots (D-063).
+
+All four modes route through it: Generate (a batch is one job), One Shot,
+Storyboard and Auto Movie. Jobs are snapshots — brief, preset, model, seed,
+Director mode, and the project-relative Opening Reference and Character Anchor
+paths — so editing a project afterwards cannot change a job already waiting
+(D-064). Preflight runs again at execution: a reference deleted while the job
+waited fails that job with a reason rather than opening on a different
+protagonist.
+
+States: waiting / running / completed / failed / cancelled / interrupted. A
+failed job never blocks the queue. Cancelling the running job stops the render
+in flight, drops what it had queued behind it, and moves on. Retry re-queues
+from the original snapshot as a new record, so the failure stays visible. A job
+recorded as running when the app quit restores as interrupted and offers
+Restart. Sidebar panel shows each job with status, progress and per-state
+actions.
+
+**Status: PARTIAL.** Implementation, unit verification and Debug build are
+complete, and the sidebar panel renders. The real multi-job E2E was started and
+is what exposed D-065 — a movie marked complete while its second shot was still
+rendering — which is fixed and covered by a regression test. That E2E was *not*
+re-run to completion afterwards, so "job A finishes, job B starts automatically"
+is proven in unit tests with a runner double but **not yet observed in a real
+two-movie run**.
+
+### Build & verification
+- `swift build`: PASS
+- `swift run LTXTests`: **1108 passed, 0 failed** (1038 + 70)
+- `xcodebuild` Debug clean build: BUILD SUCCEEDED
+- `git diff --check`: PASS
+- GUI: Production Queue panel visible in the sidebar with its empty state; all
+  five pages intact at 1680x948

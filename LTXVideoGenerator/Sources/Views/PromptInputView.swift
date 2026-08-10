@@ -858,7 +858,23 @@ struct PromptInputView: View {
     }
     
     private func generateVideo() {
-        generationService.addToQueue(makeGenerationRequest(parameters: parameters))
+        // Goes through the global queue so it can never render alongside a
+        // movie that is already running. An idle queue starts it immediately,
+        // so "Generate" still feels immediate.
+        let request = makeGenerationRequest(parameters: parameters)
+        var snapshot = ProductionJobSnapshot()
+        snapshot.prompt = request.prompt
+        snapshot.pendingRequests = [request]
+        snapshot.batchCount = 1
+        snapshot.seed = request.parameters.seed
+        ProductionQueueService.shared.enqueue(ProductionJob(
+            kind: .generate, title: shortTitle(request.prompt), snapshot: snapshot))
+    }
+
+    /// A compact label for the queue row; the full prompt lives in the request.
+    private func shortTitle(_ prompt: String) -> String {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.count > 60 ? String(trimmed.prefix(60)) + "…" : trimmed
     }
 
     private func makeGenerationRequest(parameters: GenerationParameters) -> GenerationRequest {
@@ -962,7 +978,16 @@ struct PromptInputView: View {
                 )
             )
         }
-        generationService.addBatch(requests)
+        // The whole batch is ONE global job: ten renders queued together stay
+        // together, and the next job waits for all of them.
+        var snapshot = ProductionJobSnapshot()
+        snapshot.prompt = requests.first?.prompt ?? ""
+        snapshot.pendingRequests = requests
+        snapshot.batchCount = requests.count
+        ProductionQueueService.shared.enqueue(ProductionJob(
+            kind: .generate,
+            title: "\(shortTitle(requests.first?.prompt ?? "")) × \(requests.count)",
+            snapshot: snapshot))
     }
 
     private func requestBatchGeneration(count: Int) {

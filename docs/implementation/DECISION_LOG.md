@@ -943,3 +943,57 @@ confusing them. They are separated by scope and labelled accordingly:
 
 Precedence is unchanged: explicit per-shot starting image, then opening
 reference, then Character Anchor, then text-to-video.
+
+## D-063 (2026-08-11) Global production queue sits above the existing render gate
+
+`GenerationService` already renders one request at a time, for every mode, and
+an Auto Movie already chains its own shots. So the queue did not need a second
+renderer — it needed a *job* boundary.
+
+Without one, two queued movies interleave. Each movie appends its next shot to
+the shared render queue as the previous shot lands, so the order becomes A1, B1,
+A2, B2. `ProductionQueueCoordinator` admits exactly one job's work at a time: a
+movie renders every shot and assembles before the next job is allowed to start.
+
+The coordinator is transport-agnostic — it decides what runs next and records
+state, and hands the work to a runner closure. That is what makes the
+single-active-job guarantee testable without a GPU, and the concurrency test
+asserts a peak of one active job across completion, failure and cancellation.
+
+Concurrency is fixed at one and deliberately not configurable. On Apple Silicon
+a second concurrent render competes for the same unified memory and is the
+fastest way to make both fail.
+
+## D-064 (2026-08-11) Jobs are snapshots, not live references
+
+A waiting job records what the user asked for at enqueue time: brief, preset,
+model, seed, Director mode, and — for Auto Movie — the project-relative paths of
+the Opening Reference Image and Character Anchor. Editing the project afterwards
+does not reach into a job already in the queue.
+
+Images are referenced by managed project-relative path rather than copied as
+bytes: the copies are already owned by the project, so the reference is stable
+and the queue file stays small. The path is resolved again at execution time, so
+a file deleted while the job waited fails that job with a clear reason instead
+of quietly opening the movie on a different-looking protagonist.
+
+## D-065 (2026-08-11) A film job is finished by the project, not by an idle renderer
+
+Found in a real run, not in review. The first completion rule was "the render
+queue is empty, so the job is done". Between two Auto Movie shots the queue is
+momentarily empty — the finished take has been removed and the next shot is only
+appended once the run coordinator advances — so a movie was marked completed
+while its second shot was still rendering. The next queued job would then have
+started on top of it, which is exactly the interleaving the queue exists to
+prevent.
+
+Completion is now decided by the project: every shot has a completed take and an
+assembled movie exists, or a shot failed. All shots rendered but no assembly yet
+holds the job open under an "Assembling" stage. A regression test pins each of
+those cases.
+
+Persistence is atomic, and a single malformed record is dropped rather than
+discarding the whole queue — losing one job is recoverable, losing an overnight
+queue is not. A job recorded as running when the app quits restores as
+`interrupted`: its render subprocess died with the process, so it is never
+silently resumed or reported complete.

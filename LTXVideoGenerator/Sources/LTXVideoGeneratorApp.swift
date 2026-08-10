@@ -67,6 +67,12 @@ struct RootView: View {
             .environmentObject(presetManager)
             .environmentObject(characterProfileManager)
             .environmentObject(generationService)
+            .environmentObject(ProductionQueueService.shared)
+            .onAppear {
+                // The queue watches the renderer to know when a job is done,
+                // and picks up any waiting work restored from the last session.
+                ProductionQueueService.shared.attach(generationService: generationService)
+            }
             .task {
                 historyManager.loadInitialData()
                 presetManager.loadInitialData()

@@ -103,6 +103,8 @@ struct ContentView: View {
         }
     }
     
+    @ObservedObject private var productionQueue = ProductionQueueService.shared
+
     private var sidebarContent: some View {
         // Primary navigation is pinned; only the secondary panes scroll. When
         // the whole sidebar shared one ScrollView, a tall Queue could scroll the
@@ -120,6 +122,11 @@ struct ContentView: View {
                     VStack(spacing: 0) {
                         QueueView()
                             .frame(minHeight: 160, maxHeight: 300)
+                        Divider()
+                        // The global job queue sits under the per-render queue:
+                        // renders in flight above, whole movies and batches
+                        // waiting their turn below.
+                        ProductionQueuePanel(queue: productionQueue)
                         Divider()
                         ModelStatusView()
                             .padding()
@@ -431,7 +438,18 @@ private struct OneShotView: View {
                 // Re-check immediately before queue insertion; never downgrade
                 // a selected Starting Image request to text-only.
                 _ = try OneShotStartingImagePreflight.validatedPath(request.sourceImagePath)
-                generationService.addToQueue(request)
+                // Planning has already happened, so the job carries the finished
+                // request: what was queued is exactly what renders, even if the
+                // brief is edited while it waits.
+                var snapshot = ProductionJobSnapshot()
+                snapshot.brief = trimmed
+                snapshot.prompt = request.prompt
+                snapshot.pendingRequests = [request]
+                snapshot.seed = request.parameters.seed
+                ProductionQueueService.shared.enqueue(ProductionJob(
+                    kind: .oneShot,
+                    title: trimmed.count > 60 ? String(trimmed.prefix(60)) + "…" : trimmed,
+                    snapshot: snapshot))
                 status = validatedStartingImage == nil
                     ? "Planned via \(providerName); queued text-only generation"
                     : "Planned via \(providerName); queued with Starting Image"

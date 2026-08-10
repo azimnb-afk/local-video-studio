@@ -734,3 +734,38 @@ Known remaining gap, recorded rather than patched: a shot clamped for
 and so still receives 0.8. Making the resolver read the Director's original
 framing intent (already persisted as `Shot.originalCameraScale`) would fix that,
 but the combination was not measured, so it is not being shipped on inference.
+
+## D-054 (2026-08-10) Detail-clamped shots keep the standard anchor
+
+D-053 left one gap open: a shot clamped for detail reasons is handed to the
+strength resolver at its reduced framing distance, so it receives the standard
+0.8 rather than the reframe 0.5 its original intent implied. That was recorded
+rather than fixed, because the combination had not been measured. It has now.
+
+Measured on the shipping planner's own clamped shot — original
+`extreme-close-up`, effective `medium-close-up`, reason "detail-insert framing;
+fine hand/object manipulation" — from one source frame at 768×512 / 121 frames,
+identical prompt, two seeds, with only the strength varying:
+
+| | framing | interaction | character | environment |
+|---|---|---|---|---|
+| 0.8 | 2 | 0 | 3 | 3 |
+| 0.5 | 2 | 0 | 3 | 3 |
+
+Indistinguishable at both seeds. **No production change.** Strength keeps coming
+from the post-clamp effective scale, and `originalCameraScale` stays a
+persisted explanation rather than a resolver input.
+
+The reason this does not contradict D-052 is worth stating, because it looked
+like it would. There, 0.8 failed a *3-rung* framing request and 0.5 delivered
+it. Here the clamp has already reduced the request to *2 rungs*, which 0.8
+delivers on its own. The clamp lowers the ask to something the standard anchor
+can satisfy, so the two passes are self-consistent. The suspected conflict was
+an artifact of reasoning about the original intent rather than the actual
+request, and measuring it was the only way to tell.
+
+Experiment C (0.65) was not run: it is gated on an unclear tradeoff between 0.8
+and 0.5, and there was none.
+
+Fine object interaction still fails at both strengths. That limitation is
+unchanged and is not a strength problem.

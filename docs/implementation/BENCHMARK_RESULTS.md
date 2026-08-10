@@ -697,3 +697,69 @@ interior, so a different person there is expected.
 
 The unlock beat itself is still not clearly executed, consistent with the fine
 object-interaction limit that survived revalidation.
+
+## Auto Movie Detail-Clamp × Strength Interaction (2026-08-10)
+
+Baseline `ed1e698`. Closes the gap flagged in D-053: when Capability-Aware
+Planning clamps a shot for *detail* reasons, the strength resolver sees only the
+post-clamp scale and selects the standard 0.8. Does that shot actually want the
+reframe 0.5 its original framing intent would have selected?
+
+### Architecture as measured (not changed)
+- `saferScale` clamps a detail-insert / fine-manipulation shot to
+  `safestTightRank = 4` (medium-close-up).
+- `Shot.originalCameraScale` **is** persisted and populated
+  (`StoryboardDirector.swift:646`) when the scale changed.
+- `ContinuityStrengthResolver.policy` reads **only** `camera.shotScale` — the
+  effective, post-clamp value. It never consults `originalCameraScale`.
+
+So the gap is real in code. The question is whether it matters.
+
+### The clamped shot, produced by the shipping planner
+```
+planned  : extreme-close-up | Extreme close-up of her hand pressing the key into the tiny lock.
+effective: medium-close-up  | Her hand pressing the key into the lock. The action stays clearly visible at body scale.
+why      : detail-insert framing (extreme-close-up); fine hand/object manipulation
+```
+Previous shot `medium-wide`. Effective distance 2 rungs → **standard 0.8** today;
+original intent was 4 rungs → would have been **reframe 0.5**.
+
+Source frame: `/tmp/ltx_dest/HD_A_END.png` — a product-generated 768×512 frame
+with the protagonist at the entrance, medium-wide, the door visible behind her.
+Chosen so no long approach is required: this measures the clamp × strength
+interaction, not beat distance.
+
+768×512, 121 frames, 24 fps, 30 steps, cfg 3.0, audio off,
+`ltx23-mlx-av-q4` + `gemma-3-12b-it-4bit`. Identical effective prompt, identical
+source. **Only `--image-strength` differs.** Two seeds.
+
+| seed | strength | framing progression | interaction beat | target visibility | character | environment | coherence | SSIM src→first / →last |
+|---|---|---|---|---|---|---|---|---|
+| 42 | **0.8** | 2 | **0** | 2 | 3 | 3 | good | 0.957 / 0.564 |
+| 42 | **0.5** | 2 | **0** | 2 | 3 | 3 | good | 0.916 / 0.528 |
+| 7 | 0.8 | 2 | 0 | 2 | 3 | 3 | good | — |
+| 7 | 0.5 | 2 | 0 | 2 | 3 | 3 | good | — |
+
+Both strengths produce the same result at both seeds: the subject descends the
+steps toward camera and ends at roughly medium framing. Neither performs the
+hand-to-lock action. Continuity is equally strong in all four.
+
+Experiment C (0.65) was **not run**: §10 gates it on A and B revealing a
+tradeoff that makes the decision unclear. There is no tradeoff — the two are
+indistinguishable — so an intermediate value has nothing to resolve.
+
+### Conclusion — and why it is consistent with the previous round
+**0.5 provides no benefit for a detail-clamped shot.** Strength continues to be
+determined from the post-clamp effective scale. `originalCameraScale` stays
+persisted for explainability and is deliberately not fed to the resolver.
+
+This looks like it contradicts the revalidation, where 0.8 failed to reframe and
+0.5 succeeded — it does not. There the *request* was a 3-rung framing change,
+which 0.8 cannot deliver. Here the clamp has already reduced the request to a
+2-rung change, which 0.8 delivers perfectly well. The clamp lowers the ask to
+something the standard anchor can satisfy, so the two features are self-
+consistent rather than fighting. The "known remaining gap" recorded in D-053 is
+therefore closed as a non-issue, on evidence rather than by inference.
+
+The fine object interaction still fails at both strengths, which is unchanged
+and remains the real limitation.

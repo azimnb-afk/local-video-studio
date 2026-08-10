@@ -554,3 +554,33 @@ with the profile they were measured at.
   disproven belief were updated to the corrected policy)
 - `xcodebuild` Debug clean build: BUILD SUCCEEDED
 - `git diff --check`: PASS
+
+## 2026-08-10 Detail-clamp × strength interaction
+
+Closed the last open question from the reframe revalidation: whether a shot
+clamped for detail reasons should still receive the reframe strength its
+original framing intent implied.
+
+The architecture gap is real — `saferScale` clamps a detail shot to
+medium-close-up, `Shot.originalCameraScale` is persisted, and
+`ContinuityStrengthResolver` reads only the effective scale. But it does not
+matter. On the shipping planner's own clamped shot, at 768×512 / 121 frames
+with identical prompt and source and two seeds, 0.8 and 0.5 were
+indistinguishable: same framing progression, same failure to perform the
+hand-to-lock action, same strong character and environment continuity (D-054).
+
+No production change. Strength continues to come from the post-clamp effective
+scale.
+
+This is consistent with the revalidation rather than contradicting it: there,
+0.8 failed a 3-rung framing request that 0.5 delivered; here the clamp has
+already reduced the request to 2 rungs, which 0.8 delivers on its own. The clamp
+lowers the ask to something the standard anchor satisfies.
+
+Fine object interaction still fails at both strengths — unchanged, and not a
+strength problem.
+
+### Build & verification
+- `swift run LTXTests`: **972 passed, 0 failed** (unchanged; no production code
+  was modified this round)
+- GUI acceptance: not re-run, and not required — no production code changed

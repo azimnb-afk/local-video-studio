@@ -490,3 +490,18 @@ the meaningful compatibility check for the extended Shot schema, and it passes.
 The equivalent pipeline — Director planning, capability planning, reconciliation,
 per-shot strength policy, sequential generation and assembly — was run by
 `scripts/automovie_progression_e2e.py`.
+
+## 2026-08-10 Opening Shot Anchor GUI check
+
+Canonical Debug app, executable mtime `2026-08-10 15:52`, PID 20798, 1 window at
+1680x948.
+
+- [x] Sidebar shows Generate / One Shot / Storyboard / Director / Auto Movie
+  (Sora 2-like connected shots) / Video Archive, pinned at the top.
+- [x] Auto Movie page header and bilingual descriptions unchanged.
+- [x] All five existing Auto Movie projects load with correct shot and
+  selected-take counts.
+- [x] No layout regression (ContentView untouched this round).
+
+No user-facing control was added: the opening correction is deterministic and
+invisible, recorded only in the shot's `capabilityAdjustmentReason`.

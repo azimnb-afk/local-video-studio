@@ -3,7 +3,9 @@
 Hardware signature: Mac16,11 / M4 Pro / 48GB / macOS 26.5.2 — class: Measured. Other RAM tiers: Hypothesis only (no hardware).
 
 ## Phase 0 baseline — Measured 2026-08-08
-Profile: 512x320, 25 frames, 15 steps, 24 fps, seed 42, cfg 3.0, model ltx23_distilled_q4 (notapalindrome/ltx23-mlx-av-q4), text encoder gemma-3-12b-it-4bit, tiling auto, HF_HUB_OFFLINE=1 (no network egress during render — verified generation succeeds fully offline).
+Profile: 512x320, 25 frames, 15 steps, 24 fps, seed 42, cfg 3.0 — NOTE: 25
+frames is 1.04 s and is a *harness* profile, not a product one; the product
+derives 121 frames from a 5 s shot. Results below are scoped to this harness. model ltx23_distilled_q4 (notapalindrome/ltx23-mlx-av-q4), text encoder gemma-3-12b-it-4bit, tiling auto, HF_HUB_OFFLINE=1 (no network egress during render — verified generation succeeds fully offline).
 
 | Run | Audio | Wall | Peak footprint | Swap delta | ffprobe actual | Status |
 |---|---|---|---|---|---|---|
@@ -477,3 +479,60 @@ No production change is justified by this evidence:
 Remaining limitation, newly isolated and unsolved: the first shot's composition
 propagates through the whole chain, and an inherited frame biases a shot toward
 continuing the previous motion rather than starting a discrete new action.
+
+## Auto Movie Opening Shot Anchor Calibration (2026-08-10)
+
+### Product profile reconfirmed
+Four real persisted Auto Movie projects: **121 frames / 5.01 s** in every take.
+Resolution follows the chosen profile — 512×320 on Compact, 768×512 on
+Standard/High — so the calibration resolution below is itself a shipping
+configuration, not only a harness shortcut. Steps untouched (proven inert).
+
+### Openings — same brief, seed 42, 121 f, 512×320, 24 fps, audio off
+Only the opening shot's wording varies. Camera scale stays `wide` in all four.
+
+| id | opening wording | subject readability | destination | directionality | ending-state readiness |
+|---|---|---|---|---|---|
+| A | Director's own, incl. "her figure small against the towering walls" | 0–1 | 1 | 0 — walks away, shrinking | 0–1 |
+| B | miniaturizer removed + "stays clearly visible… entrance visible ahead" | 2 | 1 | 2 | 2 |
+| C | miniaturizer removed + "ends with her standing close to the doorway" | 3 | 1 | 2 | 3 |
+| A′ | **miniaturizer removed only, no guidance added** | 3 | 1 | 2 | 3 |
+
+**A′ is the finding.** B and C both improved on A — but so did A′, which adds
+nothing and only deletes one clause. Composition guidance and a dictated ending
+state are therefore not what produced the improvement; removing the instruction
+to make the protagonist tiny is.
+
+Cinematic quality: A′ stays a natural wide establishing shot. B and C read
+slightly more instructed without rendering better, which is a further reason to
+prefer removal over added guidance.
+
+### Downstream continuation (Shot 2, inherited at 0.8, 121 f)
+| opening | subject retention in Shot 2 | Shot 2 beat | character | environment |
+|---|---|---|---|---|
+| A | poor — stays tiny, drifts to the frame edge | 0–1 | PASS | PASS |
+| B | good — remains readable, performs the look-up | 2 | PASS | PASS |
+| C | strong — remains large and centred | 2 | PASS | PASS |
+
+The opening's final frame determines whether the next shot has a usable subject
+at all. This is the hypothesis, confirmed.
+
+### 768×512 product-resolution confirmation (mandatory, 121 f, 30 steps)
+| | opening final frame | Shot 2 outcome |
+|---|---|---|
+| current wording | subject small and distant at the top of the stairs, back to camera | stays small and distant; little progress |
+| anchored wording | subject at usable scale **at the doorway**, door visible | remains large and readable at the entrance |
+
+The effect reproduces at the product resolution it will actually ship at.
+
+### Full 4-shot E2E (512×320, 121 f/shot → 20.17 s)
+Ran with the implemented policy. Progression was good — approach → arrive →
+turn to medium-close-up retrieving the key → close-up manipulating it, with the
+same woman, coat and facade throughout and the camera clearly not frozen.
+
+Reported honestly: **the anchor did not fire in this run.** The Director's
+opening that time was "Elara walks steadily across the cobblestones toward the
+imposing stone facade" — no miniaturizing language, so there was nothing to
+remove. The run demonstrates the pipeline is healthy; it is not evidence for the
+anchor. The anchor's evidence is the A/A′/B/C comparison and the 768×512
+confirmation above.

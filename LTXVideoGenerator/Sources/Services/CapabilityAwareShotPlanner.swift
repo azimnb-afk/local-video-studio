@@ -63,6 +63,10 @@ enum CapabilityAwareShotPlanner {
         /// True when the brief asked for this framing itself, so nothing was
         /// changed even though the shot is high risk.
         var honoursExplicitUserFraming: Bool
+        /// True when the opening anchor rule edited this shot. Independent of
+        /// `risk`: an opening that renders perfectly well can still hand a
+        /// useless frame to the rest of the chain.
+        var appliedOpeningAnchor: Bool = false
 
         var didChange: Bool {
             originalScale != effectiveScale || originalSummary != effectiveSummary
@@ -72,6 +76,10 @@ enum CapabilityAwareShotPlanner {
         var explanation: String {
             var text = "shot \(index + 1): \(risk.rawValue)"
             if !reasons.isEmpty { text += " (" + reasons.joined(separator: "; ") + ")" }
+            if appliedOpeningAnchor {
+                text += " — opening anchor: subject kept readable for the chain"
+                return text
+            }
             if honoursExplicitUserFraming {
                 text += " — left as planned, the brief asked for this framing"
             } else if didChange {
@@ -152,6 +160,14 @@ enum CapabilityAwareShotPlanner {
         var effective: [StoryboardDirector.ShotPlanDraft] = []
         var adjustments: [Adjustment] = []
 
+        // The opening shot is the only one with no frame to inherit, and its
+        // final frame is what the whole chain inherits. An opening that puts
+        // nobody usable on screen cannot be recovered by any later shot, so it
+        // gets one narrow correction regardless of how it renders on its own.
+        let openingAsksForTinySubject = !shots.isEmpty
+            && opensWithMiniaturizedSubject(shots[0].summary)
+            && !opensWithMiniaturizedSubject(brief)
+
         for (index, draft) in shots.enumerated() {
             let previous = effective.last
             let scale = draft.shotScale ?? "medium"
@@ -162,13 +178,18 @@ enum CapabilityAwareShotPlanner {
                 allowBeatRule: !isSplitCandidate
             )
 
+            let anchorApplies = index == 0 && openingAsksForTinySubject
+
             guard !reasons.isEmpty else {
-                effective.append(draft)
+                var opening = draft
+                if anchorApplies { opening.summary = openingAnchorSummary(draft.summary) }
+                effective.append(opening)
                 adjustments.append(Adjustment(
                     index: index, risk: .normal, reasons: [],
                     originalScale: scale, effectiveScale: scale,
-                    originalSummary: draft.summary, effectiveSummary: draft.summary,
-                    honoursExplicitUserFraming: false
+                    originalSummary: draft.summary, effectiveSummary: opening.summary,
+                    honoursExplicitUserFraming: false,
+                    appliedOpeningAnchor: anchorApplies
                 ))
                 continue
             }
@@ -192,12 +213,14 @@ enum CapabilityAwareShotPlanner {
                 previous: previous, current: draft, reasons: reasons
             )
             adjusted.summary = saferSummary(draft.summary, reasons: reasons)
+            if anchorApplies { adjusted.summary = openingAnchorSummary(adjusted.summary) }
             effective.append(adjusted)
             adjustments.append(Adjustment(
                 index: index, risk: .highRisk, reasons: reasons,
                 originalScale: scale, effectiveScale: adjusted.shotScale ?? scale,
                 originalSummary: draft.summary, effectiveSummary: adjusted.summary,
-                honoursExplicitUserFraming: false
+                honoursExplicitUserFraming: false,
+                appliedOpeningAnchor: anchorApplies
             ))
         }
         return (effective, adjustments)
@@ -393,6 +416,69 @@ enum CapabilityAwareShotPlanner {
             }
         }
         return result.replacingOccurrences(of: "  ", with: " ")
+    }
+
+    // MARK: - Opening anchor
+
+    /// Phrases that shrink the protagonist inside the frame. These describe the
+    /// subject's size on screen, not the world, so removing them does not change
+    /// what happens in the shot — only how much of the frame the person occupies.
+    private static let subjectMiniaturizingPhrases = [
+        "figure small", "small figure", "tiny figure",
+        "small against", "tiny against", "dwarfed by", "dwarfed against",
+        "小さく", "小さな人影",
+    ]
+
+    /// Removes language that makes the protagonist tiny in the opening shot.
+    ///
+    /// Measured, not assumed. The Director's own opening summary contained "her
+    /// figure small against the towering walls"; that shot rendered the subject
+    /// as a few pixels walking away, and because the chain inherits the opening's
+    /// final frame, shots 2-4 faithfully continued a composition with nobody
+    /// usable in it. Deleting that one clause — with no other guidance added —
+    /// produced an opening that ends with the subject large, centred and
+    /// readable, and a following shot that keeps her.
+    ///
+    /// Deliberately narrow. Camera scale is untouched, so a wide or extreme-wide
+    /// establishing shot stays exactly as planned; the subject is not turned
+    /// toward the camera; no ending state is dictated. Explicit composition
+    /// guidance and ending-state text were both tested and neither beat simple
+    /// removal, so neither is added.
+    static func openingAnchorSummary(_ summary: String) -> String {
+        var text = summary
+        for phrase in subjectMiniaturizingPhrases {
+            guard text.range(of: phrase, options: .caseInsensitive) != nil else { continue }
+            text = removeClause(containing: phrase, from: text)
+        }
+        return text
+    }
+
+    /// True when the opening asks for a visually tiny protagonist.
+    static func opensWithMiniaturizedSubject(_ summary: String) -> Bool {
+        subjectMiniaturizingPhrases.contains {
+            summary.range(of: $0, options: .caseInsensitive) != nil
+        }
+    }
+
+    /// Drops the comma-delimited clause that carries the phrase, keeping the
+    /// rest of the sentence intact. Falls back to removing just the phrase when
+    /// the clause is the whole sentence, so an action is never deleted.
+    private static func removeClause(containing phrase: String, from text: String) -> String {
+        let parts = text.components(separatedBy: ", ")
+        if parts.count > 1 {
+            let kept = parts.filter { $0.range(of: phrase, options: .caseInsensitive) == nil }
+            if !kept.isEmpty, kept.count < parts.count {
+                var result = kept.joined(separator: ", ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !result.hasSuffix(".") && !result.hasSuffix("!") && !result.hasSuffix("?") {
+                    result += "."
+                }
+                return result
+            }
+        }
+        return text.replacingOccurrences(of: phrase, with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "  ", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Explicit user intent

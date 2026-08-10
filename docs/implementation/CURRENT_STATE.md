@@ -310,7 +310,9 @@ strength recovers the reframe.
 Calibrated on the real failing case (the same source frame, prompt, seed and
 render settings; only `--image-strength` varied): 0.8, 0.65, 0.5, 0.35, 0.2,
 plus a pure text-to-video control and a second case asking for a face close-up
-instead of an object detail. **No strength achieved the reframe.** SSIM against
+instead of an object detail. **No strength achieved the reframe** (measured
+under the 25-frame verification harness; see the 2026-08-10 Beat Feasibility
+Calibration, which showed that harness was rendering 1.04-second shots). SSIM against
 the source loosens monotonically (0.935 / 0.909 / 0.871 / 0.842) but the framing
 stays full-figure at the same distance; at 0.2 the image degenerates. The
 text-to-video control — zero conditioning — did not produce the intended
@@ -436,3 +438,43 @@ Recorded as the next thing worth investigating, not patched speculatively.
 - `xcodebuild` Debug clean build: BUILD SUCCEEDED
 - `git diff --check`: PASS
 - GUI acceptance: not re-run, and not required — no production code changed
+
+## 2026-08-10 Auto Movie Opening Shot Anchor
+
+Tested whether the opening shot's final frame determines how the rest of the
+inherited chain behaves. It does — and the useful correction turned out to be
+subtractive.
+
+Four openings were compared on the same brief, seed and 121-frame product
+duration, varying only the opening wording: the Director's own (which contained
+"her figure small against the towering walls"), one with composition guidance
+added, one with a dictated ending state, and one with the miniaturizing clause
+simply deleted and nothing added. The last was as good as either of the
+elaborate versions — subject readable and at the destination by the final frame
+— so the added language is not what worked (D-048).
+
+Downstream: an opening ending with a tiny subject produced a Shot 2 where she
+drifted to the frame edge; the anchored openings produced a Shot 2 that kept her
+at usable scale. Confirmed at the product resolution of 768×512 with 121-frame
+shots, where the current wording ends small and distant on the stairs and the
+anchored wording ends at the doorway.
+
+Implemented as the smallest thing the evidence supports: the capability planner
+removes subject-miniaturizing phrases from the Auto Movie **opening shot only**.
+Camera scale is untouched (a wide or extreme-wide establishing shot survives
+unchanged), no facing or ending state is imposed, later shots are unaffected,
+and a brief that asks for the small-figure look is respected. The word "small"
+was already in the planner's miniaturizer list; it simply never reached this
+shot, because removal only ran for `highRisk` shots and a wide establishing shot
+is correctly `normal`.
+
+Historical 25-frame results were scoped rather than deleted (D-049).
+
+### Build & verification
+- `swift build`: PASS
+- `swift run LTXTests`: **972 passed, 0 failed** (945 + 27)
+- `xcodebuild` Debug clean build: BUILD SUCCEEDED
+- `git diff --check`: PASS
+- GUI: sidebar pinned, Auto Movie page and all five projects load
+- Full 4-shot E2E ran clean (20.17 s), though the anchor did not fire in it —
+  that plan had no miniaturizing language to remove

@@ -590,3 +590,44 @@ strengths are all unchanged; nothing in this round contradicts them.
 The residual, newly isolated limitation is recorded rather than patched: the
 first shot's composition propagates through the entire inherited chain, so a
 weak opening framing cannot be recovered by later shots.
+
+## D-048 (2026-08-10) The opening anchor is one deleted clause, not added guidance
+
+The hypothesis was that a weak opening poisons the whole continuity chain,
+because every later shot inherits the opening's final frame. Confirmed: an
+opening that ends with the protagonist a few pixels wide produced a Shot 2 in
+which she drifted to the frame edge, while an opening that ends with her at
+usable scale produced a Shot 2 that kept her.
+
+What is *not* confirmed is the obvious remedy. Three interventions were compared
+against the Director's own opening: composition guidance ("stays clearly
+visible, entrance visible ahead"), a dictated ending state ("ends with her
+standing close to the doorway"), and simply deleting the clause "her figure
+small against the towering walls" while adding nothing. All three improved on
+the baseline, and **deletion alone was as good as either**. The added language
+was therefore not the mechanism, and none of it ships.
+
+So `CapabilityAwareShotPlanner` now removes subject-miniaturizing phrases from
+the Auto Movie opening shot only, and does nothing else. Camera scale is never
+touched, so a wide or extreme-wide establishing shot survives exactly as
+planned; the subject is not turned toward the camera; no ending state is
+imposed. Walking away from the camera stays perfectly acceptable — what the rule
+targets is a protagonist who is *unreadable*, not one who is facing away.
+
+The machinery already existed and simply never reached this shot: "small" was
+already in the planner's miniaturizer list, but removal only ran for `highRisk`
+shots, and a wide establishing shot is correctly classified `normal`. The fix is
+that the opening gets this one correction regardless of its risk class, because
+its final frame is the whole chain's input.
+
+Where the brief itself asks for the small-figure look, nothing is changed —
+consistent with D-045. Confirmed at 768×512 with the product's 121-frame shots,
+not only at the calibration resolution.
+
+## D-049 (2026-08-10) Historical 25-frame results kept, but scoped
+
+Earlier documents generalised from runs made under the 25-frame harness, which
+the Beat Feasibility Calibration showed was rendering 1.04-second shots. Those
+measurements are real and are kept — they are not deleted or rewritten — but the
+claims that read as general model limits now say which harness produced them.
+Evidence history stays intact; only its stated scope was corrected.

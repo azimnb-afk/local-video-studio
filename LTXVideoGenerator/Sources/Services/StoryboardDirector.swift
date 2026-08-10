@@ -640,7 +640,7 @@ final class StoryboardDirector {
             // Keep the original framing and the reason on the shot so a run
             // stays explainable after a reload.
             if let adjustment = capabilityAdjustments.first(where: { $0.index == index }),
-               adjustment.risk == .highRisk {
+               adjustment.risk == .highRisk || adjustment.appliedOpeningAnchor {
                 shot.capabilityAdjustmentReason = adjustment.explanation
                 if adjustment.originalScale != adjustment.effectiveScale {
                     shot.originalCameraScale = adjustment.originalScale

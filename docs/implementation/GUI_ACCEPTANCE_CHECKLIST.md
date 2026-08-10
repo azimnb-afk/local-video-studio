@@ -537,3 +537,21 @@ Canonical Debug app, executable mtime `2026-08-10 18:11`, 1 window at 1680x948.
 Note: the 15 `AUDIT_*.mp4` files preserved for review are in the Videos folder
 and playable, but do not appear in the Video Archive — it is driven by
 `history.json`, which was deliberately not edited (user data).
+
+## 2026-08-10 Character Anchor GUI check
+
+Canonical Debug app, executable mtime `2026-08-10 22:56`, 1 window at 1680x948.
+
+- [x] Sidebar shows Generate / One Shot / Storyboard / Director / Auto Movie
+  (Sora 2-like connected shots) / Video Archive, pinned at the top.
+- [x] Auto Movie page loads; all seven existing projects list with correct shot
+  and selected-take counts after the new `characterAnchor` field was added.
+- [x] No layout regression at 1680x948.
+
+**Not visually confirmed by automation:** the Character Anchor section itself,
+which lives inside a project's detail view. Selecting a project row needs a real
+click — synthetic clicks and accessibility traversal both fail on this SwiftUI
+list, as recorded in every previous pass. The section's behaviour is covered by
+unit tests (resolution, preference order, precedence, persistence, missing-file
+blocking) and it compiles into the Auto Movie detail path, but a human should
+open a project once to confirm the layout reads well.

@@ -265,6 +265,13 @@ def main():
         (OUT / f"{label}_prompt.txt").write_text(prompt)
         image = None
         strength, policy = CONTINUITY_STRENGTH, "standard"
+        # Opening Character Anchor: the shipping pipeline conditions shot 1 on a
+        # CharacterBible reference when one is selected. Mirrored here by env so
+        # the audit can compare an anchored run against a text-to-video one.
+        anchor = os.environ.get("LTX_E2E_CHARACTER_ANCHOR")
+        if i == 0 and anchor:
+            image = pathlib.Path(anchor)
+            strength, policy = 1.0, "characterAnchor"
         # The first shot never inherits; otherwise honour the Director's decision.
         if i > 0 and reconciled[i][0] == "continue" and previous_video is not None:
             frame = OUT / f"{label}_inherited.png"

@@ -813,3 +813,48 @@ Audit videos copied into the folder are therefore visible on disk and playable,
 but do not appear in the Archive UI. `history.json` was deliberately not
 edited — it is user data, and injecting synthetic entries risks corrupting a
 real library for cosmetic completeness.
+
+## D-057 (2026-08-10) Opening Character Anchor: implemented, optional, off by default
+
+A requested feature: let an Auto Movie start from a CharacterBible reference so
+the protagonist's appearance has a stronger starting point, with the existing
+continuity chain carrying it forward.
+
+Implemented as project-level state (`FilmProject.characterAnchor`) resolved at
+generation time, not as a per-shot field. Source precedence in
+`TakeGenerationCoordinator` is explicit and ordered: a starting image the user
+picked for the shot wins; then the anchor, **and only on shot index 0**; then an
+inherited continuity frame; then text-to-video. Shots 2+ are untouched — the
+reference is never re-injected, which is the single most important regression
+this feature could have introduced and is covered by a dedicated test.
+
+No second image path was built. The anchor rides the existing
+`sourceImagePath` bridge that One Shot and explicit starting images already use.
+
+A missing character, a missing asset or a missing file each raise a distinct,
+actionable error and block the shot. Silently rendering a different-looking
+protagonist is exactly the failure this feature exists to prevent, so the
+project's no-silent-fallback rule is extended rather than excepted.
+
+## D-058 (2026-08-10) The anchor reuses the Starting Image strength, because weakening it measured worse
+
+The pre-measurement assumption was that a character sheet needs a weaker anchor
+than a user-picked frame, and 0.45 was written into the code before testing. The
+calibration overturned that.
+
+The backend always blends the conditioning image into frame 1. Lowering the
+strength therefore does not trade "reference" for "scene" — it trades a clean
+reference for a corrupted one. At 0.45 the opening frame is still the plate; at
+0.25 and 0.15 it is a smeared, torn plate. And at no strength, including 1.0,
+did the reference's costume or face carry into the body of the shot.
+
+Since there is no value that produces a good opening from a flat sheet, the
+shipped behaviour is the simplest defensible one: the same 1.0 an explicit
+Starting Image already uses. One behaviour for "an image the user picked",
+rather than two that differ for no measured reason.
+
+The honest limitation is documented rather than papered over: with a
+character-sheet extraction the movie opens on the reference and then moves into
+the scene, and identity carry-over was not observed. The feature remains useful
+as a Character-Bible-driven starting image, and is off by default so no existing
+project's output changes.

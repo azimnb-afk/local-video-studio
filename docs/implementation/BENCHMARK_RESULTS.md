@@ -856,3 +856,77 @@ Two **single-case** planner observations, deliberately not fixed under §23:
    close-up (Case B only — and the shot still came out well).
 
 ### 12/12 shots rendered, 3/3 movies assembled, 0 pipeline errors.
+
+## Auto Movie Opening Character Anchor (2026-08-10)
+
+Baseline `a26e5f8`. Feature: an optional CharacterBible reference conditions the
+**opening shot only**; shots 2+ continue through the existing continuity chain.
+
+### Calibration — one prompt, one seed, only the image source varies
+768×512, 121 frames, 24 fps, seed 42, `ltx23-mlx-av-q4` + `gemma-3-12b-it-4bit`,
+audio off. Reference: the real "Adventurer Heroine" character in the project
+library, which carries front / face / side / back / expression / costume assets
+extracted from a character sheet.
+
+| condition | opening frame | character in the shot body | camera freedom | background leakage |
+|---|---|---|---|---|
+| T2V (no anchor) | a plausible scene | generic woman, denim | 3 | 3 |
+| front @ 1.00 | **the reference plate**, cleanly (white ground, "Reference Sheet" text visible) | generic woman, white dress — costume **not** carried | 2 | **0** |
+| face @ 1.00 | **the reference bust**, cleanly | generic woman, blue dress — costume **not** carried | 2 | **0** |
+| front @ 0.45 | still the reference, slightly degraded | generic woman, white dress | 2 | 0 |
+| front @ 0.25 | reference, visibly smeared and torn | generic woman | 2 | 0 |
+| front @ 0.15 | reference, badly mangled | generic woman | 2 | 0 |
+
+### What this measures
+The backend blends the conditioning image into the first frame
+(`output = denoised * mask + clean_latent * (1 - mask)`, `mask = 1 - strength`),
+so **a conditioning image is always present in frame 1**. Lowering the strength
+does not replace the plate with a scene — it corrupts the plate. And at no
+strength did the reference's distinctive costume or face survive into the body
+of the shot.
+
+So a flat character-sheet extraction is a poor opening frame at any strength,
+and there is no value to tune toward. Given that, a *clean* first frame beats a
+*mangled* one, which is why the shipped anchor reuses the existing explicit
+Starting Image strength (1.0) rather than the 0.45 that was assumed before
+measuring.
+
+### Consequence for the default
+The feature ships **off by default**, on every existing and new project. Turning
+it on is an explicit choice, and the UI states plainly that consistency may
+improve without identity being guaranteed. With a character-sheet extraction the
+honest expectation is: the movie opens on the reference image and then moves
+into the scene.
+
+The feature is still a real tool — it is "the starting image for shot 1, chosen
+from the Character Bible", and it behaves as well as the picture given to it. A
+scene-like reference (a frame from an earlier render, a photographic portrait in
+an environment) is the case where it should behave like the continuity chain,
+which is known to work. Character sheets on flat backgrounds are the case it
+handles worst, and that is now measured rather than assumed.
+
+### Real anchored Auto Movie E2E (768×512, 121 f/shot → 20.167 s)
+Brief: "A young woman walks across a quiet stone courtyard toward an old
+library. She pauses near the entrance, looks over her shoulder as the camera
+moves closer, then turns back toward the building." Front reference anchored.
+
+```
+[shot1] 121f  (continuing from front.png @ 1.0 · characterAnchor)
+[shot2] 121f  (continuing from shot2_inherited.png @ 0.8 · standard)
+[shot3] 121f  (continuing from shot3_inherited.png @ 0.8 · standard)
+[shot4] 121f  (continuing from shot4_inherited.png @ 0.8 · standard)
+[assembly] 4 shots -> 768x512, 20.166667 s
+```
+
+| check | result |
+|---|---|
+| anchor reaches shot 1 through the real pipeline | **PASS** |
+| shots 2–4 inherit continuity frames, never the reference | **PASS** |
+| continuity strengths unchanged (0.8 standard) | **PASS** |
+| sequential generation and single assembly | **PASS** |
+| opening frame is the reference plate | **as measured — the known cost** |
+| anchored costume/face carried into the movie | **not observed** |
+
+Shots 3–4 hold a consistent woman in a blue top, so the continuity chain works
+as it always has — but she is not the anchored character. The feature is
+therefore mechanically complete and honest about what it does not deliver.

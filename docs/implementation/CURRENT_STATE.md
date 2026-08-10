@@ -626,3 +626,45 @@ which is driven by `history.json` (D-056); that file was not edited.
   changed; no compiled source was touched
 - GUI acceptance: sidebar and all five pages normal, Auto Movie projects load,
   Video Archive lists 144 history entries
+
+## 2026-08-10 Auto Movie Opening Character Anchor
+
+An optional CharacterBible reference now conditions an Auto Movie's **opening
+shot only**; shots 2+ continue through the existing continuity chain unchanged.
+
+Data model: `FilmProject.characterAnchor` (enabled flag, character ID, reference
+asset ID, asset type), resolved at generation time by
+`CharacterAnchorResolver`. Old projects decode with the anchor disabled and
+behave exactly as before.
+
+Source precedence in `TakeGenerationCoordinator`, explicit and ordered: an
+explicit per-shot starting image wins, then the anchor **on shot 0 only**, then
+an inherited continuity frame, then text-to-video. No second image path was
+built — the anchor rides the existing `sourceImagePath` bridge. A missing
+character, asset or file raises a distinct error and blocks the shot rather than
+silently producing a different-looking protagonist (D-057).
+
+UI: a compact "Character Anchor (Optional)" section on the Auto Movie project
+page with a character picker, a reference picker (character sheets excluded —
+a multi-pose layout is not a frame a shot can start on), a thumbnail, a missing
+reference warning, and bilingual copy that says consistency may improve without
+identity being guaranteed.
+
+Calibration overturned the assumption behind the strength. The backend always
+blends the conditioning image into frame 1, so lowering the strength corrupts
+the reference rather than replacing it with a scene: at 0.45 the opening frame
+is still the plate, at 0.25 and 0.15 it is smeared and torn. At no strength did
+the reference's costume or face carry into the body of the shot. The anchor
+therefore reuses the existing explicit Starting Image strength of 1.0 (D-058).
+
+**Measured limitation, stated plainly:** with a character-sheet extraction the
+movie opens on the reference image and then moves into the scene, and identity
+carry-over was not observed. The feature is off by default on every project, and
+is most useful with a scene-like reference, where it behaves like the continuity
+chain that is already known to work.
+
+### Build & verification
+- `swift build`: PASS
+- `swift run LTXTests`: **1001 passed, 0 failed** (972 + 29)
+- `xcodebuild` Debug clean build: BUILD SUCCEEDED
+- `git diff --check`: PASS

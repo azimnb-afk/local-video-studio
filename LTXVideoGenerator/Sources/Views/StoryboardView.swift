@@ -445,6 +445,12 @@ private struct ProjectDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
+                // Auto Movie only: the anchor establishes the opening shot, and
+                // Storyboard shots are authored one by one with their own
+                // starting images.
+                if project.workflowMode == "hybrid" {
+                    CharacterAnchorSection(project: project, onChanged: onChanged)
+                }
                 Divider()
                 ForEach(project.shots) { shot in
                     ShotCard(

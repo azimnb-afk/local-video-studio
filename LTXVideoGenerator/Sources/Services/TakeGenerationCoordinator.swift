@@ -13,6 +13,7 @@ final class TakeGenerationCoordinator {
         case startingImageNotFound(UUID)
         case startingImageUnavailable(UUID)
         case continuityImageUnavailable(UUID)
+        case characterAnchorUnavailable(CharacterAnchorIssue)
 
         var errorDescription: String? {
             switch self {
@@ -26,6 +27,8 @@ final class TakeGenerationCoordinator {
                 return "Selected starting image file for asset (\(id.uuidString.prefix(6))) is unavailable on disk."
             case .continuityImageUnavailable(let id):
                 return "Shot (\(id.uuidString.prefix(6))) should continue from the previous shot, but its inherited starting frame is unavailable. Retry the shot or switch it to Cut."
+            case .characterAnchorUnavailable(let issue):
+                return "Character Anchor cannot be used: \(issue.message) Choose another reference or turn the anchor off."
             }
         }
     }
@@ -71,6 +74,11 @@ final class TakeGenerationCoordinator {
         // continuity strength; an image the user chose keeps the existing
         // exact-first-frame behaviour.
         var usesInheritedContinuityFrame = false
+        // The optional Character Anchor sits between the two: it applies to the
+        // opening shot only, never overrides an image the user picked for that
+        // shot, and is never re-injected into a later shot, which continues to
+        // inherit from the shot before it.
+        var usesCharacterAnchor = false
         if let assetID = shot.startingImageReferenceAssetID {
             guard let (_, asset) = project.findReferenceAsset(id: assetID) else {
                 throw CoordinatorError.startingImageNotFound(assetID)
@@ -88,6 +96,16 @@ final class TakeGenerationCoordinator {
             }
             sourceImagePath = url.path
             usesInheritedContinuityFrame = true
+        } else if shotIndex == 0, project.characterAnchor.isActive {
+            switch CharacterAnchorResolver.resolve(project: project, store: store) {
+            case .resolved(let anchor):
+                sourceImagePath = anchor.fileURL.path
+                usesCharacterAnchor = true
+            case .unavailable(let issue):
+                throw CoordinatorError.characterAnchorUnavailable(issue)
+            case .inactive:
+                break
+            }
         }
 
         // How hard the inherited frame should hold. Only meaningful once the
@@ -111,7 +129,15 @@ final class TakeGenerationCoordinator {
                 : PromptCompiler.frameCount(forSeconds: shot.durationSeconds, fps: settings.fps)
             params.numInferenceSteps = settings.resolvedInferenceSteps
             params.seed = seed
-            if usesInheritedContinuityFrame {
+            if usesCharacterAnchor {
+                // A character sheet extraction is a posed figure on a plain
+                // background. Pinning it as an exact first frame drags that
+                // whole plate into the movie, so the anchor conditions more
+                // loosely than a user-chosen starting image: enough to carry
+                // face, hair and costume, little enough for the shot to be a
+                // shot.
+                params.imageStrength = CharacterAnchorPolicy.openingImageStrength
+            } else if usesInheritedContinuityFrame {
                 // Pinning the first frame exactly (1.0) preserved the scene but
                 // froze the composition, so continuing shots never progressed.
                 // The calibrated value keeps the set, wardrobe and lighting

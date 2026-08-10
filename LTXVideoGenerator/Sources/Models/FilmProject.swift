@@ -867,6 +867,10 @@ struct FilmProject: Codable, Equatable, Identifiable {
     /// Enabled continuity chaining for this project's automatic run.
     var continuityChainEnabled: Bool?
 
+    /// Optional visual reference for the opening shot only. Absent in every
+    /// project saved before the feature existed, which decodes as disabled.
+    var characterAnchor: CharacterAnchor = CharacterAnchor()
+
     init(id: UUID = UUID(), title: String) {
         self.id = id
         self.title = title
@@ -878,7 +882,7 @@ struct FilmProject: Codable, Equatable, Identifiable {
              requestedDirectorMode, effectiveDirectorMode, settings,
              storyBible, characterBible, shots, jobs,
              lastAssemblySignature, assembledMoviePath, assembledAt,
-             continuityChainEnabled
+             continuityChainEnabled, characterAnchor
     }
 
     init(from decoder: Decoder) throws {
@@ -905,6 +909,8 @@ struct FilmProject: Codable, Equatable, Identifiable {
         assembledMoviePath = try container.decodeIfPresent(String.self, forKey: .assembledMoviePath)
         assembledAt = try container.decodeIfPresent(Date.self, forKey: .assembledAt)
         continuityChainEnabled = try container.decodeIfPresent(Bool.self, forKey: .continuityChainEnabled)
+        characterAnchor = try container.decodeIfPresent(CharacterAnchor.self, forKey: .characterAnchor)
+            ?? CharacterAnchor()
     }
 
     mutating func touch() {

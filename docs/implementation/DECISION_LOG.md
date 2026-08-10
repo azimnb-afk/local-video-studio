@@ -543,3 +543,50 @@ this MVP does not justify.
 `capabilityAdjustmentReason`, so a reloaded project still shows what the Director
 asked for and why the effective plan differs. Old projects decode unchanged and
 report no adjustment.
+
+## D-046 (2026-08-10) The beat-progression failure was a harness artifact
+
+Every previous Auto Movie E2E hard-coded 25 frames. The product never renders a
+planned shot at 25 frames: each shot's `durationSeconds` becomes
+`targetDurationSeconds`, and `AutoQualityEngine` converts it through
+`PromptCompiler.frameCount` (8n+1), so a 5 s shot is 121 frames. A real
+persisted project confirms 121 frames / 5.01 s per take.
+
+So the harness was rendering 1.04-second shots and we were reading the result as
+"CONTINUE cannot advance the narrative". A controlled comparison on the exact
+failing boundary — identical source frame, prompt, seed and settings, frames the
+only variable — scored 0 at 25 frames and 2 at 121 frames, with the framing
+genuinely moving wide → close-up and continuity intact.
+
+The lesson is procedural: the verification harness must derive its parameters
+the way the product does, not restate them as constants. The frame count is now
+computed per shot by a documented mirror of `frameCount`, and the one remaining
+deliberate difference (512×320 for turnaround, versus the product's 768×512) is
+named in the script and overridable.
+
+## D-047 (2026-08-10) No production change from this calibration
+
+Five conditions were compared on one boundary. Longer CONTINUE is the only lever
+that moved the result — and the product already gives CONTINUE shots their full
+planned duration, so there is nothing to implement. Adding a "dynamic duration"
+feature would have been building a fix for a defect that only ever existed in
+the test harness.
+
+Rejected with evidence rather than by preference:
+- **More steps**: `mlx_video` uses fixed stage sigmas for unified models and
+  ignores `--steps`. 15 and 30 produced byte-identical output. As a side effect
+  the app's per-preset steps values are inert on this model path; left alone
+  here because changing preset semantics is out of scope for a calibration.
+- **Strategic CUT**: text-to-video renders the beat perfectly and loses both the
+  character and the location. That is precisely the cost the continuity design
+  exists to avoid.
+- **Beat boundary planning**: a source frame that already placed the subject at
+  the door did not improve on the ordinary one, so shot boundaries are not the
+  constraint.
+
+Capability-Aware Shot Planning, Continuity Reconciliation and the 0.8 / 0.5
+strengths are all unchanged; nothing in this round contradicts them.
+
+The residual, newly isolated limitation is recorded rather than patched: the
+first shot's composition propagates through the entire inherited chain, so a
+weak opening framing cannot be recovered by later shots.

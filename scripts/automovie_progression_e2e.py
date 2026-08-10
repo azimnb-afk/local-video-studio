@@ -50,7 +50,33 @@ def strength_for(previous, current):
     if a is not None and b is not None and abs(b - a) >= REFRAME_RANK_DISTANCE:
         return REFRAME_STRENGTH, "reframe"
     return CONTINUITY_STRENGTH, "standard"
-W, H, FRAMES, STEPS, FPS, CFG, SEED = 512, 320, 25, 15, 24, 3.0, 42
+# Resolution stays at the compact size for harness turnaround. The product's
+# Standard/High profiles render 768x512 — an intentional, documented remaining
+# difference, unlike the frame count below, which was silently wrong. Override
+# with LTX_E2E_WIDTH / LTX_E2E_HEIGHT to match the product exactly.
+W = int(os.environ.get("LTX_E2E_WIDTH", 512))
+H = int(os.environ.get("LTX_E2E_HEIGHT", 320))
+FPS, CFG, SEED = 24, 3.0, 42
+# Steps are inert on this model: mlx_video/generate_av.py sets
+# legacy_unified_sampler = use_unified and then uses fixed stage sigmas
+# (8 + 3 denoise steps), ignoring --steps. Verified byte-identical output at 15
+# and 30. Kept only so the command line matches what the app sends.
+STEPS = 15
+
+
+def frame_count(seconds: float, fps: int = FPS) -> int:
+    """Mirrors PromptCompiler.frameCount — the app's actual frame derivation.
+
+    This harness used to hard-code 25 frames, which is 1.04 s and is not a
+    configuration the product can produce: TakeGenerationCoordinator passes each
+    shot's duration as targetDurationSeconds, and AutoQualityEngine turns that
+    into frames here. A 5 s shot is 121 frames. Hard-coding 25 made every shot
+    a fifth of its real length and produced false "narrative beat did not
+    progress" results.
+    """
+    raw = max(1, round(seconds * fps))
+    n = max(0, round((raw - 1) / 8.0))
+    return min(241, max(25, n * 8 + 1))
 BRIEF = ("A young woman walks toward an old stone library, reaches the entrance, "
          "unlocks the door, and steps inside.")
 
@@ -183,10 +209,11 @@ def extract_last_frame(video: pathlib.Path, out: pathlib.Path) -> bool:
 
 
 def generate(label: str, prompt: str, image: pathlib.Path | None,
-             strength: float = CONTINUITY_STRENGTH, policy: str = "standard") -> pathlib.Path:
+             strength: float = CONTINUITY_STRENGTH, policy: str = "standard",
+             frames: int = 121) -> pathlib.Path:
     out = OUT / f"{label}.mp4"
     cmd = [PYTHON, "-m", "mlx_video.generate_av", "--prompt", prompt,
-           "--height", str(H), "--width", str(W), "--num-frames", str(FRAMES),
+           "--height", str(H), "--width", str(W), "--num-frames", str(frames),
            "--seed", str(SEED), "--fps", str(FPS), "--steps", str(STEPS),
            "--cfg-scale", str(CFG), "--output-path", str(out),
            "--model-repo", MODEL_REPO, "--text-encoder-repo", ENCODER,
@@ -200,7 +227,7 @@ def generate(label: str, prompt: str, image: pathlib.Path | None,
     (OUT / f"{label}.log").write_text(r.stdout + r.stderr)
     if r.returncode != 0:
         raise RuntimeError(f"{label} generation failed; see {label}.log")
-    log(f"[{label}] rendered in {int(time.time() - start)}s"
+    log(f"[{label}] {frames}f rendered in {int(time.time() - start)}s"
         + (f" (continuing from {image.name} @ {strength} · {policy})" if image else " (text-to-video)"))
     return out
 
@@ -246,7 +273,10 @@ def main():
                     f"({shots[i-1].get('shotScale')} -> {shot.get('shotScale')}) @ {strength}")
             else:
                 raise RuntimeError(f"{label}: continuity frame extraction failed")
-        video = generate(label, prompt, image, strength, policy)
+        # Frames come from the shot's own planned duration, exactly as
+        # TakeGenerationCoordinator -> AutoQualityEngine does it in the app.
+        frames = frame_count(float(shot.get("durationSeconds") or 5))
+        video = generate(label, prompt, image, strength, policy, frames)
         videos.append(video)
         previous_video = video
 

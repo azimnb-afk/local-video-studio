@@ -377,3 +377,103 @@ single-frame conditioning at this profile: an inherited frame that does not
 already contain the preconditions for the next beat cannot be moved to them in
 25 frames. Wording stays scoped to what was tested — at this Quick profile, large
 reframes and fine object-detail inserts were unreliable.
+
+## Auto Movie Beat Feasibility Calibration (2026-08-10)
+
+### Profile audit — the finding that reframes everything before it
+
+The verification harness and the product were never running the same
+configuration.
+
+| | test harness (previous runs) | product Auto Movie |
+|---|---|---|
+| frames | **25 (hard-coded)** | **121**, derived per shot |
+| duration | **1.04 s** | **5.01 s** |
+| steps | 15 | 30 (inert, see below) |
+| resolution | 512×320 | 768×512 |
+
+The product never has a 25-frame path for a planned shot.
+`TakeGenerationCoordinator` passes each shot's `durationSeconds` as
+`targetDurationSeconds`; `AutoQualityEngine.applying(profile:to:)` then converts
+it with `PromptCompiler.frameCount`, which rounds to 8n+1 — a 5 s shot is 121
+frames. Confirmed against a real persisted Auto Movie project
+(`海辺の水着`): every take recorded `frames=121, steps=30, 768×512,
+actualDuration=5.01`, with `imageStrength=0.8` on the continued shots.
+
+So every previous "narrative beat did not progress" result was measured on
+1.04-second shots. That is not a product defect; it is a harness defect.
+
+**Steps are inert on this model.** `mlx_video/generate_av.py` sets
+`legacy_unified_sampler = use_unified` and then uses fixed stage sigmas (8 + 3
+denoise steps), ignoring `--steps` entirely. Verified empirically: 15 steps and
+30 steps produced a **byte-identical** file (md5 `8aaddcaa…`). The app's steps
+setting does nothing on this path.
+
+### Controlled conditions — one boundary, one variable at a time
+Source frame `/tmp/ltx_capability_e2e/shot3_inherited.png` (the actual failing
+boundary), the capability-aware effective prompt for that shot, seed 42,
+`ltx23-mlx-av-q4` + `gemma-3-12b-it-4bit`, 512×320, 24 fps, cfg 3.0, audio off.
+
+| id | condition | frames | steps | image | strength | beat | character | environment | camera | coherence |
+|---|---|---|---|---|---|---|---|---|---|---|
+| A | current harness baseline | 25 | 15 | yes | 0.8 | **0** | PASS | PASS | none | ok |
+| B | longer CONTINUE (= product duration) | 121 | 15 | yes | 0.8 | **2** | PASS | PASS | strong | ok |
+| C | more steps | 25 | 30 | yes | 0.8 | **0** | — | — | — | byte-identical to A |
+| D | CUT / text-to-video | 121 | 15 | no | — | **3** | **FAIL** | **FAIL** | n/a | good |
+| E | preconditioned CONTINUE | 121 | 15 | yes (at door) | 0.8 | **2** | PASS | PASS | strong | ok |
+
+Beat scale: 0 nothing moves · 1 slight approach · 2 precondition reached ·
+3 unlock/open clearly visible.
+
+- **A**: the frame is effectively frozen — 1.04 s is not enough for any action.
+- **B**: the subject advances, the framing genuinely tightens wide → close-up,
+  and she performs a hand action consistent with retrieving the key. The lock
+  interaction itself is not shown, and she drifts away from the door: score 2.
+- **C**: identical bytes. Settled without interpretation.
+- **D**: a clean, unambiguous unlock at a green door — but a different woman in
+  different clothes in a different building. The beat is achievable; inheritance
+  is what costs the last point.
+- **E**: preconditioning the source frame did **not** improve on B. The camera
+  pushes past the door and the beat still lands at 2, so "the source frame was
+  too far away" is not the explanation.
+
+### B2 (longer + more steps) — not run
+Steps were shown to be a no-op at the byte level, so B2 would have been a rerun
+of B. Skipped deliberately rather than for time.
+
+### Corrected end-to-end run
+Same brief as the previous run, harness now deriving frames per shot: 4 shots ×
+121 frames → a **20.17 s** movie (previously 4.17 s).
+
+Movement, measured as SSIM against each inherited frame (first → last):
+
+| shot | 25 f run | 121 f run |
+|---|---|---|
+| 2 | — | 0.954 → **0.584** |
+| 3 | 0.930 → 0.940 (frozen) | 0.961 → **0.703** |
+| 4 | — | 0.958 → 0.928 |
+
+The image now changes substantially where it previously could not change at all.
+
+Narratively this particular run still failed, for a newly visible reason: shot 1
+(text-to-video) established a deep courtyard with the subject small and walking
+*away*, and shots 2–4 faithfully continued that composition, drifting her out of
+frame. The chain is dominated by the first shot's composition. That is a
+direction problem, not the motion problem that was under investigation.
+
+### Conclusion
+Root cause of the original observation: **the harness rendered 1.04-second
+shots**. At the real 5-second duration a CONTINUE shot moves, reframes and
+advances the action (0 → 2), with character and environment continuity intact.
+
+No production change is justified by this evidence:
+- Case 1 (longer CONTINUE) is confirmed — and the product **already** does it.
+- Case 2 (more steps) is refuted at the byte level.
+- Case 3 (strategic CUT) is rejected: D loses both character and environment
+  continuity, which is the cost the policy explicitly refuses to pay.
+- Case 4 (beat boundary planning) is refuted by E.
+- Case 5 applies only to the residual gap between 2 and 3.
+
+Remaining limitation, newly isolated and unsolved: the first shot's composition
+propagates through the whole chain, and an inherited frame biases a shot toward
+continuing the previous motion rather than starting a discrete new action.

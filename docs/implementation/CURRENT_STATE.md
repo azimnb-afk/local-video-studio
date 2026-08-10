@@ -397,3 +397,42 @@ planning bug.
 - `git diff --check`: PASS
 - GUI: sidebar navigation pinned, Auto Movie page and existing projects load
   after the two new optional Shot fields
+
+## 2026-08-10 Auto Movie Beat Feasibility Calibration
+
+Investigated why a CONTINUE shot appeared unable to advance the narrative, using
+controlled real generations on the single boundary that had failed.
+
+The answer was a measurement defect. The E2E harness hard-coded 25 frames;
+the product derives frames from each shot's duration through
+`PromptCompiler.frameCount`, so a 5 s shot renders 121 frames — confirmed
+against a real persisted project (121 f, 5.01 s, 768×512, strength 0.8). Every
+previous "beat did not progress" verdict was measured on 1.04-second shots
+(D-046).
+
+Five conditions on the same boundary, one variable at a time: current 25 f
+(beat 0), 121 f (beat 2, continuity intact, framing genuinely moves), more steps
+(byte-identical to baseline — `--steps` is ignored for unified models), CUT/T2V
+(beat 3 but a different person in a different building) and preconditioned
+CONTINUE (no better than plain 121 f).
+
+No production change is justified: the only effective lever is duration, and the
+product already applies it. Dynamic duration, dynamic steps, strategic CUT and
+beat-boundary planning were each rejected on evidence (D-047). The harness now
+derives frames per shot the way the app does, and its one remaining deliberate
+difference from the product profile is documented and overridable.
+
+The corrected end-to-end run produced a 20.17 s movie instead of 4.17 s, and the
+image now moves substantially (SSIM against the inherited frame falling to
+0.584 / 0.703 / 0.928, versus 0.940 — frozen — before). That run still failed
+narratively for a newly isolated reason: the first shot's composition propagates
+through the whole inherited chain, so a weak opening cannot be recovered later.
+Recorded as the next thing worth investigating, not patched speculatively.
+
+### Build & verification
+- `swift build`: PASS
+- `swift run LTXTests`: **945 passed, 0 failed** (unchanged; no production code
+  was modified this round)
+- `xcodebuild` Debug clean build: BUILD SUCCEEDED
+- `git diff --check`: PASS
+- GUI acceptance: not re-run, and not required — no production code changed

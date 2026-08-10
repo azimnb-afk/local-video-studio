@@ -23,6 +23,25 @@ enum CharacterAnchorResolver {
         case unavailable(CharacterAnchorIssue)
     }
 
+    /// The scene-like Opening Reference Image, when one is configured.
+    ///
+    /// Kept in the same resolver so the opening shot has exactly one place that
+    /// answers "what image, if any, does this movie start from", and so the
+    /// precedence between the two is stated once rather than re-derived at each
+    /// call site.
+    static func resolveOpeningReference(
+        project: FilmProject,
+        store: FilmProjectStore = .shared
+    ) -> Result<URL, OpeningReferenceIssue>? {
+        guard let reference = project.openingReferenceImage else { return nil }
+        guard let url = store.managedProjectAssetURL(
+                  projectID: project.id, relativePath: reference.projectRelativePath),
+              FileManager.default.fileExists(atPath: url.path) else {
+            return .failure(.fileMissing)
+        }
+        return .success(url)
+    }
+
     static func resolve(
         project: FilmProject,
         store: FilmProjectStore = .shared

@@ -36,6 +36,9 @@
 		AA000192 /* LTXGenerationLogSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000193; };
 		AA000194 /* GenerationFailureRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000195; };
 		AA000290 /* ContinuityStrengthPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000291; };
+		AA0002A4 /* OpeningReferenceSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002A5; };
+		AA0002A2 /* OpeningReferencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002A3; };
+		AA0002A0 /* OpeningReferenceImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002A1; };
 		AA00029C /* CharacterAnchorSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00029D; };
 		AA00029A /* CharacterAnchorPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00029B; };
 		AA000298 /* CharacterAnchorResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000299; };
@@ -108,6 +111,9 @@
 		AA00002E /* AddAudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAudioView.swift; sourceTree = "<group>"; };
 		AA000036 /* CharacterProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterProfile.swift; sourceTree = "<group>"; };
 		AA000291 /* ContinuityStrengthPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityStrengthPolicy.swift; sourceTree = "<group>"; };
+		AA0002A5 /* OpeningReferenceSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferenceSection.swift; sourceTree = "<group>"; };
+		AA0002A3 /* OpeningReferencePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferencePolicy.swift; sourceTree = "<group>"; };
+		AA0002A1 /* OpeningReferenceImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferenceImage.swift; sourceTree = "<group>"; };
 		AA00029D /* CharacterAnchorSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterAnchorSection.swift; sourceTree = "<group>"; };
 		AA00029B /* CharacterAnchorPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterAnchorPolicy.swift; sourceTree = "<group>"; };
 		AA000299 /* CharacterAnchorResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterAnchorResolver.swift; sourceTree = "<group>"; };
@@ -223,6 +229,7 @@
 				AA000205 /* QualityProfile.swift */,
 				AA000207 /* OneShotPlan.swift */,
 				AA000209 /* FilmProject.swift */,
+				AA0002A1 /* OpeningReferenceImage.swift */,
 				AA000297 /* CharacterAnchor.swift */,
 			);
 			path = Models;
@@ -241,6 +248,7 @@
 				AA000026 /* APIServer.swift */,
 				AA00002C /* AudioService.swift */,
 				AA000291 /* ContinuityStrengthPolicy.swift */,
+				AA0002A3 /* OpeningReferencePolicy.swift */,
 				AA00029B /* CharacterAnchorPolicy.swift */,
 				AA000299 /* CharacterAnchorResolver.swift */,
 				AA000295 /* CapabilityAwareShotPlanner.swift */,
@@ -282,6 +290,7 @@
 			isa = PBXGroup;
 			children = (
 				AA000004 /* ContentView.swift */,
+				AA0002A5 /* OpeningReferenceSection.swift */,
 				AA00029D /* CharacterAnchorSection.swift */,
 				AA000016 /* PromptInputView.swift */,
 				AA000018 /* ParametersView.swift */,
@@ -398,6 +407,9 @@
 				AA000025 /* APIServer.swift in Sources */,
 				AA00002B /* AudioService.swift in Sources */,
 				AA000290 /* ContinuityStrengthPolicy.swift in Sources */,
+				AA0002A4 /* OpeningReferenceSection.swift in Sources */,
+				AA0002A2 /* OpeningReferencePolicy.swift in Sources */,
+				AA0002A0 /* OpeningReferenceImage.swift in Sources */,
 				AA00029C /* CharacterAnchorSection.swift in Sources */,
 				AA00029A /* CharacterAnchorPolicy.swift in Sources */,
 				AA000298 /* CharacterAnchorResolver.swift in Sources */,

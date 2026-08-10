@@ -930,3 +930,56 @@ moves closer, then turns back toward the building." Front reference anchored.
 Shots 3–4 hold a consistent woman in a blue top, so the continuity chain works
 as it always has — but she is not the anchored character. The feature is
 therefore mechanically complete and honest about what it does not deliver.
+
+## Auto Movie Opening Reference Image — A/B (2026-08-11)
+
+Baseline `26a428d`. Tests the hypothesis the Character Anchor result implied:
+a conditioning image *is* the opening frame, so a picture that already reads as
+a movie frame should give the continuity chain something worth carrying, where a
+studio plate did not.
+
+Identical brief, seed 42, 768×512, 121 f per 5 s shot, `ltx23-mlx-av-q4` +
+`gemma-3-12b-it-4bit`, audio off. Only the opening image differs. Brief: "A man
+in a dark suit walks across a broad stone plaza toward an old building. He slows
+near the entrance, looks over his shoulder as the camera moves closer, then
+turns back toward the building."
+
+**Reference (B):** a frame extracted from an earlier successful render — a man in
+a dark suit mid-stride on a plaza, with real environment, light and composition.
+Chosen precisely because it is *not* a character sheet.
+
+| metric | A — text-to-video | B — scene-like reference |
+|---|---|---|
+| Face continuity | **1** | **3** |
+| Hair continuity | **1** | **3** |
+| Clothing continuity | **1** | **3** |
+| Overall protagonist continuity | **1** | **3** |
+| Body / silhouette continuity | **1** | **3** |
+| Environment continuity | 3 | 3 |
+| Camera freedom | 3 | 2 |
+| Narrative progression | 2 | 2 |
+
+**A (text-to-video)** is a clean demonstration of the problem this feature exists
+for. Shots 1–2 follow a man in a brown coat; at shot 3 the reframe introduces a
+**different man** — dark jacket, glasses, backpack — while the original is still
+visible in the background. Environment holds; the protagonist does not.
+
+**B (scene-like reference)** keeps one man, one dark suit and one plaza across
+all four shots, *including through the same 0.5 reframe at shot 3 where A broke*.
+There is no plate artifact and no flat background: the opening simply continues
+the referenced scene.
+
+**Leakage:** B holds the reference's wide framing and location throughout, so the
+camera varies less and the subject stays relatively small — camera freedom 2
+against A's 3. That is the real cost, and it is a fair trade for the identity
+gain rather than a defect.
+
+### Conclusion
+The hypothesis holds. A scene-like opening reference substantially improves
+protagonist consistency where a character-sheet plate did not, and it does so
+through exactly the same code path — the difference is entirely in the picture.
+This is why the UI recommends scene-like images and warns that sheets and plain
+plates appear directly in the opening frame.
+
+Both runs: 4 shots, 20.167 s, correct order, shots 2–4 inherited at 0.8 / 0.5
+with the reference never re-injected.

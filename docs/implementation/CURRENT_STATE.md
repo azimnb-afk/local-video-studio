@@ -668,3 +668,47 @@ chain that is already known to work.
 - `swift run LTXTests`: **1001 passed, 0 failed** (972 + 29)
 - `xcodebuild` Debug clean build: BUILD SUCCEEDED
 - `git diff --check`: PASS
+
+## 2026-08-11 Auto Movie Opening Reference Image
+
+A scene-like still can now be chosen as the first frame of an Auto Movie's
+opening shot. Shots 2+ continue through the existing continuity chain, unchanged
+and never re-injected with the reference.
+
+This is the follow-on from the Character Anchor measurement, which established
+that a conditioning image on this backend is not an identity hint but the shot's
+first frame — so a character-sheet plate becomes the head of the film and its
+costume is not carried forward. The Opening Reference accepts that mechanic
+rather than fighting it: give the opening a picture that already reads as a
+movie frame, and the continuity chain has something worth carrying (D-059).
+
+Data model: `FilmProject.openingReferenceImage` — a project-relative managed
+path plus display metadata. The image is copied into
+`Assets/OpeningReference/` through the same copy-then-atomic-move path
+`importCharacterSheet` uses, so the user's original is never moved, renamed or
+persisted as an absolute path. Replacing removes the copy it supersedes.
+Old projects decode with no reference.
+
+Precedence for shot 1, explicit and ordered: an explicit per-shot starting image,
+then the opening reference, then the Character Anchor, then text-to-video.
+Clearing the reference hands shot 1 back to the anchor. A missing file blocks
+generation with its own error — never a silent text-to-video, and never a silent
+fall-through to the anchor.
+
+UI: an "Opening Reference Image (Optional)" section above Character Anchor with
+Choose / Replace / Clear, a thumbnail, the filename, a missing-file warning, and
+bilingual copy that recommends scene-like images and warns that character sheets
+and plain plates appear directly in the opening frame. Character Anchor's copy
+was corrected to say the same thing about itself (D-060); the feature is kept.
+
+Untouched: Opening Shot Anchor, Capability-Aware Planning, Continuity
+Reconciliation, and the 0.8 / 0.5 continuity strengths.
+
+### Build & verification
+- `swift build`: PASS
+- `swift run LTXTests`: **1031 passed, 0 failed** (1001 + 30)
+- `xcodebuild` Debug clean build: BUILD SUCCEEDED
+- `git diff --check`: PASS
+- GUI acceptance: **not performed** — ran overnight with the display asleep,
+  so screen capture returns black. The on-screen result is unverified and is
+  listed as outstanding in GUI_ACCEPTANCE_CHECKLIST.

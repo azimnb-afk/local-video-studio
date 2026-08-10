@@ -709,6 +709,8 @@ extension FilmProjectStore.StoreError: LocalizedError {
         case .unsupportedCharacterSheetFormat: return "Choose a PNG, JPG, or JPEG Character Sheet."
         case .invalidCharacterSheetSource: return "The selected Character Sheet could not be read."
         case .invalidManagedAssetPath: return "The managed Character Sheet path is invalid."
+        case .unsupportedOpeningReferenceFormat: return "Choose a PNG, JPG, or JPEG image for the opening reference."
+        case .invalidOpeningReferenceSource: return "The selected opening reference image could not be read."
         }
     }
 }

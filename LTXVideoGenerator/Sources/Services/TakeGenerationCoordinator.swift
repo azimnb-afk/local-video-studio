@@ -14,6 +14,7 @@ final class TakeGenerationCoordinator {
         case startingImageUnavailable(UUID)
         case continuityImageUnavailable(UUID)
         case characterAnchorUnavailable(CharacterAnchorIssue)
+        case openingReferenceUnavailable(OpeningReferenceIssue)
 
         var errorDescription: String? {
             switch self {
@@ -29,6 +30,8 @@ final class TakeGenerationCoordinator {
                 return "Shot (\(id.uuidString.prefix(6))) should continue from the previous shot, but its inherited starting frame is unavailable. Retry the shot or switch it to Cut."
             case .characterAnchorUnavailable(let issue):
                 return "Character Anchor cannot be used: \(issue.message) Choose another reference or turn the anchor off."
+            case .openingReferenceUnavailable(let issue):
+                return "Opening Reference Image cannot be used: \(issue.message) Choose another image or clear it."
             }
         }
     }
@@ -79,6 +82,7 @@ final class TakeGenerationCoordinator {
         // shot, and is never re-injected into a later shot, which continues to
         // inherit from the shot before it.
         var usesCharacterAnchor = false
+        var usesOpeningReference = false
         if let assetID = shot.startingImageReferenceAssetID {
             guard let (_, asset) = project.findReferenceAsset(id: assetID) else {
                 throw CoordinatorError.startingImageNotFound(assetID)
@@ -96,6 +100,19 @@ final class TakeGenerationCoordinator {
             }
             sourceImagePath = url.path
             usesInheritedContinuityFrame = true
+        } else if shotIndex == 0,
+                  let openingReference = CharacterAnchorResolver.resolveOpeningReference(
+                      project: project, store: store) {
+            // A scene-like still the user picked is the most explicit statement
+            // of how the movie should open, so it outranks the Character Bible
+            // anchor below.
+            switch openingReference {
+            case .success(let url):
+                sourceImagePath = url.path
+                usesOpeningReference = true
+            case .failure(let issue):
+                throw CoordinatorError.openingReferenceUnavailable(issue)
+            }
         } else if shotIndex == 0, project.characterAnchor.isActive {
             switch CharacterAnchorResolver.resolve(project: project, store: store) {
             case .resolved(let anchor):
@@ -129,7 +146,11 @@ final class TakeGenerationCoordinator {
                 : PromptCompiler.frameCount(forSeconds: shot.durationSeconds, fps: settings.fps)
             params.numInferenceSteps = settings.resolvedInferenceSteps
             params.seed = seed
-            if usesCharacterAnchor {
+            if usesOpeningReference {
+                // The user chose this frame as the movie's first frame, so it
+                // is conditioned exactly like an explicit Starting Image.
+                params.imageStrength = OpeningReferencePolicy.openingImageStrength
+            } else if usesCharacterAnchor {
                 // A character sheet extraction is a posed figure on a plain
                 // background. Pinning it as an exact first frame drags that
                 // whole plate into the movie, so the anchor conditions more

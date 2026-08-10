@@ -871,6 +871,11 @@ struct FilmProject: Codable, Equatable, Identifiable {
     /// project saved before the feature existed, which decodes as disabled.
     var characterAnchor: CharacterAnchor = CharacterAnchor()
 
+    /// Optional scene-like still used as the opening shot's first frame. Takes
+    /// precedence over `characterAnchor`, which points at a Character Bible
+    /// asset rather than at a frame. Absent in older projects.
+    var openingReferenceImage: OpeningReferenceImage?
+
     init(id: UUID = UUID(), title: String) {
         self.id = id
         self.title = title
@@ -882,7 +887,7 @@ struct FilmProject: Codable, Equatable, Identifiable {
              requestedDirectorMode, effectiveDirectorMode, settings,
              storyBible, characterBible, shots, jobs,
              lastAssemblySignature, assembledMoviePath, assembledAt,
-             continuityChainEnabled, characterAnchor
+             continuityChainEnabled, characterAnchor, openingReferenceImage
     }
 
     init(from decoder: Decoder) throws {
@@ -911,6 +916,8 @@ struct FilmProject: Codable, Equatable, Identifiable {
         continuityChainEnabled = try container.decodeIfPresent(Bool.self, forKey: .continuityChainEnabled)
         characterAnchor = try container.decodeIfPresent(CharacterAnchor.self, forKey: .characterAnchor)
             ?? CharacterAnchor()
+        openingReferenceImage = try container.decodeIfPresent(
+            OpeningReferenceImage.self, forKey: .openingReferenceImage)
     }
 
     mutating func touch() {

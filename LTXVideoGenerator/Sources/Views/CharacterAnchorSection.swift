@@ -57,10 +57,10 @@ struct CharacterAnchorSection: View {
                 configuration
             }
 
-            Text("Uses the selected reference to establish the character's appearance in the opening shot. Later shots continue from the previous shot. Visual consistency may improve, but exact identity is not guaranteed.")
+            Text("The selected reference image is used as the opening shot's first frame, so whatever it shows — including a plain background — appears there. Later shots continue from the previous shot. Visual consistency may improve, but exact identity is not guaranteed. For a cinematic opening, prefer an Opening Reference Image above.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            Text("選択したキャラクター参照を1本目のショットに使用します。以降のショットは前の映像を引き継ぎます。見た目の一貫性を高めますが、同一人物を完全に保証する機能ではありません。")
+            Text("選択した参照画像がそのまま1本目のショットの開始フレームになります（白背景などもそのまま映ります）。以降のショットは前の映像を引き継ぎます。見た目の一貫性を高めますが、同一人物を完全に保証する機能ではありません。映画的な開始画像には、上の Opening Reference Image を推奨します。")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }

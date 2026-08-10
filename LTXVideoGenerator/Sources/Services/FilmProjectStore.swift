@@ -11,6 +11,8 @@ final class FilmProjectStore {
         case projectNotFound(UUID)
         case unsupportedCharacterSheetFormat(String)
         case invalidCharacterSheetSource
+        case unsupportedOpeningReferenceFormat(String)
+        case invalidOpeningReferenceSource
         case invalidManagedAssetPath
     }
 
@@ -54,6 +56,71 @@ final class FilmProjectStore {
             .appendingPathComponent(projectID.uuidString, isDirectory: true)
             .appendingPathComponent("Assets", isDirectory: true)
             .appendingPathComponent("Continuity", isDirectory: true)
+    }
+
+    /// Opening reference stills live beside the other project-owned assets so
+    /// they survive relaunch and are removed with the project.
+    func openingReferenceDirectory(projectID: UUID) -> URL {
+        projectsDirectory
+            .appendingPathComponent(projectID.uuidString, isDirectory: true)
+            .appendingPathComponent("Assets", isDirectory: true)
+            .appendingPathComponent("OpeningReference", isDirectory: true)
+    }
+
+    /// Copies a PNG/JPG/JPEG into the project as its Opening Reference Image.
+    ///
+    /// Mirrors `importCharacterSheet` exactly — copy to a temporary name, then
+    /// atomically move into a UUID filename — so the external original is never
+    /// moved, renamed or persisted as an absolute path, and a failed import
+    /// cannot leave a half-written file where the project expects an image.
+    func importOpeningReferenceImage(
+        from sourceURL: URL,
+        projectID: UUID
+    ) throws -> OpeningReferenceImage {
+        let source = sourceURL.standardizedFileURL
+        let ext = source.pathExtension.lowercased()
+        guard ["png", "jpg", "jpeg"].contains(ext) else {
+            throw StoreError.unsupportedOpeningReferenceFormat(ext)
+        }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: source.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else {
+            throw StoreError.invalidOpeningReferenceSource
+        }
+
+        let directory = openingReferenceDirectory(projectID: projectID)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let filename = "opening-reference-\(UUID().uuidString).\(ext)"
+        let destination = directory.appendingPathComponent(filename)
+        let temporary = directory.appendingPathComponent(".\(UUID().uuidString).importing")
+        do {
+            try FileManager.default.copyItem(at: source, to: temporary)
+            guard !FileManager.default.fileExists(atPath: destination.path) else {
+                throw CocoaError(.fileWriteFileExists)
+            }
+            try FileManager.default.moveItem(at: temporary, to: destination)
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
+
+        let size = (try? destination.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init)
+        return OpeningReferenceImage(
+            projectRelativePath: "Assets/OpeningReference/\(filename)",
+            originalFilename: source.lastPathComponent,
+            mimeType: ext == "png" ? "image/png" : "image/jpeg",
+            fileSizeBytes: size
+        )
+    }
+
+    /// Removes only the project-owned copy. Replacing an image deletes the copy
+    /// it supersedes so the directory does not accumulate orphans; the user's
+    /// original is outside this ownership boundary and is never touched.
+    func removeManagedOpeningReference(projectID: UUID, reference: OpeningReferenceImage) {
+        guard let url = managedProjectAssetURL(
+            projectID: projectID, relativePath: reference.projectRelativePath) else { return }
+        try? FileManager.default.removeItem(at: url)
     }
 
     /// Resolves any project-relative asset path, refusing absolute paths and

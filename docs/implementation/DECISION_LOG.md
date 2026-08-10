@@ -858,3 +858,50 @@ character-sheet extraction the movie opens on the reference and then moves into
 the scene, and identity carry-over was not observed. The feature remains useful
 as a Character-Bible-driven starting image, and is off by default so no existing
 project's output changes.
+
+## D-059 (2026-08-11) Opening Reference Image: the picture is the opening frame
+
+The Character Anchor calibration established what a conditioning image actually
+is on this backend: not an identity hint, but the movie's first frame. A
+character-sheet extraction therefore put a posed figure on a flat plate at the
+head of the film, and its costume and face were not carried into the shot that
+followed.
+
+This feature accepts that mechanic instead of fighting it. An Opening Reference
+Image is a scene-like still the user picks — ideally already a plausible movie
+frame, with the character, wardrobe, place and light in it — and the opening
+shot begins on it. The better the picture already reads as a frame, the more
+there is for the continuity chain to carry into shots 2, 3 and 4.
+
+Kept deliberately separate from Character Anchor rather than merged into a
+vague "reference" control, because the two answer different questions: *which
+Character Bible asset* versus *which frame*. Precedence when both are set is
+explicit — an explicit per-shot starting image, then the opening reference, then
+the anchor, then text-to-video — and the UI says so where both are configured.
+Clearing the reference hands shot 1 back to the anchor.
+
+Shot 1 only. Shots 2+ inherit from the shot before them and never see the
+reference, which is the regression this could most easily have introduced and is
+covered by its own test.
+
+The image is copied into the project (`Assets/OpeningReference/`) through the
+same copy-then-atomic-move path `importCharacterSheet` already uses, so the
+external original is never moved, renamed or persisted as an absolute path, and
+a project keeps working after the source file moves. Replacing removes the copy
+it supersedes rather than orphaning it. A missing file blocks generation with a
+distinct error — it never silently becomes text-to-video and never silently
+falls through to the Character Anchor.
+
+Strength is the same 1.0 an explicit Starting Image uses. D-058 already measured
+that lowering it corrupts the conditioning image rather than softening it, and a
+deliberately scene-like still has even less reason to be treated more weakly
+than any other frame the user picked.
+
+## D-060 (2026-08-11) Character Anchor copy corrected, feature kept
+
+The Character Anchor UI copy implied the reference established "the character's
+appearance". Measurement showed the selected image *is* the opening frame,
+plain background included. The copy now says that plainly and points users at
+the Opening Reference Image for a cinematic opening. The feature itself is kept:
+it remains the quickest way to start from a Character Bible asset, and its
+behaviour is unchanged.

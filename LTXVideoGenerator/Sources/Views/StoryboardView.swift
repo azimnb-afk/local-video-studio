@@ -449,6 +449,7 @@ private struct ProjectDetailView: View {
                 // Storyboard shots are authored one by one with their own
                 // starting images.
                 if project.workflowMode == "hybrid" {
+                    OpeningReferenceSection(project: project, onChanged: onChanged)
                     CharacterAnchorSection(project: project, onChanged: onChanged)
                 }
                 Divider()

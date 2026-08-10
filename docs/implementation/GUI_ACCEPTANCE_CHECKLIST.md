@@ -555,3 +555,29 @@ list, as recorded in every previous pass. The section's behaviour is covered by
 unit tests (resolution, preference order, precedence, persistence, missing-file
 blocking) and it compiles into the Auto Movie detail path, but a human should
 open a project once to confirm the layout reads well.
+
+## 2026-08-11 Opening Reference Image — GUI acceptance NOT COMPLETED
+
+Debug clean build succeeded with the three new files registered in the Xcode
+project, and the app launches (process runs). **Visual GUI acceptance could not
+be performed:** this ran overnight and the display was asleep, so
+`screencapture` returns an all-black frame and the window reports no usable
+geometry. Waking the display is a user-facing action, not something to force
+while the machine is unattended.
+
+So nothing about the on-screen result is claimed for this change. Outstanding
+for a human to check when back at the machine:
+
+- [ ] Sidebar and all five pages render normally at 1680x948.
+- [ ] Auto Movie project loads with the new `openingReferenceImage` field.
+- [ ] "Opening Reference Image (Optional)" section appears above Character
+      Anchor.
+- [ ] Choose Image… imports and shows a thumbnail plus filename.
+- [ ] Replace… switches to a new image; Clear removes it.
+- [ ] With both set, the note explaining that the opening reference wins is
+      visible.
+- [ ] Character Anchor section still renders with its corrected copy.
+
+The behaviour behind those controls is covered by unit tests — import, replace,
+clear, precedence, missing-file blocking and persistence — and the pipeline half
+was verified by the real 768x512 A/B run.

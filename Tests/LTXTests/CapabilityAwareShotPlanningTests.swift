@@ -41,7 +41,11 @@ func runCapabilityAwarePlanningTests(_ t: TestKit) {
             mayInherit: true
         )
         t.check(!a.isEmpty, "A: medium-wide → extreme-close-up with fine object action is high risk")
-        t.check(a.contains { $0.contains("reframe") }, "A: the reframe is named as a reason")
+        // The framing jump itself is deliberately NOT a reason any more. The
+        // product-profile revalidation showed a large camera move renders fine
+        // at the reframe strength; only detail and manipulation still fail.
+        t.check(!a.contains { $0.contains("reframe") },
+                "A: a large framing jump alone is no longer a capability risk")
         t.check(a.contains { $0.hasPrefix("detail-insert") }, "A: the detail framing is named")
         t.check(a.contains { $0.hasPrefix("fine ") }, "A: the fine manipulation is named")
 
@@ -233,8 +237,11 @@ func runCapabilityAwarePlanningTests(_ t: TestKit) {
         t.checkEqual(ShotScaleLadder.name(atRank: -4), "extreme-wide",
                      "a rank before the start clamps to the widest scale")
 
-        // Anything the planner leaves in place stays a standard continuation,
-        // so the looser anchor becomes the fallback it was meant to be.
+        // A large camera move now survives planning, and the strength resolver
+        // sees its real distance and applies the reframe anchor. Clamping the
+        // jump used to hand the resolver a two-rung boundary, which selected the
+        // standard 0.8 — the one setting measured NOT to reframe at 768x512 —
+        // so the shot got neither the framing nor the strength for it.
         let planned = CapabilityAwareShotPlanner.plan(
             shots: [draft(scale: "wide"),
                     draft(summary: "Extreme close-up of the key in the lock.",
@@ -246,8 +253,8 @@ func runCapabilityAwarePlanningTests(_ t: TestKit) {
         var currentShot = Shot(index: 1)
         currentShot.camera = CameraPlan(shotScale: planned[1].shotScale ?? "")
         t.checkEqual(ContinuityStrengthResolver.policy(previous: previousShot, current: currentShot),
-                     .standard,
-                     "a capability-planned boundary no longer needs the reframe anchor")
+                     .reframe,
+                     "a surviving large framing change reaches the resolver as a reframe")
 
         // The split-beat ladder obeys the same bound at every length.
         for count in 1...12 {

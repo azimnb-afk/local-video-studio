@@ -442,6 +442,13 @@ CONTINUE is already decided, and never to an explicit user or CharacterBible
 starting image, Generate, One Shot or Storyboard.
 
 ## D-042 (2026-08-10) Reframe strength is 0.5, and it does not buy a reframe
+
+> **SUPERSEDED IN PART by D-052 (product-profile revalidation).** Everything
+> below was measured at 512x320 / **25 frames** (1.04 s). Re-measured at
+> 768x512 / 121 frames, 0.5 *does* buy a reframe: a medium-wide inherited
+> frame reaches a genuine close-up with continuity intact, while 0.8 does
+> not. The 0.5 value survives; the stated reason for it does not. The
+> original measurements are kept below exactly as recorded.
 Calibrated on the real failure: a medium-wide full figure inherited into a
 planned close-up of a key entering a lock, same source frame, prompt, seed and
 settings, only the strength varied.
@@ -670,3 +677,60 @@ anything about the protagonist or about motion. Anything scored about objects in
 the world is now either run at 768×512 or reported with the profile named as a
 limit. The affected earlier statement has been scoped in BENCHMARK_RESULTS
 rather than deleted.
+
+## D-052 (2026-08-10) Large camera reframes are feasible; the old limit was the harness
+
+D-041/D-042 concluded that no conditioning strength achieves a large reframe.
+That was measured at 512×320 / 25 frames — 1.04-second shots, a configuration
+the product never renders. Re-measured on one fixed source frame at the product
+profile (768×512, 121 frames, seed 42, only `--image-strength` varying):
+
+| strength | 768×512 / 121 f |
+|---|---|
+| 0.8 | no reframe — the subject stays full-figure and walks away |
+| 0.65 | close-up achieved, continuity intact |
+| 0.5 | close-up achieved, continuity intact |
+
+Duration is the dominant factor: at 25 frames nothing reframes at any strength,
+because there is no time for a camera move. Resolution modulates it — at
+512×320 even 0.8 reframes, so the standard anchor holds composition more firmly
+at the higher-quality profiles.
+
+The conclusion splits in two, and only one half survives. A large **camera**
+move is supported. **Fine object interaction** is not: at 0.5, the shot reframed
+to a clean close-up and the planned hand-to-door-handle action still never
+happened. The original finding was right about the insert and wrong about the
+framing.
+
+`Standard = 0.8` and `Reframe = 0.5` are both kept. 0.5 is validated, though for
+the opposite reason to the one recorded in D-042: it does buy the reframe.
+0.65 also works, with no measurable advantage over 0.5, so nothing was changed
+on the strength of a single sample.
+
+## D-053 (2026-08-10) The capability clamp was cancelling the reframe strength
+
+A defect this revalidation exposed. `CapabilityAwareShotPlanner` clamped any
+framing jump of three or more rungs down to two, on the belief that large
+reframes were impossible. `ContinuityStrengthResolver` then measured the
+*clamped* distance, saw two rungs, and selected the standard 0.8 — the one
+setting now measured **not** to reframe at 768×512. So a shot the Director
+planned as a close-up received neither the framing it asked for nor the strength
+that would have delivered it. Visible in the previous run's log: a planned
+`medium-wide → close-up` became `medium-close-up`, then `strength policy:
+standard @ 0.8`.
+
+The fix is to delete the rule, not to add another. A large framing jump is no
+longer classified as a capability risk, so it reaches the resolver at its true
+distance and gets 0.5. The detail-insert, fine-manipulation and too-many-beats
+rules are untouched — those are the ones re-measurement confirmed.
+
+`maxInheritedRankJump` survives only as the smoothness bound on the no-LLM beat
+ladder, and its documentation now says so rather than implying a feasibility
+limit. Continuity Reconciliation, the Opening Shot Anchor and both strength
+values are unchanged.
+
+Known remaining gap, recorded rather than patched: a shot clamped for
+*detail-insert* reasons is still handed to the resolver at its reduced distance
+and so still receives 0.8. Making the resolver read the Director's original
+framing intent (already persisted as `Shot.originalCameraScale`) would fix that,
+but the combination was not measured, so it is not being shipped on inference.

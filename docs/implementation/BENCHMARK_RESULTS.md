@@ -244,6 +244,11 @@ insert — is the natural next step and is deliberately not implemented here.
 
 ## Adaptive Continuity Strength calibration (2026-08-10)
 
+> **Profile caveat added retroactively.** This section was measured at
+> 512x320 / **25 frames** (1.04 s). The Reframe Revalidation below repeats
+> it at 768x512 / 121 frames and reaches a different conclusion about
+> whether a reframe is achievable. Kept unchanged as the historical record.
+
 Case: the real failure from the previous run — a medium-wide full figure
 inherited into a planned close-up of a key entering a lock. Same source frame,
 prompt, seed, model, encoder, 512×320 / 25f / 15 steps / 24fps, audio off; only
@@ -609,3 +614,86 @@ Compact 512×320 renders interaction targets materially worse than 768×512.
 Future calibrations that score anything about *objects in the world* must be run
 at 768×512, or state the profile as a limit on the result. Subject-level
 findings (the opening anchor) reproduced at both resolutions and are unaffected.
+
+## Auto Movie Reframe Revalidation at product profile (2026-08-10)
+
+Baseline `e85e647`. The reframe conclusion behind D-041/D-042 was measured at
+512×320 / 25 frames. Both of those have since been shown to distort results, so
+the claim was re-tested at the profile users actually receive.
+
+**Fixed:** source `/tmp/ltx_dest/cand_1.8.png` — a product-generated 768×512
+frame with the protagonist full-figure, readable and centred, environment
+legible, entrance ahead. Chosen over the historical source, where the subject
+was still far from the action, so this measures *reframing*, not beat distance.
+Seed 42, `ltx23-mlx-av-q4` + `gemma-3-12b-it-4bit`, 121 frames, 24 fps, audio
+off. Only `--image-strength` varies.
+
+**Target 1 (human reframe)** — "The camera close-up shot, eye-level angle, slow
+push-in camera. The same woman stops and looks toward the entrance."
+
+| profile | strength | character | environment | framing progression | subject scale (start→end) | coherence | SSIM src→first / →last |
+|---|---|---|---|---|---|---|---|
+| 768×512 | **0.8** | 3 | 3 | **1 — no reframe; she walks away** | ~55% → ~45% | good | 0.962 / 0.498 |
+| 768×512 | **0.65** | 3 | 3 | **3 — close-up achieved** | ~55% → ~85% | good | 0.951 / 0.480 |
+| 768×512 | **0.5** | 3 | 3 | **3 — close-up achieved** | ~55% → ~80% | good | 0.938 / 0.468 |
+| 512×320 | 0.8 | 3 | 3 | **2–3 — reframes** | ~55% → ~75% | good | — |
+| 512×320 | 0.5 | 2 | 3 | 3 — reframes | ~55% → ~80% | first frame shows a distorted face; hair colour shifts | — |
+
+**SSIM cannot see this.** The three 768×512 values are 0.498 / 0.480 / 0.468 —
+essentially flat — while one of them reframes and one does not. Visual
+inspection was decisive, exactly as §16 required.
+
+**Target 2 (action reframe)** — "…steps up to the entrance and raises her hand
+toward the door handle." 768×512.
+
+| strength | framing progression | narrative beat | target visibility |
+|---|---|---|---|
+| 0.8 | 1 — stays full-figure, walks to the door | 0–1 | 1 |
+| 0.5 | **3 — close-up achieved** | **0–1 — hand-to-handle never happens** | 1 |
+
+Target 3 (detail interaction) was **not run**: Target 2 already shows the object
+interaction failing at the strength that does reframe, so a tighter detail shot
+could only fail harder. Skipped deliberately, not for time.
+
+### Historical comparison
+| profile | 0.8 | 0.65 | 0.5 |
+|---|---|---|---|
+| 512×320, 25 f (historical) | no reframe | no reframe | no reframe |
+| 512×320, 121 f | reframe | — | reframe |
+| 768×512, 121 f | **no reframe** | reframe | reframe |
+
+- **Duration dominates.** At 25 frames (1.04 s) nothing reframes at any
+  strength — there is no time for a camera move. This is the main reason the
+  historical conclusion was wrong.
+- **Resolution modulates.** At 768×512 the 0.8 anchor holds composition more
+  firmly than at 512×320, where even 0.8 reframes.
+
+### Conclusions
+- **Large camera reframe: supported** at the product profile, at 0.5 (and 0.65),
+  with character, wardrobe and environment continuity intact.
+- **Fine object interaction: still unsupported** at every strength tested. This
+  half of the original finding survives.
+- **Standard 0.8: validated.** It preserves composition at 768×512, which is
+  what a standard continuation should do.
+- **Reframe 0.5: validated, for a corrected reason.** D-042 said 0.5 bought
+  freedom but not a reframe. At the product profile it buys the reframe.
+- 0.65 also works. No advantage over 0.5 was measurable — continuity scored 3 for
+  both — so **0.5 is kept** rather than changed on a single sample.
+
+### Real Auto Movie E2E after the change (768×512, 121 f/shot → 20.17 s)
+Director planned `wide → medium-close-up → extreme-close-up → medium-wide`.
+The extreme-close-up was still clamped to medium-close-up by the detail-insert
+rule, which is intended. The framing jump was not clamped, so:
+
+```
+strength policy: reframe (wide -> medium-close-up) @ 0.5      <- previously standard @ 0.8
+strength policy: standard (medium-close-up -> medium-close-up) @ 0.8
+```
+
+Shot 2 visibly reframes from the wide inherited frame to a medium-close-up of
+the same woman on the same steps — the change the clamp used to prevent. Shot 3
+holds that framing and she handles keys. Shot 4 is a genuine cut to the
+interior, so a different person there is expected.
+
+The unlock beat itself is still not clearly executed, consistent with the fine
+object-interaction limit that survived revalidation.

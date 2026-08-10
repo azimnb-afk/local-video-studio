@@ -513,3 +513,44 @@ reproduce at both resolutions and are unaffected.
 - `swift run LTXTests`: **972 passed, 0 failed** (unchanged; no production code
   was modified this round)
 - GUI acceptance: not re-run, and not required — no production code changed
+
+## 2026-08-10 Reframe revalidation at the product profile
+
+The claim that large reframes are impossible with single-frame continuity came
+from a calibration run at 512×320 / 25 frames. Both of those have since been
+shown to distort results, so it was re-tested on one fixed source frame at
+768×512 / 121 frames with only the strength varying.
+
+The claim does not survive. At the product profile 0.8 does not reframe — the
+subject stays full-figure and walks away — while 0.65 and 0.5 both reach a
+genuine close-up with the same person, wardrobe and set. At 512×320 even 0.8
+reframes, so duration is the dominant factor and resolution modulates it
+(D-052). SSIM was useless here: 0.498 / 0.480 / 0.468 across three conditions,
+one of which reframes and one of which does not.
+
+Fine object interaction is the half of the original finding that survives — at
+0.5 the camera reframed cleanly and the planned hand-to-door-handle action still
+never happened.
+
+Both strengths are kept: 0.8 preserves composition, which is what a standard
+continuation should do, and 0.5 is validated for the opposite reason to the one
+originally recorded. 0.65 works too, with no measurable advantage, so nothing
+was changed on a single sample.
+
+One production change, and it is a deletion. The capability planner clamped
+three-rung framing jumps to two, which made the strength resolver read the
+clamped distance and select 0.8 — so a planned close-up got neither its framing
+nor the strength for it. Large framing jumps are no longer a capability risk;
+the detail-insert, fine-manipulation and too-many-beats rules are untouched
+(D-053). Reconciliation, the Opening Shot Anchor and both strength values are
+unchanged.
+
+Historical D-041/D-042 and their benchmark section are kept verbatim and marked
+with the profile they were measured at.
+
+### Build & verification
+- `swift build`: PASS
+- `swift run LTXTests`: **972 passed, 0 failed** (two tests that encoded the
+  disproven belief were updated to the corrected policy)
+- `xcodebuild` Debug clean build: BUILD SUCCEEDED
+- `git diff --check`: PASS

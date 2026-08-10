@@ -505,3 +505,20 @@ Canonical Debug app, executable mtime `2026-08-10 15:52`, PID 20798, 1 window at
 
 No user-facing control was added: the opening correction is deterministic and
 invisible, recorded only in the shot's `capabilityAdjustmentReason`.
+
+## 2026-08-10 Reframe revalidation GUI check
+
+Canonical Debug app, executable mtime `2026-08-10 18:11`, 1 window at 1680x948.
+
+- [x] Sidebar shows Generate / One Shot / Storyboard / Director / Auto Movie
+  (Sora 2-like connected shots) / Video Archive, pinned at the top.
+- [x] Auto Movie page header and bilingual descriptions unchanged.
+- [x] All five existing Auto Movie projects load with correct shot and
+  selected-take counts.
+- [x] No layout regression (ContentView untouched this round).
+
+The change is invisible in the UI — a planning rule was removed, so a Director
+close-up now survives to generation instead of being clamped. Verified in the
+pipeline instead: the real 768x512 E2E logged `strength policy: reframe
+(wide -> medium-close-up) @ 0.5`, where the same boundary previously logged
+`standard @ 0.8`.

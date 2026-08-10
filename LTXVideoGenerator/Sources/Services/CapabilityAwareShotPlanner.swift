@@ -15,11 +15,16 @@ enum ShotCapabilityRisk: String, Equatable {
 ///
 /// This exists because of a measured failure, not a theory. A planned detail
 /// insert ("extreme close-up of the key entering the lock") after an inherited
-/// medium-wide frame never reached its framing at any conditioning strength
-/// from 0.8 down to 0.2, and — the decisive control — the same prompt with no
-/// inherited image at all did not produce the insert either. So the shot was
-/// beyond what this profile renders, and no amount of strength tuning was going
-/// to fix it. The remaining lever is to not plan that shot.
+/// medium-wide frame did not reach its framing at any conditioning strength, and
+/// — the decisive control — the same prompt with no inherited image at all did
+/// not produce the insert either. So the shot was beyond what this profile
+/// renders. The remaining lever is to not plan that shot.
+///
+/// Re-measured at the product profile (768x512, 121 frames), that conclusion
+/// splits in two. A large *camera* move is fine: a medium-wide inherited frame
+/// reframes cleanly to a close-up of the same person at the reframe strength.
+/// Fine *object* interaction still fails at every strength. So this pass
+/// constrains detail and manipulation, not framing change.
 ///
 /// What this pass is NOT: it does not ban close-ups, it does not score
 /// cinematography, and it never deletes a story beat. It keeps the Director's
@@ -30,12 +35,13 @@ enum ShotCapabilityRisk: String, Equatable {
 /// planning and CharacterBible are untouched.
 enum CapabilityAwareShotPlanner {
 
-    /// The largest framing change asked of a shot that inherits a frame.
+    /// The largest framing step the no-LLM beat ladder takes between two
+    /// consecutive split beats.
     ///
-    /// Derived from the reframe threshold rather than chosen separately, so the
-    /// two passes can never disagree about what a large reframe is: anything the
-    /// strength resolver would call a reframe is what this pass tries to avoid
-    /// planning, and what survives here stays below that line.
+    /// This is a smoothness preference, not a feasibility limit — product-profile
+    /// measurement showed larger jumps render fine at the reframe strength. It
+    /// stays tied to the reframe threshold so a split movie's automatic camera
+    /// progression keeps to steps the standard anchor can carry on its own.
     static var maxInheritedRankJump: Int { ContinuityStrengthResolver.reframeRankDistance - 1 }
 
     /// The tightest framing automatic planning will choose on its own when a
@@ -238,20 +244,19 @@ enum CapabilityAwareShotPlanner {
         var reasons: [String] = []
         let currentRank = ShotScaleLadder.rank(of: current.shotScale ?? "medium")
 
-        // A. A large framing jump away from a frame the shot inherits. Measured:
-        //    the model holds the inherited composition and the new framing never
-        //    arrives. Only applies where a frame is actually carried over.
-        if mayInherit,
-           let previousRank = ShotScaleLadder.rank(of: previous?.shotScale ?? ""),
-           let currentRank {
-            let distance = abs(currentRank - previousRank)
-            if distance > maxInheritedRankJump {
-                reasons.append(
-                    "\(distance)-rung reframe from \(ShotScaleLadder.name(atRank: previousRank))"
-                    + " to \(ShotScaleLadder.name(atRank: currentRank)) while inheriting a frame"
-                )
-            }
-        }
+        // A large framing jump used to be treated as a capability risk here,
+        // on the strength of a calibration that measured 25-frame (1.04 s)
+        // shots. Re-measured at the product profile — 768x512, 121 frames — a
+        // medium-wide inherited frame reframes cleanly to a close-up at the
+        // reframe strength of 0.5, keeping the person, wardrobe and set. So a
+        // large camera move is no longer classed as risky, and clamping it here
+        // was actively harmful: shrinking the jump to two rungs made the
+        // strength resolver choose the standard 0.8, which is the one setting
+        // that does NOT reframe at this resolution, so the shot got neither the
+        // planned framing nor the strength that would have delivered it.
+        //
+        // What did NOT survive re-measurement is fine object interaction, which
+        // still fails at every strength. That is what the rules below constrain.
 
         // B. A detail insert: the tightest rung on the ladder, which the
         //    calibration could not reach from an inherited frame and which the
@@ -351,11 +356,6 @@ enum CapabilityAwareShotPlanner {
             // Keep the frame wide enough to show the whole chain; never use this
             // rule to push a shot tighter than it was planned.
             target = min(target, multiBeatRank)
-        }
-        if reasons.contains(where: { $0.contains("reframe") }),
-           let previousRank = ShotScaleLadder.rank(of: previous?.shotScale ?? "") {
-            target = min(max(target, previousRank - maxInheritedRankJump),
-                         previousRank + maxInheritedRankJump)
         }
         return ShotScaleLadder.name(atRank: target)
     }

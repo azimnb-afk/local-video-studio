@@ -491,6 +491,11 @@ configuration, not only a harness shortcut. Steps untouched (proven inert).
 ### Openings — same brief, seed 42, 121 f, 512×320, 24 fps, audio off
 Only the opening shot's wording varies. Camera scale stays `wide` in all four.
 
+NOTE: the `destination` column below scored ~1 in every condition. The
+2026-08-10 Destination Anchor Calibration showed that is an artifact of the
+512x320 Compact resolution used here — at 768x512 the same wording renders a
+readable door. The column is kept as measured, with that scope.
+
 | id | opening wording | subject readability | destination | directionality | ending-state readiness |
 |---|---|---|---|---|---|
 | A | Director's own, incl. "her figure small against the towering walls" | 0–1 | 1 | 0 — walks away, shrinking | 0–1 |
@@ -536,3 +541,71 @@ imposing stone facade" — no miniaturizing language, so there was nothing to
 remove. The run demonstrates the pipeline is healthy; it is not evidence for the
 anchor. The anchor's evidence is the A/A′/B/C comparison and the 768×512
 confirmation above.
+
+## Auto Movie Destination Anchor Calibration (2026-08-10)
+
+Question: does making the interaction target visually readable improve the
+downstream arrival and interaction beats? Baseline `31ebad3`.
+
+### Destination data already in the plan
+No destination field exists in the schema, and none was added. The Director
+already emits usable structured metadata: `position:<Character>=<value>` in
+`explicitChanges` ("position:Elara=At the door", "position:Alex=at_car_door"),
+plus `props` (["Key", "Door handle"], ["sedan_car", "smartphone"]). Scene
+*location* ("Courtyard path") and interaction *target* ("the door") are clearly
+distinct fields, as the hypothesis assumed.
+
+### Openings — same brief, seed 42, 121 f, 24 fps, audio off; only the destination wording varies
+| id | destination wording | res | presence | readability | stability | subject→target | subject readability |
+|---|---|---|---|---|---|---|---|
+| A | "toward the library entrance" (current) | 512×320 | 1 | 1 | 1 | 1 | 3 |
+| B | "toward a clearly visible entrance door set into the stone library facade" | 512×320 | 2 | 2–3 | 2 | 2 | **1** |
+| C | A + "the entrance stays visible ahead of her as she approaches" | 512×320 | 1 | 1 | 1 | 1 | 3 |
+| A′ | "toward the entrance door of the stone library" (specific noun only) | 512×320 | 1 | 1 | 1 | 2 | 1–2 |
+| B2 | "toward a clearly visible library entrance" (visibility only) | 512×320 | 2 | 1–2 | 1 | 0–1 | 2 |
+| D | B + "she stays large and clearly visible in the foreground" | 512×320 | 2 | 2 | 1 | **0** | 3 |
+| **A** | **current wording** | **768×512** | **2** | **2** | **2** | **2** | **3** |
+| B | explicit wording | 768×512 | 2 | 2–3 | 2 | 2 | 3 |
+
+**C is instructive**: persistence guidance on a vague noun changed nothing. You
+cannot keep visible something the model never rendered.
+
+**The A′/B2 factorial did not cleanly isolate B.** Neither the specific noun
+alone nor the visibility phrase alone reproduced B; B also said *where* the door
+sits ("set into the facade"), which is what produced a frontal facade with a
+centred door. Recorded as an unresolved three-way confound rather than claimed
+as a single mechanism.
+
+### Downstream arrival (Shot 2, inherited @ 0.8, 121 f)
+| chain | res | destination persistence | arrival | subject retention |
+|---|---|---|---|---|
+| A | 512×320 | no target to persist | 1 | good |
+| B | 512×320 | door persists, someone even opens it | 1 | **poor — protagonist becomes one of several small background figures** |
+| D | 512×320 | **destination leaves frame entirely** | 0 | good |
+| **A** | **768×512** | door persists and frames her | **2–3 — she arrives and stops at the door** | good |
+| B | 768×512 | door persists | 2 | good |
+
+At 512×320 the two anchors compete: B bought destination readability by
+shrinking the protagonist, and D protected the protagonist but reversed her
+direction so the target left frame. Neither improved arrival.
+
+At 768×512 the competition disappears — and so does the problem the calibration
+was chartered to fix.
+
+### Conclusion
+**Hypothesis rejected in its actionable form.** Destination readability is not a
+bottleneck at the resolution the product actually ships for Standard/High: the
+current, unmodified wording already produces a readable door, a correct approach
+direction, and a working arrival. The "destination readability ≈ 1 in every
+condition" finding that motivated this round was a property of the 512×320
+Compact profile used by the previous calibration, not of the planning.
+
+No production change. Adding a destination policy would have optimised a
+low-resolution artifact and, on the 512×320 evidence, would have cost
+protagonist readability.
+
+### Methodological correction
+Compact 512×320 renders interaction targets materially worse than 768×512.
+Future calibrations that score anything about *objects in the world* must be run
+at 768×512, or state the profile as a limit on the result. Subject-level
+findings (the opening anchor) reproduced at both resolutions and are unaffected.

@@ -631,3 +631,42 @@ the Beat Feasibility Calibration showed was rendering 1.04-second shots. Those
 measurements are real and are kept — they are not deleted or rewritten — but the
 claims that read as general model limits now say which harness produced them.
 Evidence history stays intact; only its stated scope was corrected.
+
+## D-050 (2026-08-10) Destination anchoring rejected: it was a resolution artifact
+
+The previous round ended by naming destination readability as the next
+bottleneck — it had scored ~1 in every opening condition. This round tested six
+destination wordings and found the score was a property of the 512×320 Compact
+profile those conditions were measured at, not of the plan.
+
+At 768×512 — the resolution Standard and High actually ship — the current,
+unmodified wording "toward the library entrance" renders a clearly readable
+door, the protagonist approaches it, and the following shot arrives and stops at
+it. There is nothing to fix.
+
+At 512×320 the interventions did make the target more readable, and made the
+result worse. Explicit destination wording bought a visible door by shrinking
+the protagonist into the background; protecting the protagonist as well reversed
+her direction so the door left frame entirely by the next shot. The two anchors
+compete for a frame that small.
+
+So no destination policy ships. Adding one would have optimised a low-resolution
+artifact at the cost of the protagonist readability the previous round had just
+established, and it would have fired hardest exactly where it helps least.
+
+The Director's structured metadata that a policy would have used —
+`position:<Character>=` directives and `props` — is real and remains available
+if this question returns for a better reason. No schema was added.
+
+## D-051 (2026-08-10) Calibrations that score world objects must run at 768×512
+
+A methodological consequence, recorded so it is not rediscovered. Subject-level
+findings reproduce at both resolutions: the opening anchor behaved identically
+at 512×320 and 768×512. Object-level findings do not — Compact renders doors,
+panels and similar interaction targets materially worse.
+
+Turnaround pressure pushed earlier rounds toward 512×320, and that is fine for
+anything about the protagonist or about motion. Anything scored about objects in
+the world is now either run at 768×512 or reported with the profile named as a
+limit. The affected earlier statement has been scoped in BENCHMARK_RESULTS
+rather than deleted.

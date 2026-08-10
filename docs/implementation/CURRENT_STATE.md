@@ -478,3 +478,38 @@ Historical 25-frame results were scoped rather than deleted (D-049).
 - GUI: sidebar pinned, Auto Movie page and all five projects load
 - Full 4-shot E2E ran clean (20.17 s), though the anchor did not fire in it —
   that plan had no miniaturizing language to remove
+
+## 2026-08-10 Auto Movie Destination Anchor Calibration
+
+Tested whether making the interaction target visually readable improves the
+downstream arrival and interaction beats. It does not — because at the product's
+own resolution the target is already readable.
+
+Six destination wordings were compared on the same brief, seed and 121-frame
+duration. At 512×320 the current wording produced no identifiable door
+(readability 1), explicit destination wording produced a clear door but shrank
+the protagonist into the background, persistence guidance on a vague noun
+changed nothing at all, and a combined version protected the protagonist but
+reversed her direction so the door left frame by the next shot. Neither
+intervention improved arrival.
+
+At 768×512 the current, unmodified wording already renders a readable door, the
+protagonist approaches it, and Shot 2 arrives and stops at it (D-050). The
+"destination readability ≈ 1" finding that motivated this round was an artifact
+of the 512×320 Compact profile the previous calibration ran at.
+
+No production change. A destination policy would have optimised a low-resolution
+artifact and, on the 512×320 evidence, would have cost the protagonist
+readability the opening anchor had just secured. The Director's
+`position:<Character>=` directives and `props` remain available if the question
+returns for a better reason; no schema was added.
+
+Recorded as a methodological rule: calibrations that score objects in the world
+run at 768×512 or name the profile as a limit (D-051). Subject-level findings
+reproduce at both resolutions and are unaffected.
+
+### Build & verification
+- `swift build`: PASS
+- `swift run LTXTests`: **972 passed, 0 failed** (unchanged; no production code
+  was modified this round)
+- GUI acceptance: not re-run, and not required — no production code changed

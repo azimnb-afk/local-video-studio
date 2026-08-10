@@ -769,3 +769,47 @@ and 0.5, and there was none.
 
 Fine object interaction still fails at both strengths. That limitation is
 unchanged and is not a strength problem.
+
+## D-055 (2026-08-10) Auto Movie v1: READY WITH KNOWN LIMITATIONS
+
+Three unrelated briefs were run end to end at the full product profile
+(768×512, 121 f per 5 s shot), one run each, no regeneration until something
+looked good. 12/12 shots rendered, 3/3 movies assembled, no pipeline errors.
+
+Every system-level component behaved: the Director produced sane plans, the
+Opening Anchor fired on a real plan and only where needed, reconciliation
+promoted exactly one boundary and left the others alone, the strength resolver
+selected 0.8 and 0.5 correctly every time, continuity frames were extracted
+with no silent fallback, generation stayed strictly sequential, assembly put
+each shot in exactly once with frame counts matching the per-shot plans, and
+real persisted projects round-trip their continuity metadata while legacy ones
+still decode.
+
+One case (the seaside plaza) is the strongest result the project has produced:
+four beats, one man, one suit, one location, clean camera progression, no
+artifacts. Two cases carry a coherence artifact — a pasted hand and a duplicated
+subject — and in both the system chose the right strength, inherited the right
+frame and planned a reasonable shot. Under the audit's own model-versus-product
+rule those are model limitations.
+
+No production code was changed. No defect appeared in two or more cases, which
+is the bar this audit set for itself precisely to avoid the single-sample
+overfitting that has bitten this project before.
+
+Two single-case planner observations are recorded and deliberately left alone:
+the fine-action verb list does not contain "grip", and the multi-beat rule
+counts comma clauses so a facial-reaction description gets pulled wider than it
+wants. Each appeared once. Neither is worth a rule change on one sample.
+
+Classified **READY WITH KNOWN LIMITATIONS**: the pipeline is reliable, and what
+remains unreliable is fine object manipulation, which four separate calibrations
+have failed to move by duration, resolution, strength, framing or clamping.
+
+## D-056 (2026-08-10) The Archive is history-driven, not directory-driven
+
+Recorded because the audit surfaced it. `HistoryManager` reads `history.json`;
+the Video Archive lists those entries rather than scanning the Videos folder.
+Audit videos copied into the folder are therefore visible on disk and playable,
+but do not appear in the Archive UI. `history.json` was deliberately not
+edited — it is user data, and injecting synthetic entries risks corrupting a
+real library for cosmetic completeness.

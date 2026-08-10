@@ -77,8 +77,10 @@ def frame_count(seconds: float, fps: int = FPS) -> int:
     raw = max(1, round(seconds * fps))
     n = max(0, round((raw - 1) / 8.0))
     return min(241, max(25, n * 8 + 1))
-BRIEF = ("A young woman walks toward an old stone library, reaches the entrance, "
-         "unlocks the door, and steps inside.")
+# Overridable so one harness can audit several unrelated briefs.
+BRIEF = os.environ.get("LTX_E2E_BRIEF") or (
+    "A young woman walks toward an old stone library, reaches the entrance, "
+    "unlocks the door, and steps inside.")
 
 # Mirrors ContinuityReconciler (Swift side is unit-tested); promotes a planned
 # cut to a continuation only on positive evidence of the same scene.

@@ -763,3 +763,96 @@ therefore closed as a non-issue, on evidence rather than by inference.
 
 The fine object interaction still fails at both strengths, which is unchanged
 and remains the real limitation.
+
+## Auto Movie v1 Production Readiness — Multi-Brief E2E Audit (2026-08-10)
+
+Baseline `4eeff11`. Three unrelated briefs through the real pipeline at the full
+product profile: **768×512, 121 f per 5 s shot**, seed 42, `ltx23-mlx-av-q4` +
+`gemma-3-12b-it-4bit`, audio off, sequential. One run per brief; no
+regeneration-until-pretty.
+
+### Case A — courtyard / library entry
+Plan: wide → medium-wide → close-up → medium; `cut, continue, continue, cut`.
+**Opening Anchor fired on a real Director plan** — "her figure small against the
+stone architecture" was removed. Strengths: shot 2 standard 0.8, shot 3
+**reframe 0.5** (medium-wide → close-up, 3 rungs). Assembly 484 f / 20.167 s.
+
+| dimension | score |
+|---|---|
+| narrative progression | 1–2 |
+| character continuity | 2 |
+| environment continuity | 3 |
+| camera progression | 1 |
+| motion / temporal coherence | **1 — shot 3 renders a pasted, disembodied hand** |
+| shot-to-shot continuity | 2 |
+
+Shot 3's plan was "Close-up of the woman's hand reaching out and gripping the
+cold iron handle" — a hand/object interaction that the capability planner did
+**not** flag, because "gripping" is absent from its fine-action verb list. The
+outcome is the known fine-object failure mode.
+
+### Case B — seaside plaza / reaction
+Plan: wide → medium-wide → close-up → medium-wide; raw `cut, continue,
+continue, cut`, reconciled to `cut, continue, continue, continue`. Two shots hit
+the multi-beat rule ("4 action beats in one short shot"); shot 3's planned
+close-up was clamped to medium. All strengths standard 0.8. Assembly 484 f /
+20.167 s.
+
+| dimension | score |
+|---|---|
+| narrative progression | **3** |
+| character continuity | **3** |
+| environment continuity | **3** |
+| camera progression | **3** |
+| motion / temporal coherence | **3** |
+| shot-to-shot continuity | **3** |
+
+The strongest run of the whole project: establish → stop and turn → reaction at
+near close-up → continue toward the waterfront, with the same man, the same suit
+and the same colonnade throughout, and no artifacts. Note the reframe was
+achieved at 0.8 by the subject walking toward camera, not by a camera move.
+
+### Case C — city street / parked car
+Plan: wide → medium-wide → medium-close-up → close-up, all `continue`; no
+capability adjustment, no anchor needed. All strengths standard 0.8. Shots 2–3
+were planned at 4 s and correctly rendered **97 frames**; assembly 436 f /
+18.167 s — per-shot durations honoured exactly.
+
+| dimension | score |
+|---|---|
+| narrative progression | 2 |
+| character continuity | 2 — wardrobe drifts |
+| environment continuity | 3 |
+| camera progression | **3** |
+| motion / temporal coherence | **1 — the subject duplicates in shots 3–4** |
+| shot-to-shot continuity | 2 |
+
+### System-level verdicts
+| system | verdict | evidence |
+|---|---|---|
+| Director planning | **PASS** | three sane 4-shot plans, sensible continuity marks |
+| Capability-Aware Planning | **PARTIAL** | correct in B and C; missed "gripping the handle" in A |
+| Opening Shot Anchor | **PASS** | fired correctly in A; NOT TRIGGERED in B and C |
+| Continuity Reconciliation | **PASS** | promoted B shot 4 correctly; left A and C alone |
+| Strength Resolver | **PASS** | every selection matched policy, including A's 0.5 reframe |
+| Continuity frame extraction | **PASS** | every inherited frame extracted; no silent T2V fallback |
+| Sequential generation | **PASS** | strictly one render at a time in all 12 shots |
+| Final Assembly | **PASS** | each shot once, correct order, frame counts exactly match plans |
+| Persistence / reload | **PASS** | real projects round-trip chain frames, source take IDs and planned-vs-effective modes; legacy projects decode as nil |
+| Archive | **PASS (with note)** | driven by `history.json`, not a directory scan |
+
+### Repeated vs one-off
+No system-level defect occurred in two or more cases. The two coherence
+failures (A's pasted hand, C's duplicated subject) share a generation-level
+cause — single-frame conditioning adding a new foreground element instead of
+moving the camera — and in both the system selected the correct strength,
+inherited the correct frame and planned a reasonable shot. Under §22 these are
+model limitations, not product failures.
+
+Two **single-case** planner observations, deliberately not fixed under §23:
+1. the fine-action verb list misses "grip" (Case A only);
+2. the multi-beat rule counts comma clauses, so a facial-reaction description
+   ("eyes widen, a faint smile, he blinks") is pulled wider when it wants a
+   close-up (Case B only — and the shot still came out well).
+
+### 12/12 shots rendered, 3/3 movies assembled, 0 pipeline errors.

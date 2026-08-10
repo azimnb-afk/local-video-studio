@@ -522,3 +522,18 @@ close-up now survives to generation instead of being clamped. Verified in the
 pipeline instead: the real 768x512 E2E logged `strength policy: reframe
 (wide -> medium-close-up) @ 0.5`, where the same boundary previously logged
 `standard @ 0.8`.
+
+## 2026-08-10 v1 readiness audit GUI check
+
+Canonical Debug app, executable mtime `2026-08-10 18:11`, 1 window at 1680x948.
+
+- [x] Sidebar shows Generate / One Shot / Storyboard / Director / Auto Movie
+  (Sora 2-like connected shots) / Video Archive, pinned at the top.
+- [x] Auto Movie page loads; all five existing projects list with correct shot
+  and selected-take counts.
+- [x] Video Archive loads and lists 144 history entries with previews.
+- [x] No layout regression (no compiled source changed this round).
+
+Note: the 15 `AUDIT_*.mp4` files preserved for review are in the Videos folder
+and playable, but do not appear in the Video Archive — it is driven by
+`history.json`, which was deliberately not edited (user data).

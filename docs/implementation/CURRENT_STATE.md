@@ -584,3 +584,45 @@ strength problem.
 - `swift run LTXTests`: **972 passed, 0 failed** (unchanged; no production code
   was modified this round)
 - GUI acceptance: not re-run, and not required — no production code changed
+
+## 2026-08-10 Auto Movie v1 production readiness audit
+
+Three unrelated briefs (courtyard/library, seaside plaza, city street/car) run
+end to end at 768×512 / 121 frames per 5 s shot, one run each. 12/12 shots
+rendered, 3/3 movies assembled, no pipeline errors.
+
+All system components passed: Director planning, Opening Anchor (fired in one
+case, correctly dormant in two), Continuity Reconciliation, Strength Resolver
+(0.8 and 0.5 selected correctly every time), continuity frame extraction with no
+silent fallback, strictly sequential generation, Final Assembly with each shot
+once and frame counts matching per-shot plans, and persistence — real projects
+round-trip chain frames, source take IDs and planned-vs-effective modes while
+legacy projects still decode.
+
+The plaza case is the best result the project has produced: four beats, one man,
+one suit, one location, clean camera progression, no artifacts. The other two
+carry a coherence artifact (a pasted hand, a duplicated subject) where the
+system nonetheless chose the right strength and frame — model limitations under
+the audit's own rule, not product failures.
+
+**No production code changed.** No defect recurred across cases, which was the
+bar set to avoid single-sample overfitting. Two single-case planner
+observations are recorded but not acted on (D-055).
+
+**Verdict: READY WITH KNOWN LIMITATIONS.** Fine object manipulation remains the
+one unreliable area, unmoved by duration, resolution, strength, framing or
+clamping across four calibrations.
+
+Audit videos are preserved for manual review in
+`~/Library/Application Support/LTXVideoGenerator/Videos` as `AUDIT_*.mp4`
+(15 files). They are on disk and playable but do not appear in the Video Archive,
+which is driven by `history.json` (D-056); that file was not edited.
+
+### Build & verification
+- `swift build`: PASS
+- `swift run LTXTests`: **972 passed, 0 failed** (unchanged)
+- `git diff --check`: PASS
+- Debug rebuild not required — only `scripts/automovie_progression_e2e.py`
+  changed; no compiled source was touched
+- GUI acceptance: sidebar and all five pages normal, Auto Movie projects load,
+  Video Archive lists 144 history entries

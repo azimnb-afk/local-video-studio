@@ -214,6 +214,66 @@ func runOpeningReferenceTests(_ t: TestKit) {
         }
     }
 
+    t.suite("Opening Reference — creation-time flow") {
+        // The New Auto Movie sheet holds a plain URL and imports only on
+        // Create, so these cover the order the creation handler runs in.
+        let store = makeStore("createflow")
+
+        // A. Created with no image chosen: an ordinary text-to-video opening.
+        let plain = makeProject(store: store)
+        if var project = store.project(id: plain.project.id) {
+            project.characterAnchor = CharacterAnchor()   // no anchor either
+            store.save(project)
+            let opening = try? TakeGenerationCoordinator(store: store).planTakes(
+                projectID: project.id, shotID: project.shots[0].id, count: 1, baseSeed: 1)
+            t.check(opening?.first?.sourceImagePath == nil,
+                    "A: creating without an opening image leaves shot 1 as text-to-video")
+        }
+
+        // B/C/D. Created with an image: the import happens, the project carries
+        //        it, and the very first generation request already resolves it.
+        //        This is the ordering the creation handler must preserve —
+        //        importing after the project is saved would race the first
+        //        render.
+        let withImage = makeProject(store: store)
+        guard var created = store.project(id: withImage.project.id),
+              let imported = try? store.importOpeningReferenceImage(
+                  from: externalImage("created-scene.png"), projectID: created.id) else {
+            t.check(false, "B: creation-time import failed"); return
+        }
+        created.openingReferenceImage = imported          // set BEFORE save
+        store.save(created)                                // then persisted
+        t.check(store.project(id: created.id)?.openingReferenceImage != nil,
+                "C: the created project carries the opening reference")
+        let first = try? TakeGenerationCoordinator(store: store).planTakes(
+            projectID: created.id, shotID: created.shots[0].id, count: 1, baseSeed: 2)
+        t.check(first?.first?.sourceImagePath?.contains("OpeningReference") == true,
+                "D: shot 1's first generation request already resolves the reference")
+        let secondShot = try? TakeGenerationCoordinator(store: store).planTakes(
+            projectID: created.id, shotID: created.shots[1].id, count: 1, baseSeed: 3)
+        t.check(secondShot?.first?.sourceImagePath == nil,
+                "E: shot 2 still does not receive it")
+
+        // F. Cancelling the sheet imports nothing, so no managed asset and no
+        //    project residue are left behind.
+        let cancelledID = UUID()
+        let cancelledDir = store.openingReferenceDirectory(projectID: cancelledID)
+        t.check(!FileManager.default.fileExists(atPath: cancelledDir.path),
+                "F: cancelling before Create leaves no opening reference directory")
+        store.removeUncommittedProjectAssets(projectID: cancelledID)
+        t.check(store.project(id: cancelledID) == nil,
+                "F: cancelling creates no project")
+
+        // G. An unreadable source fails the import, which the creation handler
+        //    turns into a refusal to create rather than a silent text-to-video.
+        let missingSource = tmpRoot.appendingPathComponent("does-not-exist.png")
+        t.checkThrows(FilmProjectStore.StoreError.invalidOpeningReferenceSource,
+                      "G: an unreadable source blocks creation instead of falling back") {
+            _ = try store.importOpeningReferenceImage(
+                from: missingSource, projectID: created.id)
+        }
+    }
+
     t.suite("Opening Reference — missing file and compatibility") {
         // G/H. A missing file blocks the shot; it never silently becomes T2V,
         //      and it never silently falls through to the Character Anchor.

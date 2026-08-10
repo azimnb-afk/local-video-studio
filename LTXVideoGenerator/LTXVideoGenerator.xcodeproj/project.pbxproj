@@ -36,6 +36,7 @@
 		AA000192 /* LTXGenerationLogSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000193; };
 		AA000194 /* GenerationFailureRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000195; };
 		AA000290 /* ContinuityStrengthPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000291; };
+		AA0002A6 /* OpeningReferencePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002A7; };
 		AA0002A4 /* OpeningReferenceSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002A5; };
 		AA0002A2 /* OpeningReferencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002A3; };
 		AA0002A0 /* OpeningReferenceImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002A1; };
@@ -111,6 +112,7 @@
 		AA00002E /* AddAudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAudioView.swift; sourceTree = "<group>"; };
 		AA000036 /* CharacterProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterProfile.swift; sourceTree = "<group>"; };
 		AA000291 /* ContinuityStrengthPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityStrengthPolicy.swift; sourceTree = "<group>"; };
+		AA0002A7 /* OpeningReferencePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferencePicker.swift; sourceTree = "<group>"; };
 		AA0002A5 /* OpeningReferenceSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferenceSection.swift; sourceTree = "<group>"; };
 		AA0002A3 /* OpeningReferencePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferencePolicy.swift; sourceTree = "<group>"; };
 		AA0002A1 /* OpeningReferenceImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferenceImage.swift; sourceTree = "<group>"; };
@@ -290,6 +292,7 @@
 			isa = PBXGroup;
 			children = (
 				AA000004 /* ContentView.swift */,
+				AA0002A7 /* OpeningReferencePicker.swift */,
 				AA0002A5 /* OpeningReferenceSection.swift */,
 				AA00029D /* CharacterAnchorSection.swift */,
 				AA000016 /* PromptInputView.swift */,
@@ -407,6 +410,7 @@
 				AA000025 /* APIServer.swift in Sources */,
 				AA00002B /* AudioService.swift in Sources */,
 				AA000290 /* ContinuityStrengthPolicy.swift in Sources */,
+				AA0002A6 /* OpeningReferencePicker.swift in Sources */,
 				AA0002A4 /* OpeningReferenceSection.swift in Sources */,
 				AA0002A2 /* OpeningReferencePolicy.swift in Sources */,
 				AA0002A0 /* OpeningReferenceImage.swift in Sources */,

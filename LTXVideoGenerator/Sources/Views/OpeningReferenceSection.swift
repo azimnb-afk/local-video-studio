@@ -30,7 +30,14 @@ struct OpeningReferenceSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Opening Reference Image (Optional)").font(.headline)
+            HStack(spacing: 6) {
+                Image(systemName: "film.stack")
+                    .foregroundStyle(.secondary)
+                Text("Movie Settings — Opening Reference Image").font(.headline)
+            }
+            Text("Applies to this Auto Movie as a whole, not to any single shot below. Chosen when the movie is created; change it here to affect future renders of the first shot.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -64,18 +71,7 @@ struct OpeningReferenceSection: View {
                 preview
             }
 
-            Text("Use a scene-like image as the visual starting point for the first Auto Movie shot. Later shots continue from the previous shot.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text("For best results, use an image that already contains the intended character, clothing, and scene. Character sheets and plain reference plates may appear directly in the opening frame.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text("映画のワンシーンのような画像を、Auto Movieの1本目の開始画像として使用します。以降のショットは前の映像を引き継ぎます。")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text("人物・服装・背景がすでにシーンとして成立している画像がおすすめです。キャラクターシートや白背景の参照画像は、そのまま開始フレームに現れる場合があります。")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            OpeningReferenceExplanation()
             if reference != nil && project.characterAnchor.isActive {
                 Text("Both are set: the opening reference image is used for the first shot, and the Character Anchor is not.")
                     .font(.caption2)

@@ -591,3 +591,32 @@ not drive blind.
 The logic behind those controls is covered by unit tests — import, replace,
 clear, precedence, missing-file blocking and persistence — and the pipeline half
 was verified by the real 768x512 A/B run.
+
+## 2026-08-11 Opening Reference in creation flow — GUI acceptance PASSED
+
+Canonical Debug app, executable mtime `2026-08-11 06:45`, 1 window at 1680x948.
+Driven end to end with real clicks and a real file panel.
+
+- [x] `+` opens the New Auto Movie dialog.
+- [x] **"Opening Reference Image (Optional)" is inside the dialog**, between
+      Preset/Model and Target Duration — before Generate Movie.
+- [x] "Choose Image…" opens the file panel; selecting an image populates it.
+- [x] Thumbnail renders the chosen scene.
+- [x] Filename shows (`scene_ref.png`).
+- [x] Buttons become "Replace…" and "Clear".
+- [x] Clear returns the control to "Choose Image…" with an empty placeholder.
+- [x] Title and Brief accept input; Generate Movie enables.
+- [x] Create produced a 4-shot Auto Movie and **queued shot 1 immediately**.
+- [x] The project page shows "Movie Settings — Opening Reference Image" with the
+      thumbnail, filename and Replace/Clear, clearly labelled as movie-level.
+- [x] Character Anchor section renders below with its corrected copy.
+- [x] No layout regression at 1680x948.
+
+Verified in the persisted project rather than by eye alone: the movie carries
+`Assets/OpeningReference/opening-reference-<uuid>.png`, and shot 1's queued take
+has that path as its `sourceImagePath` while shots 2–4 have no take yet.
+
+Real generation from the dialog: shot 1 rendered at 768x512 / 121 frames and its
+first frame is the chosen reference, continuing into the same plaza scene. The
+render was preserved as
+`OPENREF_CREATEFLOW_shot01_from_dialog_768x512_*.mp4` for review.

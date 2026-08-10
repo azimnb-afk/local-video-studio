@@ -67,14 +67,15 @@ struct StoryboardView: View {
         .onAppear(perform: refresh)
         .onReceive(refreshTimer) { _ in refresh() }
         .sheet(isPresented: $showNewProjectSheet) {
-            NewStoryboardSheet(isCreating: $isCreating, mode: mode) { projectID, title, brief, settings, characterBible, generateFirstPass in
+            NewStoryboardSheet(isCreating: $isCreating, mode: mode) { projectID, title, brief, settings, characterBible, generateFirstPass, openingReferenceURL in
                 createProject(
                     projectID: projectID,
                     title: title,
                     brief: brief,
                     settings: settings,
                     characterBible: characterBible,
-                    generateFirstPass: generateFirstPass
+                    generateFirstPass: generateFirstPass,
+                    openingReferenceURL: openingReferenceURL
                 )
             }
         }
@@ -161,7 +162,8 @@ struct StoryboardView: View {
         brief: String,
         settings: ProjectSettings,
         characterBible: CharacterBible,
-        generateFirstPass: Bool
+        generateFirstPass: Bool,
+        openingReferenceURL: URL? = nil
     ) {
         isCreating = true
         statusMessage = "Planning storyboard…"
@@ -180,6 +182,23 @@ struct StoryboardView: View {
                 project.workflowMode = mode.workflowValue
                 if mode == .hybrid {
                     project.continuityChainEnabled = true
+                }
+                // Copy the chosen opening reference into the project before the
+                // project is saved, so shot 1's generation request — queued a
+                // few lines below — already resolves it. Importing afterwards
+                // would race the first render.
+                if let openingReferenceURL {
+                    do {
+                        project.openingReferenceImage = try store.importOpeningReferenceImage(
+                            from: openingReferenceURL, projectID: project.id)
+                    } catch {
+                        // Never fall through to text-to-video: the user asked
+                        // the movie to open on a specific image.
+                        store.removeUncommittedProjectAssets(projectID: project.id)
+                        statusMessage = (error as? LocalizedError)?.errorDescription
+                            ?? "Could not import the opening reference image. The Auto Movie was not created."
+                        return
+                    }
                 }
                 store.save(project)
                 if mode == .hybrid, generateFirstPass {
@@ -226,7 +245,7 @@ private struct NewStoryboardSheet: View {
     @EnvironmentObject private var generationService: GenerationService
     @Binding var isCreating: Bool
     let mode: StoryboardWorkspaceMode
-    let onCreate: (UUID, String, String, ProjectSettings, CharacterBible, Bool) -> Void
+    let onCreate: (UUID, String, String, ProjectSettings, CharacterBible, Bool, URL?) -> Void
 
     @State private var title = ""
     @State private var brief = ""
@@ -238,6 +257,9 @@ private struct NewStoryboardSheet: View {
     @State private var width = 768
     @State private var height = 512
     @State private var characterBible = CharacterBible()
+    /// Held as a plain URL until Create: nothing is copied into a project while
+    /// the sheet is open, so cancelling leaves no managed asset behind.
+    @State private var openingReferenceURL: URL?
     @State private var projectID = UUID()
     @AppStorage(DirectorMode.userDefaultsKey) private var directorModeRaw = DirectorMode.auto.rawValue
     @State private var directorSnapshot = DirectorSetupSnapshot.checking(mode: .auto)
@@ -293,6 +315,11 @@ private struct NewStoryboardSheet: View {
                 }
             }
             if mode == .hybrid {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Opening Reference Image (Optional)").font(.subheadline.bold())
+                    OpeningReferencePicker(selection: $openingReferenceURL, compact: true)
+                    OpeningReferenceExplanation()
+                }
                 Stepper("Target Duration: \(targetDuration, specifier: "%.0f")s", value: $targetDuration, in: 5...60, step: 5)
                 Toggle("Generate first pass after planning", isOn: $generateFirstPass)
                     .help("Turn off to review the Character Bible, shot assignments and compiled prompts before rendering.")
@@ -342,7 +369,8 @@ private struct NewStoryboardSheet: View {
                         brief,
                         settings,
                         characterBible,
-                        generateFirstPass
+                        generateFirstPass,
+                        mode == .hybrid ? openingReferenceURL : nil
                     )
                 } label: {
                     if isCreating {
@@ -920,7 +948,7 @@ private struct ShotCard: View {
         if !project.characterBible.characters.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    Text("Starting Image")
+                    Text("Starting Image (this shot only)")
                         .font(.caption.bold())
                         .help("Optional first-frame image anchor. Anchors the initial frame but restricts camera movement, pose, and background. Recommended: None for dynamic shots.")
 
@@ -1005,7 +1033,7 @@ private struct ShotCard: View {
                    FileManager.default.fileExists(atPath: url.path) {
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Starting Image anchors initial frame, pose & background. Select None for dynamic camera movement.")
+                        Text("Overrides this shot's first frame with a Character Bible asset. Separate from the movie-level Opening Reference Image, and takes precedence over it. Select None for dynamic camera movement.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
 

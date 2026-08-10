@@ -715,3 +715,34 @@ Reconciliation, and the 0.8 / 0.5 continuity strengths.
   still unverified: selecting a project row needs a real click, which synthetic
   input cannot do on this SwiftUI list. Listed as outstanding in
   GUI_ACCEPTANCE_CHECKLIST.
+
+## 2026-08-11 Opening Reference moved into Auto Movie creation
+
+The Opening Reference Image is now chosen in the **New Auto Movie sheet**, before
+the movie is planned — the workflow it was always meant to have. It previously
+appeared only on the project page above the shot list, where it read as Shot 1's
+control and came too late to affect the first render (D-061).
+
+The sheet holds a plain file URL and imports nothing while open, so cancelling
+leaves no managed asset. On Create the image is copied into the project and set
+on the model **before** the project is saved and the first shot is queued; a
+failed import refuses creation rather than silently producing a text-to-video
+opening.
+
+The post-creation control remains for Replace/Clear, relabelled "Movie Settings
+— Opening Reference Image" with a subtitle stating it applies to the whole movie
+rather than to any shot below. The shot card's pre-existing per-shot control is
+untouched and now reads "Starting Image (this shot only)", with help text naming
+the movie-level reference and confirming the per-shot override wins (D-062).
+
+Verified in the running app: created a movie from the sheet with a reference
+selected, and the project persisted
+`Assets/OpeningReference/opening-reference-<uuid>.png` while shot 1's queued take
+carried that exact path as its `sourceImagePath` — shots 2–4 had no take yet,
+waiting on continuity.
+
+### Build & verification
+- `swift build`: PASS
+- `swift run LTXTests`: **1038 passed, 0 failed** (1031 + 7)
+- `xcodebuild` Debug clean build: BUILD SUCCEEDED
+- `git diff --check`: PASS

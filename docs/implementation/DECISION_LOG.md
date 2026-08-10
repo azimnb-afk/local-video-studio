@@ -905,3 +905,41 @@ plain background included. The copy now says that plainly and points users at
 the Opening Reference Image for a cinematic opening. The feature itself is kept:
 it remains the quickest way to start from a Character Bible asset, and its
 behaviour is unchanged.
+
+## D-061 (2026-08-11) Opening Reference belongs to movie creation, not to a shot card
+
+The control shipped in the wrong place. It rendered in the project detail view
+above the shot list, which reads as belonging to Shot 1, and it was only
+reachable *after* the movie had already been planned and its first shot queued —
+by which point choosing an opening image is too late to matter.
+
+The Opening Reference is an input to the movie, so it now lives in the New Auto
+Movie sheet alongside Brief, Preset and Target Duration. The sheet holds a plain
+file URL while it is open and imports nothing; the managed copy is made only
+when Create is pressed, so cancelling leaves no project asset behind.
+
+Ordering is the part that had to be exact. `createProject` imports the image and
+sets `project.openingReferenceImage` **before** `store.save(project)`, and the
+first shot is queued after that save. Importing afterwards would have raced the
+first render and produced a movie whose opening ignored the chosen image. A test
+covers that order directly rather than trusting the call sequence to stay put.
+
+An import failure at Create refuses to create the movie and says why, instead of
+quietly producing a text-to-video opening the user did not ask for.
+
+## D-062 (2026-08-11) Three image controls, told apart by where they live
+
+Auto Movie now has three places an image can enter, and the risk is a user
+confusing them. They are separated by scope and labelled accordingly:
+
+- **New Auto Movie sheet — Opening Reference Image**: the primary path. Chosen
+  before the movie exists.
+- **Project page — "Movie Settings — Opening Reference Image"**: the same value
+  after creation, for Replace/Clear. Its subtitle says it applies to the movie as
+  a whole, not to any shot below it.
+- **Shot card — "Starting Image (this shot only)"**: the pre-existing per-shot
+  Character Bible override, untouched. Its help text now names the movie-level
+  reference and states that the per-shot override wins.
+
+Precedence is unchanged: explicit per-shot starting image, then opening
+reference, then Character Anchor, then text-to-video.

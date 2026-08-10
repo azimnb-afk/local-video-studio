@@ -556,28 +556,38 @@ unit tests (resolution, preference order, precedence, persistence, missing-file
 blocking) and it compiles into the Auto Movie detail path, but a human should
 open a project once to confirm the layout reads well.
 
-## 2026-08-11 Opening Reference Image — GUI acceptance NOT COMPLETED
+## 2026-08-11 Opening Reference Image GUI check (partial)
 
-Debug clean build succeeded with the three new files registered in the Xcode
-project, and the app launches (process runs). **Visual GUI acceptance could not
-be performed:** this ran overnight and the display was asleep, so
-`screencapture` returns an all-black frame and the window reports no usable
-geometry. Waking the display is a user-facing action, not something to force
-while the machine is unattended.
+Canonical Debug app, executable mtime `2026-08-11 04:58`, 1 window at 1680x948.
+The display was asleep when this first ran and screen capture returned black; it
+woke later in the session and the checks below were then completed.
 
-So nothing about the on-screen result is claimed for this change. Outstanding
-for a human to check when back at the machine:
+Verified:
 
-- [ ] Sidebar and all five pages render normally at 1680x948.
-- [ ] Auto Movie project loads with the new `openingReferenceImage` field.
-- [ ] "Opening Reference Image (Optional)" section appears above Character
-      Anchor.
+- [x] Sidebar shows Generate / One Shot / Storyboard / Director / Auto Movie
+  (Sora 2-like connected shots) / Video Archive, pinned at the top.
+- [x] Storyboard page loads and lists its projects.
+- [x] Auto Movie page header and bilingual descriptions render.
+- [x] **All eight existing Auto Movie projects load with correct shot and
+  selected-take counts after `openingReferenceImage` was added to the schema** —
+  the backward-compatibility check that mattered most.
+- [x] New Auto Movie sheet opens and dismisses cleanly.
+- [x] No layout inflation at 1680x948.
+
+**Still unverified — needs a human at the keyboard:** the Opening Reference
+Image section itself and its Choose / Replace / Clear controls, which live
+inside a project's detail view. Selecting a project row requires a real click;
+synthetic clicks and accessibility traversal both fail on this SwiftUI list, as
+in every previous pass, and the file picker is a modal panel automation should
+not drive blind.
+
+- [ ] Open an Auto Movie project and confirm "Opening Reference Image
+      (Optional)" appears above Character Anchor.
 - [ ] Choose Image… imports and shows a thumbnail plus filename.
 - [ ] Replace… switches to a new image; Clear removes it.
-- [ ] With both set, the note explaining that the opening reference wins is
-      visible.
-- [ ] Character Anchor section still renders with its corrected copy.
+- [ ] With both set, the note that the opening reference wins is visible.
+- [ ] Character Anchor section renders with its corrected copy.
 
-The behaviour behind those controls is covered by unit tests — import, replace,
+The logic behind those controls is covered by unit tests — import, replace,
 clear, precedence, missing-file blocking and persistence — and the pipeline half
 was verified by the real 768x512 A/B run.

@@ -709,6 +709,9 @@ Reconciliation, and the 0.8 / 0.5 continuity strengths.
 - `swift run LTXTests`: **1031 passed, 0 failed** (1001 + 30)
 - `xcodebuild` Debug clean build: BUILD SUCCEEDED
 - `git diff --check`: PASS
-- GUI acceptance: **not performed** — ran overnight with the display asleep,
-  so screen capture returns black. The on-screen result is unverified and is
-  listed as outstanding in GUI_ACCEPTANCE_CHECKLIST.
+- GUI acceptance: **partial** — sidebar, Storyboard, Auto Movie page and all
+  eight existing projects load correctly with the extended schema, and there is
+  no layout regression. The Opening Reference section inside project detail is
+  still unverified: selecting a project row needs a real click, which synthetic
+  input cannot do on this SwiftUI list. Listed as outstanding in
+  GUI_ACCEPTANCE_CHECKLIST.

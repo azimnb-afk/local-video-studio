@@ -68,6 +68,7 @@
 		AA000240 /* StoryboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000241; };
 		AA000242 /* CharacterSheetAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000243; };
 		AA000244 /* CharacterReferenceExtraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000245; };
+		AA000300 /* ImageConditioningPreparer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000301; };
 		AA000246 /* CharacterReferenceExtractionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000247; };
 		AA000200 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000201; };
 		AA000202 /* ModelRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000203; };
@@ -159,6 +160,7 @@
 		AA000241 /* StoryboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryboardView.swift; sourceTree = "<group>"; };
 		AA000243 /* CharacterSheetAnalysis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterSheetAnalysis.swift; sourceTree = "<group>"; };
 		AA000245 /* CharacterReferenceExtraction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterReferenceExtraction.swift; sourceTree = "<group>"; };
+		AA000301 /* ImageConditioningPreparer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageConditioningPreparer.swift; sourceTree = "<group>"; };
 		AA000247 /* CharacterReferenceExtractionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterReferenceExtractionView.swift; sourceTree = "<group>"; };
 		AA000201 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlags.swift; sourceTree = "<group>"; };
 		AA000203 /* ModelRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelRegistry.swift; sourceTree = "<group>"; };
@@ -322,6 +324,7 @@
 				AA00022B /* FilmProjectStore.swift */,
 				AA000243 /* CharacterSheetAnalysis.swift */,
 				AA000245 /* CharacterReferenceExtraction.swift */,
+				AA000301 /* ImageConditioningPreparer.swift */,
 				AA00022D /* TakeGenerationCoordinator.swift */,
 				AA00022F /* APIv1Handler.swift */,
 				AA000231 /* LocalAPIServer.swift */,
@@ -511,6 +514,7 @@
 				AA00022A /* FilmProjectStore.swift in Sources */,
 				AA000242 /* CharacterSheetAnalysis.swift in Sources */,
 				AA000244 /* CharacterReferenceExtraction.swift in Sources */,
+				AA000300 /* ImageConditioningPreparer.swift in Sources */,
 				AA00022C /* TakeGenerationCoordinator.swift in Sources */,
 				AA00022E /* APIv1Handler.swift in Sources */,
 				AA000230 /* LocalAPIServer.swift in Sources */,

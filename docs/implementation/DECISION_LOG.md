@@ -1415,3 +1415,37 @@ semantics. Historical-versus-new same-seed visual determinism is not proven,
 and the two new outputs even contain 117 versus 119 readable frames. The next
 gate is one exact A repeat; only after repeatability should an aspect-only pair
 be designed with the content window held constant.
+
+## D-085 (2026-08-11) Correct arbitrary-aspect conditioning at the common backend boundary
+
+The mandatory exact Condition A repeat resolved D-084's determinism gate. A2
+used the same saved input bytes, 1,834-byte prompt, seed, Q4 model, 4-bit encoder,
+768x512/121f/24fps, requested steps, strength, audio and backend. Its MP4 and all
+117 decoded frames equal A1 exactly, and dense review again found no geometric
+collapse. **REPEAT PASS.**
+
+Implement geometry correction once in `LTXBridge`, after effective quality
+resolution and immediately before the actual backend image path is escaped.
+`ImageConditioningPreparer` uses the final canvas, keeps exact-size inputs as a
+no-op and otherwise performs deterministic centered aspect-preserving
+scale-to-fill/crop to a cached PNG. It never stretches or pads, never selects a
+face/subject crop, and never overwrites the canonical asset. Vision, prompt
+analysis, UI, Take provenance and source precedence continue to use the
+canonical source.
+
+This common boundary is intentionally broader than Opening Reference because
+Generate, One Shot, Storyboard/Auto Movie, explicit Starting Image, Character
+Anchor, continuity and Adaptive Identity Refresh all reach the same installed
+hard-resize function. It is conservative: correctly sized continuity/refresh
+frames pass through unchanged. Queue scheduling and Adaptive Identity Refresh
+policy/resolver/provenance are not changed.
+
+The real production project imported the original 1672x941 source and passed a
+768x512 derived image retaining `(131, 0, 1410, 940)` source pixels. Its first
+Shot had mild smooth identity drift but no f64/f84-style melt; hair, costume,
+scene and slow push-in remained useful. Four Shots completed sequentially and
+assembled. Accept this as **PASS — OPENING REFERENCE ASPECT FIX PRODUCTION
+ACCEPTED**, while explicitly retaining the limitation that aspect correction
+does not guarantee facial identity. Do not infer a need for automatic tight
+identity cropping; B's pull-back and invented unseen boots remain the reason to
+reject it.

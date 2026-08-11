@@ -6,6 +6,14 @@ Starting HEAD: `3799b31`
 
 Classification: **PASS — ASPECT-PRESERVING INPUT IS THE STRONGER LEVER**
 
+> Production follow-up: the mandatory exact Condition A repeat used the same
+> input bytes and complete generation state. A2 was byte-for-byte identical to
+> A1 and again contained no geometric melt (**REPEAT PASS**). The app now applies
+> centered aspect-preserving scale-to-fill/crop at the common backend I2V
+> boundary. A real Auto Movie with the untouched original 1672x941 image used
+> the same `(131, 0, 1410, 940)` content window and avoided Historical H's severe
+> f64/f84 collapse. See `OPENING_REFERENCE_ASPECT_FIX_EVAL.md`.
+
 ## Question and freeze
 
 The retained historical Shot 1 failed inside raw generation, with its strongest
@@ -200,10 +208,11 @@ not visually hidden from this backend: LTX starts tighter, then performs a large
 compensating reframe and hallucinates omitted costume details. The user's
 Opening Reference semantics would change even if its UI image stayed untouched.
 
-The next highest-value generation is one **exact repeat of condition A**. If its
-no-melt result repeats, the following pair can isolate non-uniform aspect
-distortion while holding the content window constant. Until repeatability is
-established, production preprocessing and rejection logic remain frozen.
+The next gate was one **exact repeat of condition A**. That repeat completed and
+was byte-for-byte identical to A1; dense review again found no melt. This closed
+the repeatability gate and authorized the narrowly scoped production geometry
+fix documented in `OPENING_REFERENCE_ASPECT_FIX_EVAL.md`. Frame/take rejection
+logic remains frozen.
 
 ## Review files
 
@@ -235,7 +244,8 @@ Generated PNG/MP4 evidence is not committed.
   unchanged
 - GUI acceptance: not claimed; no UI change exists
 
-Known limitation: same-seed byte-level and visual determinism is unproven. The
-evaluation establishes that both new aspect-preserved inputs avoided the
-historical transient and that A did so at nearly H's face scale. It does not
-prove which individual pixel transformation is solely causal.
+Known limitation at the time of this calibration was that same-seed byte-level
+and visual determinism had not been proven. The exact follow-up A repeat removed
+that limitation for this saved condition by producing the same MP4 bytes. This
+still does not establish global determinism across environments, nor does
+aspect correction provide an identity guarantee.

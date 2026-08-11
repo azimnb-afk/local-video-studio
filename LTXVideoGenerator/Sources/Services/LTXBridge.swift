@@ -127,7 +127,7 @@ class LTXBridge {
             pythonHome = nil
             return
         }
-        
+
         // Use PythonEnvironment's path detection to handle both executable and dylib paths
         let pathType = PythonEnvironment.shared.detectPathType(savedPath)
         
@@ -207,6 +207,10 @@ class LTXBridge {
         }
         
         let params = request.parameters
+        // These are the exact dimensions passed to mlx_video below. Image
+        // conditioning must target this effective canvas, not a preset label.
+        let genWidth = (params.width / 64) * 64
+        let genHeight = (params.height / 64) * 64
         let seed = params.seed ?? Int.random(in: 0..<Int(Int32.max))
         
         let selectedModel = LTXModelCatalog.resolvedModel(id: request.modelId)
@@ -262,6 +266,41 @@ class LTXBridge {
             }
         }
 
+        // Prompt enhancement and all user-facing/project metadata continue to
+        // reference the canonical source above. Only the path handed to the
+        // video backend is replaced by an aspect-correct derived PNG.
+        let preparedConditioning: PreparedImageConditioning?
+        do {
+            preparedConditioning = try ImageConditioningPreparer.shared.prepare(request: request)
+        } catch let preparationError as ImageConditioningPreparationError {
+            throw LTXError.generationFailed(
+                "Unable to prepare the Starting Image: \(preparationError.localizedDescription)"
+            )
+        } catch {
+            throw LTXError.generationFailed(
+                "Unable to prepare the Starting Image: \(error.localizedDescription)"
+            )
+        }
+        if let preparedConditioning {
+            let geometry = preparedConditioning.geometry
+            let preparationSeconds = String(
+                format: "%.4f", preparedConditioning.preparationSeconds
+            )
+            if preparedConditioning.isDerived {
+                progressHandler(0.08, "Preparing Starting Image without aspect distortion...")
+            }
+            print(
+                "IMAGE_CONDITIONING mode=\(preparedConditioning.mode.rawValue) "
+                + "source=\(preparedConditioning.sourceURL.path) "
+                + "prepared=\(preparedConditioning.preparedURL.path) "
+                + "sourceSize=\(geometry.sourceWidth)x\(geometry.sourceHeight) "
+                + "crop=\(geometry.cropX),\(geometry.cropY),\(geometry.cropWidth),\(geometry.cropHeight) "
+                + "target=\(genWidth)x\(genHeight) "
+                + "seconds=\(preparationSeconds)"
+            )
+        }
+        let backendSourceImagePath = preparedConditioning?.preparedURL.path
+
         // Escape the prompt for Python
         let escapedPrompt = generationPrompt
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -273,16 +312,12 @@ class LTXBridge {
             .replacingOccurrences(of: "\n", with: "\\n")
         
         // Escape source image path if provided
-        let escapedImagePath = request.sourceImagePath?
+        let escapedImagePath = backendSourceImagePath?
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"") ?? ""
         
         // Log file path
         let logFile = "/tmp/ltx_generation.log"
-        
-        // Ensure dimensions are divisible by 64 for MLX
-        let genWidth = (params.width / 64) * 64
-        let genHeight = (params.height / 64) * 64
         
         let script: String
         // LTX-2 Unified - uses mlx-video-with-audio package

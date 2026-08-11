@@ -135,6 +135,11 @@ struct OpeningReferenceSection: View {
             // Replacing removes the copy it supersedes so the project does not
             // accumulate orphaned stills. The user's original is never touched.
             if let previous = stored.openingReferenceImage {
+                if let sourceURL = store.managedProjectAssetURL(
+                    projectID: project.id, relativePath: previous.projectRelativePath
+                ) {
+                    ImageConditioningPreparer.shared.invalidate(sourceURL: sourceURL)
+                }
                 store.removeManagedOpeningReference(projectID: project.id, reference: previous)
             }
             stored.openingReferenceImage = imported
@@ -151,6 +156,11 @@ struct OpeningReferenceSection: View {
     private func clear() {
         guard var stored = store.project(id: project.id),
               let existing = stored.openingReferenceImage else { return }
+        if let sourceURL = store.managedProjectAssetURL(
+            projectID: project.id, relativePath: existing.projectRelativePath
+        ) {
+            ImageConditioningPreparer.shared.invalidate(sourceURL: sourceURL)
+        }
         store.removeManagedOpeningReference(projectID: project.id, reference: existing)
         stored.openingReferenceImage = nil
         OpeningReferenceSync.invalidateIfStale(project: &stored)

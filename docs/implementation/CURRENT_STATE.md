@@ -976,3 +976,38 @@ isolate an aspect-preserving, scene-compatible larger-face crop while holding
 the exact failing prompt/seed/settings constant and reviewing every 4–5 frames.
 See `ORIGINAL_FACE_MELT_FORENSIC.md`; review evidence is preserved as
 `FACEMELT_*` in the Videos folder.
+
+## 2026-08-11 Opening Reference aspect-preserving production fix
+
+**Status: PASS — OPENING REFERENCE ASPECT FIX PRODUCTION ACCEPTED.** The exact
+Condition A input/prompt/seed/model/encoder/settings were rerun once before any
+source change. A2 completed in 278.3 s backend time with 117 readable frames
+and was byte-for-byte identical to A1. Dense review again found no geometric
+face melt, so the repeat gate passed.
+
+`ImageConditioningPreparer` now forms the single backend-facing geometry
+boundary for official LTX I2V requests. Arbitrary-aspect sources are converted
+to the final effective 64-pixel-aligned canvas with deterministic centered
+scale-to-fill/crop; exact-size continuity and generated refresh frames are
+passed through unchanged. There is no stretch, padding, face/subject/Vision
+crop or user option. The canonical source remains unchanged and continues to
+feed the UI, Vision, prompt enhancement, project metadata and Take provenance;
+only the path sent to `mlx_video.generate_av` uses the cached PNG.
+
+The real canonical-app Auto Movie project
+`A0058572-38A4-47C5-8E2F-79A0CBE92F86` imported the untouched 1672x941 failing
+source. The backend received a 768x512 derived image from source rectangle
+`(131, 0, 1410, 940)`. Shot 1 completed in 290.748 s with 117 readable frames.
+Every fourth frame was directly reviewed: mild identity drift remains around
+0.83–1.0 s, but H's f64/2.667 s melt onset and f84/3.500 s severe collapse do
+not recur. Hair, costume, flag, scene and wide-to-medium push-in remain coherent.
+All four shots completed sequentially and assembled to a valid 20.061333 s
+768x512 H.264/AAC movie. GUI displayed the original thumbnail and reported
+`Completed movie ready`.
+
+Source precedence, Adaptive Identity Refresh policy/resolver/provenance and
+Production Queue behavior are frozen. Opening Reference Replace/Clear now also
+invalidates its internal derivative. Validation: `swift build` PASS,
+`swift run LTXTests` **1316 passed / 0 failed**, Xcode clean build succeeded and
+`git diff --check` passed. See `OPENING_REFERENCE_ASPECT_FIX_EVAL.md`; review
+media is preserved as `FACEMELT_ASPECT_*` and `ASPECTFIX_*` in Videos.

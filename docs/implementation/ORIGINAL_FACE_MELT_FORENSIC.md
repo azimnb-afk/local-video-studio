@@ -11,7 +11,13 @@ Classification: **PASS — TRANSIENT RAW FAILURE IDENTIFIED**
 > the transient; tighter B also remained clean but forced a pull-back and
 > invented omitted boot details. Current classification is that aspect-preserved
 > input is the stronger observed lever, not that a hidden face crop is ready for
-> production. See `FACE_SCALE_ISOLATION_EVAL.md`.
+> production. A subsequent exact A repeat was byte-identical and remained clean.
+> The common production I2V boundary now prepares arbitrary-aspect inputs with
+> centered scale-to-fill/crop, and a real Auto Movie using this untouched
+> 1672x941 source avoided the f64/f84 geometric melt. Mild identity drift remains;
+> no face-aware crop or identity guarantee was added. See
+> `FACE_SCALE_ISOLATION_EVAL.md` and
+> `OPENING_REFERENCE_ASPECT_FIX_EVAL.md`.
 
 ## Executive finding
 

@@ -936,3 +936,19 @@ generative beat variance, not a refresh/source-selection failure.
 - `xcodebuild ... CODE_SIGNING_ALLOWED=NO clean build`: **BUILD SUCCEEDED**
 - Review copies: `IDREFRESH_ACCEPT_*_20260811_183800` under the Videos folder;
   `history.json` was not edited.
+
+## 2026-08-11 Opening Shot Identity Protection calibration
+
+**Status: REJECTED — no production implementation.** A controlled Shot 1 A/B
+used the newest real Auto Movie Opening Reference and held source, full prompt,
+seed, Q4 model, 4-bit encoder, 768x512/121f/24fps, audio and image strength 1.0
+constant. B changed only `slow push-in + arc` to explicit static/no-reframe
+wording.
+
+B did not improve identity. Its clearest transient at 20% was worse than A
+(Face/Hair/Identity 1/1/1 versus A's usable drift), and local Vision independently
+flagged the same frame. The backend also continued to evolve the composition
+despite static wording. Therefore no Shot-1 risk policy, persisted provenance,
+UI, Queue, Vision Sync or Adaptive Identity Refresh code was changed. See
+`OPENING_SHOT_IDENTITY_PROTECTION_EVAL.md`; review media is preserved as
+`OPENSHOTID_*_20260811_201500` in the Videos folder.

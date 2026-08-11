@@ -1352,3 +1352,24 @@ This closes the missing positive half of D-079. Freeze the architecture as:
 normal continuity -> risk assessment -> existing-anchor reuse -> generated
 refresh fallback. Further identity-backend expansion is not justified by this
 acceptance; next work is observability, performance and product polish.
+
+## D-082 (2026-08-11) Do not productize prompt-only Opening Shot protection
+
+The implementation gate compared a real completed Auto Movie Shot 1 against an
+otherwise identical render. Source, full appearance/scene/action/audio prompt,
+seed, model, encoder, 768x512/121f/24fps profile, strength and audio were fixed;
+only the requested slow push-in/arc became explicit static/no-reframe wording.
+
+The protected condition did not improve identity and was transiently worse at
+20%. Direct frame review and the installed local Vision model both found its
+strongest face/hair morph there. Static wording also failed to make the measured
+composition static. The control was scene- and narrative-coherent and did not
+show the catastrophic failure strongly enough at the required samples to justify
+a general detector.
+
+The gate therefore rejects production implementation. Do not add a Shot-1 risk
+heuristic, automatic prompt rewrite or provenance field from this evidence, and
+do not involve Adaptive Identity Refresh or Production Queue. A future gate must
+start from the exact catastrophic case or a verified tiny-face reference and
+must demonstrate that the proposed intervention changes actual motion and beats
+the control before code is added.

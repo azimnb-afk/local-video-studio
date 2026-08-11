@@ -41,6 +41,11 @@
 		AA0002B4 /* ProductionQueueCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002B5; };
 		AA0002B2 /* ProductionQueueStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002B3; };
 		AA0002B0 /* ProductionJob.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002B1; };
+		AA0002C0 /* OpeningReferenceAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002C1; };
+		AA0002C2 /* OpeningReferenceAppearanceAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002C3; };
+		AA0002C4 /* OpeningReferenceAppearanceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002C5; };
+		AA0002C6 /* OpeningReferenceSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002C7; };
+		AA0002C8 /* ContinuationPromptPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002C9; };
 		AA0002A6 /* OpeningReferencePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002A7; };
 		AA0002A4 /* OpeningReferenceSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002A5; };
 		AA0002A2 /* OpeningReferencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002A3; };
@@ -122,6 +127,11 @@
 		AA0002B5 /* ProductionQueueCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionQueueCoordinator.swift; sourceTree = "<group>"; };
 		AA0002B3 /* ProductionQueueStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionQueueStore.swift; sourceTree = "<group>"; };
 		AA0002B1 /* ProductionJob.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionJob.swift; sourceTree = "<group>"; };
+		AA0002C1 /* OpeningReferenceAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferenceAppearance.swift; sourceTree = "<group>"; };
+		AA0002C3 /* OpeningReferenceAppearanceAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferenceAppearanceAnalyzer.swift; sourceTree = "<group>"; };
+		AA0002C5 /* OpeningReferenceAppearanceSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferenceAppearanceSession.swift; sourceTree = "<group>"; };
+		AA0002C7 /* OpeningReferenceSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferenceSync.swift; sourceTree = "<group>"; };
+		AA0002C9 /* ContinuationPromptPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuationPromptPolicy.swift; sourceTree = "<group>"; };
 		AA0002A7 /* OpeningReferencePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferencePicker.swift; sourceTree = "<group>"; };
 		AA0002A5 /* OpeningReferenceSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferenceSection.swift; sourceTree = "<group>"; };
 		AA0002A3 /* OpeningReferencePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferencePolicy.swift; sourceTree = "<group>"; };
@@ -242,6 +252,7 @@
 				AA000207 /* OneShotPlan.swift */,
 				AA000209 /* FilmProject.swift */,
 				AA0002B1 /* ProductionJob.swift */,
+				AA0002C1 /* OpeningReferenceAppearance.swift */,
 				AA0002A1 /* OpeningReferenceImage.swift */,
 				AA000297 /* CharacterAnchor.swift */,
 			);
@@ -264,6 +275,10 @@
 				AA0002B7 /* ProductionQueueService.swift */,
 				AA0002B5 /* ProductionQueueCoordinator.swift */,
 				AA0002B3 /* ProductionQueueStore.swift */,
+				AA0002C3 /* OpeningReferenceAppearanceAnalyzer.swift */,
+				AA0002C5 /* OpeningReferenceAppearanceSession.swift */,
+				AA0002C7 /* OpeningReferenceSync.swift */,
+				AA0002C9 /* ContinuationPromptPolicy.swift */,
 				AA0002A3 /* OpeningReferencePolicy.swift */,
 				AA00029B /* CharacterAnchorPolicy.swift */,
 				AA000299 /* CharacterAnchorResolver.swift */,
@@ -430,6 +445,11 @@
 				AA0002B4 /* ProductionQueueCoordinator.swift in Sources */,
 				AA0002B2 /* ProductionQueueStore.swift in Sources */,
 				AA0002B0 /* ProductionJob.swift in Sources */,
+				AA0002C0 /* OpeningReferenceAppearance.swift in Sources */,
+				AA0002C2 /* OpeningReferenceAppearanceAnalyzer.swift in Sources */,
+				AA0002C4 /* OpeningReferenceAppearanceSession.swift in Sources */,
+				AA0002C6 /* OpeningReferenceSync.swift in Sources */,
+				AA0002C8 /* ContinuationPromptPolicy.swift in Sources */,
 				AA0002A6 /* OpeningReferencePicker.swift in Sources */,
 				AA0002A4 /* OpeningReferenceSection.swift in Sources */,
 				AA0002A2 /* OpeningReferencePolicy.swift in Sources */,

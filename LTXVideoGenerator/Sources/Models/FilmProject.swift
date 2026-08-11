@@ -875,6 +875,11 @@ struct FilmProject: Codable, Equatable, Identifiable {
     /// precedence over `characterAnchor`, which points at a Character Bible
     /// asset rather than at a frame. Absent in older projects.
     var openingReferenceImage: OpeningReferenceImage?
+    /// What local vision saw in `openingReferenceImage`. Derived state: it is
+    /// only trusted while `sourceRelativePath` still matches the attached
+    /// image, so replacing or clearing the reference cannot leave a stale
+    /// costume behind.
+    var openingReferenceAppearance: OpeningReferenceAppearance?
 
     init(id: UUID = UUID(), title: String) {
         self.id = id
@@ -887,7 +892,8 @@ struct FilmProject: Codable, Equatable, Identifiable {
              requestedDirectorMode, effectiveDirectorMode, settings,
              storyBible, characterBible, shots, jobs,
              lastAssemblySignature, assembledMoviePath, assembledAt,
-             continuityChainEnabled, characterAnchor, openingReferenceImage
+             continuityChainEnabled, characterAnchor, openingReferenceImage,
+             openingReferenceAppearance
     }
 
     init(from decoder: Decoder) throws {
@@ -918,6 +924,10 @@ struct FilmProject: Codable, Equatable, Identifiable {
             ?? CharacterAnchor()
         openingReferenceImage = try container.decodeIfPresent(
             OpeningReferenceImage.self, forKey: .openingReferenceImage)
+        // Absent in every project written before this feature; those simply
+        // have no derived appearance, which is the correct answer for them.
+        openingReferenceAppearance = try container.decodeIfPresent(
+            OpeningReferenceAppearance.self, forKey: .openingReferenceAppearance)
     }
 
     mutating func touch() {

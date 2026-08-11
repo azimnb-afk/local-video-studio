@@ -54,6 +54,24 @@ struct OpeningReferenceSection: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
+                    // What the app actually read out of this image. Shown
+                    // because the character description used for every shot now
+                    // comes from here rather than from a guess.
+                    if reference != nil, let appearance = project.openingReferenceAppearance {
+                        Label(
+                            "Opening appearance: \(appearance.statusDescription)",
+                            systemImage: appearance.isUsable
+                                ? "checkmark.circle" : "info.circle"
+                        )
+                        .font(.caption2)
+                        .foregroundStyle(appearance.isUsable ? .green : .secondary)
+                        if appearance.isUsable, !appearance.costumeSummary.isEmpty {
+                            Text(appearance.costumeSummary)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                    }
                     if isMissing {
                         Label(OpeningReferenceIssue.fileMissing.message,
                               systemImage: "exclamationmark.triangle.fill")

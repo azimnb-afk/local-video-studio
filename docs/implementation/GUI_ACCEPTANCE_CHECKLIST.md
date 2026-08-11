@@ -666,3 +666,28 @@ overwritten): `QUEUE_ACCEPT_A_*_final.mp4` (25.07 s, 5 shots) and
 Known cosmetic gap, not fixed: a completed job keeps its last `stageDescription`
 ("Assembling") in the persisted record. The panel hides progress text for
 terminal states, so nothing wrong is displayed; only the JSON looks stale.
+
+## 2026-08-11 Opening Reference Vision Appearance Sync — GUI acceptance PASS
+
+Canonical Debug app rebuilt after the vision-sync and CONTINUE-policy changes.
+One real Auto Movie (`VB NEW`) created and run end to end, 15:09–15:28.
+
+- [x] New Auto Movie dialog opens; title and brief accept input.
+- [x] Opening Reference **Choose Image…** opens the panel, selection applies, and
+      the thumbnail renders in the dialog.
+- [x] **Generate Movie** creates the project and enqueues it normally.
+- [x] **New status line** renders in the project view:
+      `✓ Opening appearance: Analysed locally` in green, with the derived costume
+      (`white blouse with blue vest and bow tie, dark skirt, light-colored cape`)
+      beneath it.
+- [x] Character section shows the synced Bible — hair `brown, shoulder-length`
+      and the correct default costume. **No "Beige trench coat".**
+- [x] **Replace…** and **Clear** both present on an attached reference.
+- [x] Production Queue panel visible; the job ran and reported Completed.
+- [x] "Completed movie ready" banner with Play / Reveal.
+- [x] Sidebar intact — Generate / One Shot / Storyboard / Auto Movie / Video
+      Archive — no layout inflation at 1680x948.
+
+Not exercised on screen: Replace/Clear invalidation of the derived appearance was
+verified by unit test rather than in the GUI, because clearing the reference on
+this project would have destroyed the E2E evidence it holds.

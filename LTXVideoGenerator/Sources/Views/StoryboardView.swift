@@ -177,36 +177,60 @@ struct StoryboardView: View {
         Task {
             defer { isCreating = false }
             do {
+                // The opening reference is imported and read *before* planning.
+                // When the Director ran first it invented a costume from the
+                // brief text alone, and every compiled prompt then contradicted
+                // the image the movie opens on (D-071).
+                var importedOpeningReference: OpeningReferenceImage?
+                var openingAppearance: OpeningReferenceAppearance?
+                if let openingReferenceURL {
+                    do {
+                        importedOpeningReference = try store.importOpeningReferenceImage(
+                            from: openingReferenceURL, projectID: projectID)
+                    } catch {
+                        // Never fall through to text-to-video: the user asked
+                        // the movie to open on a specific image.
+                        store.removeUncommittedProjectAssets(projectID: projectID)
+                        statusMessage = (error as? LocalizedError)?.errorDescription
+                            ?? "Could not import the opening reference image. The Auto Movie was not created."
+                        return
+                    }
+                    if let importedOpeningReference {
+                        statusMessage = "Reading the opening reference…"
+                        openingAppearance = await OpeningReferenceAppearanceSession.analyse(
+                            image: importedOpeningReference, projectID: projectID, store: store)
+                    }
+                }
+                // Planning starts from a Bible that already agrees with the
+                // image, so the Director has nothing to contradict.
+                let planningBible = OpeningReferenceSync.seedBible(
+                    from: openingAppearance, existing: characterBible)
+
+                statusMessage = "Planning storyboard…"
                 var (project, violations, _) = mode == .hybrid
                     ? try await HybridProjectCoordinator().makeProject(
                         projectID: projectID, title: title, brief: brief,
-                        settings: settings, characterBible: characterBible
+                        settings: settings, characterBible: planningBible
                     )
                     : try await StoryboardDirector().makeProject(
                         projectID: projectID, title: title, brief: brief,
-                        settings: settings, characterBible: characterBible
+                        settings: settings, characterBible: planningBible
                     )
                 project.workflowMode = mode.workflowValue
                 if mode == .hybrid {
                     project.continuityChainEnabled = true
                 }
-                // Copy the chosen opening reference into the project before the
-                // project is saved, so shot 1's generation request — queued a
-                // few lines below — already resolves it. Importing afterwards
-                // would race the first render.
-                if let openingReferenceURL {
-                    do {
-                        project.openingReferenceImage = try store.importOpeningReferenceImage(
-                            from: openingReferenceURL, projectID: project.id)
-                    } catch {
-                        // Never fall through to text-to-video: the user asked
-                        // the movie to open on a specific image.
-                        store.removeUncommittedProjectAssets(projectID: project.id)
-                        statusMessage = (error as? LocalizedError)?.errorDescription
-                            ?? "Could not import the opening reference image. The Auto Movie was not created."
-                        return
-                    }
-                }
+                // Already imported above, before planning. Attaching it here
+                // still happens before `save`, so shot 1's generation request —
+                // queued a few lines below — resolves it exactly as before.
+                project.openingReferenceImage = importedOpeningReference
+                project.openingReferenceAppearance = openingAppearance
+                // The Director may still have produced its own character. Image
+                // evidence supersedes an auto-generated guess, and never
+                // overwrites anything the user authored.
+                project.characterBible = OpeningReferenceSync.apply(
+                    appearance: openingAppearance, to: project.characterBible)
+                CharacterPromptPipeline.recompile(project: &project)
                 store.save(project)
                 if mode == .hybrid, generateFirstPass {
                     if !DependencyHealthManager.shared.isGenerationReady {

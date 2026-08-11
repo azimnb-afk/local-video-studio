@@ -1176,3 +1176,73 @@ reference sheet we explicitly want destroyed, so "keep everything consistent wit
 the input image" is the wrong instruction. Any future Director split must scope
 change-focused prompting to CONTINUE/I2V shots and leave the bridge prompt
 appearance-directive.
+
+## D-074 (2026-08-11) The Opening Reference is read before the Director plans
+
+Fixing D-071 at its source rather than downstream. Two things were wrong and
+both were ordering, not modelling.
+
+`StoryboardView.create()` called the Director first and imported the Opening
+Reference afterwards, so the plan could not have seen the image. And
+`StoryboardDirector` seeded an empty Character Bible from
+`draft.initialState.characterOutfit` — the LLM's guess from brief text. The
+guess then reached every render through `PromptCompiler`'s
+`Current costume: …` line.
+
+The flow is now: import the managed asset, analyse it with local vision, seed the
+Bible from what was seen, plan, apply the evidence again over anything the
+Director still produced, recompile, save, enqueue. The Director is handed a Bible
+that already matches the image, so there is nothing left for it to contradict.
+
+Precedence is explicit: user-authored appearance, then image evidence, then the
+Director's guess, then no claim. An entry counts as user-authored when it carries
+reference assets, locked traits or prose the Director never writes — the seeding
+path sets only name and costume, so a placeholder is recognisable and may be
+superseded while anything richer may not.
+
+Nothing is invented when vision is missing, malformed, or sees several people;
+all three apply no appearance at all. Ambiguity is deliberately a refusal:
+guessing which of two people is the protagonist would write the wrong costume
+into every prompt, which is the failure being fixed.
+
+No second vision backend was added — model selection and the request both reuse
+the Character Sheet importer's existing loopback Ollama path.
+
+## D-075 (2026-08-11) CONTINUE shots describe the change, not the character
+
+`CharacterPromptPipeline` emitted the full appearance block for every shot
+regardless of continuity mode. A CONTINUE shot begins from the previous shot's
+last frame, where the character, clothes, place and light already exist, so that
+block made the text argue with the picture.
+
+CONTINUE shots now carry one compact continuity statement plus only the fields
+that actually differ between the state entering the shot and the state after its
+explicit changes. A real wardrobe change is still described; an unchanged one is
+not restated. CUT, auto and T2V keep the existing descriptive policy unchanged —
+auto included, because the run coordinator may resolve it to a cut and a
+continuation with no source frame would be ungrounded.
+
+The Temporal Bridge is excluded by construction: it is not a Shot and never
+reaches this pipeline. D-073 showed continue-semantics there preserves the
+character sheet as a physical panel, because transform and continue are opposite
+instructions.
+
+## D-076 (2026-08-11) Identity survives exactly as far as the source frame carries it
+
+Measured in production, same opening still and brief as the failing run.
+
+Shot 1 no longer drifts at all: costume, hair and silhouette hold from 0% to 99%,
+where the old run had lost the navy vest by ~40% and showed a distant plain coat
+by 60%. First clothing drift moved from inside shot 1 to shot 3, and the beige
+trench coat never appears anywhere.
+
+What remains is not prompt-driven. Shot 2 inherited a large front-on frame with
+the face visible and kept the character. Shot 3 inherited a frame showing her
+from behind — the costume survived, because it was visible, and the face was
+re-invented, because it was not. Shot 4 followed shot 3.
+
+That is D-072 reproduced in the product rather than in a harness, and it settles
+the next architecture question: when a shot needs a scale change the inherited
+frame cannot support — typically a close-up after a back view — it needs a fresh
+identity-bearing anchor. Lower strength does not help and neither does more
+prompt text. Prompt tuning stops here.

@@ -822,3 +822,44 @@ A completed job keeps its last `stageDescription` ("Assembling") in the
 persisted record. The panel hides progress text for terminal states, so nothing
 incorrect is shown; only the JSON looks stale. Left alone rather than changed
 after the accepted run.
+
+## 2026-08-11 Opening Reference Vision Sync + CONTINUE Change-Focused Prompts
+
+Auto Movie used to contradict its own opening image. The Director invented a
+costume from the brief text ("Beige trench coat, dark jeans, boots"), persisted
+it as the Character Bible, and every compiled shot prompt carried it — including
+shot 1, whose opening frame showed a navy-uniformed adventurer. The costume
+drifted toward the text within one shot.
+
+Two changes fix it upstream.
+
+**Opening Reference is now read before the Director plans.** The managed asset is
+imported, analysed with the existing local vision path (no second backend, no
+network beyond loopback Ollama), and used to seed the Bible. Precedence is
+user-authored > image evidence > Director guess > no claim. Vision missing,
+malformed, or seeing several people all apply nothing rather than inventing.
+Replace and Clear invalidate the derived appearance.
+
+**CONTINUE shots describe what changes.** They carry one compact continuity
+statement plus only genuinely differing fields; a real wardrobe change still
+appears, an unchanged one is not restated. CUT, auto and T2V are unchanged, and
+the Temporal Bridge is excluded by construction (D-073).
+
+### Measured result
+- Shot 1 drift: **eliminated** — costume holds 0%→99% (previously lost by ~40%).
+- First clothing drift moved from **inside shot 1** to **shot 3**.
+- "Beige trench coat" appears nowhere in the new project.
+- Remaining drift is **source-information loss**: shot 3 inherited a back view,
+  so the costume survived and the face did not.
+
+**Status: PASS WITH LIMITATION.** The prompt contradiction is gone; identity now
+degrades only where the inherited frame stops carrying it.
+
+### Build & verification
+- `swift build`: PASS
+- `swift run LTXTests`: **1191 passed, 0 failed** (1123 + 68)
+- `xcodebuild` Debug clean build (`CODE_SIGNING_ALLOWED=NO`): BUILD SUCCEEDED
+- GUI: "Opening appearance: Analysed locally" status renders with the derived
+  costume; Choose/Replace/Clear, thumbnail, queue and all five pages intact at
+  1680x948.
+- Production Queue untouched and still passing.

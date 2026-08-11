@@ -704,3 +704,238 @@ overwritten. **33 `REFRAME_*` and 42 `CHARBRIDGE_*` files**, all verified:
 - `CHARBRIDGE_B2_changefocus_5s_768x512_…mp4` + 8 frames + row
 
 Additional generation time: 5 renders × ~270 s ≈ **22.5 minutes**.
+
+---
+
+# Opening Reference Vision Appearance Sync + CONTINUE Change-Focused Policy
+
+**Date:** 2026-08-11 (implementation)
+**Baseline HEAD:** `8366d1e`
+**Classification: PASS WITH LIMITATION — root cause fixed, source-information loss remains**
+
+The two previous sections diagnosed the problem. This one implements the fix and
+measures it in the real product.
+
+## S1. Root cause, in source
+
+`StoryboardDirector.swift:552`:
+
+```swift
+var bible = characterBible
+if bible.characters.isEmpty {
+    for (name, outfit) in (draft.initialState?.characterOutfit ?? [:]) {
+        bible.characters.append(CharacterBibleEntry(name: name, defaultCostume: outfit))
+    }
+}
+```
+
+The LLM Director invents `characterOutfit` from the brief text. For `CB BRIDGE C`
+that was `{"Character1": "Beige trench coat, dark jeans, boots"}`.
+`PromptCompiler.compile(characters:)` then emits
+`Current costume: <that>` into **every** shot via
+`CharacterPromptPipeline.recompile`.
+
+And the ordering made it unavoidable: in `StoryboardView.create()` the Director
+ran **first**, and the Opening Reference was imported **after**. The plan could
+not have seen the image.
+
+## S2. What was built
+
+| File | Role |
+| --- | --- |
+| `Models/OpeningReferenceAppearance.swift` | what the image shows + `EffectiveAppearanceResolver` precedence |
+| `Services/OpeningReferenceAppearanceAnalyzer.swift` | narrow vision prompt, schema, tolerant parsing |
+| `Services/OpeningReferenceAppearanceSession.swift` | reuses the existing model selection + Ollama provider |
+| `Services/OpeningReferenceSync.swift` | seeding, merging, staleness |
+| `Services/ContinuationPromptPolicy.swift` | CONTINUE = change-focused |
+
+Changed: `FilmProject` (one optional field), `PromptCompiler` (style switch),
+`StoryboardView` (ordering), `OpeningReferenceSection` (status line).
+
+**No second vision backend.** Model selection reuses
+`CharacterSheetVisionEnvironmentService`; the request reuses
+`OllamaCharacterSheetVisionProvider`. Loopback only — nothing leaves the machine.
+
+### Ordering, now enforced by construction
+
+```
+choose image → import managed asset → analyse → seed Bible → Director → apply → recompile → save → queue
+```
+
+The Director is handed a Bible that already matches the image, so it has nothing
+to contradict; anything it still produces is superseded afterwards.
+
+### Precedence
+
+1. explicit user-authored appearance
+2. what the Opening Reference visibly shows
+3. the Director's auto-generated guess
+4. no claim
+
+`EffectiveAppearanceResolver.isUserAuthored` treats an entry as the user's when
+it carries reference assets, locked traits, or any prose the Director never
+writes. The Director's seeding path sets only `name` + `defaultCostume`, so a
+placeholder is recognisable and may be superseded; anything richer is not.
+
+### Failure and ambiguity
+
+`unavailable` / `failed` / `ambiguous` all apply **nothing**. Vision missing is
+not an error and never blocks a movie — it simply produces no evidence.
+`subjectCount > 1` is `ambiguous` on purpose: guessing which person is the
+protagonist would write the wrong costume into every prompt, which is the bug
+this exists to prevent.
+
+### Cache / invalidation
+
+`OpeningReferenceAppearance.sourceRelativePath` records which managed asset was
+analysed. `OpeningReferenceSync.invalidateIfStale` drops derived state when the
+path no longer matches, so **Replace** cannot leave the previous costume behind
+and **Clear** removes it.
+
+### Queue compatibility
+
+`ProductionQueueCoordinator`, `ProductionQueueService`, `ProductionQueueStore`
+and `FilmJobDecider` are **untouched**. Analysis happens at create time and is
+persisted on the project before the job is enqueued, so a job waiting behind
+another resolves exactly the same appearance. Queue tests still pass unchanged.
+
+## S3. CONTINUE change-focused policy
+
+`ContinuationPromptPolicy.style(for:)` — `continue` → change-focused;
+`cut`, `auto`, unset → descriptive (unchanged). `auto` stays descriptive because
+the run coordinator may resolve it to a cut at generation time.
+
+A CONTINUE prompt gets one compact statement —
+*"The same subject and the existing visual state continue from the input frame."* —
+plus only fields that actually **differ** between the state entering the shot
+and the state after its explicit changes. A real wardrobe change is still
+described ("now wears …"); an unchanged one is not restated.
+
+No "Face Lock", no "identity guaranteed", no expanded negative prompt.
+
+**The Temporal Bridge is deliberately excluded.** It is not a Shot and never
+passes through this pipeline. Applying continue-semantics to it preserved the
+character sheet as a physical panel in the scene (D-073) — transform and
+continue are opposite instructions.
+
+## S4. Before / after, from the real projects
+
+**Old (`CB BRIDGE C`)** — Bible:
+
+```
+name: "Character1", defaultCostume: "Beige trench coat, dark jeans, boots",
+appearance: all empty, referenceAssets: []
+```
+
+Every shot prompt began
+`CHARACTER 1: Character1. Current costume: Beige trench coat, dark jeans, boots.`
+
+**New (`VB NEW`)** — vision output (`agents-a1:32k`), verbatim:
+
+```json
+{ "status": "analysed", "subjectCount": 1, "faceVisible": true,
+  "hairDescription": "brown, shoulder-length",
+  "clothingDescription": "white blouse with blue vest and bow tie, dark skirt",
+  "outerwear": "light-colored cape",
+  "accessories": "belt, small bag/prop on hip",
+  "silhouetteDescription": "slender figure standing upright",
+  "distinctiveTraits": "wearing a cape over school-style uniform" }
+```
+
+Bible after sync:
+
+```
+defaultCostume: "white blouse with blue vest and bow tie, dark skirt, light-colored cape"
+hair: "brown, shoulder-length"
+accessories: "belt, small bag/prop on hip"
+```
+
+Compiled prompts:
+
+- **Shot 1 (cut)** — `CHARACTER 1: Character1. Hair: brown, shoulder-length. … Current costume: white blouse with blue vest and bow tie, dark skirt, light-colored cape. …` — descriptive policy retained, now describing the **right** character.
+- **Shots 2–4 (continue)** — `The same subject and the existing visual state continue from the input frame. Location: … The camera medium-close-up shot … slow push-in camera. Character1 looks back over her left shoulder towards the camera. …`
+
+**No occurrence of "Beige trench coat" anywhere in the new project.**
+
+## S5. Real E2E
+
+`VB NEW`, Standard 768×512, 121 frames/shot, 25 steps, LTX-2.3 Distilled Q4,
+gemma-3-12b-it-4bit, Director Auto → Local AI, continuity 0.8/0.5 unchanged,
+opening reference = `CHARBRIDGE_best_opening_still_768x512_20260811_125505.png`
+(the same still the failing run used). 4 shots, 20.06 s, 15:09→15:28.
+
+### Shot 1 drift — the old failure point
+
+| | 0 % | 20 % | 40 % | 60 % | 80 % | 99 % |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Old** | full costume | cape lengthening | **navy vest gone** | distant cream coat | tiny figure | tiny figure |
+| **New** | full costume | intact | intact | intact | intact | **intact** |
+
+**No drift in shot 1.** The costume, hair and silhouette hold for the whole
+shot. This is the single clearest result of the change.
+
+### Per-shot scores (0–3)
+
+| | Face | Hair | Clothing | Identity | Silhouette | Environment | Camera | Narrative |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Shot 1 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 |
+| Shot 2 | 2 | 3 | 3 | 3 | 3 | 3 | 3 | 3 |
+| Shot 3 | 1 | 2 | 2 | 2 | 2 | 3 | 3 | 3 |
+| Shot 4 | 1 | 2 | 2 | 2 | 2 | 3 | 3 | 3 |
+
+First clothing drift: **shot 3** (navy sailor vest → blue-grey dress).
+First clear different-person impression: **shot 3**.
+Old run, for comparison: first clothing drift **inside shot 1 (~40 %)**, clear
+different person by **shot 3** with a *beige trench coat*.
+
+### Inherited source-frame quality — the remaining bottleneck
+
+| Shot | Source frame | Subject | Face | Costume |
+| --- | --- | --- | --- | --- |
+| 2 | last frame of shot 1 | large, front-on | **visible** | **fully visible** |
+| 3 | last frame of shot 2 | medium, **from behind** | **not visible** | visible |
+| 4 | last frame of shot 3 | medium, profile | partly | visible |
+
+This maps exactly onto the scores. Shot 2 inherited a face and kept it. Shot 3
+inherited a back view — the costume survived (it was visible) and the face was
+re-invented (it was not). Identity survives precisely as far as the source frame
+carries it, which is D-072 reproduced in production rather than in a harness.
+
+## S6. Acceptance
+
+**Phase 1 — PASS.** Vision analysis runs, runs *before* the Director, persists
+safely, supersedes auto-generated guesses, preserves user-authored data,
+invalidates on Replace/Clear, decodes legacy projects, and degrades safely when
+vision is unavailable.
+
+**Phase 2 — PASS.** CONTINUE uses the change-focused policy; CUT and T2V are
+unchanged; unchanged costume is not restated; explicit transitions still appear;
+camera/action/expression deltas are preserved; the Bridge is untouched.
+
+**Real E2E — PASS WITH LIMITATION.**
+
+- (A) Shot 1 no longer drifts toward an invented costume — **yes, eliminated**.
+- (B) Identity survives materially longer — **yes**, first drift moved from
+  inside shot 1 to shot 3.
+- (C) Inherited source frames carry far more identity — **yes**, shot 2's source
+  is now a clear front-on view instead of a distant figure.
+- (D) A later meaningful reframe preserves the character — **partially**: the
+  costume family survives; the face does not when the source shows her back.
+- (E) The remaining bottleneck is clearly **source-information loss**, not prompt
+  contradiction.
+
+### Known limitation, stated plainly
+
+CONTINUE prompts still carry the Director's own `Location: … lighting: …` text
+from `baseCompiledPrompt`. Only the *character* block is change-focused. Removing
+scene text as well would mean rewriting shot-level prompt generation, which §26
+placed out of scope. It did not cause identity drift in this run.
+
+## S7. Next step
+
+Per §45 stop condition: the upstream contradiction is fixed and the residual
+failure is source-information loss, so **prompt tuning stops here**. The
+evidence now points at one architecture: when a shot needs a scale change that
+the inherited frame cannot support — typically a close-up after a back view —
+give it a fresh identity-bearing anchor rather than a lower strength or a longer
+prompt. The Temporal Bridge already produces exactly such an anchor.

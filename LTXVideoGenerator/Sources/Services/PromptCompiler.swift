@@ -169,7 +169,22 @@ enum CharacterPromptPipeline {
                 bible: project.characterBible,
                 snapshot: promptSnapshot
             )
-            let characterContext = PromptCompiler.compile(characters: resolved)
+            let characterContext: String
+            switch ContinuationPromptPolicy.style(for: shot.continuityMode) {
+            case .descriptive:
+                characterContext = PromptCompiler.compile(characters: resolved)
+            case .changeFocused:
+                // The previous shot's last frame already shows who this is and
+                // what they are wearing. Restating it makes the text argue with
+                // the picture, and the text wins over a few seconds (D-071).
+                let before = ContinuityEngine.resolveCharacters(
+                    ids: shot.characterIDs,
+                    bible: project.characterBible,
+                    snapshot: shot.continuityBefore
+                )
+                characterContext = ContinuationPromptPolicy.changeFocusedContext(
+                    before: before, after: resolved)
+            }
             shot.compiledPrompt = characterContext.isEmpty ? base : characterContext + " " + base
             project.shots[index] = shot
         }

@@ -921,6 +921,10 @@ struct FilmProject: Codable, Equatable, Identifiable {
     /// image, so replacing or clearing the reference cannot leave a stale
     /// costume behind.
     var openingReferenceAppearance: OpeningReferenceAppearance?
+    /// How the Opening Reference compares with the Character Sheet. Reporting
+    /// only: it never rewrites canonical identity and never changes which image
+    /// the first shot starts from.
+    var characterOpeningConsistency: CharacterOpeningConsistency?
 
     init(id: UUID = UUID(), title: String) {
         self.id = id
@@ -934,7 +938,7 @@ struct FilmProject: Codable, Equatable, Identifiable {
              storyBible, characterBible, shots, jobs,
              lastAssemblySignature, assembledMoviePath, assembledAt,
              continuityChainEnabled, characterAnchor, openingReferenceImage,
-             openingReferenceAppearance
+             openingReferenceAppearance, characterOpeningConsistency
     }
 
     init(from decoder: Decoder) throws {
@@ -969,6 +973,8 @@ struct FilmProject: Codable, Equatable, Identifiable {
         // have no derived appearance, which is the correct answer for them.
         openingReferenceAppearance = try container.decodeIfPresent(
             OpeningReferenceAppearance.self, forKey: .openingReferenceAppearance)
+        characterOpeningConsistency = try container.decodeIfPresent(
+            CharacterOpeningConsistency.self, forKey: .characterOpeningConsistency)
     }
 
     mutating func touch() {

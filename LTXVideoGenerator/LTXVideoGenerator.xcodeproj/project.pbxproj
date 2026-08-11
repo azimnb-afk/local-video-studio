@@ -41,6 +41,7 @@
 		AA0002B4 /* ProductionQueueCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002B5; };
 		AA0002B2 /* ProductionQueueStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002B3; };
 		AA0002B0 /* ProductionJob.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002B1; };
+		AA0002E0 /* CharacterOpeningConsistency.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002E1; };
 		AA0002D0 /* IdentitySourceAssessment.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002D1; };
 		AA0002D2 /* IdentityRefreshPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002D3; };
 		AA0002D4 /* IdentitySourceAssessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002D5; };
@@ -133,6 +134,7 @@
 		AA0002B5 /* ProductionQueueCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionQueueCoordinator.swift; sourceTree = "<group>"; };
 		AA0002B3 /* ProductionQueueStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionQueueStore.swift; sourceTree = "<group>"; };
 		AA0002B1 /* ProductionJob.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionJob.swift; sourceTree = "<group>"; };
+		AA0002E1 /* CharacterOpeningConsistency.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterOpeningConsistency.swift; sourceTree = "<group>"; };
 		AA0002D1 /* IdentitySourceAssessment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentitySourceAssessment.swift; sourceTree = "<group>"; };
 		AA0002D3 /* IdentityRefreshPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentityRefreshPolicy.swift; sourceTree = "<group>"; };
 		AA0002D5 /* IdentitySourceAssessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentitySourceAssessor.swift; sourceTree = "<group>"; };
@@ -264,6 +266,7 @@
 				AA000207 /* OneShotPlan.swift */,
 				AA000209 /* FilmProject.swift */,
 				AA0002B1 /* ProductionJob.swift */,
+				AA0002E1 /* CharacterOpeningConsistency.swift */,
 				AA0002D1 /* IdentitySourceAssessment.swift */,
 				AA0002C1 /* OpeningReferenceAppearance.swift */,
 				AA0002A1 /* OpeningReferenceImage.swift */,
@@ -463,6 +466,7 @@
 				AA0002B4 /* ProductionQueueCoordinator.swift in Sources */,
 				AA0002B2 /* ProductionQueueStore.swift in Sources */,
 				AA0002B0 /* ProductionJob.swift in Sources */,
+				AA0002E0 /* CharacterOpeningConsistency.swift in Sources */,
 				AA0002D0 /* IdentitySourceAssessment.swift in Sources */,
 				AA0002D2 /* IdentityRefreshPolicy.swift in Sources */,
 				AA0002D4 /* IdentitySourceAssessor.swift in Sources */,

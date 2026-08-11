@@ -74,5 +74,43 @@ enum OpeningReferenceSync {
                    for: project.openingReferenceImage) {
             project.openingReferenceAppearance = nil
         }
+        // The consistency verdict describes one specific pairing of sheet and
+        // opening image. Replace or Clear either side and it no longer
+        // describes anything.
+        if isConsistencyStale(project: project) {
+            project.characterOpeningConsistency = nil
+        }
+    }
+
+    /// True when a stored verdict no longer matches the attached opening
+    /// reference or the character sheet it was computed from.
+    static func isConsistencyStale(project: FilmProject) -> Bool {
+        guard let consistency = project.characterOpeningConsistency else { return false }
+        guard let image = project.openingReferenceImage else { return true }
+        if consistency.openingSourceRelativePath != image.projectRelativePath { return true }
+        guard let characterID = consistency.characterID,
+              let character = project.characterBible.character(id: characterID) else { return true }
+        let currentSheetID = character.referenceAssets.first { $0.type == .characterSheet }?.id
+        return consistency.characterSheetAssetID != currentSheetID
+    }
+
+    /// Recomputes the verdict for the movie's single character, when there is
+    /// one. Reporting only — nothing canonical is changed here.
+    static func evaluateConsistency(project: inout FilmProject) {
+        guard let appearance = project.openingReferenceAppearance,
+              appearance.isUsable,
+              project.characterBible.characters.count == 1,
+              let character = project.characterBible.characters.first else {
+            project.characterOpeningConsistency = nil
+            return
+        }
+        // Nothing canonical to compare against without a sheet: the existing
+        // Opening Reference sync already governs that case on its own.
+        guard character.referenceAssets.contains(where: { $0.type == .characterSheet }) else {
+            project.characterOpeningConsistency = nil
+            return
+        }
+        project.characterOpeningConsistency = CharacterOpeningConsistencyResolver.compare(
+            character: character, appearance: appearance)
     }
 }

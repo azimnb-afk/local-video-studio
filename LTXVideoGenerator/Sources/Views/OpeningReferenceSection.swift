@@ -72,6 +72,26 @@ struct OpeningReferenceSection: View {
                                 .lineLimit(2)
                         }
                     }
+                    // How this scene compares with the character sheet. Shown
+                    // only when there is a sheet to compare against, and it
+                    // never changes the image — the user picked that.
+                    if let consistency = project.characterOpeningConsistency {
+                        Label(consistency.summary, systemImage: consistencyIcon(consistency))
+                            .font(.caption2)
+                            .foregroundStyle(consistencyColor(consistency))
+                        ForEach(consistency.comparisons.filter { $0.verdict != .unknown },
+                                id: \.field) { comparison in
+                            Text("\(comparison.field): \(comparison.verdict.rawValue.capitalized)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        if consistency.isConflict {
+                            Text("The character sheet stays the source of truth for the character. This image is still used as the first frame.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(3)
+                        }
+                    }
                     if isMissing {
                         Label(OpeningReferenceIssue.fileMissing.message,
                               systemImage: "exclamationmark.triangle.fill")
@@ -119,6 +139,24 @@ struct OpeningReferenceSection: View {
         }
     }
 
+    private func consistencyIcon(_ c: CharacterOpeningConsistency) -> String {
+        switch c.overallStatus {
+        case .match: return "checkmark.circle"
+        case .partial: return "questionmark.circle"
+        case .conflict: return "exclamationmark.triangle"
+        case .insufficientEvidence: return "info.circle"
+        }
+    }
+
+    private func consistencyColor(_ c: CharacterOpeningConsistency) -> Color {
+        switch c.overallStatus {
+        case .match: return .green
+        case .partial: return .secondary
+        case .conflict: return .orange
+        case .insufficientEvidence: return .secondary
+        }
+    }
+
     // MARK: - Actions
 
     private func choose() {
@@ -144,6 +182,7 @@ struct OpeningReferenceSection: View {
             }
             stored.openingReferenceImage = imported
             OpeningReferenceSync.invalidateIfStale(project: &stored)
+            OpeningReferenceSync.evaluateConsistency(project: &stored)
             IdentityRefreshService.invalidateOpeningReferenceAnchors(in: &stored)
             store.save(stored)
             onChanged()

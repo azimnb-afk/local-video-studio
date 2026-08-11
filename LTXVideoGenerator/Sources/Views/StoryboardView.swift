@@ -230,6 +230,10 @@ struct StoryboardView: View {
                 // overwrites anything the user authored.
                 project.characterBible = OpeningReferenceSync.apply(
                     appearance: openingAppearance, to: project.characterBible)
+                // Reporting only, after the canonical merge: records how the
+                // opening image compares with the character sheet without
+                // changing either.
+                OpeningReferenceSync.evaluateConsistency(project: &project)
                 CharacterPromptPipeline.recompile(project: &project)
                 store.save(project)
                 if mode == .hybrid, generateFirstPass {

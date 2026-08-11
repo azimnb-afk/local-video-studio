@@ -17,13 +17,16 @@ enum FeatureFlag: String, CaseIterable {
     case filmProjectV1
     case storyboardV1
     case localAPIv1
+    /// Adaptive Identity Refresh for Auto Movie CONTINUE shots.
+    case adaptiveIdentityRefresh
 
     var userDefaultsKey: String { "featureFlag.\(rawValue)" }
 
     /// Value used when the user has never touched the flag.
     var defaultEnabled: Bool {
         switch self {
-        case .modelRegistryV1, .autoQualityV1, .directorV1, .filmProjectV1, .storyboardV1:
+        case .modelRegistryV1, .autoQualityV1, .directorV1, .filmProjectV1, .storyboardV1,
+             .adaptiveIdentityRefresh:
             return true
         case .derivedModelsV1, .adultModelsV1, .lowRAMAdapterV1, .localAPIv1:
             return false

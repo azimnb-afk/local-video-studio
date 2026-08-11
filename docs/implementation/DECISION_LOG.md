@@ -1246,3 +1246,54 @@ the next architecture question: when a shot needs a scale change the inherited
 frame cannot support — typically a close-up after a back view — it needs a fresh
 identity-bearing anchor. Lower strength does not help and neither does more
 prompt text. Prompt tuning stops here.
+
+## D-077 (2026-08-11) A better source repairs the transition; a better prompt does not
+
+Gate for Adaptive Identity Refresh, run before any production code. The exact
+failing transition from the previous production movie was reproduced with every
+variable fixed — seed 551658229, 768x512, 121 frames, 25 steps, same prompt,
+model and encoder — and only the source image changed.
+
+From the inherited back-view frame: a different woman in a blue-grey dress, face
+0, identity 1. From the movie's own opening still: the Adventurer Heroine intact,
+face 3, hair 3, clothing 3, identity 3, with the same framing and the same beat.
+
+So the repair is available and it is a source problem, exactly as D-076
+predicted. This is what justified building the feature rather than continuing to
+tune prompts.
+
+## D-078 (2026-08-11) The refresh anchor can be generated, but reuse is cheaper
+
+Second gate. A short LTX preparation clip — 49 frames, a valid 8n+1 count, 122s
+against 270s for a full shot — transformed the opening still into a
+target-compatible anchor: camera settled into medium-close-up, face clearly
+visible, costume intact. The frame at 80% scored 3 on every criterion; as with
+the earlier bridge, the transformation completed well before the end, so the last
+frame is not the best one.
+
+Re-running the target shot from that generated anchor matched the manual anchor
+on identity and was far closer to it than to normal continuity.
+
+But the manual anchor also won the narrative beat and cost nothing. Where the
+strongest identity anchor is already scene-compatible, using it directly beats
+regenerating it. The generator belongs behind `IdentityAnchorGenerator` as the
+fallback for when no compatible anchor exists.
+
+## D-079 (2026-08-11) Refresh triggers on missing information, not on framing
+
+The rule is deliberately not "the next shot is a close-up". D-072 showed an
+identity-bearing source survives a wide-to-close reframe intact, so triggering on
+framing alone would spend a generation on shots that were never going to fail.
+
+Two separate questions, separately testable: does the next shot need facial
+detail, from its shot scale; and does the inherited frame contain it, from a
+vision visibility assessment that never attempts identification. Refresh only
+when the first is yes and the second is no. Ambiguous or unavailable vision
+declines — a refresh costs a whole render, and an unassessed frame is not
+evidence that anything is wrong.
+
+The first production run bore this out in the negative direction: the Director
+planned a close-up, the policy assessed the inherited frame as medium scale,
+front-facing, partial face, and correctly declined. No false positive, no wasted
+generation — and, honestly, no observation yet of the trigger firing in a real
+movie. That remains proven by unit tests and the two gate experiments only.

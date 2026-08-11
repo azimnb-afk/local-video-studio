@@ -38,6 +38,39 @@ enum ContinuityFrameExtractor {
     ///    where end-relative seeking is unavailable.
     /// 3. decode through the file and keep the last frame, which always works
     ///    but is the slowest, so it is only a final fallback.
+    /// Extracts a frame at a percentage of the clip's duration.
+    ///
+    /// Identity refresh needs a frame from part-way through a preparation clip,
+    /// not its end: the camera move it asks for completes early, and the last
+    /// frame can have rotated past the wanted setup.
+    static func extractFrame(videoPath: String, atPercent percent: Int, outputPath: String) throws {
+        guard let ffmpeg = FinalAssemblyService.ffmpegPath() else {
+            throw ExtractionError.ffmpegNotFound
+        }
+        guard FileManager.default.fileExists(atPath: videoPath) else {
+            throw ExtractionError.sourceMissing(videoPath)
+        }
+        guard let info = MediaProbe.probe(path: videoPath),
+              let duration = info.durationSeconds, duration > 0 else {
+            throw ExtractionError.unreadableSource(videoPath)
+        }
+        let clamped = max(0, min(100, percent))
+        // Stay strictly inside the clip so a 100% request still lands on a real
+        // frame rather than seeking past the end.
+        let target = min(duration * Double(clamped) / 100.0, max(0, duration - 0.04))
+        let parent = URL(fileURLWithPath: outputPath).deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        try? FileManager.default.removeItem(atPath: outputPath)
+        try run(ffmpeg: ffmpeg, arguments: [
+            "-y", "-ss", "\(format(target))", "-i", videoPath,
+            "-frames:v", "1", "-q:v", "2", "-update", "1", outputPath,
+        ])
+        guard isUsableImage(atPath: outputPath) else {
+            try? FileManager.default.removeItem(atPath: outputPath)
+            throw ExtractionError.extractionFailed("no usable frame at \(clamped)%")
+        }
+    }
+
     static func extractLastFrame(videoPath: String, outputPath: String) throws {
         guard let ffmpeg = FinalAssemblyService.ffmpegPath() else {
             throw ExtractionError.ffmpegNotFound

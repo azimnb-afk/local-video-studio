@@ -93,6 +93,16 @@ final class TakeGenerationCoordinator {
                 throw CoordinatorError.startingImageUnavailable(assetID)
             }
             sourceImagePath = url.path
+        } else if let refreshPath = shot.identityRefreshAnchorRelativePath,
+                  !refreshPath.isEmpty,
+                  let url = store.managedProjectAssetURL(projectID: projectID, relativePath: refreshPath),
+                  ContinuityFrameExtractor.isUsableImage(atPath: url.path) {
+            // A refresh anchor is only ever created when the frame this shot
+            // would otherwise inherit could not carry the character into a
+            // closer framing. It conditions like an inherited frame, so the
+            // camera and action still move on.
+            sourceImagePath = url.path
+            usesInheritedContinuityFrame = true
         } else if let relativePath = shot.continuityImageRelativePath {
             guard let url = store.managedProjectAssetURL(projectID: projectID, relativePath: relativePath),
                   ContinuityFrameExtractor.isUsableImage(atPath: url.path) else {

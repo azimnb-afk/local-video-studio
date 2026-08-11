@@ -617,6 +617,15 @@ struct Shot: Codable, Equatable, Identifiable {
     var continuityReconciliationReason: String?
     /// Project-relative path of the frame inherited from the previous shot.
     var continuityImageRelativePath: String?
+    /// A fresh identity-bearing starting image generated for this shot because
+    /// the frame it would have inherited could not supply one. Managed,
+    /// project-relative, and invalidated when the upstream take changes.
+    var identityRefreshAnchorRelativePath: String?
+    /// The take the refresh was derived from, so a Retake upstream marks it
+    /// stale instead of silently reusing an anchor built from an old frame.
+    var identityRefreshSourceTakeID: UUID?
+    /// Short human-readable record of what the policy decided, for the shot UI.
+    var identityRefreshNote: String?
     /// Take the inherited frame was extracted from, so a Retake can be
     /// detected as making this shot's continuity input stale.
     var continuitySourceTakeID: UUID?
@@ -705,7 +714,9 @@ struct Shot: Codable, Equatable, Identifiable {
              continuityMode, plannedContinuityMode, continuityReconciliationReason,
              continuityImageRelativePath,
              continuitySourceTakeID, continuityBlockedReason,
-             originalCameraScale, capabilityAdjustmentReason
+             originalCameraScale, capabilityAdjustmentReason,
+             identityRefreshAnchorRelativePath, identityRefreshSourceTakeID,
+             identityRefreshNote
     }
 
     init(from decoder: Decoder) throws {
@@ -729,6 +740,14 @@ struct Shot: Codable, Equatable, Identifiable {
         plannedContinuityMode = try container.decodeIfPresent(ShotContinuityMode.self, forKey: .plannedContinuityMode)
         continuityReconciliationReason = try container.decodeIfPresent(String.self, forKey: .continuityReconciliationReason)
         continuityImageRelativePath = try container.decodeIfPresent(String.self, forKey: .continuityImageRelativePath)
+        // Absent in every project written before Adaptive Identity Refresh;
+        // those simply have no refresh anchor, which is correct for them.
+        identityRefreshAnchorRelativePath = try container.decodeIfPresent(
+            String.self, forKey: .identityRefreshAnchorRelativePath)
+        identityRefreshSourceTakeID = try container.decodeIfPresent(
+            UUID.self, forKey: .identityRefreshSourceTakeID)
+        identityRefreshNote = try container.decodeIfPresent(
+            String.self, forKey: .identityRefreshNote)
         continuitySourceTakeID = try container.decodeIfPresent(UUID.self, forKey: .continuitySourceTakeID)
         continuityBlockedReason = try container.decodeIfPresent(ContinuityBlockReason.self, forKey: .continuityBlockedReason)
         originalCameraScale = try container.decodeIfPresent(String.self, forKey: .originalCameraScale)

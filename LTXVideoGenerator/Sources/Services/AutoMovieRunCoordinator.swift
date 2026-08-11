@@ -240,6 +240,31 @@ final class AutoMovieRunCoordinator {
         }
     }
 
+    /// The shot `advance` would generate next, with its inherited frame already
+    /// extracted, or nil when there is nothing to prepare.
+    ///
+    /// Exists so Adaptive Identity Refresh can look at the frame a shot is
+    /// about to inherit *before* the take is planned — the take is where the
+    /// starting image is chosen, so afterwards would be too late. Extraction is
+    /// cached by source take, so calling this and then `advance` does the work
+    /// once.
+    func prepareNextShotContinuity(projectID: UUID) -> Int? {
+        guard let project = store.project(id: projectID),
+              project.workflowMode == Self.autoMovieWorkflowMode,
+              !project.shots.isEmpty,
+              !hasGenerationInFlight(in: project),
+              let index = nextShotIndexNeedingGeneration(in: project), index > 0 else {
+            return nil
+        }
+        let shot = project.shots[index]
+        guard shot.startingImageReferenceAssetID == nil,
+              resolvedContinuityMode(forShotAt: index, in: project) == .continueFromPrevious,
+              case .success = prepareContinuityAsset(projectID: projectID, shotIndex: index) else {
+            return nil
+        }
+        return index
+    }
+
     /// Advances an automatic run by at most one step. Safe to call after every
     /// take completion; it is a no-op for manual storyboards.
     @discardableResult

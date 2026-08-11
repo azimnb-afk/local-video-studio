@@ -497,13 +497,39 @@ class GenerationService: ObservableObject {
         let coordinator = AutoMovieRunCoordinator.shared
 
         for projectID in projectIDs {
-            var pendingRequests: [GenerationRequest] = []
-            let step = coordinator.advance(projectID: projectID) { pendingRequests = $0 }
-            if !pendingRequests.isEmpty {
-                addBatch(pendingRequests)
+            // Adaptive Identity Refresh runs here, between one shot finishing
+            // and the next being planned: the take is where the starting image
+            // is chosen, so this is the last moment it can be influenced. It is
+            // a stage inside this job — it renders through the same serialized
+            // path and never becomes a second queued job.
+            if FeatureFlags.isEnabled(.adaptiveIdentityRefresh),
+               let shotIndex = coordinator.prepareNextShotContinuity(projectID: projectID) {
+                Task { @MainActor [weak self] in
+                    let outcome = await IdentityRefreshService.prepareIfNeeded(
+                        projectID: projectID, shotIndex: shotIndex)
+                    if case .refreshed = outcome {
+                        self?.statusMessage = "Identity anchor prepared for shot \(shotIndex + 1)."
+                    } else if case .failed(let reason) = outcome {
+                        self?.statusMessage = reason
+                    }
+                    self?.continueAdvancing(projectID: projectID)
+                }
                 continue
             }
-            switch step {
+            continueAdvancing(projectID: projectID)
+        }
+    }
+
+    /// Plans and enqueues the next step of a film run.
+    private func continueAdvancing(projectID: UUID) {
+        let coordinator = AutoMovieRunCoordinator.shared
+        var pendingRequests: [GenerationRequest] = []
+        let step = coordinator.advance(projectID: projectID) { pendingRequests = $0 }
+        if !pendingRequests.isEmpty {
+            addBatch(pendingRequests)
+            return
+        }
+        switch step {
             case .assembling:
                 startAutoAssembly(projectID: projectID)
             case .idle:
@@ -524,7 +550,6 @@ class GenerationService: ObservableObject {
                 emit(.shotFailed, projectID: projectID)
             default:
                 break
-            }
         }
     }
 

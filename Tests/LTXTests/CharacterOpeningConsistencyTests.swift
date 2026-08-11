@@ -53,11 +53,14 @@ func runCharacterOpeningConsistencyTests(_ t: TestKit) {
     }
 
     t.suite("Character/Opening consistency — real conflict") {
-        // B. black bob and a red jacket against a brown ponytail and navy vest.
+        // B. black bob and a red vest against a brown ponytail and navy vest.
+        // Uses "vest" (not "jacket") deliberately: the sheet describes a
+        // "vest", and Clothing colours must still catch a genuine same-garment
+        // colour contradiction, not just any unrelated colour word.
         let result = CharacterOpeningConsistencyResolver.compare(
             character: sheetCharacter(),
             appearance: opening(hair: "black hair in a short bob",
-                                clothing: "red jacket", outerwear: ""))
+                                clothing: "red vest", outerwear: ""))
         t.checkEqual(result.overallStatus, .conflict,
                      "B: a different hair colour and clothing colour is a conflict")
         let fields = Set(result.conflicts.map(\.field))
@@ -246,6 +249,187 @@ func runCharacterOpeningConsistencyTests(_ t: TestKit) {
         t.checkEqual(
             verdict.comparisons.first { $0.field == "Hair colour" }?.verdict, .unknown,
             "real data: \"Dark\" against \"brown\" is unknown, not a contradiction")
+    }
+
+    t.suite("Character/Opening consistency — accessories compare by object, not by colour bag") {
+        func accessoriesVerdict(
+            canonical: String, observed: String
+        ) -> CharacterOpeningConsistency.FieldVerdict? {
+            let result = CharacterOpeningConsistencyResolver.compare(
+                character: sheetCharacter(accessories: canonical),
+                appearance: opening(accessories: observed))
+            return result.comparisons.first { $0.field == "Accessories" }?.verdict
+        }
+
+        // A. different objects — colour proximity to an unrelated noun must
+        // never read as a contradiction. This is the exact shape of the real
+        // false positive (D-089).
+        t.checkEqual(accessoriesVerdict(canonical: "blue flag", observed: "brown belt"),
+                     .unknown, "A: a blue flag and a brown belt are different objects — unknown")
+
+        // B. same object, genuinely different colour.
+        t.checkEqual(accessoriesVerdict(canonical: "blue flag", observed: "red flag"),
+                     .conflict, "B: the same flag in two different colours is a real conflict")
+
+        // C. gold/golden normalisation.
+        t.checkEqual(accessoriesVerdict(canonical: "gold necklace", observed: "golden necklace"),
+                     .match, "C: gold and golden are the same colour")
+
+        // D. existing near-colour equivalence still applies within an object.
+        t.checkEqual(accessoriesVerdict(canonical: "blue ribbon", observed: "navy ribbon"),
+                     .match, "D: navy and blue are already treated as equivalent")
+
+        // E. absence must not read as contradiction.
+        t.checkEqual(accessoriesVerdict(canonical: "a silver sword", observed: "no sword visible"),
+                     .unknown, "E: an object with no comparable colour on the other side is unknown")
+
+        // F. same accessory, same colour.
+        t.checkEqual(accessoriesVerdict(canonical: "black leather belt", observed: "black belt"),
+                     .match, "F: the same accessory in the same colour matches")
+
+        // G. different known accessories.
+        t.checkEqual(accessoriesVerdict(canonical: "black belt", observed: "gold necklace"),
+                     .unknown, "G: two different recognised accessories — unknown")
+
+        // H. no recognised object on either side.
+        t.checkEqual(accessoriesVerdict(canonical: "a strange trinket",
+                                        observed: "a mysterious ornament"),
+                     .unknown, "H: nothing recognisable to compare — unknown")
+    }
+
+    t.suite("Character/Opening consistency — real 旗の子 regression (D-089)") {
+        // Verbatim strings from the actual persisted project that surfaced the
+        // bug: a canonical "flag (blue with gold star emblem), sword/spear
+        // (metallic with ornate hilt)" was read as conflicting with an
+        // observed "Brown leather belt… Ornate golden knee-high boots." merely
+        // because "blue" and "brown" both appeared somewhere in the field — a
+        // flag and a belt are not the same object.
+        var character = BibleCharacter(name: "Elara Starborne")
+        character.appearance.hair = "black hair tied in a ponytail"
+        character.defaultCostume = "A dark blue, high-collared coat that extends to mid-thigh length, adorned with gold trim and patterns. White undershirt visible at the collar and cuffs. Pleated white skirt of medium length. Brown leather belt with multiple pouches or compartments. Ornate shoulder pads featuring a star design in bronze color. Knee-high brown leather boots with buckles. A blue cape attached to the back of the coat, decorated with gold patterns. The character holds a flag on a pole."
+        character.accessories = "flag (blue with gold star emblem), sword/spear (metallic with ornate hilt)"
+        var sheet = CharacterReferenceAsset(type: .characterSheet, label: "Character Sheet")
+        sheet.projectRelativePath = "Assets/Characters/x/sheet.png"
+        character.referenceAssets = [sheet]
+
+        var observed = OpeningReferenceAppearance()
+        observed.status = .analysed
+        observed.subjectCount = 1
+        observed.faceVisible = true
+        observed.hairDescription = "Long dark hair styled in a ponytail"
+        observed.clothingDescription = "White shirt or blouse worn underneath the outer garment."
+        observed.outerwear = "Dark blue coat with a white pleated skirt-like bottom section."
+        observed.accessories = "Brown leather belt or sash worn around the waist. Ornate golden knee-high boots."
+
+        let result = CharacterOpeningConsistencyResolver.compare(
+            character: character, appearance: observed)
+
+        t.checkEqual(
+            result.comparisons.first { $0.field == "Hair colour" }?.verdict, .unknown,
+            "\"black\" against \"dark\" is not comparable — unknown, unchanged from before the fix")
+        t.checkEqual(
+            result.comparisons.first { $0.field == "Hairstyle" }?.verdict, .match,
+            "ponytail matches, unchanged from before the fix")
+        t.checkEqual(
+            result.comparisons.first { $0.field == "Clothing colours" }?.verdict, .match,
+            "dark blue matches, unchanged from before the fix")
+        t.checkEqual(
+            result.comparisons.first { $0.field == "Accessories" }?.verdict, .unknown,
+            "D-089: flag and belt are different objects — no longer a false conflict")
+        t.checkEqual(result.overallStatus, .partial,
+                     "D-089: the fixed Accessories verdict changes the real project's overall "
+                     + "status from conflict to partial")
+        t.check(!result.isConflict, "D-089: the real project no longer reports a false conflict")
+    }
+
+    t.suite("Character/Opening consistency — resolver version and stale recompute") {
+        var character = BibleCharacter(name: "Elara Starborne")
+        character.defaultCostume = "dark blue coat"
+        character.accessories = "flag (blue with gold star emblem)"
+        var sheet = CharacterReferenceAsset(type: .characterSheet, label: "Character Sheet")
+        sheet.projectRelativePath = "Assets/Characters/x/sheet.png"
+        character.referenceAssets = [sheet]
+
+        var observedAppearance = OpeningReferenceAppearance()
+        observedAppearance.status = .analysed
+        observedAppearance.sourceRelativePath = "Assets/OpeningReference/o.png"
+        observedAppearance.subjectCount = 1
+        observedAppearance.faceVisible = true
+        observedAppearance.clothingDescription = "dark blue coat"
+        observedAppearance.accessories = "brown belt"
+
+        var project = FilmProject(title: "Stale")
+        project.characterBible.characters = [character]
+        project.openingReferenceImage = OpeningReferenceImage(
+            projectRelativePath: "Assets/OpeningReference/o.png",
+            originalFilename: "o.png", mimeType: "image/png", fileSizeBytes: 1)
+        project.openingReferenceAppearance = observedAppearance
+
+        // Simulate a verdict computed by the old (pre-fix) comparator: the
+        // same false Accessories conflict, and no resolverVersion recorded —
+        // exactly what a project persisted before this fix contains.
+        var stale = CharacterOpeningConsistencyResolver.compare(
+            character: character, appearance: observedAppearance)
+        stale.resolverVersion = nil
+        stale.comparisons = stale.comparisons.map { comparison in
+            var c = comparison
+            if c.field == "Accessories" { c.verdict = .conflict }
+            return c
+        }
+        stale.overallStatus = .conflict
+        project.characterOpeningConsistency = stale
+
+        let changed = OpeningReferenceSync.refreshConsistencyIfOutdated(project: &project)
+        t.check(changed, "an outdated verdict is recomputed")
+        t.checkEqual(project.characterOpeningConsistency?.overallStatus, .partial,
+                     "and the recomputed result reflects current comparator semantics")
+        t.checkEqual(project.characterOpeningConsistency?.resolverVersion,
+                     CharacterOpeningConsistencyResolver.currentVersion,
+                     "the refreshed verdict is stamped with the current version")
+
+        // No canonical data was touched by the recompute.
+        t.checkEqual(project.characterBible.characters[0].defaultCostume, "dark blue coat",
+                     "recomputing consistency never mutates the Character Bible")
+        t.checkEqual(project.openingReferenceAppearance?.accessories, "brown belt",
+                     "or the persisted Opening Reference analysis — no new Vision call is made")
+
+        // Calling again on an already-current verdict does nothing.
+        let evaluatedAtBefore = project.characterOpeningConsistency?.evaluatedAt
+        let changedAgain = OpeningReferenceSync.refreshConsistencyIfOutdated(project: &project)
+        t.check(!changedAgain, "a verdict already at the current version is not recomputed")
+        t.checkEqual(project.characterOpeningConsistency?.evaluatedAt, evaluatedAtBefore,
+                     "and is left byte-for-byte alone")
+
+        // A project with no consistency at all is a no-op, not an error.
+        var empty = FilmProject(title: "Empty")
+        t.check(!OpeningReferenceSync.refreshConsistencyIfOutdated(project: &empty),
+                "a project with no verdict has nothing to refresh")
+    }
+
+    t.suite("Character/Opening consistency — Auto Movie visibility") {
+        // This is intentionally a small source-composition guard. The view is
+        // a SwiftUI implementation detail outside the core test target, while
+        // this ordering is a product requirement: users must see the verdict
+        // before the plan that could start a long render.
+        let testsDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let repositoryRoot = testsDirectory.deletingLastPathComponent().deletingLastPathComponent()
+        let storyboardURL = repositoryRoot
+            .appendingPathComponent("LTXVideoGenerator/Sources/Views/StoryboardView.swift")
+        let storyboardSource = try? String(contentsOf: storyboardURL, encoding: .utf8)
+        let consistencyIndex = storyboardSource?.range(of: "CharacterOpeningConsistencySection(project: project)")
+        let planIndex = storyboardSource?.range(of: "AutoMoviePlanPreviewSection(project: project)")
+        t.check(consistencyIndex != nil && planIndex != nil,
+                "Auto Movie composes both the consistency summary and plan preview")
+        if let consistencyIndex, let planIndex, let storyboardSource {
+            t.check(consistencyIndex.lowerBound < planIndex.lowerBound,
+                    "the consistency summary is composed above Planned Shots")
+            let legacyStart = storyboardSource.range(of: "struct OpeningReferenceSection")?.lowerBound
+            if let legacyStart {
+                let legacySource = String(storyboardSource[legacyStart...])
+                t.check(!legacySource.contains("characterOpeningConsistency"),
+                        "Opening Reference no longer buries a duplicate consistency verdict")
+            }
+        }
     }
 
     t.suite("Character/Opening consistency — unusable analysis fails safely") {

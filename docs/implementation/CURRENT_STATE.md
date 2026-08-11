@@ -1046,3 +1046,22 @@ actually run.
 - `xcodebuild` Debug clean build: BUILD SUCCEEDED
 - 1 real LTX Auto Movie run, max concurrent LTX = 1, no stale process
 - Production Queue untouched throughout
+
+## 2026-08-12 Character/Opening consistency precision and visibility
+
+**Status: PASS — FALSE ACCESSORY CONFLICT REMOVED.** The persisted Auto Movie
+project **旗の子** had a false conflict because an older comparator compared all
+accessory colour words as one bag: a blue flag on the Character Sheet appeared
+to contradict a brown belt in the Opening Reference. Version 2 compares colours
+only for the same recognised accessory object. Different objects are `unknown`,
+not conflicting, and `gold`/`golden` are equivalent.
+
+Old saved verdicts are safely rederived from their persisted Character Sheet and
+Opening Reference analyses on load. This is entirely offline: no Vision call,
+no LTX work, no opening-image substitution, and no canonical CharacterBible
+mutation. The consistency summary is now above Planned Shots, so users see it
+before reviewing or starting a long Auto Movie render. It remains informational.
+
+The real project now reports `partial` (hairstyle and clothing colours match;
+hair colour and accessories unknown), as expected. See
+`CHARACTER_OPENING_CONSISTENCY_EVAL.md` and D-089.

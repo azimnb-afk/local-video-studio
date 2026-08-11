@@ -1522,3 +1522,23 @@ so it says what it will inherit.
 
 Building the preview touches neither renderer nor queue, which a test pins by
 asserting the project encodes identically before and after.
+
+## D-089 (2026-08-12) Accessory disagreement requires the same object
+
+The initial Character Sheet ↔ Opening Reference comparator correctly preferred
+`unknown` to weak evidence, but its Accessories path compared every colour in
+each free-text field. A real project therefore read a blue flag as contradicting
+a brown belt. Those are not competing claims about one object.
+
+Accessories now require a shared recognised object before colours can match or
+conflict. A blue flag versus a brown belt, no recognised object, or no colour on
+one side remains `unknown`. This keeps real disagreement available (for example
+a blue flag versus a red flag) without promoting unrelated scene details to an
+identity warning. Gold and golden are a single colour family.
+
+Because a verdict is derived rather than canonical data, it carries a resolver
+version. Projects saved under a prior version are recomputed offline at load
+from their already-persisted evidence. No Vision request, LTX render, source
+replacement, or CharacterBible mutation is authorised by that refresh. The
+compact informational summary belongs above Planned Shots in Auto Movie: it is
+important context before a long render, but never a generation gate.

@@ -113,4 +113,27 @@ enum OpeningReferenceSync {
         project.characterOpeningConsistency = CharacterOpeningConsistencyResolver.compare(
             character: character, appearance: appearance)
     }
+
+    /// Re-derives the verdict from already-persisted evidence when the
+    /// comparator's version has moved on since it was last computed.
+    ///
+    /// Comparator logic can improve (D-089: Accessories false positive) after
+    /// a verdict is already sitting in a saved project. Both evidence sides —
+    /// the Character Sheet analysis and the Opening Reference analysis — are
+    /// already persisted, so this is a pure, offline recompute: no Vision
+    /// call, no LTX generation, and canonical Character Bible data is never
+    /// touched, only the derived verdict.
+    ///
+    /// Safe to call on every project load: a verdict already at the current
+    /// version is left untouched, so this does no unnecessary work.
+    ///
+    /// - Returns: whether the persisted verdict changed.
+    @discardableResult
+    static func refreshConsistencyIfOutdated(project: inout FilmProject) -> Bool {
+        guard let existing = project.characterOpeningConsistency,
+              existing.resolverVersion != CharacterOpeningConsistencyResolver.currentVersion
+        else { return false }
+        evaluateConsistency(project: &project)
+        return project.characterOpeningConsistency != existing
+    }
 }

@@ -72,7 +72,7 @@ image and which sheet asset it compared. `OpeningReferenceSync.invalidateIfStale
 drops it when the opening reference is replaced or cleared, or when the sheet
 asset changes. Legacy projects decode with no verdict.
 
-## 6. UI
+## 6. Initial UI
 
 One line in the Opening Reference section — ✓ consistent / ? partial /
 ⚠ conflict — with per-field detail for anything not `unknown`, and, on conflict,
@@ -99,3 +99,28 @@ The comparison recognises colour and a few hairstyle words. Descriptors outside
 that vocabulary — "dark", "light", garment shapes — return `unknown` rather than
 being interpreted. Widening the vocabulary without evidence would buy false
 positives, so it stays narrow until a real miss is observed.
+
+## 9. Precision and visibility follow-up (D-089)
+
+The first production project, **旗の子**, exposed a false `Accessories`
+conflict. Its Character Sheet described a blue flag with a gold emblem, while
+the Opening Reference described a brown belt and golden boots. The previous
+whole-field colour comparison treated blue and brown as contradictory despite
+referring to different objects.
+
+The resolver is now versioned (`resolverVersion = 2`) and compares accessory
+colours only when the same recognised object occurs on both sides. Different or
+unrecognised objects return `unknown`; `gold` and `golden` are equivalent.
+Existing persisted verdicts from an older or missing resolver version are
+recomputed locally from the existing Character Sheet and Opening Reference
+analysis during project loading. This does not call Vision, start LTX, alter
+the Opening Reference, or rewrite canonical Character Bible fields.
+
+The compact informational verdict now appears above Planned Shots in Auto Movie,
+rather than inside the lower Opening Reference section. It remains non-blocking:
+the opening image continues to be the actual first-frame source even for a real
+conflict.
+
+The real persisted **旗の子** project recomputes to `partial`: hairstyle and
+clothing colours match, while hair colour and accessories are honestly
+`unknown`; it is no longer a false conflict.

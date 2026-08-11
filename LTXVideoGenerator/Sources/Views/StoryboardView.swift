@@ -161,6 +161,26 @@ struct StoryboardView: View {
         projects = store.allProjects.filter { project in
             mode == .hybrid ? project.workflowMode == "hybrid" : project.workflowMode != "hybrid"
         }
+        // Consistency is derived data: when the comparator's semantics change,
+        // an old persisted verdict can be wrong without anything about the
+        // movie itself changing. Recomputing it here — from evidence already
+        // on disk, no Vision call — is what corrects an existing project the
+        // next time its list loads, rather than only new ones going forward.
+        // Self-limiting: a verdict already at the current version is a no-op,
+        // so this does not write on every 2-second poll.
+        if mode == .hybrid {
+            var didUpdate = false
+            for project in projects {
+                guard var fresh = store.project(id: project.id) else { continue }
+                if OpeningReferenceSync.refreshConsistencyIfOutdated(project: &fresh) {
+                    store.save(fresh)
+                    didUpdate = true
+                }
+            }
+            if didUpdate {
+                projects = store.allProjects.filter { $0.workflowMode == "hybrid" }
+            }
+        }
     }
 
     private func createProject(
@@ -535,6 +555,11 @@ private struct ProjectDetailView: View {
                 // Storyboard shots are authored one by one with their own
                 // starting images.
                 if project.workflowMode == "hybrid" {
+                    // Consistency sits above Planned Shots specifically so it
+                    // is visible without scrolling — it was previously nested
+                    // inside Opening Reference, far enough down the page that
+                    // it went unnoticed before generation started.
+                    CharacterOpeningConsistencySection(project: project)
                     // Shown above the settings so the plan is the first thing
                     // read: it is what the next twenty minutes will produce.
                     AutoMoviePlanPreviewSection(project: project)

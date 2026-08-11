@@ -1011,3 +1011,38 @@ invalidates its internal derivative. Validation: `swift build` PASS,
 `swift run LTXTests` **1316 passed / 0 failed**, Xcode clean build succeeded and
 `git diff --check` passed. See `OPENING_REFERENCE_ASPECT_FIX_EVAL.md`; review
 media is preserved as `FACEMELT_ASPECT_*` and `ASPECTFIX_*` in Videos.
+
+## 2026-08-12 Overnight: consistency, continuity v1, motion audit, plan preview
+
+Four independent phases, each checkpointed.
+
+**Character Sheet ↔ Opening Reference consistency — PASS.** The app had two
+kinds of visual evidence and no way to say they were different kinds. A
+sheet-backed character was already protected (`isUserAuthored` is true whenever
+`referenceAssets` is non-empty) but disagreement was never reported. A pure
+reporting layer now compares canonical identity against scene observation, with
+`unknown` as a first-class verdict. Conservative: a conflict needs both sides to
+name recognised values from the same mutually-exclusive set. It never rewrites
+canonical data and never changes which image shot 1 starts from.
+
+**LTX Continuity v1 — PASS, PRODUCTION ACCEPTED.** Consolidation, not redesign.
+`LTXContinuityResolver` is a pure classifier mirroring the coordinator's
+precedence, adding Requested/Effective/Actual provenance with no persisted field
+and no behaviour change. Real E2E: opening reference on shot 1 at 1.0, inherited
+frames at 0.8, and a mid-movie cut that inherited nothing at all.
+
+**LTX Motion Continuation — PARTIAL.** The multi-frame conditioning primitive
+and the video VAE are both present in `mlx-video-with-audio` 0.1.36, but there is
+no video decode for conditioning, `prepare_image_for_encoding` hardcodes the
+frame axis to 1, and no surface reaches it. Not expressible without patching a
+vendored dependency, so last-frame continuity stays the production system.
+
+**Auto Movie Plan Preview — PASS (MVP).** Read-only plan summary shown before
+generation, reusing the continuity resolver so it cannot disagree with what will
+actually run.
+
+### Verification
+- `swift run LTXTests`: **1415 passed, 0 failed** (1316 → 1415)
+- `xcodebuild` Debug clean build: BUILD SUCCEEDED
+- 1 real LTX Auto Movie run, max concurrent LTX = 1, no stale process
+- Production Queue untouched throughout

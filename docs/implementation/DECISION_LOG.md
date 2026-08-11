@@ -1449,3 +1449,76 @@ ACCEPTED**, while explicitly retaining the limitation that aspect correction
 does not guarantee facial identity. Do not infer a need for automatic tight
 identity cropping; B's pull-back and invented unseen boots remain the reason to
 reject it.
+
+## D-085 (2026-08-12) Character Sheet and Opening Reference are different kinds of evidence
+
+The appearance resolver knew three origins — user-authored, opening reference,
+Director — and no Character Sheet role. A sheet-backed character was protected
+only by accident, because isUserAuthored is true whenever referenceAssets is
+non-empty, and disagreement between the two sources was never surfaced at all.
+
+The roles are now named: the sheet is canonical identity, the opening reference
+is scene observation, the Director is inference. A reporting layer compares them
+with per-field verdicts where unknown is first-class.
+
+It is deliberately conservative. A conflict is reported only when both sides name
+recognised values from the same mutually exclusive set and none agree, with near
+shades treated as equivalent; everything else is unknown. A false conflict would
+train the user to ignore the warning, which is worse than staying quiet. Checked
+against the real analysed strings from both pipelines, two independent model
+descriptions of the same character return partial rather than conflict.
+
+Crucially it reports only. Canonical identity is never rewritten and the opening
+image the user chose is still what shot 1 receives — a conflict produces a
+sentence, not a substitution.
+
+## D-086 (2026-08-12) Continuity precedence is stated once, in a testable place
+
+The source precedence lived only as an if/else chain inside planTakes. It was
+correct but undocumented and unpinned, so it could drift silently.
+
+LTXContinuityResolver mirrors it as a pure classifier: explicit per-shot image,
+identity refresh anchor, inherited last frame, then opening reference and
+character anchor for shot 1 only, then text-to-video. No persisted field, no
+behaviour change — the coordinator still makes the decision, this describes it.
+
+Requested/Effective/Actual now applies to continuity as it already did to quality
+settings, which answers the question that is otherwise guesswork when a shot
+looks wrong.
+
+The real run confirmed the semantics that mattered most: a mid-movie cut
+inherited nothing — no continuity frame, no refresh anchor, no source image.
+Nothing leaks across a cut, observed rather than asserted.
+
+## D-087 (2026-08-12) Tail-video conditioning is not expressible by the installed backend
+
+The conditioning primitive already accepts multiple frames —
+VideoConditionByLatentIndex exposes get_num_latent_frames and apply_conditioning
+handles cond_f > 1 — and the video VAE is a real video VAE. So the hard parts
+exist.
+
+What is missing is plumbing: no video decode for conditioning anywhere in the
+package, prepare_image_for_encoding collapses the frame axis by construction, and
+nothing in the CLI or Python entry point exposes more than a single image that
+goes through PIL.
+
+No experiment was run because none can be without patching site-packages, which
+is not a valid experiment. That makes this a genuine "not expressible" answer
+rather than a skipped one, and the gap is bounded upstream work rather than a
+port. Last-frame continuity remains production, which is a valid outcome.
+
+## D-088 (2026-08-12) The plan is worth showing before twenty minutes of rendering
+
+Auto Movie asked the user to commit roughly twenty minutes of generation to a
+plan they could not see. The plan already existed on the project before the queue
+job was enqueued, so this needed a view rather than a new flow.
+
+Read-only, and deliberately not a timeline. Durations are worded as
+approximations because the Director plans beats, not frames. The source column
+reuses LTXContinuityResolver so the preview cannot disagree with what generation
+will do, with one exception: before anything is generated a later continuing shot
+has no inherited asset yet, and saying "text to video" there would be misleading,
+so it says what it will inherit.
+
+Building the preview touches neither renderer nor queue, which a test pins by
+asserting the project encodes identically before and after.

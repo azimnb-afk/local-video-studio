@@ -1,6 +1,37 @@
 import Foundation
 @testable import LTXVideoGeneratorCore
 
+private final class StubIdentityAssessmentProvider: IdentitySourceAssessmentProviding {
+    var assessments: [String: IdentitySourceAssessment]
+    private(set) var requestedPaths: [String] = []
+
+    init(_ assessments: [String: IdentitySourceAssessment]) {
+        self.assessments = assessments
+    }
+
+    func assess(imageData: Data, sourceRelativePath: String) async -> IdentitySourceAssessment {
+        requestedPaths.append(sourceRelativePath)
+        return assessments[sourceRelativePath]
+            ?? IdentitySourceAssessor.unavailable(sourceRelativePath: sourceRelativePath)
+    }
+}
+
+private final class CountingIdentityAnchorGenerator: IdentityAnchorGenerator {
+    private(set) var callCount = 0
+    let imageData: Data
+
+    init(imageData: Data) { self.imageData = imageData }
+
+    func generateAnchor(
+        fromAnchorImage imageURL: URL,
+        targetShot: Shot,
+        settings: ProjectSettings
+    ) async -> (imageData: Data, framePercent: Int)? {
+        callCount += 1
+        return (imageData, 80)
+    }
+}
+
 func runIdentityRefreshTests(_ t: TestKit) {
 
     func assessment(
@@ -20,6 +51,15 @@ func runIdentityRefreshTests(_ t: TestKit) {
         a.hairVisibility = face
         a.costumeVisibility = .clear
         return a
+    }
+
+    let onePixelPNG = Data(base64Encoded:
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z0xkAAAAASUVORK5CYII=")!
+
+    func waitForMainActor(_ semaphore: DispatchSemaphore) {
+        while semaphore.wait(timeout: .now()) == .timedOut {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
     }
 
     t.suite("Identity refresh — what the next shot needs") {
@@ -152,6 +192,250 @@ func runIdentityRefreshTests(_ t: TestKit) {
                      "D: only scene-like anchors are selectable; a character sheet plate is not one")
     }
 
+    t.suite("Identity refresh — scene-compatible existing anchor resolver") {
+        let characterID = UUID()
+        func shot(
+            _ index: Int,
+            location: String = "castle courtyard",
+            costume: String = "navy-and-white adventurer uniform",
+            scale: String = "medium",
+            changes: [String] = []
+        ) -> Shot {
+            var state = ContinuitySnapshot()
+            state.location = location
+            state.timeOfDay = "sunset"
+            state.characterOutfit = ["Maya": costume]
+            var value = Shot(
+                index: index,
+                title: "Shot \(index + 1)",
+                summary: "Maya continues the action",
+                camera: CameraPlan(shotScale: scale, angle: "eye-level", movement: "static"),
+                continuityBefore: state,
+                explicitChanges: changes,
+                characterIDs: [characterID]
+            )
+            value.continuityMode = index == 0 ? .cut : .continueFromPrevious
+            return value
+        }
+        let shots = [shot(0), shot(1, scale: "wide"), shot(2, scale: "close-up")]
+        let rich = assessment(scale: .medium, face: .clear, orientation: .front)
+        let opening = SceneCompatibleIdentityAnchorResolver.Candidate(
+            kind: .openingReference,
+            relativePath: "Assets/OpeningReference/opening.png",
+            assessment: rich,
+            referenceShotIndex: 0,
+            sourceShotID: nil,
+            sourceTakeID: nil
+        )
+
+        // A. The proven medium-wide scene still may seed a close-up without a
+        // preparation render when the scene and identity evidence remain good.
+        if case .reuse(let selected, _) = SceneCompatibleIdentityAnchorResolver.resolve(
+            targetShotIndex: 2, shots: shots, candidates: [opening]
+        ) {
+            t.checkEqual(selected.kind, .openingReference,
+                         "A: identity-rich Opening Reference is reused in the same scene")
+        } else {
+            t.check(false, "A: compatible Opening Reference should be reused")
+        }
+
+        // B. An explicit location transition rejects the old scene.
+        var moved = shots
+        moved[2].continuityBefore?.location = "library interior"
+        moved[2].explicitChanges = ["location=library interior"]
+        if case .generate(let why) = SceneCompatibleIdentityAnchorResolver.resolve(
+            targetShotIndex: 2, shots: moved, candidates: [opening]
+        ) {
+            t.check(why.contains("location" ) || why.contains("transition"),
+                    "B: location rejection records its reason")
+        } else { t.check(false, "B: a different location must not reuse the courtyard") }
+
+        // C. A recent generated anchor is equally eligible when it is rich and
+        // remains inside the continuity segment.
+        var prior = opening
+        prior.kind = .previousRefresh
+        prior.relativePath = "Assets/IdentityRefresh/prior.png"
+        prior.referenceShotIndex = 1
+        prior.sourceShotID = shots[1].id
+        if case .reuse(let selected, _) = SceneCompatibleIdentityAnchorResolver.resolve(
+            targetShotIndex: 2, shots: shots, candidates: [prior, opening]
+        ) {
+            t.checkEqual(selected.kind, .previousRefresh,
+                         "C: recent generated anchor is reusable in the same scene")
+        } else { t.check(false, "C: prior refresh should be selected") }
+
+        // D/E. Identity-poor and stale images are rejected independently.
+        var poor = opening
+        poor.assessment = assessment(scale: .small, face: .none, orientation: .back)
+        if case .generate = SceneCompatibleIdentityAnchorResolver.resolve(
+            targetShotIndex: 2, shots: shots, candidates: [poor]
+        ) { t.check(true, "D: identity-poor candidate is rejected") }
+        else { t.check(false, "D: identity-poor candidate was reused") }
+        var stale = opening
+        stale.isStale = true
+        if case .generate = SceneCompatibleIdentityAnchorResolver.resolve(
+            targetShotIndex: 2, shots: shots, candidates: [stale]
+        ) { t.check(true, "E: stale candidate is rejected") }
+        else { t.check(false, "E: stale candidate was reused") }
+
+        // Intentional wardrobe and character transformations are story truth;
+        // ordinary camera and action edits are deliberately irrelevant.
+        var wardrobe = shots
+        wardrobe[2].explicitChanges = ["wardrobe=red ceremonial cloak"]
+        if case .generate = SceneCompatibleIdentityAnchorResolver.resolve(
+            targetShotIndex: 2, shots: wardrobe, candidates: [opening]
+        ) { t.check(true, "wardrobe transition rejects the old outfit anchor") }
+        else { t.check(false, "wardrobe transition was ignored") }
+
+        var realDirectorWardrobe = shots
+        realDirectorWardrobe[2].explicitChanges = [
+            "outfit:\(characterID.uuidString)=red ceremonial cloak",
+        ]
+        if case .generate = SceneCompatibleIdentityAnchorResolver.resolve(
+            targetShotIndex: 2, shots: realDirectorWardrobe, candidates: [opening]
+        ) { t.check(true, "Director outfit directive rejects the old outfit anchor") }
+        else { t.check(false, "Director outfit directive was ignored") }
+
+        var transformed = shots
+        transformed[2].explicitChanges = ["transformation=turned to stone"]
+        if case .generate = SceneCompatibleIdentityAnchorResolver.resolve(
+            targetShotIndex: 2, shots: transformed, candidates: [opening]
+        ) { t.check(true, "major character transformation rejects the old state") }
+        else { t.check(false, "character transformation was ignored") }
+
+        var ordinary = shots
+        ordinary[2].summary = "Maya raises the compass and smiles"
+        ordinary[2].camera = CameraPlan(
+            shotScale: "extreme-close-up", angle: "low", movement: "fast push-in")
+        if case .reuse = SceneCompatibleIdentityAnchorResolver.resolve(
+            targetShotIndex: 2, shots: ordinary, candidates: [opening]
+        ) { t.check(true, "ordinary camera/action changes still allow reuse") }
+        else { t.check(false, "camera/action change incorrectly forced generation") }
+    }
+
+    t.suite("Identity refresh — zero-generation production preparation") {
+        func makeStore(_ suffix: String) -> (FilmProjectStore, URL) {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("LTXTests-idreuse-\(suffix)-\(UUID().uuidString)")
+            try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            return (FilmProjectStore(projectsDirectory: root), root)
+        }
+
+        func makeProject(store: FilmProjectStore, openingAssessment: OpeningReferenceAppearance?) -> FilmProject {
+            let characterID = UUID()
+            var project = FilmProject(title: "Forced refresh fixture")
+            project.workflowMode = AutoMovieRunCoordinator.autoMovieWorkflowMode
+            project.continuityChainEnabled = true
+            let openingPath = "Assets/OpeningReference/opening.png"
+            let continuityPath = "Assets/Continuity/source-before-02.png"
+            project.openingReferenceImage = OpeningReferenceImage(
+                projectRelativePath: openingPath, originalFilename: "opening.png")
+            project.openingReferenceAppearance = openingAssessment
+            var state = ContinuitySnapshot()
+            state.location = "castle courtyard"
+            state.timeOfDay = "sunset"
+            state.characterOutfit = ["Maya": "navy-and-white adventurer uniform"]
+            var first = Shot(
+                index: 0, title: "Opening", summary: "Maya enters the courtyard",
+                camera: CameraPlan(shotScale: "medium", angle: "eye-level", movement: "static"),
+                continuityBefore: state, characterIDs: [characterID]
+            )
+            first.continuityMode = .cut
+            var target = Shot(
+                index: 1, title: "Close", summary: "Maya looks over her shoulder",
+                camera: CameraPlan(shotScale: "close-up", angle: "eye-level", movement: "push-in"),
+                continuityBefore: state, characterIDs: [characterID]
+            )
+            target.continuityMode = .continueFromPrevious
+            target.continuityImageRelativePath = continuityPath
+            project.shots = [first, target]
+            store.save(project)
+            for path in [openingPath, continuityPath] {
+                if let url = store.managedProjectAssetURL(projectID: project.id, relativePath: path) {
+                    try? FileManager.default.createDirectory(
+                        at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try? onePixelPNG.write(to: url)
+                }
+            }
+            return project
+        }
+
+        var cachedOpening = OpeningReferenceAppearance()
+        cachedOpening.status = .analysed
+        cachedOpening.sourceRelativePath = "Assets/OpeningReference/opening.png"
+        cachedOpening.faceVisible = true
+        cachedOpening.subjectCount = 1
+        cachedOpening.hairDescription = "brown ponytail"
+        cachedOpening.clothingDescription = "navy-and-white adventurer uniform"
+        cachedOpening.analysisModel = "cached-local-vision"
+
+        // H/F: real service persistence → TakeGenerationCoordinator source
+        // precedence, with a generator spy proving no preparation render.
+        let (reuseStore, reuseRoot) = makeStore("reuse")
+        defer { try? FileManager.default.removeItem(at: reuseRoot) }
+        let reuseProject = makeProject(store: reuseStore, openingAssessment: cachedOpening)
+        let poorContinuity = assessment(scale: .tiny, face: .none, orientation: .back)
+        let reuseAssessor = StubIdentityAssessmentProvider([
+            "Assets/Continuity/source-before-02.png": poorContinuity,
+        ])
+        let skippedGenerator = CountingIdentityAnchorGenerator(imageData: onePixelPNG)
+        let reuseDone = DispatchSemaphore(value: 0)
+        Task { @MainActor in
+            let outcome = await IdentityRefreshService.prepareIfNeeded(
+                projectID: reuseProject.id,
+                shotIndex: 1,
+                store: reuseStore,
+                generator: skippedGenerator,
+                assessor: reuseAssessor
+            )
+            if case .refreshed(let path, _) = outcome {
+                t.checkEqual(path, "Assets/OpeningReference/opening.png",
+                             "H: service reuses the expected Opening Reference path")
+            } else { t.check(false, "H: service did not reuse the Opening Reference") }
+            t.checkEqual(skippedGenerator.callCount, 0,
+                         "H: suitable existing anchor costs zero generator calls")
+            let saved = reuseStore.project(id: reuseProject.id)!
+            t.checkEqual(saved.shots[1].identityRefreshAnchorOrigin, .reusedOpeningReference,
+                         "reuse origin is persisted")
+            let requests = try? TakeGenerationCoordinator(store: reuseStore).planTakes(
+                projectID: saved.id, shotID: saved.shots[1].id, count: 1, baseSeed: 42)
+            t.check(requests?.first?.sourceImagePath?.contains("OpeningReference/opening.png") == true,
+                    "Shot request actually uses the reused managed image")
+            reuseDone.signal()
+        }
+        waitForMainActor(reuseDone)
+
+        // G: when the only candidate lacks identity information, the existing
+        // LTX generator boundary is invoked exactly once and persists output.
+        let (generateStore, generateRoot) = makeStore("generate")
+        defer { try? FileManager.default.removeItem(at: generateRoot) }
+        let generateProject = makeProject(store: generateStore, openingAssessment: nil)
+        let generateAssessor = StubIdentityAssessmentProvider([
+            "Assets/Continuity/source-before-02.png": poorContinuity,
+            "Assets/OpeningReference/opening.png": poorContinuity,
+        ])
+        let invokedGenerator = CountingIdentityAnchorGenerator(imageData: onePixelPNG)
+        let generateDone = DispatchSemaphore(value: 0)
+        Task { @MainActor in
+            let outcome = await IdentityRefreshService.prepareIfNeeded(
+                projectID: generateProject.id,
+                shotIndex: 1,
+                store: generateStore,
+                generator: invokedGenerator,
+                assessor: generateAssessor
+            )
+            if case .refreshed = outcome { t.check(true, "G: generated fallback completes") }
+            else { t.check(false, "G: generated fallback did not complete") }
+            t.checkEqual(invokedGenerator.callCount, 1,
+                         "G: no suitable anchor invokes the generator exactly once")
+            t.checkEqual(generateStore.project(id: generateProject.id)?
+                .shots[1].identityRefreshAnchorOrigin, .generated,
+                "generated fallback origin is persisted")
+            generateDone.signal()
+        }
+        waitForMainActor(generateDone)
+    }
+
     t.suite("Identity refresh — assessment parsing") {
         let good = """
         {"subjectPresent":true,"subjectCount":1,"subjectScale":"tiny",
@@ -205,6 +489,7 @@ func runIdentityRefreshTests(_ t: TestKit) {
         shot1.selectedTakeID = take.id
         var shot2 = Shot(index: 1, title: "Two")
         shot2.identityRefreshAnchorRelativePath = "Assets/IdentityRefresh/shot-002-x.png"
+        shot2.identityRefreshAnchorOrigin = .generated
         shot2.identityRefreshSourceTakeID = take.id
         shot2.identityRefreshNote = "Identity Refresh: applied"
         project.shots = [shot1, shot2]
@@ -217,6 +502,8 @@ func runIdentityRefreshTests(_ t: TestKit) {
                      "A/B: the refresh anchor survives a save and reload")
         t.checkEqual(decoded.shots[1].identityRefreshSourceTakeID, take.id,
                      "and remembers which take it was derived from")
+        t.checkEqual(decoded.shots[1].identityRefreshAnchorOrigin, .generated,
+                     "and records that it was generated")
 
         // C/D. a retake upstream makes the anchor stale.
         var retaken = decoded
@@ -239,10 +526,46 @@ func runIdentityRefreshTests(_ t: TestKit) {
                      "Assets/IdentityRefresh/shot-002-x.png",
                      "an anchor from the current take is kept")
 
+        // A later shot may reuse the generated anchor without changing its
+        // root dependency. Retaking that root invalidates the reuse chain too.
+        var chained = decoded
+        var shot3 = Shot(index: 2, title: "Three")
+        shot3.identityRefreshAnchorRelativePath = "Assets/IdentityRefresh/shot-002-x.png"
+        shot3.identityRefreshAnchorOrigin = .reusedPriorRefresh
+        shot3.identityRefreshAnchorSourceShotID = chained.shots[1].id
+        shot3.identityRefreshSourceTakeID = take.id
+        chained.shots.append(shot3)
+        IdentityRefreshService.invalidateStaleAnchor(shotIndex: 2, in: &chained)
+        t.checkEqual(chained.shots[2].identityRefreshAnchorRelativePath,
+                     "Assets/IdentityRefresh/shot-002-x.png",
+                     "a prior generated anchor remains reusable while its root take is current")
+        chained.shots[0].takes = [newTake]
+        chained.shots[0].selectedTakeID = newTake.id
+        IdentityRefreshService.invalidateStaleAnchor(shotIndex: 2, in: &chained)
+        t.check(chained.shots[2].identityRefreshAnchorRelativePath == nil,
+                "a retake at the root invalidates a later reused-anchor chain")
+
+        // Opening Reference reuse is independent of upstream takes, but Replace
+        // and Clear must invalidate the old path immediately.
+        var openingReuse = FilmProject(title: "Opening reuse")
+        openingReuse.openingReferenceImage = OpeningReferenceImage(
+            projectRelativePath: "Assets/OpeningReference/old.png")
+        var openingTarget = Shot(index: 1, title: "Close")
+        openingTarget.identityRefreshAnchorRelativePath = "Assets/OpeningReference/old.png"
+        openingTarget.identityRefreshAnchorOrigin = .reusedOpeningReference
+        openingReuse.shots = [Shot(index: 0, title: "Open"), openingTarget]
+        openingReuse.openingReferenceImage = OpeningReferenceImage(
+            projectRelativePath: "Assets/OpeningReference/new.png")
+        IdentityRefreshService.invalidateOpeningReferenceAnchors(in: &openingReuse)
+        t.check(openingReuse.shots[1].identityRefreshAnchorRelativePath == nil,
+                "Replace invalidates a refresh that reused the superseded Opening Reference")
+
         // F. legacy projects decode with no refresh state.
         var object = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
         var shots = object["shots"] as! [[String: Any]]
         shots[1].removeValue(forKey: "identityRefreshAnchorRelativePath")
+        shots[1].removeValue(forKey: "identityRefreshAnchorOrigin")
+        shots[1].removeValue(forKey: "identityRefreshAnchorSourceShotID")
         shots[1].removeValue(forKey: "identityRefreshSourceTakeID")
         shots[1].removeValue(forKey: "identityRefreshNote")
         object["shots"] = shots

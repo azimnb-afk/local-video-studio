@@ -94,6 +94,32 @@ enum IdentitySourceAssessor {
         return result
     }
 
+    /// Reuses the local analysis already attached to an Opening Reference.
+    /// `faceVisible` means the face was legible and the non-empty appearance
+    /// fields are direct visibility evidence, so no second Vision request is
+    /// needed merely to rename the same facts.
+    static func assessment(
+        fromOpeningReference appearance: OpeningReferenceAppearance?,
+        sourceRelativePath: String
+    ) -> IdentitySourceAssessment? {
+        guard let appearance,
+              appearance.isUsable,
+              appearance.sourceRelativePath == sourceRelativePath else { return nil }
+        var result = IdentitySourceAssessment()
+        result.status = .assessed
+        result.sourceRelativePath = sourceRelativePath
+        result.subjectPresent = appearance.subjectCount > 0
+        result.subjectCount = appearance.subjectCount
+        result.subjectScale = .unknown
+        result.faceVisibility = appearance.faceVisible ? .clear : .none
+        result.hairVisibility = appearance.hairDescription.isEmpty ? .none : .clear
+        result.costumeVisibility = appearance.costumeSummary.isEmpty ? .none : .clear
+        result.subjectOrientation = .ambiguous
+        result.analysisModel = appearance.analysisModel
+        result.assessedAt = appearance.analysedAt
+        return result
+    }
+
     /// Never throws: an assessment that cannot be made simply is not made, and
     /// the policy then leaves continuity alone.
     static func assess(

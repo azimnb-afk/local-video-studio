@@ -138,6 +138,8 @@ struct OpeningReferenceSection: View {
                 store.removeManagedOpeningReference(projectID: project.id, reference: previous)
             }
             stored.openingReferenceImage = imported
+            OpeningReferenceSync.invalidateIfStale(project: &stored)
+            IdentityRefreshService.invalidateOpeningReferenceAnchors(in: &stored)
             store.save(stored)
             onChanged()
         } catch {
@@ -151,6 +153,8 @@ struct OpeningReferenceSection: View {
               let existing = stored.openingReferenceImage else { return }
         store.removeManagedOpeningReference(projectID: project.id, reference: existing)
         stored.openingReferenceImage = nil
+        OpeningReferenceSync.invalidateIfStale(project: &stored)
+        IdentityRefreshService.invalidateOpeningReferenceAnchors(in: &stored)
         store.save(stored)
         onChanged()
     }

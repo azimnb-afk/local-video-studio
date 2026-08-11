@@ -863,3 +863,76 @@ degrades only where the inherited frame stops carrying it.
   costume; Choose/Replace/Clear, thumbnail, queue and all five pages intact at
   1680x948.
 - Production Queue untouched and still passing.
+
+## 2026-08-11 Adaptive Identity Refresh — existing-anchor reuse and production acceptance
+
+**Status: PASS — ADAPTIVE IDENTITY REFRESH PRODUCTION ACCEPTED.** The previous
+MVP generated a short LTX preparation clip whenever the conservative refresh
+policy fired. It now first asks a pure
+`SceneCompatibleIdentityAnchorResolver` whether the project already owns a
+scene-like image with enough visible identity information. Only when none is
+suitable does the existing `IdentityAnchorGenerator` run.
+
+The production insertion point is unchanged: after a completed Shot's last frame
+is extracted and assessed, and before the next take is enqueued. Source
+precedence is still explicit per-shot Starting Image > refresh anchor > inherited
+continuity > Shot-1 Opening Reference > Character Anchor. Raw Character Sheet
+plates are never direct target-shot candidates.
+
+Candidates are the most recent prior generated refresh anchors and the movie's
+Opening Reference. Identity sufficiency requires an assessed, unambiguous single
+subject with clear face, hair and costume, not back-facing or tiny. Scene
+compatibility uses project metadata: an earlier state in the same movie, shared
+cast when known, the same location or uninterrupted CONTINUE segment, and no
+location, time, weather, wardrobe/outfit or character-transformation transition.
+Ordinary camera scale and action changes do not force generation. Stale anchors
+and missing files are rejected. Opening Reference Replace/Clear invalidates
+dependent reuse decisions; prior-anchor reuse follows its generated root's
+retake staleness recursively. The GUI pass also caught that Replace/Clear had
+not called the pre-existing `OpeningReferenceSync.invalidateIfStale` helper;
+both actions now drop stale derived appearance in the same transaction.
+
+`Shot.identityRefreshAnchorOrigin` records `generated`,
+`reusedOpeningReference`, or `reusedPriorRefresh`; the optional source Shot UUID
+records prior-anchor provenance. Both fields are optional, so legacy project JSON
+still loads and old anchors keep the original take-based staleness rule.
+
+### Forced production true positive
+
+Deterministic project `8650AE3C-45A8-43A8-A96D-5315C3AFDC3D` ran through the
+real Production Queue. Its generated Shot 2 ended with one medium-scale subject
+facing fully away. The shipping local-Vision assessor (`agents-a1:32k`) reported
+`subjectPresent=true`, `subjectCount=1`, `subjectScale=medium`,
+`faceVisibility=none`, `hairVisibility=partial`, `costumeVisibility=clear`, and
+`subjectOrientation=back`. Shot 3 was a close-up, so the unchanged policy
+returned refresh-required. The resolver selected the project-owned Opening
+Reference in the same Stone Courtyard; the generator invocation count was zero.
+The persisted Shot 3 take and the real `mlx_video.generate_av` command both used
+that Opening Reference as `sourceImagePath`.
+
+Shot 2 output completed at 18:27:00; extraction, one Vision call and resolution
+finished with Shot 3 starting at 18:27:19. Added orchestration latency was 19 s,
+pure resolver time was negligible, and added LTX time was **0 s**. This avoids
+the previously measured ~122 s generated bridge whenever a reusable anchor
+exists.
+
+A source-only A/B used the production Shot 3 prompt, seed `1202830483`, Q4 model,
+4-bit encoder, 768x512, 121 frames, 25 requested steps and strength 0.5. The
+identity-poor control changed to a different woman (Face 0, Hair 1, Clothing 1,
+Identity 1); production reuse kept the Adventurer Heroine (3/3/3/3). Both scored
+3 for requested framing, narrative beat, scene compatibility and artifacts.
+
+All four Shots completed and the Production Queue assembled a 20.061 s,
+768x512 H.264 + AAC stereo movie. One-second process sampling recorded maximum
+concurrent LTX renders = 1. Shot 4 preserved the protagonist and courtyard but
+introduced an unrequested secondary figure near the doors; that is ordinary
+generative beat variance, not a refresh/source-selection failure.
+
+### Build and verification
+
+- `git diff --check`: PASS
+- `swift build`: PASS
+- `swift run LTXTests`: **1269 passed, 0 failed**
+- `xcodebuild ... CODE_SIGNING_ALLOWED=NO clean build`: **BUILD SUCCEEDED**
+- Review copies: `IDREFRESH_ACCEPT_*_20260811_183800` under the Videos folder;
+  `history.json` was not edited.

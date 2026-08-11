@@ -1297,3 +1297,58 @@ planned a close-up, the policy assessed the inherited frame as medium scale,
 front-facing, partial face, and correctly declined. No false positive, no wasted
 generation — and, honestly, no observation yet of the trigger firing in a real
 movie. That remains proven by unit tests and the two gate experiments only.
+
+## D-080 (2026-08-11) A refresh decision does not imply a refresh generation
+
+Gate #1 had already shown the movie's own Opening Reference repaired the failing
+back-view-to-close-up transition as well as a generated anchor, with a better
+narrative beat and zero generation cost. Therefore `IdentityRefreshPolicy`
+continues to answer only whether inherited continuity is risky. A separate pure
+`SceneCompatibleIdentityAnchorResolver` now asks whether an already-owned
+cinematic image can satisfy that need before `IdentityAnchorGenerator` is
+invoked.
+
+The resolver considers prior generated refresh anchors, most recent first, then
+the Opening Reference. It requires visibility evidence for exactly one
+unambiguous subject with clear face, hair and costume; no biometric matching is
+performed. Deterministic scene metadata rejects stale anchors, disjoint cast,
+location/time/weather changes, wardrobe/outfit changes, and character
+transformations. A shared location or uninterrupted CONTINUE segment positively
+establishes compatibility. Camera and action changes do not reject an anchor,
+because the measured backend can reframe a good identity-bearing source.
+
+Explicit per-shot Starting Image precedence is untouched, and Character Sheet
+plates are never direct candidates. Reuse/generation origin and prior-anchor
+source Shot are optional persisted fields, preserving legacy decode. Opening
+Reference Replace/Clear and upstream Retake invalidate dependent decisions. The
+real GUI pass found that the View also failed to call the existing derived-
+appearance invalidator; Replace/Clear now invalidate both appearance evidence
+and refresh-anchor reuse before saving.
+
+## D-081 (2026-08-11) The conservative true-positive path is production accepted
+
+A deterministic production fixture used a real completed opening Shot, then let
+the shipping queue render Shot 2 so that it genuinely ended back-facing in the
+same Stone Courtyard. Its actual extracted frame was assessed by
+`agents-a1:32k` as one medium subject, face none, hair partial, costume clear,
+orientation back. The unchanged policy required refresh for the following
+close-up.
+
+The new resolver reused the project-owned Opening Reference. The next real
+render command named that exact absolute path; no IdentityRefresh bridge process
+or managed bridge asset existed. The elapsed gap from Shot 2 output to Shot 3
+child start was 19 s (frame extraction + Vision + resolver), compared with the
+prior generated bridge's ~122 s. Added LTX generations: zero.
+
+A direct source-only control used the same target prompt, seed, model, encoder,
+size, frames, steps and conditioning strength. Normal inherited continuity
+replaced the heroine with a different woman (Face/Hair/Clothing/Identity
+0/1/1/1); production reuse kept her at 3/3/3/3. Framing, look-back beat,
+courtyard and artifact scores remained 3 in both. The four-Shot movie assembled
+to a valid 20.061 s H.264/AAC output, and one-second subprocess sampling recorded
+maximum concurrency one.
+
+This closes the missing positive half of D-079. Freeze the architecture as:
+normal continuity -> risk assessment -> existing-anchor reuse -> generated
+refresh fallback. Further identity-backend expansion is not justified by this
+acceptance; next work is observability, performance and product polish.

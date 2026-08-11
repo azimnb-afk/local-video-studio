@@ -580,6 +580,16 @@ enum ContinuityBlockReason: String, Codable, Error {
     }
 }
 
+/// How the image recorded in `identityRefreshAnchorRelativePath` was obtained.
+/// Optional on `Shot` so projects written by the original MVP still decode;
+/// an absent value is treated as a generated anchor with the legacy staleness
+/// rule.
+enum IdentityRefreshAnchorOrigin: String, Codable, Equatable {
+    case generated
+    case reusedOpeningReference
+    case reusedPriorRefresh
+}
+
 // MARK: - Shot
 
 struct Shot: Codable, Equatable, Identifiable {
@@ -621,6 +631,13 @@ struct Shot: Codable, Equatable, Identifiable {
     /// the frame it would have inherited could not supply one. Managed,
     /// project-relative, and invalidated when the upstream take changes.
     var identityRefreshAnchorRelativePath: String?
+    /// Whether the refresh stage reused an existing image or rendered a new
+    /// preparation clip. This is observability and staleness metadata, not a
+    /// new source-precedence mechanism.
+    var identityRefreshAnchorOrigin: IdentityRefreshAnchorOrigin?
+    /// For a reused prior refresh, identifies the Shot that owns the original
+    /// persisted anchor. Opening Reference reuse has no source Shot.
+    var identityRefreshAnchorSourceShotID: UUID?
     /// The take the refresh was derived from, so a Retake upstream marks it
     /// stale instead of silently reusing an anchor built from an old frame.
     var identityRefreshSourceTakeID: UUID?
@@ -715,7 +732,8 @@ struct Shot: Codable, Equatable, Identifiable {
              continuityImageRelativePath,
              continuitySourceTakeID, continuityBlockedReason,
              originalCameraScale, capabilityAdjustmentReason,
-             identityRefreshAnchorRelativePath, identityRefreshSourceTakeID,
+             identityRefreshAnchorRelativePath, identityRefreshAnchorOrigin,
+             identityRefreshAnchorSourceShotID, identityRefreshSourceTakeID,
              identityRefreshNote
     }
 
@@ -744,6 +762,10 @@ struct Shot: Codable, Equatable, Identifiable {
         // those simply have no refresh anchor, which is correct for them.
         identityRefreshAnchorRelativePath = try container.decodeIfPresent(
             String.self, forKey: .identityRefreshAnchorRelativePath)
+        identityRefreshAnchorOrigin = try container.decodeIfPresent(
+            IdentityRefreshAnchorOrigin.self, forKey: .identityRefreshAnchorOrigin)
+        identityRefreshAnchorSourceShotID = try container.decodeIfPresent(
+            UUID.self, forKey: .identityRefreshAnchorSourceShotID)
         identityRefreshSourceTakeID = try container.decodeIfPresent(
             UUID.self, forKey: .identityRefreshSourceTakeID)
         identityRefreshNote = try container.decodeIfPresent(

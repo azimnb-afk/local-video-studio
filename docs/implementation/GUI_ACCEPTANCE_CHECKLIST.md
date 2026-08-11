@@ -691,3 +691,45 @@ One real Auto Movie (`VB NEW`) created and run end to end, 15:09–15:28.
 Not exercised on screen: Replace/Clear invalidation of the derived appearance was
 verified by unit test rather than in the GUI, because clearing the reference on
 this project would have destroyed the E2E evidence it holds.
+
+## 2026-08-11 Adaptive Identity Refresh production acceptance
+
+Canonical Debug app rebuilt from the implementation under test. Production
+project `IDREFRESH ACCEPT — forced true positive` ran inside the global queue.
+
+- [x] App launches from the full DerivedData `.app` path.
+- [x] Sidebar and Auto Movie page render with no obvious layout regression at
+      1680x948.
+- [x] New Auto Movie sheet opens and includes Opening Reference selection.
+- [x] Opening appearance status remains `Analysed locally`.
+- [x] Production Queue shows the acceptance job, progresses Shot 2 / 4 through
+      Shot 4 / 4, and records Completed.
+- [x] All four generated/selected Shots are persisted.
+- [x] Completed movie is present and playable metadata is valid: 20.061 s,
+      768x512 H.264, AAC stereo.
+- [x] Shot 3 persisted `Identity Refresh: Reused Opening Reference` provenance;
+      its take used that exact managed source path.
+- [x] Review copies were made before any disposable-control work.
+- [x] On disposable project, Replace the Opening Reference and confirm thumbnail
+      / filename / local-analysis state update.
+- [x] On the same disposable project, Clear and confirm the control returns to
+      `Choose Image…` without altering the production evidence project.
+
+Replace was exercised with `ChatGPT Image 2026年8月10日 23_51_41.png` on fresh
+disposable project `7E9C8F0D-FCBC-4CB2-9F7E-642327B4FE05`. The first
+GUI pass exposed an integration gap: filename and thumbnail updated, but the old
+`Opening appearance` JSON remained because the View did not call the already
+tested `OpeningReferenceSync.invalidateIfStale`. The View now calls it at the
+same Replace/Clear boundary as refresh-anchor invalidation. The post-fix pass
+confirmed in both UI and persisted JSON that Replace drops the previous
+appearance and all refresh provenance, while Clear leaves
+`openingReferenceImage = null`, `openingReferenceAppearance = null`, no refresh
+provenance, and returns the section to `Choose Image…`. Reopening the evidence
+project still showed its original Opening Reference, 4/4 selected takes and
+`Completed movie ready`; its persisted project JSON and review media were
+unchanged.
+
+Final GUI preflight: repository HEAD `549e93b` plus the uncommitted implementation
+under test, canonical app resolved from `xcodebuild -showBuildSettings`, executable
+mtime `2026-08-11 19:08:18 +0900`, active PID 91285 with that exact executable
+path. The app was launched by full path, not `open -a`.

@@ -1,8 +1,11 @@
 # Adaptive Identity Refresh — Evaluation
 
 **Date:** 2026-08-11
-**Baseline HEAD:** `87e7a9a`, worktree clean
-**Classification: PASS WITH LIMITATION — architecture proven, MVP shipped, trigger not yet observed firing in a real movie**
+**Original MVP baseline HEAD:** `87e7a9a`, worktree clean
+
+**Reuse/acceptance starting HEAD:** `549e93b`, worktree clean
+
+**Classification: PASS — ADAPTIVE IDENTITY REFRESH PRODUCTION ACCEPTED**
 
 ## 1. Question
 
@@ -91,7 +94,7 @@ second global job, concurrency still one.
 use the CONTINUE change-focused statement — preserving the state is the opposite
 of the goal (D-073).
 
-## 5. Real E2E — the limitation
+## 5. First real E2E — the now-closed limitation
 
 `IDR E2E`, Standard 768×512, 4 shots, Director Auto, same opening still.
 Director planned wide → medium-wide → **close-up** → medium, which is exactly
@@ -148,3 +151,131 @@ across all four shots.
 `swift run LTXTests`: **1249 passed, 0 failed** (1191 + 58).
 `xcodebuild` Debug clean build (`CODE_SIGNING_ALLOWED=NO`): **BUILD SUCCEEDED**.
 Production Queue untouched and still passing.
+
+## 10. Existing scene-anchor reuse
+
+The production sequence is now:
+
+```
+continuity frame -> visibility assessment -> refresh policy
+    -> scene-compatible existing-anchor resolver
+        -> reuse Opening Reference / prior generated anchor
+        -> otherwise existing LTX refresh generator
+```
+
+The insertion point is immediately before the original generator call inside
+`IdentityRefreshService`; there is no duplicate coordinator or queue. Candidate
+types are the Opening Reference and prior generated refresh anchors. Character
+Sheet/reference plates are excluded.
+
+Identity sufficiency: assessed, no ambiguity, exactly one visible subject,
+clear face/hair/costume, not back-facing or tiny. Scene compatibility: an earlier
+state in the same project, shared cast when populated, same location or one
+unbroken CONTINUE segment, and no explicit or structured location, time,
+weather, wardrobe/outfit or transformation change. Camera and action changes
+are intentionally ignored. Stale and missing candidates are rejected.
+
+Source precedence remains explicit Shot Starting Image > adaptive anchor >
+normal inherited continuity > opening-only sources. Persisted origin distinguishes
+generated / reused Opening Reference / reused prior anchor. Optional fields keep
+old JSON valid; a legacy missing origin means generated for staleness purposes.
+
+## 11. Forced production true positive
+
+Project: `8650AE3C-45A8-43A8-A96D-5315C3AFDC3D`
+
+Queue job: `06DAE543-4BFA-479C-A119-35BCBB54B69B`
+
+Plan: existing real opening Shot; Shot 2 medium-wide pull-back ending fully
+back-facing; Shot 3 close-up look-back; Shot 4 medium resolve. All remain in the
+Stone Courtyard with the same character UUID.
+
+Actual Shot 2 continuity source:
+`Assets/Continuity/shot-003-from-45702471-0B37-4347-96DD-1310771FC7F4.png`.
+It is a real frame extracted by the production coordinator, not swapped after
+assessment.
+
+Shipping local-Vision result (`agents-a1:32k`):
+
+```json
+{
+  "status": "assessed",
+  "subjectPresent": true,
+  "subjectCount": 1,
+  "subjectScale": "medium",
+  "faceVisibility": "none",
+  "hairVisibility": "partial",
+  "costumeVisibility": "clear",
+  "subjectOrientation": "back",
+  "ambiguityReason": ""
+}
+```
+
+Target requirement: `faceCritical` from `close-up`. Exact policy result:
+refresh required — inherited frame shows no face. Exact resolver result: reuse
+Opening Reference — face, hair and costume clear; scene continuity compatible.
+Selected project-relative path:
+`Assets/OpeningReference/opening-reference-A358575C-D669-4F67-AF57-50B8970A7A66.png`.
+The persisted Shot 3 take and actual `mlx_video.generate_av --image` used its
+absolute managed-project URL.
+
+Generator invocation evidence: no IdentityRefresh subprocess, no
+`Assets/IdentityRefresh` output, generator spy count 0 in the integration test.
+Additional LTX generations = 0. Shot 2 output mtime was 18:27:00; Shot 3 child
+started 18:27:19. Extraction + local Vision + pure resolver cost 19 s total;
+resolver itself is in-memory deterministic work. Saved LTX preparation latency
+versus the prior generated anchor is approximately 122 s.
+
+## 12. Source-only visual A/B
+
+The direct control changed only the image source. Prompt, seed `1202830483`,
+Q4 model, 4-bit encoder, 768x512, 121 frames, 25 requested steps and image
+strength 0.5 matched production Shot 3.
+
+| Criterion | inherited control | production reuse |
+| --- | ---: | ---: |
+| Face | 0 | **3** |
+| Hair | 1 | **3** |
+| Clothing | 1 | **3** |
+| Overall identity | 1 | **3** |
+| Requested framing | 3 | 3 |
+| Narrative beat | 3 | 3 |
+| Scene compatibility | 3 | 3 |
+| Artifacts | 3 | 3 |
+
+The control reframed and looked back correctly but invented a different woman
+with a bun and light hooded outfit. Production kept the Adventurer Heroine's
+brown ponytail, face, navy uniform details and cream cape while executing the
+same close-up in the same courtyard.
+
+## 13. Movie, queue and cost result
+
+Shots 1–4 completed. Final Assembly produced 20.061 s, 768x512 H.264 with AAC
+stereo. Queue state is Completed, progress 4/4. One-second sampling across the
+remaining real production run measured maximum concurrent LTX children = 1;
+the fixture occupied one global Production Queue job.
+
+Three cost levels are now real:
+
+| Path | Additional LTX work |
+| --- | --- |
+| Normal continuity | 0 generations |
+| Refresh + reusable scene anchor | 0 generations |
+| Refresh + no reusable anchor | 1 short preparation generation |
+
+Known visual variance: Shot 4 introduced an unrequested secondary figure at the
+doors. This is an ordinary render/beat artifact after the accepted transition,
+not a resolver, queue, source-precedence or assembly failure.
+
+## 14. Final verification and review media
+
+- `swift build`: PASS
+- `swift run LTXTests`: **1269 passed, 0 failed**
+- `xcodebuild` Debug clean build, `CODE_SIGNING_ALLOWED=NO`: **BUILD SUCCEEDED**
+- `git diff --check`: PASS
+- Review media are non-overwriting `IDREFRESH_ACCEPT_*_20260811_183800` copies
+  under Application Support's Videos directory. `history.json` was not edited.
+
+The original false-positive protection and generated fallback remain covered;
+the real run now proves the missing true-positive half. Architecture is frozen
+at existing-anchor reuse before generated refresh.

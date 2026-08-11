@@ -6,6 +6,13 @@ Starting HEAD: `7533de4`
 
 Classification: **PASS — TRANSIENT RAW FAILURE IDENTIFIED**
 
+> Follow-up calibration: two new sources used the same aspect-preserving 3:2
+> preprocessing. Full-framing A retained a historical-sized face but eliminated
+> the transient; tighter B also remained clean but forced a pull-back and
+> invented omitted boot details. Current classification is that aspect-preserved
+> input is the stronger observed lever, not that a hidden face crop is ready for
+> production. See `FACE_SCALE_ISOLATION_EVAL.md`.
+
 ## Executive finding
 
 The user-observed melt in

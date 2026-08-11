@@ -1393,3 +1393,25 @@ heuristic. If generation testing resumes, first isolate source face scale with
 one aspect-preserving, scene-compatible larger-face condition and dense face
 review. Frame-level quality rejection is a separate future gate because the
 transient is now proven, but its false-positive behavior remains unmeasured.
+
+## D-084 (2026-08-11) Aspect-preserved input beats the transient before a tight crop is needed
+
+Two new same-prompt, same-seed, same-backend renders used explicit 768x512
+aspect-preserved inputs. A retained full-body framing and a 40 px source face,
+closely matching the historical failure's 38 px face and 38-to-58 px push-in
+trajectory. Unlike the historical hard-stretched input, A had no geometric
+face collapse. B began with a 77 px face and also stayed anatomically clean,
+but the wide-shot prompt pulled it back to 37 px and invented unseen boots.
+
+Classify this gate as “aspect-preserving input is the stronger lever,” not
+“larger face fixes identity.” A already removed the specific failure without a
+tight source, so B did not materially improve worst face geometry. More
+importantly, a hidden tight conditioning crop is not composition-neutral: it
+changes the opening camera path and causes the backend to reconstruct visual
+information outside the crop.
+
+Do not implement automatic Opening Identity Crop or alter Opening Reference
+semantics. Historical-versus-new same-seed visual determinism is not proven,
+and the two new outputs even contain 117 versus 119 readable frames. The next
+gate is one exact A repeat; only after repeatability should an aspect-only pair
+be designed with the content window held constant.

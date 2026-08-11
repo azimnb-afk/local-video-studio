@@ -1043,3 +1043,55 @@ when B was created, which put B behind it by luck rather than by rule.
 
 Creating a job appends. `enqueueNext` stays, reserved for a deliberate "Generate
 Now". "Queue three movies and go to bed" has to mean first, second, third.
+
+## D-069 (2026-08-11) A Character Sheet can be time-evolved into a scene, if it fills the frame
+
+The Character Anchor experiment established that a Character Sheet used directly
+as a starting image yields a reference plate as frame 1. The Temporal Bridge
+hypothesis was that time, not strength, is the missing variable: let LTX run for
+five seconds and extract a later frame.
+
+It works — with one decisive precondition. Two 768×512 bridges were run from the
+same Adventurer Heroine Front reference, same seed, same prompt, differing only
+in how the 287×774 portrait crop was fitted to the landscape frame.
+
+Aspect-**fit** (figure centred on white padding) failed: a courtyard formed, but
+only inside the 190 px column that held image content. The padding columns moved
+by 0.2/255 from first frame to last and stayed at 252 while the centre moved by
+77.75. Synthetic padding is inert — the model transforms content, not emptiness.
+
+Aspect-**fill** (crop the band, no empty regions) produced a complete cinematic
+courtyard by 25% of the clip, with hair, vest, belt, socks and boots intact.
+
+Two working rules follow, and both are counter-intuitive enough to record:
+`load_image()` hard-resizes with no aspect preservation, so any future feature
+must aspect-**fill**, never pad; and the usable frame is **early-middle (~25%)**,
+not late. Per-frame motion collapses to 0.01–0.04 after ~67%: the transformation
+finishes and then stalls, so a longer bridge buys nothing.
+
+## D-070 (2026-08-11) The bridge is not the bottleneck — reframe identity is
+
+The bridge still was fed through the existing Opening Reference path and
+compared against a T2V control on the same brief.
+
+The bridge reference is clearly better: environment continuity 3 vs 1, opening
+quality 3 vs 1, shot-to-shot continuity 2 vs 0. The control produced three or
+four different women across four shots; the bridge run opened on the intended
+character and kept one consistent figure.
+
+But the Adventurer Heroine's actual identity is lost at shot 3 — the "looks over
+her shoulder" reframe — leaving a generic cream-coated woman who is then stable
+for the rest of the film.
+
+Re-examining two earlier runs that used *hand-made* scene references shows the
+same pattern, which is the useful part: a low-specificity character (man in a
+dark suit) holds across all shots, while a high-specificity one (the blue-haired
+girl) loses her defining trait after shot 1. So the ranking is
+`T2V < Temporal Bridge ≈ manual scene reference`, not
+`T2V < Temporal Bridge < manual scene reference`.
+
+The Temporal Bridge produces a still about as useful as one a human would
+prepare. The ceiling is the continuity chain, which carries composition,
+environment and broad costume across a reframe but not facial identity. A better
+still generator — Z-Image included — would improve shot 1 and not shot 3. That
+is worth knowing before committing to it.

@@ -535,6 +535,9 @@ private struct ProjectDetailView: View {
                 // Storyboard shots are authored one by one with their own
                 // starting images.
                 if project.workflowMode == "hybrid" {
+                    // Shown above the settings so the plan is the first thing
+                    // read: it is what the next twenty minutes will produce.
+                    AutoMoviePlanPreviewSection(project: project)
                     OpeningReferenceSection(project: project, onChanged: onChanged)
                     CharacterAnchorSection(project: project, onChanged: onChanged)
                 }

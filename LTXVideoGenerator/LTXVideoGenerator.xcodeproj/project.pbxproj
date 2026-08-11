@@ -41,6 +41,8 @@
 		AA0002B4 /* ProductionQueueCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002B5; };
 		AA0002B2 /* ProductionQueueStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002B3; };
 		AA0002B0 /* ProductionJob.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002B1; };
+		AA0002E4 /* AutoMoviePlanPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002E5; };
+		AA0002E6 /* AutoMoviePlanPreviewSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002E7; };
 		AA0002E2 /* LTXContinuity.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002E3; };
 		AA0002E0 /* CharacterOpeningConsistency.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002E1; };
 		AA0002D0 /* IdentitySourceAssessment.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002D1; };
@@ -135,6 +137,8 @@
 		AA0002B5 /* ProductionQueueCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionQueueCoordinator.swift; sourceTree = "<group>"; };
 		AA0002B3 /* ProductionQueueStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionQueueStore.swift; sourceTree = "<group>"; };
 		AA0002B1 /* ProductionJob.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionJob.swift; sourceTree = "<group>"; };
+		AA0002E5 /* AutoMoviePlanPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoMoviePlanPreview.swift; sourceTree = "<group>"; };
+		AA0002E7 /* AutoMoviePlanPreviewSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoMoviePlanPreviewSection.swift; sourceTree = "<group>"; };
 		AA0002E3 /* LTXContinuity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LTXContinuity.swift; sourceTree = "<group>"; };
 		AA0002E1 /* CharacterOpeningConsistency.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterOpeningConsistency.swift; sourceTree = "<group>"; };
 		AA0002D1 /* IdentitySourceAssessment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentitySourceAssessment.swift; sourceTree = "<group>"; };
@@ -268,6 +272,7 @@
 				AA000207 /* OneShotPlan.swift */,
 				AA000209 /* FilmProject.swift */,
 				AA0002B1 /* ProductionJob.swift */,
+				AA0002E5 /* AutoMoviePlanPreview.swift */,
 				AA0002E3 /* LTXContinuity.swift */,
 				AA0002E1 /* CharacterOpeningConsistency.swift */,
 				AA0002D1 /* IdentitySourceAssessment.swift */,
@@ -346,6 +351,7 @@
 			children = (
 				AA000004 /* ContentView.swift */,
 				AA0002B9 /* ProductionQueuePanel.swift */,
+				AA0002E7 /* AutoMoviePlanPreviewSection.swift */,
 				AA0002A7 /* OpeningReferencePicker.swift */,
 				AA0002A5 /* OpeningReferenceSection.swift */,
 				AA00029D /* CharacterAnchorSection.swift */,
@@ -469,6 +475,8 @@
 				AA0002B4 /* ProductionQueueCoordinator.swift in Sources */,
 				AA0002B2 /* ProductionQueueStore.swift in Sources */,
 				AA0002B0 /* ProductionJob.swift in Sources */,
+				AA0002E4 /* AutoMoviePlanPreview.swift in Sources */,
+				AA0002E6 /* AutoMoviePlanPreviewSection.swift in Sources */,
 				AA0002E2 /* LTXContinuity.swift in Sources */,
 				AA0002E0 /* CharacterOpeningConsistency.swift in Sources */,
 				AA0002D0 /* IdentitySourceAssessment.swift in Sources */,

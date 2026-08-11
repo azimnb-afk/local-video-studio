@@ -3,9 +3,10 @@ import Foundation
 /// A readable summary of what the Director planned, before ~20 minutes of
 /// generation are spent on it.
 ///
-/// Read-only and derived: it reports the plan already stored on the project and
-/// owns no state of its own. Not a timeline — there is no trimming, reordering
-/// or frame-exact timing here, and the durations are deliberately approximate
+/// Derived from the plan already stored on the project. The accompanying
+/// `AutoMoviePlanEditor` only changes the action and existing camera fields;
+/// this remains intentionally not a timeline — there is no trimming,
+/// reordering or frame-exact timing here, and durations stay approximate
 /// because the Director plans in beats, not frames.
 struct AutoMoviePlanPreview: Equatable {
 
@@ -69,8 +70,8 @@ struct AutoMoviePlanPreview: Equatable {
                 number: index + 1,
                 approximateSeconds: shot.durationSeconds,
                 action: shot.summary.isEmpty ? shot.title : shot.summary,
-                framing: sentenceCased(shot.camera.shotScale ?? "medium"),
-                cameraMovement: shot.camera.movement ?? "",
+                framing: sentenceCased(shot.camera.shotScale),
+                cameraMovement: shot.camera.movement,
                 sourceDescription: source,
                 continuityIntent: (shot.continuityMode ?? .auto).displayName,
                 isGenerated: shot.takes.contains { $0.status == .completed }
@@ -84,5 +85,56 @@ struct AutoMoviePlanPreview: Equatable {
     private static func sentenceCased(_ text: String) -> String {
         guard let first = text.first else { return text }
         return first.uppercased() + text.dropFirst()
+    }
+}
+
+/// The one small editing boundary for Auto Movie's pre-generation plan review.
+///
+/// It deliberately edits the persisted `Shot` itself rather than carrying
+/// preview-only overrides. `TakeGenerationCoordinator` reads `compiledPrompt`,
+/// so the edited shot is immediately recompiled before it is saved. This keeps
+/// the visible plan and the generation-facing request as the same source of
+/// truth while leaving duration, ordering, continuity and source selection
+/// untouched.
+enum AutoMoviePlanEditor {
+
+    /// Applies a user-reviewed Action and the existing CameraPlan components.
+    /// Empty or whitespace-only fields are rejected so an incomplete inline
+    /// edit can never turn into an unusable generation prompt.
+    @discardableResult
+    static func apply(
+        project: inout FilmProject,
+        shotID: UUID,
+        action: String,
+        shotScale: String,
+        angle: String,
+        movement: String
+    ) -> Bool {
+        let action = action.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shotScale = shotScale.trimmingCharacters(in: .whitespacesAndNewlines)
+        let angle = angle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let movement = movement.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !action.isEmpty, !shotScale.isEmpty, !angle.isEmpty, !movement.isEmpty,
+              let index = project.shots.firstIndex(where: { $0.id == shotID })
+        else { return false }
+
+        var shot = project.shots[index]
+        let unchanged = shot.summary == action
+            && shot.camera.shotScale == shotScale
+            && shot.camera.angle == angle
+            && shot.camera.movement == movement
+        guard !unchanged else { return false }
+
+        // Only fields explicitly in Phase A change here. In particular, do
+        // not touch `continuityMode`, inherited-frame metadata, takes, or any
+        // source-image/identity state.
+        shot.summary = action
+        shot.camera.shotScale = shotScale
+        shot.camera.angle = angle
+        shot.camera.movement = movement
+        project.shots[index] = shot
+        CharacterPromptPipeline.recompilePlan(project: &project, shotIndex: index)
+        project.touch()
+        return true
     }
 }

@@ -1542,3 +1542,20 @@ from their already-persisted evidence. No Vision request, LTX render, source
 replacement, or CharacterBible mutation is authorised by that refresh. The
 compact informational summary belongs above Planned Shots in Auto Movie: it is
 important context before a long render, but never a generation gate.
+
+## D-090 (2026-08-12) Edit the planned Shot, then deterministically recompile it
+
+Auto Movie's preview must not become a parallel set of user overrides. Action
+already has a source of truth in `Shot.summary`; the Director's existing camera
+language already has one in `Shot.camera` (`shotScale`, `angle`, `movement`).
+Phase A edits those fields in place, persists them through the normal project
+store, rebuilds the affected `OneShotPlan` prompt, and reapplies the existing
+CharacterBible context.
+
+This is deliberately narrower than an editable timeline. Cut / Continue,
+continuity source, duration, generated assets, take snapshots and queue state
+are all read-only in this phase. This preserves the tested continuity and queue
+contract while ensuring the actual future `GenerationRequest.prompt` is the
+same revised prompt the user reviewed. A new Auto Movie remains a separately
+materialized Director plan; we do not attempt semantic matching or carry old
+edits into it.

@@ -562,7 +562,7 @@ private struct ProjectDetailView: View {
                     CharacterOpeningConsistencySection(project: project)
                     // Shown above the settings so the plan is the first thing
                     // read: it is what the next twenty minutes will produce.
-                    AutoMoviePlanPreviewSection(project: project)
+                    AutoMoviePlanPreviewSection(project: project, onChanged: onChanged)
                     OpeningReferenceSection(project: project, onChanged: onChanged)
                     CharacterAnchorSection(project: project, onChanged: onChanged)
                 }

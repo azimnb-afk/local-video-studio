@@ -152,42 +152,87 @@ enum PromptCompiler {
 
 /// Shared Storyboard/Hybrid character propagation boundary.
 enum CharacterPromptPipeline {
+    /// Recompiles one persisted shot after the user edits its Action or
+    /// CameraPlan in Auto Movie Plan Preview. The renderer consumes
+    /// `compiledPrompt`, not the preview fields, so updating just the UI/model
+    /// would be a false edit. This rebuilds the same base prompt that Director
+    /// planning produced, then applies the existing Character Bible pipeline.
+    ///
+    /// Intentionally does not call any continuity planner or mutate continuity
+    /// metadata: Phase A edits wording and framing only, never Cut/Continue or
+    /// the selected starting-image source.
+    static func recompilePlan(project: inout FilmProject, shotIndex: Int) {
+        guard project.shots.indices.contains(shotIndex) else { return }
+        var shot = project.shots[shotIndex]
+        let snapshot: ContinuitySnapshot
+        if let before = shot.continuityBefore,
+           let after = try? ContinuityEngine.apply(changes: shot.explicitChanges, to: before) {
+            snapshot = after
+        } else {
+            snapshot = shot.continuityBefore ?? ContinuitySnapshot()
+        }
+        let plan = OneShotPlan(
+            camera: "\(shot.camera.shotScale) shot, \(shot.camera.angle) angle, \(shot.camera.movement) camera",
+            action: shot.summary,
+            lighting: snapshot.lighting,
+            dialogue: shot.audio.dialogue.map {
+                OneShotPlan.DialogueLine(
+                    speaker: $0.speaker, text: $0.text,
+                    language: $0.language, romanization: $0.romanization)
+            },
+            audioCues: shot.audio.sfx,
+            durationIntentSeconds: shot.durationSeconds
+        )
+        let options = PromptCompiler.Options(
+            japaneseHandling: JapaneseDialogueHandling(rawValue: project.settings.japaneseHandling) ?? .native)
+        let compiled = PromptCompiler.compile(plan: plan, options: options)
+        let context = ContinuityEngine.promptContext(for: snapshot, bible: project.characterBible)
+        shot.baseCompiledPrompt = context.isEmpty ? compiled : context + " " + compiled
+        project.shots[shotIndex] = shot
+        recompileCharacterContext(project: &project, shotIndex: shotIndex)
+    }
+
     static func recompile(project: inout FilmProject) {
         for index in project.shots.indices {
-            var shot = project.shots[index]
-            let base = shot.baseCompiledPrompt ?? shot.compiledPrompt
-            shot.baseCompiledPrompt = base
-            let promptSnapshot: ContinuitySnapshot?
-            if let before = shot.continuityBefore,
-               let after = try? ContinuityEngine.apply(changes: shot.explicitChanges, to: before) {
-                promptSnapshot = after
-            } else {
-                promptSnapshot = shot.continuityBefore
-            }
-            let resolved = ContinuityEngine.resolveCharacters(
+            recompileCharacterContext(project: &project, shotIndex: index)
+        }
+    }
+
+    private static func recompileCharacterContext(project: inout FilmProject, shotIndex: Int) {
+        guard project.shots.indices.contains(shotIndex) else { return }
+        var shot = project.shots[shotIndex]
+        let base = shot.baseCompiledPrompt ?? shot.compiledPrompt
+        shot.baseCompiledPrompt = base
+        let promptSnapshot: ContinuitySnapshot?
+        if let before = shot.continuityBefore,
+           let after = try? ContinuityEngine.apply(changes: shot.explicitChanges, to: before) {
+            promptSnapshot = after
+        } else {
+            promptSnapshot = shot.continuityBefore
+        }
+        let resolved = ContinuityEngine.resolveCharacters(
+            ids: shot.characterIDs,
+            bible: project.characterBible,
+            snapshot: promptSnapshot
+        )
+        let characterContext: String
+        switch ContinuationPromptPolicy.style(for: shot.continuityMode) {
+        case .descriptive:
+            characterContext = PromptCompiler.compile(characters: resolved)
+        case .changeFocused:
+            // The previous shot's last frame already shows who this is and
+            // what they are wearing. Restating it makes the text argue with
+            // the picture, and the text wins over a few seconds (D-071).
+            let before = ContinuityEngine.resolveCharacters(
                 ids: shot.characterIDs,
                 bible: project.characterBible,
-                snapshot: promptSnapshot
+                snapshot: shot.continuityBefore
             )
-            let characterContext: String
-            switch ContinuationPromptPolicy.style(for: shot.continuityMode) {
-            case .descriptive:
-                characterContext = PromptCompiler.compile(characters: resolved)
-            case .changeFocused:
-                // The previous shot's last frame already shows who this is and
-                // what they are wearing. Restating it makes the text argue with
-                // the picture, and the text wins over a few seconds (D-071).
-                let before = ContinuityEngine.resolveCharacters(
-                    ids: shot.characterIDs,
-                    bible: project.characterBible,
-                    snapshot: shot.continuityBefore
-                )
-                characterContext = ContinuationPromptPolicy.changeFocusedContext(
-                    before: before, after: resolved)
-            }
-            shot.compiledPrompt = characterContext.isEmpty ? base : characterContext + " " + base
-            project.shots[index] = shot
+            characterContext = ContinuationPromptPolicy.changeFocusedContext(
+                before: before, after: resolved)
         }
+        shot.compiledPrompt = characterContext.isEmpty ? base : characterContext + " " + base
+        project.shots[shotIndex] = shot
     }
 }
 

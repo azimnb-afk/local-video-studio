@@ -113,14 +113,112 @@ func runAutoMoviePlanPreviewTests(_ t: TestKit) {
         // project and touches neither the renderer nor the queue, so opening a
         // project can never begin work.
         var project = plannedProject()
-        let before = try! JSONEncoder().encode(project)
+        let before = project
         _ = AutoMoviePlanPreview.make(project: project)
-        let after = try! JSONEncoder().encode(project)
+        let after = project
         t.checkEqual(before, after, "building the preview mutates nothing")
         t.check(project.shots.allSatisfy { $0.takes.isEmpty },
                 "and creates no takes")
         project.shots[0].takes = []
         t.check(AutoMoviePlanPreview.make(project: project).rows.count == 4,
                 "the preview is a pure function of the plan")
+    }
+
+    t.suite("Auto Movie plan preview — Action and Camera edits persist to generation") {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LTXTests-plan-edit-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = FilmProjectStore(projectsDirectory: root)
+        var project = plannedProject(withOpeningReference: false)
+        project.workflowMode = AutoMovieRunCoordinator.autoMovieWorkflowMode
+        let editedShotID = project.shots[0].id
+        let originalSecond = project.shots[1]
+        let originalContinuity = project.shots[0].continuityMode
+        let originalSource = project.shots[0].continuityImageRelativePath
+        let originalCharacterIDs = project.shots[0].characterIDs
+
+        let changed = AutoMoviePlanEditor.apply(
+            project: &project,
+            shotID: editedShotID,
+            action: "She raises the flag and looks toward the horizon.",
+            shotScale: "close-up",
+            angle: "low",
+            movement: "slow dolly-in")
+        t.check(changed, "a non-empty Action and Camera edit is accepted")
+        t.checkEqual(project.shots[0].summary,
+                     "She raises the flag and looks toward the horizon.",
+                     "the user Action becomes the persisted shot action")
+        t.checkEqual(project.shots[0].camera.shotScale, "close-up",
+                     "the user Framing becomes the persisted camera scale")
+        t.checkEqual(project.shots[0].camera.angle, "low",
+                     "the existing camera angle remains a separate editable field")
+        t.checkEqual(project.shots[0].camera.movement, "slow dolly-in",
+                     "the existing camera movement becomes the persisted value")
+        t.check(project.shots[0].compiledPrompt.contains("raises the flag"),
+                "the generation-facing compiled prompt receives the edited Action")
+        t.check(project.shots[0].compiledPrompt.contains("close-up"),
+                "the generation-facing compiled prompt receives the edited Framing")
+        t.check(project.shots[0].compiledPrompt.contains("slow dolly-in"),
+                "the generation-facing compiled prompt receives the edited movement")
+
+        // Phase A's edit boundary must not be an accidental continuity editor.
+        t.checkEqual(project.shots[0].continuityMode, originalContinuity,
+                     "Action/Camera edits leave Cut/Continue unchanged")
+        t.checkEqual(project.shots[0].continuityImageRelativePath, originalSource,
+                     "Action/Camera edits leave the continuity source unchanged")
+        t.checkEqual(project.shots[0].characterIDs, originalCharacterIDs,
+                     "Action/Camera edits leave CharacterBible references unchanged")
+        t.checkEqual(project.shots[1], originalSecond,
+                     "an unedited planned shot remains exactly Director-authored")
+
+        // Saving and a fresh store instance prove this is project data, rather
+        // than local SwiftUI state. Existing unrelated fields round-trip too.
+        store.save(project)
+        let reloaded = FilmProjectStore(projectsDirectory: root).project(id: project.id)!
+        t.checkEqual(reloaded.shots[0].summary, project.shots[0].summary,
+                     "the edited Action survives project reopen")
+        t.checkEqual(reloaded.shots[0].camera, project.shots[0].camera,
+                     "the edited CameraPlan survives project reopen")
+        t.checkEqual(reloaded.shots[0].continuityMode, originalContinuity,
+                     "reopen preserves the original Cut/Continue semantics")
+        t.checkEqual(reloaded.shots[1], originalSecond,
+                     "reopen preserves unrelated planned shots")
+
+        // Take planning is the final boundary before GenerationService. It
+        // reads the recompiled prompt, proving this is not preview-only state.
+        let requests = try! TakeGenerationCoordinator(store: store).planTakes(
+            projectID: project.id, shotID: editedShotID, count: 1, baseSeed: 123)
+        t.checkEqual(requests.first?.prompt, project.shots[0].compiledPrompt,
+                     "the GenerationRequest uses the edited compiled prompt")
+        t.check(requests.first?.prompt.contains("raises the flag") == true,
+                "the GenerationRequest contains the edited Action")
+        t.check(requests.first?.prompt.contains("slow dolly-in") == true,
+                "the GenerationRequest contains the edited Camera movement")
+    }
+
+    t.suite("Auto Movie plan preview — invalid edits and new-plan baseline") {
+        var project = plannedProject()
+        let original = project
+        let shotID = project.shots[0].id
+        t.check(!AutoMoviePlanEditor.apply(
+            project: &project, shotID: shotID,
+            action: "   ", shotScale: "wide", angle: "eye-level", movement: "static"),
+                "whitespace-only Action is rejected rather than saved as an invalid plan")
+        t.checkEqual(project, original, "a rejected edit does not mutate any project data")
+
+        t.check(!AutoMoviePlanEditor.apply(
+            project: &project, shotID: shotID,
+            action: "Different action", shotScale: "  ", angle: "eye-level", movement: "static"),
+                "whitespace-only Camera fields are rejected too")
+        t.checkEqual(project, original, "a rejected Camera edit leaves the plan untouched")
+
+        // There is deliberately no in-place plan-regeneration UI: creating a
+        // new Auto Movie calls the Director and materializes a new FilmProject.
+        // Replacing a plan with that newly materialized baseline necessarily
+        // replaces its old shots, so no index-based user-edit migration exists.
+        let replacement = plannedProject()
+        t.checkEqual(replacement.shots[0].summary,
+                     "She walks across the courtyard toward the gate.",
+                     "a newly materialized Director plan remains its own baseline")
     }
 }

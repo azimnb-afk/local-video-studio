@@ -417,7 +417,7 @@ func runCharacterOpeningConsistencyTests(_ t: TestKit) {
             .appendingPathComponent("LTXVideoGenerator/Sources/Views/StoryboardView.swift")
         let storyboardSource = try? String(contentsOf: storyboardURL, encoding: .utf8)
         let consistencyIndex = storyboardSource?.range(of: "CharacterOpeningConsistencySection(project: project)")
-        let planIndex = storyboardSource?.range(of: "AutoMoviePlanPreviewSection(project: project)")
+        let planIndex = storyboardSource?.range(of: "AutoMoviePlanPreviewSection(project: project, onChanged: onChanged)")
         t.check(consistencyIndex != nil && planIndex != nil,
                 "Auto Movie composes both the consistency summary and plan preview")
         if let consistencyIndex, let planIndex, let storyboardSource {

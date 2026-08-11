@@ -1065,3 +1065,24 @@ before reviewing or starting a long Auto Movie render. It remains informational.
 The real project now reports `partial` (hairstyle and clothing colours match;
 hair colour and accessories unknown), as expected. See
 `CHARACTER_OPENING_CONSISTENCY_EVAL.md` and D-089.
+
+## 2026-08-12 Auto Movie Plan Preview Phase A — editable action and camera
+
+**Status: PASS.** Auto Movie now lets the user edit the pre-render **Action**
+and existing Director camera fields (**Framing**, **Angle**, **Movement**) for
+each planned shot. The edit writes directly to the persisted `Shot.summary` and
+`Shot.camera`, rebuilds that shot's `baseCompiledPrompt`, then reapplies only its
+existing CharacterBible prompt context. `TakeGenerationCoordinator` therefore
+uses the revised `compiledPrompt` when a future take is planned.
+
+The edit boundary intentionally excludes duration, Cut / Continue mode,
+continuity source, opening reference, selected/generated takes and queue state.
+Existing take prompt snapshots also remain immutable; the UI calls this out as
+an edit for future takes. A newly materialized Auto Movie is a fresh Director
+plan — there is no unsafe in-place plan regeneration or override migration.
+
+Canonical-app GUI acceptance used Basic Director with first-pass generation
+disabled. Shot 1 was edited to a bridge action with `medium close-up`, `low`,
+and `slow dolly-in`; the preview and the actual shot card both updated, later
+shots kept their Continue sources, and the project retained the edit after an
+app restart. No LTX generation was started.

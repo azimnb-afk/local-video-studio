@@ -733,3 +733,19 @@ Final GUI preflight: repository HEAD `549e93b` plus the uncommitted implementati
 under test, canonical app resolved from `xcodebuild -showBuildSettings`, executable
 mtime `2026-08-11 19:08:18 +0900`, active PID 91285 with that exact executable
 path. The app was launched by full path, not `open -a`.
+
+## 2026-08-12 Auto Movie Plan Preview Phase A — GUI acceptance PASS
+
+- [x] Canonical DerivedData Debug app was built and opened by its full path;
+      `open -a` was not used.
+- [x] Created isolated project `Plan Edit GUI Acceptance` with Basic Director,
+      four planned shots, and **Generate first pass after planning** disabled.
+- [x] Edited Shot 1 Action and the existing camera fields to `medium close-up`,
+      `low`, and `slow dolly-in`; the preview and actual Shot card showed the
+      revised values.
+- [x] Later Shot 2–4 indicators remained `Continue · Previous shot's last
+      frame`; Cut / Continue, durations and sources were never editable.
+- [x] Quit and relaunched the same canonical app, reopened the project, and
+      confirmed the saved action and camera values persisted.
+- [x] No LTX generation, take creation, opening-reference mutation or queue job
+      was started during this acceptance.

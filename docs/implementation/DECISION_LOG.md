@@ -1373,3 +1373,23 @@ do not involve Adaptive Identity Refresh or Production Queue. A future gate must
 start from the exact catastrophic case or a verified tiny-face reference and
 must demonstrate that the proposed intervention changes actual motion and beats
 the control before code is added.
+
+## D-083 (2026-08-11) Attribute the original face melt to a transient raw failure
+
+The exact user-observed Final, project selection metadata and retained raw take
+were traced end to end. Final Shot 1's 117 decoded frame hashes equal the raw
+take's 117 hashes. Assembly used the compatible concat/stream-copy path and the
+worst frame is 1.510 s before the next shot begins. Assembly is excluded; raw
+frame 84 at 3.500 s already contains the strongest geometric face collapse.
+
+Calibration A is the same MP4, not a rerun. Its checksum equals the failing raw
+take. The earlier six-frame evaluation skipped from raw frame 70 to 93 and
+therefore missed the frame-84 peak; full-scene presentation further hid a face
+only about 49 pixels wide. Preserve D-082's rejection of static-camera wording,
+but supersede its implication that control A lacked the severe transient.
+
+Freeze production code again. Do not repair Final Assembly or add a new prompt
+heuristic. If generation testing resumes, first isolate source face scale with
+one aspect-preserving, scene-compatible larger-face condition and dense face
+review. Frame-level quality rejection is a separate future gate because the
+transient is now proven, but its false-positive behavior remains unmeasured.

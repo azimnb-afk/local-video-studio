@@ -4,6 +4,12 @@ Date: 2026-08-11
 Starting HEAD: `5ed0f64`
 Classification: **REJECTED — production implementation gate not passed**
 
+> Follow-up attribution: calibration A was later proven byte-for-byte identical
+> to the user-observed failing raw take. Dense review found a severe transient
+> at raw 3.500 s that the six percentage samples skipped. The static-camera gate
+> remains rejected, but A's severity was understated. See
+> `ORIGINAL_FACE_MELT_FORENSIC.md`.
+
 ## Question and gate
 
 This calibration asked whether an Auto Movie Shot 1 that starts from a clear

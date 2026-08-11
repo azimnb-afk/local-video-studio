@@ -952,3 +952,27 @@ despite static wording. Therefore no Shot-1 risk policy, persisted provenance,
 UI, Queue, Vision Sync or Adaptive Identity Refresh code was changed. See
 `OPENING_SHOT_IDENTITY_PROTECTION_EVAL.md`; review media is preserved as
 `OPENSHOTID_*_20260811_201500` in the Videos folder.
+
+## 2026-08-11 Original Face-Melt Forensic
+
+**Status: PASS — TRANSIENT RAW FAILURE IDENTIFIED.** Dense inspection of the
+user-observed Final mapped its worst facial collapse at Final 3.520996 s to
+Shot 1 raw frame 84 at 3.500 s. All 117 decoded frames in the Final's first
+segment match the exact selected raw take, and assembly used compatible stream
+copy with no transition or re-encode. The failure belongs to LTX generation,
+not Final Assembly.
+
+The previous calibration A is SHA-256-identical to that raw MP4; it did contain
+the failure. Its 0/20/40/60/80/99% samples jumped from frames 70 to 93 and
+missed the frame-84 peak, while the face occupied only about 49 pixels. The
+source was also hard-stretched by the installed backend from 1672x941 to
+768x512 (no aspect-preserving crop/pad), and the push-in enlarged the detected
+face from about 38 to 58 pixels across the take. These correlations do not yet
+prove a source-scale or camera cause.
+
+No LTX rerun and no production source change were made. Do not add another
+camera/prompt heuristic. The next controlled generation, if authorized, should
+isolate an aspect-preserving, scene-compatible larger-face crop while holding
+the exact failing prompt/seed/settings constant and reviewing every 4–5 frames.
+See `ORIGINAL_FACE_MELT_FORENSIC.md`; review evidence is preserved as
+`FACEMELT_*` in the Videos folder.

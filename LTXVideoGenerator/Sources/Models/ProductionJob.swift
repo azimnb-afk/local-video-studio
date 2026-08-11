@@ -114,3 +114,91 @@ struct ProductionJob: Codable, Equatable, Identifiable {
     var canRetry: Bool { state == .failed || state == .cancelled }
     var canRestart: Bool { state == .interrupted }
 }
+
+// MARK: - Film run outcome
+
+/// A film run reaching a state the render queue cannot show.
+///
+/// Final assembly is why this type exists. It starts *after* the last take has
+/// already left the render queue, so the render queue never publishes again.
+/// A queue that watches only the renderer therefore waits forever for a movie
+/// that finished minutes ago — and every job behind it never starts. The same
+/// applies to a run that ends blocked: nothing further is enqueued, so nothing
+/// further is published.
+struct FilmRunEvent: Equatable {
+    enum Kind: Equatable {
+        case assembled(path: String)
+        case assemblyFailed(String)
+        case shotFailed
+        case blocked(String)
+        /// The run has nothing left to do and needs no assembly.
+        case settled
+    }
+
+    let projectID: UUID
+    let kind: Kind
+    let at: Date
+}
+
+/// What the production queue should do with the film job it is running.
+enum FilmJobProgress: Equatable {
+    case running(current: Int, total: Int)
+    case assembling
+    case completed(outputPath: String)
+    case failed(String)
+}
+
+/// Decides a film job's fate from the project plus the last thing the run
+/// reported.
+///
+/// Pure and separate from the service so the rule can be checked without a GPU,
+/// a renderer, or a main actor — which is what makes "the queue never stalls"
+/// something the tests can actually hold the code to.
+enum FilmJobDecider {
+
+    static func decide(project: FilmProject, runOutcome: FilmRunEvent.Kind?) -> FilmJobProgress {
+        let shots = project.shots
+        guard !shots.isEmpty else {
+            return .failed("This project has no shots.")
+        }
+
+        // A shot that failed with no completed take ends the run: there will be
+        // no assembly, so waiting for one would stall the queue.
+        let shotFailed = shots.contains { shot in
+            shot.takes.contains { $0.status == .failed }
+                && shot.selectedTake?.status != .completed
+        }
+        if shotFailed {
+            return .failed("A shot failed; the movie was not assembled.")
+        }
+
+        // Rendered, not selected. A take is only *selected* when the whole run
+        // ends, so counting selections reports "Shot 1 / N" for the entire
+        // movie no matter how many shots have actually landed.
+        let rendered = shots.filter { shot in
+            shot.takes.contains { $0.status == .completed }
+        }.count
+
+        guard rendered == shots.count else {
+            // Mid-run. An empty renderer here is not proof of anything: between
+            // two shots the queue is momentarily empty while the run advances.
+            if case .blocked(let reason)? = runOutcome { return .failed(reason) }
+            return .running(current: min(rendered + 1, shots.count), total: shots.count)
+        }
+
+        if let assembled = project.assembledMoviePath, !assembled.isEmpty {
+            return .completed(outputPath: assembled)
+        }
+        switch runOutcome {
+        case .assemblyFailed(let reason):
+            return .failed("Final assembly failed: \(reason)")
+        case .settled:
+            // The run says it is finished and there is no file. Holding the job
+            // open would stall the queue on a movie that will never arrive.
+            return .failed("Final assembly failed: the movie was not produced.")
+        default:
+            // Assembly is genuinely still in flight.
+            return .assembling
+        }
+    }
+}

@@ -997,3 +997,49 @@ discarding the whole queue — losing one job is recoverable, losing an overnigh
 queue is not. A job recorded as running when the app quits restores as
 `interrupted`: its render subprocess died with the process, so it is never
 silently resumed or reported complete.
+
+## D-066 (2026-08-11) A queue that watches only the renderer stalls on assembly
+
+D-065 fixed *premature* completion. The real two-job run then exposed the
+opposite failure: job A never completed at all. Its four shots had rendered and
+`_final.mp4` was on disk, but the panel read "Assembling" for six minutes and
+job B never started.
+
+`ProductionQueueService` woke only on `GenerationService.$queue`. Final assembly
+begins after the last take has already been removed from that queue, so the
+render queue never publishes again — there was no signal at all for the one
+transition that ends a film job. The queue was stalled for as long as the app
+stayed open, which is precisely the unattended-overnight case the feature
+exists for.
+
+`GenerationService` now publishes a `FilmRunEvent` for run outcomes the render
+queue cannot show: assembled, assembly failed, blocked, or settled with nothing
+to assemble. The queue subscribes to that in addition to `$queue`. Outcomes are
+addressed to a project, so one movie's result is never read as another's, and
+the stored event is cleared when a job starts so a retry cannot inherit the
+previous attempt's outcome.
+
+Every outcome that means "no movie is coming" now **fails** the job rather than
+holding it open. A job that cannot finish must not take the queue with it.
+
+## D-067 (2026-08-11) Progress counted takes that are only selected at the end
+
+The panel read "Shot 1 / 4" for an entire four-shot movie. Progress counted
+shots whose *selected* take was completed, but `autoSelectUnambiguousTakes` runs
+only when the whole run finishes, so mid-run the count is always zero.
+
+It counts rendered takes now — the same thing the completion rule already looked
+at. Both rules live in one pure decider, `FilmJobDecider`, so the shot the panel
+shows and the shot the queue believes it is on cannot drift apart. Being pure,
+it is checked directly in tests without a GPU, a renderer, or a main actor.
+
+## D-068 (2026-08-11) Creating a movie jumped the queue instead of joining it
+
+Found while exercising the panel: with two jobs queued while paused, they were
+listed newest-first. Creating an Auto Movie called `enqueueNext`, which inserts
+at the head of the waiting jobs — so three movies queued 1, 2, 3 would have run
+3, 2, 1. It went unnoticed in the A/B run only because A was already *running*
+when B was created, which put B behind it by luck rather than by rule.
+
+Creating a job appends. `enqueueNext` stays, reserved for a deliberate "Generate
+Now". "Queue three movies and go to bed" has to mean first, second, third.

@@ -775,18 +775,50 @@ recorded as running when the app quit restores as interrupted and offers
 Restart. Sidebar panel shows each job with status, progress and per-state
 actions.
 
-**Status: PARTIAL.** Implementation, unit verification and Debug build are
-complete, and the sidebar panel renders. The real multi-job E2E was started and
-is what exposed D-065 — a movie marked complete while its second shot was still
-rendering — which is fixed and covered by a regression test. That E2E was *not*
-re-run to completion afterwards, so "job A finishes, job B starts automatically"
-is proven in unit tests with a runner double but **not yet observed in a real
-two-movie run**.
+**Status: PASS.** Proven in the real app, not only in unit tests. Three Auto
+Movies were queued from the GUI and run unattended (10:00–10:21): job A ran its
+five shots and assembled, job B then started **by itself** and ran its four
+shots and assembled, and job C started after B. Renders never overlapped and
+never interleaved.
+
+Closing PARTIAL took three more defects, all found by actually running it:
+
+- **D-066** — the queue only woke on render-queue changes, but final assembly
+  starts *after* the last take leaves that queue. Job A sat in "Assembling" with
+  the finished movie already on disk and job B never started: the queue stalled
+  for as long as the app stayed open. `GenerationService` now publishes a
+  `FilmRunEvent` for outcomes the render queue cannot show (assembled, assembly
+  failed, blocked, settled), and any of those that means "no movie is coming"
+  fails the job instead of holding the queue open.
+- **D-067** — mid-run progress counted *selected* takes, but takes are only
+  selected when a run ends, so the panel read "Shot 1 / 4" for an entire movie.
+  It counts rendered takes now.
+- **D-068** — creating an Auto Movie inserted the job at the *head* of the
+  waiting jobs. Three movies queued 1, 2, 3 would have run 3, 2, 1. Creation
+  appends; only "Generate Now" jumps the queue.
+
+The completion rule now lives in one pure decider, `FilmJobDecider`, shared by
+the completion path and the progress path so the two cannot disagree, and
+testable without a GPU or a main actor.
+
+### Real E2E evidence
+- Render concurrency sampled every 0.5 s for the whole run: **max 1**, with a
+  clean gap between every render.
+- Every render mapped back to its owning project: A shots 1–5, then B shots 1–4
+  — **one job switch, zero interleaving**.
+- Queue progression recorded from `production_queue.json`: A Shot 1/5 → 5/5 →
+  Completed, B Shot 1/4 → 4/4 → Completed, C Waiting throughout both.
+- Assembled outputs preserved as `QUEUE_ACCEPT_A_*` (25.07 s) and
+  `QUEUE_ACCEPT_B_*` (20.06 s) in the Videos folder via `cp -n`.
 
 ### Build & verification
 - `swift build`: PASS
-- `swift run LTXTests`: **1108 passed, 0 failed** (1038 + 70)
+- `swift run LTXTests`: **1123 passed, 0 failed** (1108 + 15 new)
 - `xcodebuild` Debug clean build: BUILD SUCCEEDED
-- `git diff --check`: PASS
-- GUI: Production Queue panel visible in the sidebar with its empty state; all
-  five pages intact at 1680x948
+- GUI acceptance: PASS — see GUI_ACCEPTANCE_CHECKLIST.md
+
+### Known cosmetic gap
+A completed job keeps its last `stageDescription` ("Assembling") in the
+persisted record. The panel hides progress text for terminal states, so nothing
+incorrect is shown; only the JSON looks stale. Left alone rather than changed
+after the accepted run.

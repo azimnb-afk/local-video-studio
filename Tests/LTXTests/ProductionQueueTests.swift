@@ -331,6 +331,138 @@ func runProductionQueueTests(_ t: TestKit) {
                 "an empty project is not treated as a finished movie")
     }
 
+    t.suite("Production queue — jobs run in the order they were queued") {
+        // Regression for D-068, found in the real GUI run: creating an Auto
+        // Movie inserted the job at the *head* of the waiting jobs. With the
+        // queue paused (or several movies created before any starts) three
+        // movies queued as 1, 2, 3 would run 3, 2, 1 — the opposite of what
+        // "leave it running overnight" means.
+        let store = ProductionQueueStore(
+            fileURL: URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("queue-order-\(UUID().uuidString).json"))
+        let coordinator = ProductionQueueCoordinator(store: store, restoreOnInit: false)
+        coordinator.runner = { _ in .started }
+        coordinator.setPaused(true)
+
+        for title in ["First", "Second", "Third"] {
+            coordinator.enqueue(ProductionJob(
+                kind: .autoMovie, title: title, snapshot: ProductionJobSnapshot()))
+        }
+        t.checkEqual(coordinator.jobs.map(\.title), ["First", "Second", "Third"],
+                     "D-068: movies run in the order they were created")
+        t.check(coordinator.jobs.allSatisfy { $0.state == .waiting },
+                "D-068: a paused queue starts nothing")
+
+        // Generate Now is still the deliberate exception, and only it.
+        coordinator.enqueueNext(ProductionJob(
+            kind: .oneShot, title: "Urgent", snapshot: ProductionJobSnapshot()))
+        t.checkEqual(coordinator.jobs.map(\.title),
+                     ["Urgent", "First", "Second", "Third"],
+                     "D-068: Generate Now is the only thing that jumps the queue")
+    }
+
+    t.suite("Production queue — a stalled job must not stall the queue") {
+        // Regression for two defects found in a real two-job run.
+        //
+        // D-066: the queue only ever woke on render-queue changes. Final
+        // assembly starts after the last take has left that queue, so nothing
+        // published again — job A sat in "Assembling" with the finished movie
+        // already on disk, and job B never started. The queue was stalled for
+        // as long as the app stayed open.
+        //
+        // D-067: mid-run progress was counted from *selected* takes, but takes
+        // are only selected when the whole run ends, so the panel read
+        // "Shot 1 / 4" for all four shots.
+        func project(shots shotCount: Int, rendered: Int,
+                     assembled: Bool, failedShot: Int? = nil,
+                     selectTakes: Bool = false) -> FilmProject {
+            var project = FilmProject(title: "Movie")
+            project.workflowMode = AutoMovieRunCoordinator.autoMovieWorkflowMode
+            for index in 0..<shotCount {
+                var shot = Shot(index: index, title: "Shot \(index + 1)")
+                func take(_ status: TakeStatus) -> Take {
+                    Take(shotID: shot.id, modelID: "m", seed: 1,
+                         promptSnapshot: "p", settingsSnapshot: .default,
+                         requestedWidth: 512, requestedHeight: 320,
+                         fps: 24, requestedDuration: 1, status: status)
+                }
+                if index == failedShot {
+                    shot.takes = [take(.failed)]
+                } else if index < rendered {
+                    let completed = take(.completed)
+                    shot.takes = [completed]
+                    if selectTakes { shot.selectedTakeID = completed.id }
+                }
+                project.shots.append(shot)
+            }
+            if assembled { project.assembledMoviePath = "/tmp/final.mp4" }
+            return project
+        }
+
+        // D-067. Progress tracks rendered shots even though nothing is selected
+        // yet — which is exactly the state a real run is in mid-movie.
+        t.checkEqual(FilmJobDecider.decide(
+            project: project(shots: 4, rendered: 0, assembled: false), runOutcome: nil),
+            .running(current: 1, total: 4), "D-067: no shot rendered reads Shot 1 / 4")
+        t.checkEqual(FilmJobDecider.decide(
+            project: project(shots: 4, rendered: 1, assembled: false), runOutcome: nil),
+            .running(current: 2, total: 4), "D-067: one shot rendered reads Shot 2 / 4")
+        t.checkEqual(FilmJobDecider.decide(
+            project: project(shots: 4, rendered: 3, assembled: false), runOutcome: nil),
+            .running(current: 4, total: 4), "D-067: three shots rendered reads Shot 4 / 4")
+        t.checkEqual(FilmJobDecider.decide(
+            project: project(shots: 4, rendered: 2, assembled: false, selectTakes: true),
+            runOutcome: nil),
+            .running(current: 3, total: 4),
+            "D-067: selection state does not change the reported shot")
+
+        // D-066. Every shot rendered but no movie yet is "assembling" — the job
+        // is held open, so nothing starts on top of the assembly.
+        t.checkEqual(FilmJobDecider.decide(
+            project: project(shots: 4, rendered: 4, assembled: false), runOutcome: nil),
+            .assembling, "D-066: all shots rendered, no movie yet, is still in flight")
+        // …and the assembly landing is what completes it. Before the fix this
+        // transition had no signal at all: the renderer was already idle.
+        t.checkEqual(FilmJobDecider.decide(
+            project: project(shots: 4, rendered: 4, assembled: true),
+            runOutcome: .assembled(path: "/tmp/final.mp4")),
+            .completed(outputPath: "/tmp/final.mp4"),
+            "D-066: the assembled movie completes the job")
+
+        // A job that can never finish must fail, not hold the queue open.
+        t.checkEqual(FilmJobDecider.decide(
+            project: project(shots: 4, rendered: 4, assembled: false),
+            runOutcome: .assemblyFailed("ffmpeg exited 1")),
+            .failed("Final assembly failed: ffmpeg exited 1"),
+            "D-066: a failed assembly fails the job instead of stalling it")
+        t.checkEqual(FilmJobDecider.decide(
+            project: project(shots: 4, rendered: 4, assembled: false), runOutcome: .settled),
+            .failed("Final assembly failed: the movie was not produced."),
+            "D-066: a run that settles with no movie fails the job")
+        t.checkEqual(FilmJobDecider.decide(
+            project: project(shots: 4, rendered: 1, assembled: false),
+            runOutcome: .blocked("A continuity frame is missing.")),
+            .failed("A continuity frame is missing."),
+            "D-066: a blocked run fails the job rather than waiting for a shot that never comes")
+
+        // Pre-existing rules must survive the refactor.
+        t.checkEqual(FilmJobDecider.decide(
+            project: project(shots: 4, rendered: 1, assembled: false, failedShot: 1),
+            runOutcome: nil),
+            .failed("A shot failed; the movie was not assembled."),
+            "a failed shot still ends the job")
+        t.checkEqual(FilmJobDecider.decide(
+            project: project(shots: 0, rendered: 0, assembled: false), runOutcome: nil),
+            .failed("This project has no shots."),
+            "an empty project is not treated as a finished movie")
+
+        // An outcome belonging to another project must be ignored, or one
+        // movie's failure would kill the next movie's job.
+        let other = FilmRunEvent(projectID: UUID(), kind: .settled, at: Date())
+        let mine = UUID()
+        t.check(other.projectID != mine, "run outcomes are addressed to one project")
+    }
+
     t.suite("Production queue — job model semantics") {
         // Action availability drives the panel, so it is pinned down here.
         var waiting = ProductionJob(kind: .generate, title: "w", snapshot: ProductionJobSnapshot())

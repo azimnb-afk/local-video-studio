@@ -25,6 +25,9 @@ final class ProductionQueueService: ObservableObject {
     /// True between admitting a job and observing it finish. Guards against the
     /// idle-looking moment before the renderer has picked the work up.
     private var isAwaitingCompletion = false
+    /// Last run-level outcome reported by the generation service. Only a
+    /// terminal outcome for the *active job's own project* is ever acted on.
+    private var lastFilmRunEvent: FilmRunEvent?
 
     init(coordinator: ProductionQueueCoordinator = .shared) {
         self.coordinator = coordinator
@@ -46,6 +49,19 @@ final class ProductionQueueService: ObservableObject {
         generationService.$queue
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.checkActiveJobProgress() }
+            .store(in: &cancellables)
+        // The render queue is not enough on its own. Final assembly runs after
+        // the last take has left the queue, so `$queue` goes quiet while the
+        // job is still legitimately unfinished; without this second signal the
+        // job would sit in "Assembling" forever and every job behind it would
+        // never start.
+        generationService.$lastFilmRunEvent
+            .receive(on: RunLoop.main)
+            .sink { [weak self] event in
+                guard let self, let event else { return }
+                self.lastFilmRunEvent = event
+                self.checkActiveJobProgress()
+            }
             .store(in: &cancellables)
         coordinator.startNextIfIdle()
     }
@@ -95,6 +111,9 @@ final class ProductionQueueService: ObservableObject {
     /// because a file can disappear while a job waits its turn.
     private func start(_ job: ProductionJob) -> ProductionQueueCoordinator.StartOutcome {
         guard let generationService else { return .failed("Generation service unavailable") }
+        // A previous run's outcome must not be read as this one's, including on
+        // a retry of the same project.
+        lastFilmRunEvent = nil
 
         switch job.kind {
         case .generate, .oneShot:
@@ -171,37 +190,36 @@ final class ProductionQueueService: ObservableObject {
             // shots the queue is momentarily empty: the finished take has been
             // removed and the next shot is only appended once the run
             // coordinator advances. Completion is therefore decided by the
-            // project, not by the renderer being idle for an instant.
-            let shotFailed = project.shots.contains { shot in
-                shot.takes.contains { $0.status == .failed }
-                    && shot.selectedTake?.status != .completed
-            }
-            if shotFailed {
+            // project plus what the run last reported, never by the renderer
+            // being idle for an instant.
+            switch FilmJobDecider.decide(project: project, runOutcome: runOutcome(for: projectID)) {
+            case .completed(let outputPath):
                 isAwaitingCompletion = false
-                coordinator.markFailed(
-                    jobID: job.id, reason: "A shot failed; the movie was not assembled.")
-                break
-            }
-            let everyShotRendered = !project.shots.isEmpty && project.shots.allSatisfy { shot in
-                shot.takes.contains { $0.status == .completed }
-            }
-            guard everyShotRendered else {
-                // Still mid-run; the next shot is about to be queued.
-                updateRunningProgress(for: job)
-                return
-            }
-            if let assembled = project.assembledMoviePath, !assembled.isEmpty {
+                coordinator.markCompleted(jobID: job.id, outputPath: outputPath)
+            case .failed(let reason):
                 isAwaitingCompletion = false
-                coordinator.markCompleted(jobID: job.id, outputPath: assembled)
-            } else {
-                // All shots are rendered but assembly has not landed yet. Hold
-                // the job open so the next one cannot start over the top of the
-                // final assembly.
+                coordinator.markFailed(jobID: job.id, reason: reason)
+            case .assembling:
+                // Hold the job open so the next one cannot start over the top
+                // of the final assembly. `$lastFilmRunEvent` — not the render
+                // queue — is what wakes this up when the assembly finishes.
                 coordinator.updateProgress(jobID: job.id, stage: "Assembling")
+                return
+            case .running(let current, let total):
+                coordinator.updateProgress(
+                    jobID: job.id, current: current, total: total,
+                    stage: "Shot \(current) / \(total)")
                 return
             }
         }
         refresh()
+    }
+
+    /// The run outcome, but only when it belongs to the project being asked
+    /// about — events from another project say nothing about this job.
+    private func runOutcome(for projectID: UUID) -> FilmRunEvent.Kind? {
+        guard let event = lastFilmRunEvent, event.projectID == projectID else { return nil }
+        return event.kind
     }
 
     private func updateRunningProgress(for job: ProductionJob) {
@@ -209,11 +227,13 @@ final class ProductionQueueService: ObservableObject {
         case .storyboard, .autoMovie:
             guard let projectID = job.snapshot.projectID,
                   let project = store.project(id: projectID) else { return }
-            let done = project.shots.filter { $0.selectedTake?.status == .completed }.count
+            // Same decider as the completion path, so the shot the panel shows
+            // can never disagree with the shot the queue believes it is on.
+            guard case .running(let current, let total) = FilmJobDecider.decide(
+                project: project, runOutcome: runOutcome(for: projectID)) else { return }
             coordinator.updateProgress(
-                jobID: job.id, current: min(done + 1, project.shots.count),
-                total: project.shots.count,
-                stage: "Shot \(min(done + 1, project.shots.count)) / \(project.shots.count)")
+                jobID: job.id, current: current, total: total,
+                stage: "Shot \(current) / \(total)")
         case .generate, .oneShot:
             guard let total = job.progressTotal, total > 1,
                   let remaining = generationService?.queue.filter({ $0.status == .pending }).count

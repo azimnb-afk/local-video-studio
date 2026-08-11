@@ -235,7 +235,12 @@ struct StoryboardView: View {
                             project.openingReferenceImage?.projectRelativePath
                         snapshot.characterAnchorCharacterID = project.characterAnchor.characterID
                         snapshot.characterAnchorAssetID = project.characterAnchor.referenceAssetID
-                        ProductionQueueService.shared.enqueueNext(ProductionJob(
+                        // Appended, not jumped to the front. Creating a movie is
+                        // not "run this before the ones I already asked for":
+                        // queueing three movies to run overnight must run them
+                        // first, second, third, and inserting at the head runs
+                        // them backwards.
+                        ProductionQueueService.shared.enqueue(ProductionJob(
                             kind: mode == .hybrid ? .autoMovie : .storyboard,
                             title: project.title,
                             snapshot: snapshot

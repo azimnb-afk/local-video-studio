@@ -621,25 +621,48 @@ first frame is the chosen reference, continuing into the same plaza scene. The
 render was preserved as
 `OPENREF_CREATEFLOW_shot01_from_dialog_768x512_*.mp4` for review.
 
-## 2026-08-11 Global Production Queue — GUI acceptance PARTIAL
+## 2026-08-11 Global Production Queue — GUI acceptance PASS
 
-Canonical Debug app, executable mtime `2026-08-11 07:49`.
+Canonical Debug app rebuilt after the D-066/D-067/D-068 fixes. Three real Auto
+Movies were queued from the New Auto Movie dialog and run to completion,
+10:00–10:21. All observations are from the app on screen, corroborated by
+`production_queue.json` and by sampling the render subprocesses every 0.5 s.
 
 - [x] Sidebar shows Generate / One Shot / Storyboard / Auto Movie / Video
       Archive, pinned, no layout inflation at 1680x948.
 - [x] **"Production Queue" panel renders in the sidebar** below the existing
       render queue, with its empty-state copy.
 - [x] Auto Movie page and existing projects load.
-- [x] Creating an Auto Movie routes through the queue and starts it (verified by
-      the persisted queue file recording the job and its stage).
+- [x] Creating an Auto Movie routes through the queue and starts it.
+- [x] **Several jobs visible together**: header read `1 running · 2 waiting`,
+      with QFIN A Running and QFIN B / QFIN C Waiting in the panel at once.
+- [x] **Jobs wait in the order they were created** (QFIN B above QFIN C) — this
+      is what D-068 got wrong.
+- [x] **Progress advances shot by shot**: Shot 1 / 5 → 2 / 5 → 3 / 5 → 4 / 5 →
+      5 / 5 for A, then 1 / 4 → 4 / 4 for B. Previously pinned at Shot 1 / N
+      (D-067).
+- [x] **A finishes, B starts by itself**: at 10:11:53 A read Completed and B
+      read Running Shot 1 / 4 in the same panel refresh. Same again for B → C at
+      10:20:31.
+- [x] **No premature completion**: neither movie reached Completed until every
+      shot had rendered and the final movie existed (D-065 / D-066).
+- [x] Move Up / Move Down exercised on waiting rows; the two swapped both ways.
+- [x] Cancel from the panel: on a waiting job (row went Cancelled) and on the
+      running job (QFIN C — the in-flight render stopped within 30 s and no
+      further job started).
+- [x] Completed rows show green Completed with Reveal and Remove; Waiting rows
+      show Move Up / Move Down / Cancel.
+- [x] Pause / Resume: header button toggles, and a paused queue starts nothing.
+- [x] Restart with a waiting job: it restored as **Waiting** and then started on
+      its own (pause is deliberately not persisted).
+- [x] Restart with a running job: it restored as **Interrupted — "Interrupted
+      when the app quit"** and offers Restart, rather than being resumed
+      silently or reported complete.
 
-Not completed — the display went to sleep mid-session and the dialog automation
-proved unreliable for a repeat run:
+Preserved for review in the Videos folder (copied with `cp -n`, nothing
+overwritten): `QUEUE_ACCEPT_A_*_final.mp4` (25.07 s, 5 shots) and
+`QUEUE_ACCEPT_B_*_final.mp4` (20.06 s, 4 shots).
 
-- [ ] Two jobs visible together, one Running and one Waiting.
-- [ ] Move Up / Move Down exercised in the panel.
-- [ ] Cancel from the panel, and the next job starting automatically.
-- [ ] Completed / Failed rows and their Retry / Reveal actions.
-
-These are covered by unit tests, but not yet seen on screen. A human should
-queue two short jobs and watch the panel once.
+Known cosmetic gap, not fixed: a completed job keeps its last `stageDescription`
+("Assembling") in the persisted record. The panel hides progress text for
+terminal states, so nothing wrong is displayed; only the JSON looks stale.

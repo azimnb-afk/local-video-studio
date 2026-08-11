@@ -11,7 +11,15 @@ class GenerationService: ObservableObject {
     @Published private(set) var isModelLoaded = false
     @Published private(set) var isProcessing = false
     @Published var error: LTXError?
-    
+
+    /// The last film run outcome the render queue could not report. See
+    /// `FilmRunEvent` for why watching `$queue` alone is not enough.
+    @Published private(set) var lastFilmRunEvent: FilmRunEvent?
+
+    private func emit(_ kind: FilmRunEvent.Kind, projectID: UUID) {
+        lastFilmRunEvent = FilmRunEvent(projectID: projectID, kind: kind, at: Date())
+    }
+
     private let historyManager: HistoryManager
     private let bridge = LTXBridge.shared
     private var processingTask: Task<Void, Never>?
@@ -505,11 +513,15 @@ class GenerationService: ObservableObject {
                 if let project = FilmProjectStore.shared.project(id: projectID),
                    coordinator.shouldAutoAssemble(project: project) {
                     startAutoAssembly(projectID: projectID)
+                } else {
+                    emit(.settled, projectID: projectID)
                 }
             case .blocked(_, let reason):
                 statusMessage = reason.userMessage
+                emit(.blocked(reason.userMessage), projectID: projectID)
             case .shotFailed:
                 statusMessage = "A shot failed; the movie was not assembled."
+                emit(.shotFailed, projectID: projectID)
             default:
                 break
             }
@@ -518,9 +530,14 @@ class GenerationService: ObservableObject {
 
     private func startAutoAssembly(projectID: UUID) {
         let coordinator = AutoMovieRunCoordinator.shared
-        guard !autoAssemblingProjectIDs.contains(projectID),
-              let project = FilmProjectStore.shared.project(id: projectID),
-              let signature = coordinator.assemblySignature(for: project) else { return }
+        guard !autoAssemblingProjectIDs.contains(projectID) else { return }
+        guard let project = FilmProjectStore.shared.project(id: projectID),
+              let signature = coordinator.assemblySignature(for: project) else {
+            // Nothing assemblable. Say so, or a caller waiting on assembly —
+            // the production queue — waits for an event that never comes.
+            emit(.assemblyFailed("The movie could not be assembled."), projectID: projectID)
+            return
+        }
         let outputPath = coordinator.assemblyOutputPath(projectID: projectID)
         autoAssemblingProjectIDs.insert(projectID)
         statusMessage = "Assembling final movie…"
@@ -541,8 +558,10 @@ class GenerationService: ObservableObject {
                     projectID: projectID, signature: signature, outputPath: outputPath
                 )
                 self.statusMessage = "Final movie ready: \(outputPath)"
+                self.emit(.assembled(path: outputPath), projectID: projectID)
             case .failure(let error):
                 self.statusMessage = "Final assembly failed: \(error.localizedDescription)"
+                self.emit(.assemblyFailed(error.localizedDescription), projectID: projectID)
             }
         }
     }

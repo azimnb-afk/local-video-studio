@@ -1095,3 +1095,84 @@ prepare. The ceiling is the continuity chain, which carries composition,
 environment and broad costume across a reframe but not facial identity. A better
 still generator — Z-Image included — would improve shot 1 and not shot 3. That
 is worth knowing before committing to it.
+
+## D-071 (2026-08-11) The Director contradicts the Opening Reference in every prompt
+
+Correcting D-070's attribution. The bridge-referenced Auto Movie was believed to
+lose its protagonist at the shot-3 reframe. Reading the persisted project shows
+something simpler and more fixable.
+
+`CB BRIDGE C`'s auto-created Character Bible reads `name: "Character1",
+defaultCostume: "Beige trench coat, dark jeans, boots"` with every appearance
+field empty and no reference assets. The brief never named the Adventurer
+Heroine, and **the Opening Reference image is never analysed into the Character
+Bible**. So all five compiled prompts opened with
+`CHARACTER 1: Character1. Current costume: Beige trench coat, dark jeans, boots.`
+
+The beige trench coat was not drift. It was an instruction, present in shot 1
+alongside an opening frame showing a navy-uniformed adventurer. Sampling shot 1
+confirms a continuous slide rather than a break: full costume at 0%, cape
+lengthening by 20%, navy vest gone by ~40%, a distant plain cream coat by 60%.
+Shot 3 was simply the first close-up after identity had already gone.
+
+Two further facts: shot 3 ran at `imageStrength 0.8`, the Standard value, so the
+0.5 reframe profile was never exercised; and the continuity frame handed to
+shot 3 is a wide plate in which the character is a ~30x80px figure seen from
+behind, carrying no face, hair or costume detail at all.
+
+The app already has a working local vision path — `CharacterSheetAnalysis` posts
+image bytes to Ollama `/api/generate`, and both installed models report the
+`vision` capability. Analysing the Opening Reference into the Character Bible is
+therefore a bounded fix that would remove an actively wrong instruction from
+every shot of every referenced movie.
+
+## D-072 (2026-08-11) Identity survives a reframe when the source frame carries identity
+
+Four controlled generations, one variable at a time, same seed (1721937161),
+768x512, 121 frames, 25 steps, same model and encoder, run outside the GUI so
+seeds and shot counts could be fixed.
+
+A used the verbatim production shot-3 prompt on the shot-3 continuity frame at
+strength 0.8. B replaced only the prompt with a change-focused one. C lowered
+only the strength to 0.5. D changed only the source, to the Opening Reference
+still.
+
+A produced exactly its dictated costume: a Western woman in a beige trench coat.
+B and C invented different women, but without the wrong costume. D preserved the
+Adventurer Heroine — hair, navy collar with gold trim, cream cape and face —
+through the full wide to close-up reframe, executing the same beat.
+
+The dissociation is clean. Prompt strategy changed *what* was invented but not
+*whether* invention happened; source content changed whether it happened at all;
+strength changed neither, and there was no identity-versus-camera tradeoff to
+find — 0.5 and 0.8 both reframed fully.
+
+So on this stack the dominant variable is whether the conditioning frame
+contains resolvable identity at the scale the next shot needs. The external
+guidance that motivated this (ComfyUI's LTX2 text-gen node: "Describe only
+changes from the image... Inaccurate descriptions may cause scene cuts") is
+borne out in its narrower claim — A's inaccurate costume did steer the result
+away from the image — but change-focused wording alone does not rescue a source
+that carries no identity.
+
+Product consequence: give important reframe shots a fresh identity-bearing
+anchor, rather than lowering strength or limiting camera movement.
+
+## D-073 (2026-08-11) Change-focused prompting is for CONTINUE shots, not for the bridge
+
+The same prompt philosophy was applied to the Temporal Bridge, with everything
+else held identical to the successful aspect-fill run including the negative
+prompt. It was clearly worse: reference-sheet removal 3 -> 0, Opening Reference
+usability 3 -> 0.
+
+The failure is specific. The model rendered the character standing inside a
+literal reference-sheet panel — a white board carrying annotation-label blocks,
+mounted in front of the courtyard — for the whole clip. The sheet layout was not
+dissolved; it was promoted to a prop.
+
+This is consistent rather than contradictory. For a continuation the input image
+is the truth and should not be re-described. For the bridge the input is a
+reference sheet we explicitly want destroyed, so "keep everything consistent with
+the input image" is the wrong instruction. Any future Director split must scope
+change-focused prompting to CONTINUE/I2V shots and leave the bridge prompt
+appearance-directive.

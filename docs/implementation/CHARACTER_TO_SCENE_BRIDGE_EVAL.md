@@ -14,6 +14,12 @@ high-specificity character identity past a meaningful reframe — and it does no
 do so for a *hand-made* scene reference either. The bridge is not the
 bottleneck.
 
+> **Later correction — see §R1.** The follow-up experiment kept this
+> classification but corrected *why* identity was lost. It was not the reframe:
+> the Director had written a contradictory costume into every shot prompt, shot 3
+> never ran at the reframe strength, and identity had already dissolved inside
+> shot 1. Read §R1 before relying on the attribution in this section.
+
 ---
 
 ## 1. Source asset
@@ -379,3 +385,322 @@ swift run LTXTests 1123 passed, 0 failed (baseline, unchanged)
 Production Queue untouched (`ProductionQueueCoordinator`,
 `ProductionQueueService`, `ProductionQueueStore`, `FilmJobDecider`). Opening
 Reference semantics untouched — the still was fed through the existing path.
+
+---
+
+# Reframe Identity Propagation — Change-Focused I2V Prompt Delta
+
+**Date:** 2026-08-11 (follow-up)
+**Baseline HEAD:** `5bc720a`, worktree clean
+**Classification (reframe): PASS WITH LIMITATION — but not for the reason expected**
+
+Everything in the sections above is retained unchanged. This section adds a
+controlled delta and **corrects one attribution in it**.
+
+## R1. Correction to the earlier conclusion
+
+The earlier section said identity was "lost at the shot-3 reframe" and inferred
+that reframe continuity was the ceiling. Reading the persisted project shows two
+facts that change the diagnosis.
+
+**R1.1 — The Director wrote the wrong character into every prompt.**
+`CB BRIDGE C`'s auto-created Character Bible is:
+
+```
+name: "Character1"
+defaultCostume: "Beige trench coat, dark jeans, boots"
+appearance: { hair: "", faceDescription: "", ... }   // all empty
+referenceAssets: []
+```
+
+The brief never named the Adventurer Heroine, and **the Opening Reference image
+is not analysed into the Character Bible**. So all five compiled prompts began:
+
+> `CHARACTER 1: Character1. Current costume: Beige trench coat, dark jeans, boots.`
+
+The beige trench coat that "appeared" from shot 3 onward is not drift. It is
+what the prompt asked for, in every shot, including shot 1.
+
+**R1.2 — Shot 3 did not run at the reframe strength.**
+`settingsSnapshot.imageStrength = 0.8` for shots 2, 3 and 4 — the Standard
+value. `ContinuityStrengthPolicy` never classified shot 3 as a reframe, so the
+0.5 reframe profile was never exercised in that run.
+
+**R1.3 — Identity actually dissolved inside shot 1.** Sampling shot 1 at
+0/10/20/30/40/60/80/99 % shows a continuous slide: full Adventurer Heroine at
+0 %, cape lengthening by 20 %, navy vest gone by ~40 %, and a small distant
+figure in a plain cream coat by 60 %. Shot 3 did not break identity; it was the
+first close-up after identity had already gone.
+
+**R1.4 — The continuity frame handed to shot 3 contains no identity.** It is a
+wide courtyard in which the character is a ~30 × 80 px figure seen from behind:
+no face, no hair detail, no costume detail. A close-up generated from it *must*
+invent a face.
+
+## R2. Source guidance (attribution)
+
+The change-focused hypothesis came from external prompt-design material, not
+from our own measurements:
+
+- **Article author's workflow** — the linked `scenario_i2v.md` states: *"Unless
+  the user explicitly specifies outfit or location changes, ALL scenes must
+  feature the same character, outfit, and location as the provided image"*, and
+  that *"Camera angles, movements, expressions, and actions may vary between
+  scenes."* It does **not** explicitly say "do not re-describe the image"; that
+  is an inference from its structure.
+- **Official ComfyUI LTX2 text-gen node** (`comfy_extras/nodes_textgen.py`) is
+  explicit: *"Describe only changes from the image: Don't reiterate established
+  visual details. Inaccurate descriptions may cause scene cuts."*
+
+That second clause is a direct prediction about condition A, and it is worth
+separating from what we measured. Everything below is **our result on our
+LTX-2.3 MLX stack**, not a guaranteed property of the model.
+
+## R3. Design
+
+Four conditions, one variable at a time, all through the same backend with fixed
+settings. Not run through the GUI — §9 of the request, and because the previous
+A/C comparison was confounded by per-take seeds and differing shot counts.
+
+| | Prompt | Source frame | Strength |
+| --- | --- | --- | --- |
+| **A** | production shot-3 prompt (verbatim) | shot-3 continuity frame | 0.8 |
+| **B** | change-focused | shot-3 continuity frame | 0.8 |
+| **C** | change-focused | shot-3 continuity frame | 0.5 |
+| **D** | change-focused | **Opening Reference still** | 0.8 |
+
+`A → B` isolates **prompt strategy**. `B → C` isolates **conditioning
+strength**. `B → D` isolates **whether the source frame contains identity**.
+
+Held identical everywhere: seed **1721937161**, 768 × 512, 121 frames, 24 fps,
+25 steps, CFG 3.0, `ltx23-mlx-av-q4`, `gemma-3-12b-it-4bit`, tiling auto,
+`--no-audio`, empty negative prompt (production used none).
+
+**Deviation from the request, stated plainly.** §8 specified strength 0.5 for
+A/B on the assumption that shot 3 ran at the reframe profile. It ran at 0.8
+(R1.2), so A/B were run at 0.8 to reproduce production exactly, and 0.5 became
+condition C. §6/§7 asked for the shot-3 continuity frame as the only source;
+that frame contains no identity (R1.4), so answering the actual question of §48
+required condition D as well.
+
+### Prompts
+
+**A (verbatim from `promptSnapshot`):**
+
+> CHARACTER 1: Character1. Current costume: Beige trench coat, dark jeans,
+> boots. Location: Stone courtyard, time: Late afternoon, weather: Clear,
+> lighting: Warm, long shadows. The camera close-up shot, eye-level angle,
+> static camera. A close-up focuses on the woman's face as she looks over her
+> shoulder, eyes scanning the empty courtyard behind her. Lighting: Warm, long
+> shadows. Audio: Wind rustling leaves.
+
+**Classification: A3 — Mixed, leaning appearance-heavy.** Roughly the first half
+reconstructs costume, location, weather and lighting that the image already
+carries; the second half is genuine delta (camera scale, head turn, eye action).
+
+**B/C/D (change-focused):**
+
+> The same subject from the input frame remains visually consistent. The camera
+> moves closer into a close-up as she turns her head to look back over her
+> shoulder, her eyes scanning the empty courtyard behind her. Her existing
+> appearance, clothing, hairstyle, the surrounding architecture, the warm low
+> evening light and the long shadows all continue unchanged. No new person
+> enters the frame. No wardrobe change. No scene change. Audio: Wind rustling
+> leaves.
+
+**Semantic A→B difference:** the costume dictation and the environment/lighting
+reconstruction are replaced by one compact continuity statement; the delta
+(camera closer, head turn, gaze) is preserved verbatim in intent. No Face Lock
+language, no expanded negative prompt.
+
+## R4. Results
+
+Each run: ~270 s, peak **14.70 GB**.
+
+| Criterion (0–3) | A | B | C | D |
+| --- | --- | --- | --- | --- |
+| Face continuity | 0 | 0 | 0 | **3** |
+| Hair continuity | 0 | 1 | 1 | **3** |
+| Clothing continuity | 0 | 1 | 1 | **3** |
+| Overall protagonist identity | 0 | 1 | 1 | **3** |
+| Body / silhouette | 1 | 1 | 1 | **3** |
+| Environment continuity | 3 | 3 | 3 | **3** |
+| Requested reframe achieved | 3 | 3 | 3 | **3** |
+| Camera freedom | 3 | 3 | 3 | **3** |
+| Artifact cleanliness | 3 | 3 | 3 | **3** |
+| Narrative beat achieved | 3 | 3 | 3 | **3** |
+
+- **A** produced exactly its dictated costume: a Western woman with wavy auburn
+  hair in a **beige trench coat**, dark red top, jeans and belt. The prompt got
+  what it asked for.
+- **B** invented a different woman — Asian features, dark braided hair, patterned
+  cream jacket. Not the reference, but notably **not the wrong costume either**:
+  removing the dictation removed the contradiction.
+- **C** (strength 0.5) behaved like B. Lowering strength neither restored
+  identity nor visibly increased camera freedom — both already achieved the
+  full wide → close-up reframe.
+- **D** preserved the Adventurer Heroine through the entire wide → close-up
+  reframe: brown hair with side bangs, navy collar with gold trim, cream cape,
+  and a face that matches the reference. It executed the exact shot-3 beat —
+  close-up, looking back over the shoulder — **with identity intact**.
+
+### Drift timing
+
+| | first hair drift | first clothing drift | first different-person |
+| --- | --- | --- | --- |
+| A | ~20 % | ~20 % | ~20 % (first frame a person is resolvable) |
+| B | ~20 % | ~20 % | ~20 % |
+| C | ~20 % | ~20 % | ~20 % |
+| D | **none through 99 %** | none | **none** |
+
+In A/B/C the "drift" is not drift at all — it is the first moment a face becomes
+resolvable, and it is invented from nothing. The camera transition and the
+identity decision coincide because the identity never existed in the source.
+
+## R5. Diagnostic (§19)
+
+**Mechanism: B — loss of source conditioning, with A as a contributing amplifier.**
+
+The evidence is a clean dissociation. Prompt strategy changed *what* was
+invented (A's dictated trench coat vs B's free invention) but not *whether*
+invention happened. Source content changed whether invention happened at all
+(D vs B, identical prompt, seed and strength). Strength changed neither.
+
+So on this stack the dominant variable is **whether the conditioning frame
+contains resolvable identity at the scale the next shot needs** — not the prompt
+and not the reframe itself. The ComfyUI guidance is still borne out in its
+narrower claim: an inaccurate description (A's costume) does steer the result
+away from the image.
+
+## R6. Reframe classification
+
+**PASS WITH LIMITATION — identity survives a reframe when the source frame
+carries identity; change-focused prompting alone does not rescue a source that
+does not.**
+
+Against the request's cases this is closest to **CASE 3 for A/B/C** (prompt
+semantics insufficient; the bottleneck is deeper) combined with a **new finding
+from D**: the reframe itself is not the problem. §14's expectation — that higher
+strength would trade camera freedom for identity — was **not** observed: 0.8 and
+0.5 produced the same reframe and the same (absent) identity.
+
+The original Temporal Bridge classification is unchanged: **PASS WITH
+LIMITATION**.
+
+---
+
+# Bridge Prompt Strategy Delta
+
+## R7. Existing bridge prompt classification
+
+Recovered verbatim (§2 above). **Appearance-heavy**: 112 words containing 13
+distinct appearance-reconstruction tokens — hair colour, ponytail, side bangs,
+sailor vest, long-sleeve shirt, blue bow, gold emblem, cream hooded cape,
+leather belt, brass pocket watch, pleated skirt, knee-high socks, buckled boots.
+A meaningful delta therefore existed, so Bridge B2 was run.
+
+## R8. Bridge B2
+
+Identical to the successful aspect-fill bridge in every respect — same
+`front_fill_768x512.png`, seed 12345, 768 × 512, 121 frames, strength 1.0, 30
+steps, CFG 3.0, tiling aggressive, and the **same negative prompt** — with only
+the positive prompt rewritten to describe the transformation rather than the
+character. No cinematic suffix (§25). 270.8 s, 14.70 GB.
+
+**Result: WORSE.**
+
+| Criterion (0–3) | Bridge (existing) @25 % | Bridge B2 (best) |
+| --- | --- | --- |
+| Reference-sheet removal | **3** | **0** |
+| Face similarity | 2 | 2 |
+| Hair similarity | 3 | 2 |
+| Clothing similarity | 2 | 1 |
+| Overall protagonist | 2 | 1 |
+| Scene quality | 3 | 2 |
+| Cinematic framing | 3 | 1 |
+| Pose naturalness | 2 | 2 |
+| Artifact cleanliness | 3 | 1 |
+| Opening Reference usability | **3** | **0** |
+
+The failure is specific and instructive: B2 rendered the character standing
+**inside a literal reference-sheet panel** — a white board carrying faint
+annotation-label blocks, mounted in front of the courtyard — for the entire
+clip. The sheet layout was not dissolved; it was promoted to a physical prop in
+the scene. Costume also drifted further (pleated skirt → blue jeans, sailor vest
+→ harness).
+
+**Usable-frame window:** existing bridge ≈ 20–30 % (and scene-valid to the end);
+B2 **none**.
+
+**Bridge delta classification: WORSE.**
+
+The reason is coherent with R5 rather than contradicting it. For a *continuation*
+the image is the truth and should not be re-described. For the **bridge** the
+input is a reference sheet that we explicitly want destroyed, so "keep everything
+consistent with the input image" is the wrong instruction — it preserves the
+sheet. Change-focused prompting is a policy for CONTINUE shots, not for the
+bridge.
+
+No Bridge C was run: §27 forbids beautifying a failed B.
+
+## R9. Vision-LLM audit (§32) — no implementation
+
+**YES, with a caveat.** The app already has a working local vision pathway:
+`OllamaCharacterSheetVisionEnvironmentClient` enumerates vision-capable models
+via `/api/tags` capabilities (falling back to `/api/show`), and
+`CharacterSheetAnalysis` posts image bytes to `/api/generate` and parses
+structured output. It is proven in production — the Adventurer Heroine's
+Character Bible was populated this way (`analysisProvider: ollama`,
+`analysisModel: agents-a1:32k`), extracting hair, complexion, build, costume,
+accessories, expressions and detected views.
+
+Locally, `agents-a1:32k` and `qwen3.6-claw-fast:latest` both report
+`capabilities: [tools, thinking, completion, vision]`.
+
+So a future Change-Focused I2V Director could inspect a continuity frame and
+emit only the delta. **The caveat is that R1.1 shows the more valuable use
+first:** the Opening Reference image is currently never analysed, which is why
+the Director invented "Beige trench coat, dark jeans, boots" for a movie whose
+opening frame showed a navy-uniformed adventurer. Vision-analysing the opening
+reference into the Character Bible would remove an actively wrong instruction
+from every shot.
+
+## R10. Decision matrix (§45), ranked by evidence
+
+1. **C — give important reframe shots a fresh visual anchor.** Strongest
+   evidence: D differs from B only in having a source that carries identity, and
+   it is the only condition that preserved the character. Any mechanism that
+   supplies an identity-bearing frame at a scale change should work.
+2. **A′ — analyse the Opening Reference into the Character Bible** (a variant of
+   A, and cheaper). R1.1 shows the Director currently contradicts the reference
+   image in every prompt. This is a bug-shaped problem with a bounded fix.
+3. **A — change-focused Director policy for CONTINUE/I2V.** Supported but
+   second-order: it removed a harmful contradiction (A→B) without restoring
+   identity. Worth doing, and it must be scoped to CONTINUE shots only — R8
+   shows it is actively harmful for the bridge.
+4. **D — productize the Temporal Bridge for those key images.** It already
+   produces a usable identity-bearing still; it becomes valuable once (1) exists.
+5. **E — Z-image / local still model.** Unchanged from the previous audit and
+   still not urgent: it would produce nicer key images, but D shows the existing
+   bridge already produces one good enough to hold identity through a reframe.
+6. **B — accept the tradeoff and limit reframes.** Not supported: there is no
+   identity-vs-camera tradeoff to accept. 0.5 and 0.8 both reframed fully, and D
+   reframed fully *and* kept identity.
+
+**F (no further work) is not the right call** — R1.1 is a concrete defect.
+
+## R11. Review files
+
+Under `~/Library/Application Support/LTXVideoGenerator/Videos`, `cp -n`, nothing
+overwritten. **33 `REFRAME_*` and 42 `CHARBRIDGE_*` files**, all verified:
+
+- `REFRAME_A_productprompt_s0.8_768x512_20260811_142646.mp4`
+- `REFRAME_B_changefocus_s0.8_768x512_20260811_142646.mp4`
+- `REFRAME_C_changefocus_s0.5_768x512_20260811_142646.mp4`
+- `REFRAME_D_changefocus_identitysrc_s0.8_768x512_20260811_142646.mp4`
+- `REFRAME_{A,B,C,D}_frame{0,20,40,60,80,99}pct_…png`
+- `REFRAME_source_shot3_continuity_…png`, `REFRAME_source_openingstill_…png`
+- `REFRAME_face_compare_…png`, `REFRAME_AB_row_…png`, `REFRAME_CD_row_…png`
+- `CHARBRIDGE_B2_changefocus_5s_768x512_…mp4` + 8 frames + row
+
+Additional generation time: 5 renders × ~270 s ≈ **22.5 minutes**.

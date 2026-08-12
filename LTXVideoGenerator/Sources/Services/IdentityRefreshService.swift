@@ -60,6 +60,21 @@ enum IdentityRefreshService {
         clearAnchor(shotIndex: shotIndex, in: &project)
     }
 
+    /// Any prepared refresh belongs to the continuity source that existed when
+    /// it was chosen. If the user selects another upstream Take, do not let a
+    /// generated *or reused* old anchor outrank that newly selected Last Frame.
+    nonisolated static func invalidateAnchorForContinuitySourceChange(
+        shotIndex: Int,
+        previousSourceTakeID: UUID?,
+        currentSourceTakeID: UUID?,
+        in project: inout FilmProject
+    ) {
+        guard previousSourceTakeID != currentSourceTakeID,
+              project.shots.indices.contains(shotIndex),
+              project.shots[shotIndex].identityRefreshAnchorRelativePath != nil else { return }
+        clearAnchor(shotIndex: shotIndex, in: &project)
+    }
+
     /// Replace/Clear invalidates only refresh decisions that directly reused
     /// the superseded Opening Reference. Generated anchors remain independent
     /// managed pixels and retain their take-based staleness rule.
@@ -214,7 +229,8 @@ enum IdentityRefreshService {
         saved.shots[shotIndex].identityRefreshAnchorOrigin = .generated
         saved.shots[shotIndex].identityRefreshAnchorSourceShotID = nil
         saved.shots[shotIndex].identityRefreshSourceTakeID =
-            saved.shots[shotIndex - 1].continuitySourceTake?.id
+            saved.shots[shotIndex].continuitySourceTakeID
+                ?? saved.shots[shotIndex - 1].continuitySourceTake?.id
         let resolverReason: String
         if case .generate(let why) = reuseDecision { resolverReason = why }
         else { resolverReason = "No reusable anchor was selected." }
@@ -317,8 +333,10 @@ enum IdentityRefreshService {
             return anchorIsStale(shotIndex: sourceIndex, in: project, visited: nextVisited)
         case .generated, .none:
             guard shotIndex > 0 else { return true }
+            let expectedSourceTakeID = shot.continuitySourceTakeID
+                ?? project.shots[shotIndex - 1].continuitySourceTake?.id
             return shot.identityRefreshSourceTakeID
-                != project.shots[shotIndex - 1].continuitySourceTake?.id
+                != expectedSourceTakeID
         }
     }
 

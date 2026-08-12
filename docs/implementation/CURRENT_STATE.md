@@ -1153,3 +1153,31 @@ time the resolved Debug artifact is
 GUI acceptance always records `git HEAD`, executable modification time, and the
 running process’s executable path, launches the explicit full `.app` path, and
 never uses `open -a LTXVideoGenerator` or a `/tmp` build as the normal app.
+
+## 2026-08-12 Selected Take continuity regression fix
+
+**Status: PASS.** Future Auto Movie Continue generations now derive their
+starting frame from the current upstream selection at the shared
+`TakeGenerationCoordinator.planTakes` boundary. This covers the initial run,
+Shot-card Generate/Regenerate, and bulk regeneration without adding a parallel
+continuity implementation.
+
+The formal order is: usable selected completed Take, then newest usable
+completed Take, otherwise an actionable unavailable-continuity result. Failed,
+cancelled, running, missing-output, and corrupt-output selections do not pin the
+chain. Cut and an explicit per-shot Starting Image retain their existing
+semantics. When the winning upstream Take changes, a previously prepared
+Identity Refresh anchor is invalidated before it can outrank the new Last Frame.
+
+Existing Takes and their `GenerationSourceDiagnostics` are never rewritten.
+Only newly planned Takes receive the current source snapshot. Selection remains
+the existing persisted `Shot.selectedTakeID`; no migration or new source model
+was introduced.
+
+Automated validation: `swift build` PASS; `swift run LTXTests` **1547 passed / 0
+failed**; Xcode Debug `clean build` **BUILD SUCCEEDED**; `git diff --check` PASS.
+Canonical GUI acceptance used isolated project `SELECTED TAKE CONTINUITY GUI`.
+Shot 1 Take 2 (`72C073D4…`) remained selected after restart; the historical
+Shot 2 Take still reported Take 1 (`5DE36E94…`), while the regenerated Shot 2
+Take reported `Selected take · 72C073D4` and a Take-2-named managed continuity
+PNG. The production queue stayed empty and no LTX render was started.

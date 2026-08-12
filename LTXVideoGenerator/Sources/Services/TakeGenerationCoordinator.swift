@@ -61,10 +61,6 @@ final class TakeGenerationCoordinator {
               let shotIndex = project.shots.firstIndex(where: { $0.id == shotID }) else {
             throw CoordinatorError.shotNotFound(shotID)
         }
-        let shot = project.shots[shotIndex]
-        let settings = project.settings
-        let targetDuration = settings.resolvedPreset == .custom ? nil : shot.durationSeconds
-        let generationSource = project.workflowMode == "hybrid" ? "hybrid" : "storyboard"
         let mayInheritPreviousShot: Bool
         if project.workflowMode == AutoMovieRunCoordinator.autoMovieWorkflowMode {
             mayInheritPreviousShot = AutoMovieRunCoordinator(store: store)
@@ -73,8 +69,31 @@ final class TakeGenerationCoordinator {
         } else {
             // Preserve legacy/manual Storyboard behaviour: absent/auto modes
             // may use a prepared path, but an explicit Cut never may.
-            mayInheritPreviousShot = shotIndex > 0 && shot.continuityMode != .cut
+            mayInheritPreviousShot = shotIndex > 0 && project.shots[shotIndex].continuityMode != .cut
         }
+
+        // Auto Movie's first run, Shot-card Regenerate, and bulk regeneration
+        // all end here. Refresh the inherited frame at this shared boundary so
+        // a newly selected upstream Take cannot be bypassed by an older cached
+        // continuity image. Explicit shot images and Cuts keep their existing
+        // precedence and never consult a previous Take.
+        if project.workflowMode == AutoMovieRunCoordinator.autoMovieWorkflowMode,
+           mayInheritPreviousShot,
+           project.shots[shotIndex].startingImageReferenceAssetID == nil,
+           shouldPrepareAutoMovieContinuity(project: project, shotIndex: shotIndex) {
+            let coordinator = AutoMovieRunCoordinator(store: store)
+            guard case .success = coordinator.prepareContinuityAsset(
+                projectID: projectID, shotIndex: shotIndex
+            ), let refreshed = store.project(id: projectID) else {
+                throw CoordinatorError.continuityImageUnavailable(shotID)
+            }
+            project = refreshed
+        }
+
+        let shot = project.shots[shotIndex]
+        let settings = project.settings
+        let targetDuration = settings.resolvedPreset == .custom ? nil : shot.durationSeconds
+        let generationSource = project.workflowMode == "hybrid" ? "hybrid" : "storyboard"
 
         // Starting image precedence:
         //   1. the shot's explicit user/CharacterBible selection
@@ -253,6 +272,25 @@ final class TakeGenerationCoordinator {
         return requests
     }
 
+    private func shouldPrepareAutoMovieContinuity(
+        project: FilmProject,
+        shotIndex: Int
+    ) -> Bool {
+        guard shotIndex > 0 else { return false }
+        let previous = project.shots[shotIndex - 1]
+        let target = project.shots[shotIndex]
+        let hasCompletedTake = previous.takes.contains { $0.status == .completed }
+        guard hasCompletedTake else { return false }
+        let hasExistingOutput = previous.takes.contains { take in
+            take.status == .completed
+                && take.outputPath.map(FileManager.default.fileExists(atPath:)) == true
+        }
+        // A changed selection must be resolved even when none of the videos
+        // still exists, otherwise an older downstream cache would silently win.
+        return hasExistingOutput
+            || target.continuitySourceTakeID != previous.continuitySourceTake?.id
+    }
+
     /// Records only the observed output of `ImageConditioningPreparer` for an
     /// already-queued Take. It never re-runs source selection or modifies the
     /// request that reaches the backend.
@@ -354,6 +392,15 @@ final class TakeGenerationCoordinator {
             throw CoordinatorError.shotNotFound(shotID)
         }
         project.shots[shotIndex].selectedTakeID = takeID
+        if project.shots.indices.contains(shotIndex + 1) {
+            let downstreamIndex = shotIndex + 1
+            IdentityRefreshService.invalidateAnchorForContinuitySourceChange(
+                shotIndex: downstreamIndex,
+                previousSourceTakeID: project.shots[downstreamIndex].continuitySourceTakeID,
+                currentSourceTakeID: takeID,
+                in: &project
+            )
+        }
         store.save(project)
     }
 

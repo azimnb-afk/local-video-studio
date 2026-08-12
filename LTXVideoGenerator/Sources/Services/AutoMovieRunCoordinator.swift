@@ -173,45 +173,67 @@ final class AutoMovieRunCoordinator {
             return .failure(.previousShotIncomplete)
         }
         let previous = project.shots[shotIndex - 1]
-        guard let sourceTake = previous.continuitySourceTake else {
+        let candidates = continuitySourceCandidates(in: previous)
+        guard !candidates.isEmpty else {
             return .failure(.previousShotIncomplete)
         }
-        guard let videoPath = sourceTake.outputPath,
-              FileManager.default.fileExists(atPath: videoPath) else {
-            return .failure(.previousOutputMissing)
-        }
+        var foundExistingOutput = false
 
-        // Reuse an already-extracted frame when it still comes from the same
-        // take, so a resumed run does not redo work.
-        let shot = project.shots[shotIndex]
-        if let existing = shot.continuityImageRelativePath,
-           shot.continuitySourceTakeID == sourceTake.id,
-           let url = store.managedProjectAssetURL(projectID: projectID, relativePath: existing),
-           ContinuityFrameExtractor.isUsableImage(atPath: url.path) {
-            return .success(existing)
-        }
+        // A completed Take is only usable for future continuity when its media
+        // still exists and yields a valid frame. The explicit selection gets
+        // first refusal; an invalid selection falls through to completed Takes
+        // in newest-first order without changing the user's selection itself.
+        for sourceTake in candidates {
+            // Reuse an already-extracted frame when it still comes from this
+            // exact Take. This also remains a usable fallback if the original
+            // completed video was moved after its managed final frame existed.
+            let shot = project.shots[shotIndex]
+            if let existing = shot.continuityImageRelativePath,
+               shot.continuitySourceTakeID == sourceTake.id,
+               let url = store.managedProjectAssetURL(projectID: projectID, relativePath: existing),
+               ContinuityFrameExtractor.isUsableImage(atPath: url.path) {
+                project.shots[shotIndex].continuityBlockedReason = nil
+                store.save(project)
+                return .success(existing)
+            }
 
-        let relativePath = "Assets/Continuity/shot-\(String(format: "%03d", shotIndex + 1))-from-\(sourceTake.id.uuidString).png"
-        guard let destination = store.managedProjectAssetURL(projectID: projectID, relativePath: relativePath) else {
-            return .failure(.frameExtractionFailed)
-        }
-        do {
-            try ContinuityFrameExtractor.extractLastFrame(
-                videoPath: videoPath,
-                outputPath: destination.path
+            guard let videoPath = sourceTake.outputPath,
+                  FileManager.default.fileExists(atPath: videoPath) else { continue }
+            foundExistingOutput = true
+
+            let relativePath = "Assets/Continuity/shot-\(String(format: "%03d", shotIndex + 1))-from-\(sourceTake.id.uuidString).png"
+            guard let destination = store.managedProjectAssetURL(
+                projectID: projectID, relativePath: relativePath
+            ) else { continue }
+            do {
+                try ContinuityFrameExtractor.extractLastFrame(
+                    videoPath: videoPath,
+                    outputPath: destination.path
+                )
+            } catch {
+                try? FileManager.default.removeItem(at: destination)
+                continue
+            }
+            guard ContinuityFrameExtractor.isUsableImage(atPath: destination.path) else {
+                try? FileManager.default.removeItem(at: destination)
+                continue
+            }
+
+            let previousSourceTakeID = project.shots[shotIndex].continuitySourceTakeID
+            project.shots[shotIndex].continuityImageRelativePath = relativePath
+            project.shots[shotIndex].continuitySourceTakeID = sourceTake.id
+            project.shots[shotIndex].continuityBlockedReason = nil
+            IdentityRefreshService.invalidateAnchorForContinuitySourceChange(
+                shotIndex: shotIndex,
+                previousSourceTakeID: previousSourceTakeID,
+                currentSourceTakeID: sourceTake.id,
+                in: &project
             )
-        } catch {
-            return .failure(.frameExtractionFailed)
-        }
-        guard ContinuityFrameExtractor.isUsableImage(atPath: destination.path) else {
-            return .failure(.frameExtractionFailed)
+            store.save(project)
+            return .success(relativePath)
         }
 
-        project.shots[shotIndex].continuityImageRelativePath = relativePath
-        project.shots[shotIndex].continuitySourceTakeID = sourceTake.id
-        project.shots[shotIndex].continuityBlockedReason = nil
-        store.save(project)
-        return .success(relativePath)
+        return .failure(foundExistingOutput ? .frameExtractionFailed : .previousOutputMissing)
     }
 
     /// True when a shot inherited its frame from a take that is no longer the
@@ -220,8 +242,27 @@ final class AutoMovieRunCoordinator {
         guard shotIndex > 0, shotIndex < project.shots.count else { return false }
         let shot = project.shots[shotIndex]
         guard shot.continuitySourceTakeID != nil else { return false }
-        let currentSource = project.shots[shotIndex - 1].continuitySourceTake
+        let currentSource = continuitySourceCandidates(in: project.shots[shotIndex - 1]).first
         return shot.continuitySourceTakeID != currentSource?.id
+    }
+
+    /// Future continuity source order. This deliberately does not change
+    /// assembly selection: it only resolves the pixels used to start a newly
+    /// planned continuation Take.
+    private func continuitySourceCandidates(in shot: Shot) -> [Take] {
+        let selected = shot.selectedTake.flatMap { take in
+            take.status == .completed ? take : nil
+        }
+        let indices = Dictionary(uniqueKeysWithValues: shot.takes.enumerated().map { ($0.element.id, $0.offset) })
+        let remaining = shot.takes
+            .filter { $0.status == .completed && $0.id != selected?.id }
+            .sorted { lhs, rhs in
+                let lhsDate = lhs.generationCompletedAt ?? .distantPast
+                let rhsDate = rhs.generationCompletedAt ?? .distantPast
+                if lhsDate != rhsDate { return lhsDate > rhsDate }
+                return (indices[lhs.id] ?? 0) > (indices[rhs.id] ?? 0)
+            }
+        return selected.map { [$0] + remaining } ?? remaining
     }
 
     // MARK: - Run advancement

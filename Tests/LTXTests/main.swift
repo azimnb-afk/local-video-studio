@@ -224,6 +224,136 @@ if CommandLine.arguments.count == 3,
     exit(0)
 }
 
+// Creates an isolated, no-queue GUI fixture for Selected Take continuity. It
+// runs the shipping coordinators in the same order as an actual Retake:
+// Take 1 selected -> Shot 2 planned, Take 2 selected -> Shot 2 planned again.
+// Existing fixture videos stand in for already-completed renders; no LTX job is
+// started merely to inspect the source/provenance UI.
+//
+//   swift run LTXTests --prepare-selected-take-gui
+if CommandLine.arguments.count == 2,
+   CommandLine.arguments[1] == "--prepare-selected-take-gui" {
+    let fixtureA = "/tmp/ltx_baseline/T2V-A-ON.mp4"
+    let fixtureB = "/tmp/ltx_baseline/I2V-A-ON.mp4"
+    guard FileManager.default.fileExists(atPath: fixtureA),
+          FileManager.default.fileExists(atPath: fixtureB) else {
+        fputs("Baseline fixture videos are unavailable.\n", stderr)
+        exit(2)
+    }
+
+    let store = FilmProjectStore.shared
+    var project = FilmProject(title: "SELECTED TAKE CONTINUITY GUI")
+    project.workflowMode = AutoMovieRunCoordinator.autoMovieWorkflowMode
+    project.continuityChainEnabled = true
+    var first = Shot(
+        index: 0, title: "Upstream Retake",
+        summary: "The subject reaches the doorway.",
+        compiledPrompt: "The subject reaches the doorway.",
+        continuityMode: .cut
+    )
+    var take1 = Take(
+        shotID: first.id, modelID: "acceptance-fixture", seed: 111,
+        promptSnapshot: first.compiledPrompt, settingsSnapshot: .default,
+        requestedWidth: 512, requestedHeight: 320, fps: 24,
+        requestedDuration: 1, status: .completed
+    )
+    take1.outputPath = fixtureA
+    take1.generationCompletedAt = Date().addingTimeInterval(-120)
+    var take2 = Take(
+        shotID: first.id, modelID: "acceptance-fixture", seed: 222,
+        promptSnapshot: first.compiledPrompt, settingsSnapshot: .default,
+        requestedWidth: 512, requestedHeight: 320, fps: 24,
+        requestedDuration: 1, status: .completed
+    )
+    take2.outputPath = fixtureB
+    take2.generationCompletedAt = Date().addingTimeInterval(-60)
+    first.takes = [take1, take2]
+    first.selectedTakeID = take1.id
+
+    let second = Shot(
+        index: 1, title: "Downstream Regeneration",
+        summary: "The same subject continues through the doorway.",
+        compiledPrompt: "The same subject continues through the doorway.",
+        continuityMode: .continueFromPrevious
+    )
+    project.shots = [first, second]
+    project.settings.preset = GenerationPreset.quickPreview.rawValue
+    project.settings.width = 512
+    project.settings.height = 320
+    project.settings.fps = 24
+    project.settings.numFrames = 25
+    project.settings.numInferenceSteps = 15
+    store.save(project)
+
+    let runCoordinator = AutoMovieRunCoordinator(store: store)
+    let takeCoordinator = TakeGenerationCoordinator(store: store)
+    guard case .success = runCoordinator.prepareContinuityAsset(
+        projectID: project.id, shotIndex: 1
+    ), let oldRequest = try? takeCoordinator.planTakes(
+        projectID: project.id, shotID: second.id, count: 1, baseSeed: 333
+    ).first else {
+        fputs("Could not create the Take 1 downstream snapshot.\n", stderr)
+        exit(3)
+    }
+
+    var saved = store.project(id: project.id)!
+    let oldTakeID = oldRequest.takeID!
+    let oldIndex = saved.shots[1].takes.firstIndex { $0.id == oldTakeID }!
+    saved.shots[1].takes[oldIndex].status = .completed
+    saved.shots[1].takes[oldIndex].outputPath = fixtureA
+    saved.shots[1].takes[oldIndex].generationCompletedAt = Date().addingTimeInterval(-30)
+    saved.shots[1].selectedTakeID = oldTakeID
+    saved.shots[1].identityRefreshAnchorRelativePath =
+        saved.shots[1].continuityImageRelativePath
+    saved.shots[1].identityRefreshAnchorOrigin = .generated
+    saved.shots[1].identityRefreshSourceTakeID = take1.id
+    for index in saved.jobs.indices where saved.jobs[index].takeID == oldTakeID {
+        saved.jobs[index].state = .completed
+    }
+    store.save(saved)
+
+    do {
+        try takeCoordinator.selectTake(
+            projectID: project.id, shotID: first.id, takeID: take2.id)
+        let newRequest = try takeCoordinator.planTakes(
+            projectID: project.id, shotID: second.id, count: 1, baseSeed: 444)[0]
+        saved = store.project(id: project.id)!
+        let newTakeID = newRequest.takeID!
+        let newIndex = saved.shots[1].takes.firstIndex { $0.id == newTakeID }!
+        saved.shots[1].takes[newIndex].status = .completed
+        saved.shots[1].takes[newIndex].outputPath = fixtureB
+        saved.shots[1].takes[newIndex].generationCompletedAt = Date()
+        for index in saved.jobs.indices where saved.jobs[index].takeID == newTakeID {
+            saved.jobs[index].state = .completed
+        }
+        store.save(saved)
+
+        let reopened = FilmProjectStore(projectsDirectory: store.projectsDirectory)
+        let verified = reopened.project(id: project.id)!
+        let historical = verified.shots[1].takes[oldIndex].generationSourceDiagnostics
+        let regenerated = verified.shots[1].takes[newIndex].generationSourceDiagnostics
+        guard verified.shots[0].selectedTakeID == take2.id,
+              historical?.continuitySourceTakeID == take1.id,
+              regenerated?.continuitySourceTakeID == take2.id,
+              regenerated?.continuityTakeSelectionReason == .selectedTake,
+              verified.shots[1].identityRefreshAnchorRelativePath == nil else {
+            fputs("Persisted Selected Take fixture verification failed.\n", stderr)
+            exit(4)
+        }
+        print("projectID=\(project.id.uuidString)")
+        print("projectFile=\(store.projectsDirectory.appendingPathComponent(project.id.uuidString + ".json").path)")
+        print("take1=\(take1.id.uuidString)")
+        print("take2=\(take2.id.uuidString)")
+        print("historicalShot2Take=\(oldTakeID.uuidString)")
+        print("regeneratedShot2Take=\(newTakeID.uuidString)")
+        print("regeneratedSource=\(newRequest.sourceImagePath ?? "")")
+        exit(0)
+    } catch {
+        fputs("Could not create the Take 2 downstream snapshot: \(error)\n", stderr)
+        exit(5)
+    }
+}
+
 // Re-runs the shipping local-Vision visibility assessor against one saved
 // production frame and prints the complete Codable result. This is a read-only
 // acceptance diagnostic: it uses the same model selection/provider/prompt as

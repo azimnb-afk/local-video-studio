@@ -491,6 +491,7 @@ func runIdentityRefreshTests(_ t: TestKit) {
         shot2.identityRefreshAnchorRelativePath = "Assets/IdentityRefresh/shot-002-x.png"
         shot2.identityRefreshAnchorOrigin = .generated
         shot2.identityRefreshSourceTakeID = take.id
+        shot2.continuitySourceTakeID = take.id
         shot2.identityRefreshNote = "Identity Refresh: applied"
         project.shots = [shot1, shot2]
 
@@ -513,6 +514,7 @@ func runIdentityRefreshTests(_ t: TestKit) {
                            fps: 24, requestedDuration: 5, status: .completed)
         retaken.shots[0].takes = [newTake]
         retaken.shots[0].selectedTakeID = newTake.id
+        retaken.shots[1].continuitySourceTakeID = newTake.id
         IdentityRefreshService.invalidateStaleAnchor(shotIndex: 1, in: &retaken)
         t.check(retaken.shots[1].identityRefreshAnchorRelativePath == nil,
                 "C/D: a retake upstream invalidates the dependent refresh anchor")
@@ -541,6 +543,7 @@ func runIdentityRefreshTests(_ t: TestKit) {
                      "a prior generated anchor remains reusable while its root take is current")
         chained.shots[0].takes = [newTake]
         chained.shots[0].selectedTakeID = newTake.id
+        chained.shots[1].continuitySourceTakeID = newTake.id
         IdentityRefreshService.invalidateStaleAnchor(shotIndex: 2, in: &chained)
         t.check(chained.shots[2].identityRefreshAnchorRelativePath == nil,
                 "a retake at the root invalidates a later reused-anchor chain")

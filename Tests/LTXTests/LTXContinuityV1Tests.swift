@@ -153,6 +153,9 @@ func runLTXContinuityV1Tests(_ t: TestKit) {
 
         t.check(AutoMovieRunCoordinator.shared.continuityIsStale(shotIndex: 1, in: retaken),
                 "a retake upstream makes the inherited frame stale")
+        // Production continuity preparation now records the new source before
+        // Identity Refresh staleness is evaluated.
+        retaken.shots[1].continuitySourceTakeID = replacement.id
         IdentityRefreshService.invalidateStaleAnchor(shotIndex: 1, in: &retaken)
         t.check(retaken.shots[1].identityRefreshAnchorRelativePath == nil,
                 "and the refresh anchor derived from the old take is dropped too")

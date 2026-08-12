@@ -1600,3 +1600,25 @@ or an invitation to infer history from today’s plan. This is deliberately
 observability-only: continuity precedence, ImageConditioning geometry,
 Identity Refresh, prompts, request parameters, LTXBridge semantics, and queue
 ordering remain untouched.
+
+## D-093 (2026-08-12) Future continuity follows the current selected usable Take
+
+`Shot.selectedTakeID` is the user's explicit choice and remains the persisted
+source of truth. Every newly planned Auto Movie Continue Take resolves upstream
+media in this order: selected completed Take when its output can produce a
+usable frame, then completed Takes newest-first under the same usability check.
+There is no automatic selection rewrite when fallback is needed.
+
+The resolution belongs at the existing `TakeGenerationCoordinator.planTakes`
+boundary because the initial automatic run, individual Shot regeneration, and
+bulk regeneration all converge there. `AutoMovieRunCoordinator` remains the
+single owner of final-frame extraction and managed continuity assets. Cut and
+explicit per-shot Starting Image semantics remain unchanged.
+
+A prepared Identity Refresh anchor is derived from a particular upstream visual
+state. Changing the resolved continuity Take invalidates that prepared anchor
+before normal source precedence runs; later refresh evaluation may create or
+reuse a new anchor from the current frame. Historical Takes and their diagnostics
+are snapshots and are never backfilled or rewritten. This decision applies only
+to future generations and does not redesign selection, assembly, refresh policy,
+image conditioning, or LTX generation.

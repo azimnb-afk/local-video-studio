@@ -181,6 +181,177 @@ func runAutoMovieContinuityTests(_ t: TestKit) {
                 "cut shot stores no continuity asset")
     }
 
+    t.suite("Auto Movie — selected Take controls future regeneration") {
+        guard hasFixtures else {
+            t.check(true, "fixture videos unavailable — selected-Take regeneration skipped")
+            return
+        }
+
+        let store = makeStore("selected-retake")
+        let project = makeProject(store: store, shotCount: 2)
+        let takeCoordinator = TakeGenerationCoordinator(store: store)
+        let runCoordinator = AutoMovieRunCoordinator(store: store)
+
+        let take1 = completeShot(
+            store: store, projectID: project.id, shotIndex: 0,
+            videoPath: fixtureA, selected: true)
+        _ = runCoordinator.prepareContinuityAsset(projectID: project.id, shotIndex: 1)
+        let firstRequests = try? takeCoordinator.planTakes(
+            projectID: project.id, shotID: project.shots[1].id, count: 1, baseSeed: 900)
+        let firstRequest = firstRequests?.first
+        let firstDownstreamTake = store.project(id: project.id)?.shots[1].takes.last
+        t.checkEqual(firstDownstreamTake?.generationSourceDiagnostics?.continuitySourceTakeID,
+                     take1, "first downstream Take records Take 1")
+
+        // A newer completed Take is explicitly selected before regeneration.
+        let take2 = completeShot(
+            store: store, projectID: project.id, shotIndex: 0,
+            videoPath: fixtureB)
+        var staleAnchorProject = store.project(id: project.id)!
+        staleAnchorProject.shots[1].identityRefreshAnchorRelativePath =
+            staleAnchorProject.shots[1].continuityImageRelativePath
+        staleAnchorProject.shots[1].identityRefreshAnchorOrigin = .generated
+        staleAnchorProject.shots[1].identityRefreshSourceTakeID = take1
+        store.save(staleAnchorProject)
+        try? takeCoordinator.selectTake(
+            projectID: project.id, shotID: project.shots[0].id, takeID: take2)
+
+        // Persistence is part of the contract: reconstruct the store before
+        // pressing Regenerate, as a relaunch would.
+        let reopened = FilmProjectStore(projectsDirectory: store.projectsDirectory)
+        t.checkEqual(reopened.project(id: project.id)?.shots[0].selectedTakeID, take2,
+                     "explicit Take selection survives project reopen")
+        let reopenedCoordinator = TakeGenerationCoordinator(store: reopened)
+        let secondRequests = try? reopenedCoordinator.planTakes(
+            projectID: project.id, shotID: project.shots[1].id, count: 1, baseSeed: 901)
+        let secondRequest = secondRequests?.first
+        let afterSelection = reopened.project(id: project.id)!
+        let newDownstreamTake = afterSelection.shots[1].takes.last
+
+        t.check(secondRequest?.sourceImagePath?.contains(take2.uuidString) == true,
+                "future regeneration extracts the currently selected Take 2")
+        t.check(secondRequest?.sourceImagePath?.contains(take1.uuidString) == false,
+                "future regeneration does not reuse Take 1's cached frame")
+        t.checkEqual(newDownstreamTake?.generationSourceDiagnostics?.continuitySourceTakeID,
+                     take2, "new diagnostics record selected Take 2")
+        t.checkEqual(newDownstreamTake?.generationSourceDiagnostics?.continuityTakeSelectionReason,
+                     .selectedTake, "new diagnostics state Selected take")
+        t.check(afterSelection.shots[1].identityRefreshAnchorRelativePath == nil,
+                "an Identity Refresh anchor from Take 1 cannot override selected Take 2")
+        t.checkEqual(afterSelection.shots[1].takes.first?.generationSourceDiagnostics,
+                     firstDownstreamTake?.generationSourceDiagnostics,
+                     "the earlier downstream Take keeps its Take 1 provenance")
+        t.check(firstRequest?.sourceImagePath?.contains(take1.uuidString) == true,
+                "the historical request remains tied to Take 1")
+
+        // Selected beats latest. Take 3 completes later, but Take 2 stays the
+        // user's explicit choice and must remain the future continuity source.
+        let take3 = completeShot(
+            store: reopened, projectID: project.id, shotIndex: 0,
+            videoPath: fixtureA)
+        let thirdRequests = try? reopenedCoordinator.planTakes(
+            projectID: project.id, shotID: project.shots[1].id, count: 1, baseSeed: 902)
+        t.check(thirdRequests?.first?.sourceImagePath?.contains(take2.uuidString) == true,
+                "selected Take 2 wins over latest completed Take 3")
+        t.check(thirdRequests?.first?.sourceImagePath?.contains(take3.uuidString) == false,
+                "latest completion cannot override an explicit valid selection")
+
+        // With no selection the newest usable completed Take is the formal
+        // fallback. Invalid selected Takes must not pin the chain or crash it.
+        var fallbackProject = reopened.project(id: project.id)!
+        fallbackProject.shots[0].selectedTakeID = nil
+        reopened.save(fallbackProject)
+        let fallbackRequests = try? reopenedCoordinator.planTakes(
+            projectID: project.id, shotID: project.shots[1].id, count: 1, baseSeed: 903)
+        t.check(fallbackRequests?.first?.sourceImagePath?.contains(take3.uuidString) == true,
+                "without selection the latest usable completed Take is used")
+
+        var invalidProject = reopened.project(id: project.id)!
+        var invalidSelected = Take(
+            shotID: invalidProject.shots[0].id, modelID: "m", seed: 999,
+            promptSnapshot: "invalid", settingsSnapshot: .default,
+            requestedWidth: 512, requestedHeight: 320,
+            fps: 24, requestedDuration: 1, status: .failed)
+        invalidSelected.outputPath = tmpRoot.appendingPathComponent("missing-selected.mp4").path
+        invalidProject.shots[0].takes.append(invalidSelected)
+        invalidProject.shots[0].selectedTakeID = invalidSelected.id
+        reopened.save(invalidProject)
+        let invalidRequests = try? reopenedCoordinator.planTakes(
+            projectID: project.id, shotID: project.shots[1].id, count: 1, baseSeed: 904)
+        t.check(invalidRequests?.first?.sourceImagePath?.contains(take3.uuidString) == true,
+                "failed selected Take safely falls back to the latest usable Take")
+
+        var missingProject = reopened.project(id: project.id)!
+        var missingSelected = Take(
+            shotID: missingProject.shots[0].id, modelID: "m", seed: 1000,
+            promptSnapshot: "missing", settingsSnapshot: .default,
+            requestedWidth: 512, requestedHeight: 320,
+            fps: 24, requestedDuration: 1, status: .completed)
+        missingSelected.outputPath = tmpRoot.appendingPathComponent("missing-completed.mp4").path
+        missingSelected.generationCompletedAt = Date().addingTimeInterval(60)
+        missingProject.shots[0].takes.append(missingSelected)
+        missingProject.shots[0].selectedTakeID = missingSelected.id
+        reopened.save(missingProject)
+        let missingRequests = try? reopenedCoordinator.planTakes(
+            projectID: project.id, shotID: project.shots[1].id, count: 1, baseSeed: 905)
+        t.check(missingRequests?.first?.sourceImagePath?.contains(take3.uuidString) == true,
+                "missing selected output safely falls back to a usable Take")
+
+        let corruptURL = tmpRoot.appendingPathComponent("corrupt-completed.mp4")
+        try? Data("not a video".utf8).write(to: corruptURL)
+        var corruptProject = reopened.project(id: project.id)!
+        var corruptSelected = Take(
+            shotID: corruptProject.shots[0].id, modelID: "m", seed: 1001,
+            promptSnapshot: "corrupt", settingsSnapshot: .default,
+            requestedWidth: 512, requestedHeight: 320,
+            fps: 24, requestedDuration: 1, status: .completed)
+        corruptSelected.outputPath = corruptURL.path
+        corruptSelected.generationCompletedAt = Date().addingTimeInterval(120)
+        corruptProject.shots[0].takes.append(corruptSelected)
+        corruptProject.shots[0].selectedTakeID = corruptSelected.id
+        reopened.save(corruptProject)
+        let corruptRequests = try? reopenedCoordinator.planTakes(
+            projectID: project.id, shotID: project.shots[1].id, count: 1, baseSeed: 906)
+        t.check(corruptRequests?.first?.sourceImagePath?.contains(take3.uuidString) == true,
+                "corrupt selected output safely falls back to a usable Take")
+
+        let unavailableStore = makeStore("selected-unavailable")
+        let unavailableProject = makeProject(store: unavailableStore, shotCount: 2)
+        var unavailable = unavailableStore.project(id: unavailableProject.id)!
+        var unavailableTake = Take(
+            shotID: unavailable.shots[0].id, modelID: "m", seed: 1002,
+            promptSnapshot: "unavailable", settingsSnapshot: .default,
+            requestedWidth: 512, requestedHeight: 320,
+            fps: 24, requestedDuration: 1, status: .completed)
+        unavailableTake.outputPath = tmpRoot.appendingPathComponent("no-usable-output.mp4").path
+        unavailable.shots[0].takes = [unavailableTake]
+        unavailable.shots[0].selectedTakeID = unavailableTake.id
+        // Simulate a stale downstream cache from a different, removed Take.
+        unavailable.shots[1].continuityImageRelativePath =
+            "Assets/Continuity/old-unrelated-frame.png"
+        unavailable.shots[1].continuitySourceTakeID = UUID()
+        unavailableStore.save(unavailable)
+        do {
+            _ = try TakeGenerationCoordinator(store: unavailableStore).planTakes(
+                projectID: unavailable.id, shotID: unavailable.shots[1].id,
+                count: 1, baseSeed: 907)
+            t.check(false, "no usable Take must not silently reuse an unrelated old cache")
+        } catch let error as TakeGenerationCoordinator.CoordinatorError {
+            t.checkEqual(error, .continuityImageUnavailable(unavailable.shots[1].id),
+                         "no usable Take blocks with the continuity unavailable result")
+        } catch {
+            t.check(false, "unexpected no-usable-Take error: \(error)")
+        }
+
+        var cutProject = reopened.project(id: project.id)!
+        cutProject.shots[1].continuityMode = .cut
+        reopened.save(cutProject)
+        let cutRequests = try? reopenedCoordinator.planTakes(
+            projectID: project.id, shotID: project.shots[1].id, count: 1, baseSeed: 908)
+        t.check(cutRequests?.first?.sourceImagePath == nil,
+                "Cut ignores every previous selected Take")
+    }
+
     t.suite("Auto Movie — edited Cut / Continue reaches execution") {
         guard hasFixtures else {
             t.check(true, "fixture videos unavailable — edited execution wiring skipped")

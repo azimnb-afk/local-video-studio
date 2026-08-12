@@ -792,3 +792,25 @@ path. The app was launched by full path, not `open -a`.
       execution, then original → effective dimensions and either **No-op** or
       **Scale to fill · center crop**. This task intentionally did not start a
       heavyweight render solely for UI evidence.
+
+## 2026-08-12 Selected Take continuity regression — GUI acceptance PASS
+
+- [x] Resolved the canonical Debug app via `TARGET_BUILD_DIR` + `WRAPPER_NAME`;
+      did not use `open -a` or a `/tmp` app.
+- [x] Recorded pre-check HEAD
+      `da6dfe06a42fe74213ef2b3ea1cdc8be7ebd2ea9`, executable mtime
+      final mtime `2026-08-12 11:01:58 +0900`, and final PID `31841` at the exact
+      canonical executable path.
+- [x] Used isolated project `SELECTED TAKE CONTINUITY GUI`
+      (`54689822-0502-4F67-83E4-CF7541ACF41D`); no production project changed.
+- [x] Shot 1 visibly contained Take 1 seed 111 and Retake seed 222; seed 222 / ID
+      `72C073D4…` was visibly selected.
+- [x] Historical Shot 2 Take seed 333 remained immutable and displayed
+      `Selected take · 5DE36E94` with its Take-1 continuity PNG.
+- [x] Regenerated Shot 2 Take seed 444 displayed
+      `Selected take · 72C073D4` with
+      `shot-002-from-72C073D4-…png`; it did not reuse Take 1.
+- [x] Quit and relaunched the same full-path app, reopened the project, and
+      confirmed Shot 1 selection plus both Shot 2 source filenames persisted.
+- [x] Production Queue showed `No pending generations`; no LTX render, model
+      download, assembly, or production evidence mutation was started.

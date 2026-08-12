@@ -422,3 +422,49 @@ acceptance confirmed the Generate cleanup, One Shot choose/thumbnail/status,
 clear, and missing-file choose-again/clear recovery. The installed MLX
 environment was not ready in that GUI session, so no heavyweight render was
 started; request-boundary behavior is covered by the passing focused tests.
+
+## 2026-08-12 Selected Take continuity regression
+
+### Root cause
+
+The normal sequential Auto Movie path called
+`AutoMovieRunCoordinator.prepareContinuityAsset` immediately before planning a
+Continue shot. Individual Shot-card and bulk regeneration paths called
+`TakeGenerationCoordinator.planTakes` directly. They therefore reused the
+downstream Shot's previously persisted `continuityImageRelativePath` and, when
+present, an older Identity Refresh anchor even after the user selected a newer
+upstream Take.
+
+### Resolution
+
+Auto Movie Continue requests now refresh continuity at the common Take-planning
+boundary. `prepareContinuityAsset` tries the current selected completed Take
+first and then completed Takes newest-first, accepting a candidate only when
+its output exists and yields a usable extracted frame. A missing or corrupt
+selected output falls back without modifying `selectedTakeID`; a Cut never
+consults the prior Shot. If the winning source Take changes, any prepared
+Identity Refresh anchor for the downstream Shot is cleared before source
+precedence is evaluated.
+
+The change is prospective. Existing Take source paths, prompt snapshots, and
+diagnostics remain immutable. New diagnostics are produced by the unchanged
+snapshot boundary and now naturally record the correct upstream Take and
+`Selected take` or `Latest completed take` reason.
+
+### Verification
+
+The pre-fix focused run reproduced **8 failures** (1536 passed) covering old
+Take reuse and incorrect diagnostics. The completed suite passes **1547 / 0**,
+including persistence, selected-over-latest precedence, failed/missing/corrupt
+fallback, Cut isolation, stale Identity Refresh invalidation, and historical
+diagnostics immutability. `swift build`, Xcode Debug `clean build`, and
+`git diff --check` also pass.
+
+The canonical app was resolved from `xcodebuild -showBuildSettings` and launched
+by full path. Pre-check HEAD was `da6dfe06a42fe74213ef2b3ea1cdc8be7ebd2ea9`,
+the final executable mtime was `2026-08-12 11:01:58 +0900`, and the final PID
+was `31841` at that exact path. Isolated GUI project
+`54689822-0502-4F67-83E4-CF7541ACF41D` showed old Shot 2 provenance tied to
+Take 1 and the regenerated Shot 2 provenance tied to selected Take 2, before
+and after app restart. Existing fixture media supplied already-completed Takes;
+no heavyweight LTX generation or production-queue mutation was required.

@@ -69,7 +69,20 @@ enum FinalAudioMixer {
         }
         
         if mixInputs.count > 1 {
-            filterComplex += (filterComplex.isEmpty ? "" : ";") + "\(mixInputs.joined())amix=inputs=\(mixInputs.count):duration=first:dropout_transition=0[aout]"
+            // `normalize=0` is essential, not cosmetic: amix normalizes by
+            // default, which divides EVERY input by the number of inputs. With
+            // the default on, enabling BGM silently dropped the movie's own
+            // dialogue/footsteps/SFX by ~6 dB, and enabling BGM + Ambience
+            // together dropped it by ~9.5 dB (measured, see the production mix
+            // matrix tests). Global tracks are meant to sit *under* existing
+            // Shot audio at their own configured volume, so each input keeps
+            // the level it was given and the movie's audio stays at unity.
+            // `alimiter` then catches the summed peaks so preserving that
+            // level cannot introduce hard clipping; `level=disabled` stops it
+            // from applying its own make-up gain and re-scaling the mix.
+            filterComplex += (filterComplex.isEmpty ? "" : ";")
+                + "\(mixInputs.joined())amix=inputs=\(mixInputs.count):duration=first:dropout_transition=0:normalize=0,"
+                + "alimiter=limit=0.95:level=disabled[aout]"
             arguments.append(contentsOf: ["-filter_complex", filterComplex, "-map", "0:v", "-map", "[aout]"])
         } else if mixInputs.count == 1 {
             if filterComplex.isEmpty {

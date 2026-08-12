@@ -25,6 +25,65 @@ private func makeSyntheticBGM(seconds: Double, frequency: Int, ffmpeg: String) -
     return process.terminationStatus == 0 ? path : nil
 }
 
+/// Builds a small synthetic movie at test runtime (never committed). With
+/// `withAudio`, its audio is a pure sine at `frequency` Hz so a later
+/// band-energy measurement can tell the movie's own audio apart from the
+/// Global BGM/Ambience tracks mixed on top of it.
+private func makeSyntheticMovie(withAudio: Bool, frequency: Int, seconds: Double, ffmpeg: String) -> String? {
+    let path = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ltx-movie-fixture-\(UUID().uuidString).mp4").path
+    var args = ["-y", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=24:duration=\(seconds)"]
+    if withAudio {
+        args += ["-f", "lavfi", "-i", "sine=frequency=\(frequency):duration=\(seconds)"]
+    }
+    args += ["-c:v", "libx264", "-pix_fmt", "yuv420p"]
+    if withAudio { args += ["-c:a", "aac", "-ar", "48000", "-ac", "2", "-shortest"] }
+    args += [path]
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: ffmpeg)
+    process.arguments = args
+    process.standardOutput = Pipe()
+    process.standardError = Pipe()
+    do {
+        try process.run()
+        process.waitUntilExit()
+    } catch {
+        return nil
+    }
+    return process.terminationStatus == 0 ? path : nil
+}
+
+/// Mean volume (dB) of `path` after isolating a narrow band around
+/// `frequency` with ffmpeg's own `bandpass` + `volumedetect`. A tone that is
+/// actually present measures far higher than one that is not; AAC encoding
+/// and filter skirts mean an absent tone is never exactly silent, so callers
+/// compare relative levels with a wide margin rather than testing for zero.
+private func bandEnergyDB(path: String, frequency: Int, ffmpeg: String) -> Double? {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: ffmpeg)
+    process.arguments = [
+        "-i", path,
+        "-af", "bandpass=f=\(frequency):width_type=h:w=40,volumedetect",
+        "-f", "null", "-",
+    ]
+    let stderrPipe = Pipe()
+    process.standardOutput = Pipe()
+    process.standardError = stderrPipe
+    do {
+        try process.run()
+    } catch {
+        return nil
+    }
+    let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else { return nil }
+    let text = String(data: data, encoding: .utf8) ?? ""
+    guard let marker = text.range(of: "mean_volume: ") else { return nil }
+    let tail = text[marker.upperBound...]
+    return Double(tail.prefix(while: { $0 != " " }))
+}
+
 func runFinalAudioTests(_ t: TestKit) {
     t.suite("Final Audio — persistence") {
         // A. Old project JSON without `finalAudio` at all must decode with
@@ -324,6 +383,330 @@ func runFinalAudioTests(_ t: TestKit) {
         } catch {
             let result = try? String(contentsOfFile: dest3, encoding: .utf8)
             t.checkEqual(result, "old3", "failed replacement preserves existing destination")
+        }
+    }
+
+    // MARK: - Production-path mix matrix
+    //
+    // Everything below drives the REAL production chain end to end:
+    //   FilmProject + FilmProjectStore-managed assets
+    //     -> FinalAssemblyService.assemble(project:outputPath:store:)
+    //       -> FinalAudioMixer.mix(...)   (the shipping mixer, not a copy)
+    //         -> real ffmpeg subprocess
+    //           -> MediaProbe (real ffprobe)
+    // No filter-graph logic is reimplemented here: the test only supplies
+    // inputs and measures the resulting file, so a change in the production
+    // mixer's argument construction is actually able to fail these tests.
+    t.suite("Final Audio — production 7-way mix matrix (real FinalAssemblyService → FinalAudioMixer → ffmpeg)") {
+        guard let ffmpeg = FinalAssemblyService.ffmpegPath(), MediaProbe.ffprobePath() != nil else {
+            t.check(true, "ffmpeg/ffprobe unavailable — production mix matrix skipped")
+            return
+        }
+
+        // Distinct tones so each component is independently detectable in the
+        // final mix: movie audio 440 Hz, Global BGM 880 Hz, Ambience 220 Hz.
+        let originalHz = 440, bgmHz = 880, ambienceHz = 220
+        let movieSeconds = 2.0
+
+        guard let movieWithAudio = makeSyntheticMovie(withAudio: true, frequency: originalHz, seconds: movieSeconds, ffmpeg: ffmpeg),
+              let movieSilent = makeSyntheticMovie(withAudio: false, frequency: 0, seconds: movieSeconds, ffmpeg: ffmpeg) else {
+            t.check(false, "could not build synthetic movies for the production matrix")
+            return
+        }
+        defer {
+            try? FileManager.default.removeItem(atPath: movieWithAudio)
+            try? FileManager.default.removeItem(atPath: movieSilent)
+        }
+
+        let storeRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ltx-matrix-store-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: storeRoot) }
+        let store = FilmProjectStore(projectsDirectory: storeRoot)
+
+        /// Imports through the real store API so the managed-asset path the
+        /// mixer later resolves is produced by production code, not hand-built.
+        func importAsset(seconds: Double, frequency: Int, projectID: UUID, ambience: Bool) -> FinalAudioAsset? {
+            guard let src = makeSyntheticBGM(seconds: seconds, frequency: frequency, ffmpeg: ffmpeg) else { return nil }
+            defer { try? FileManager.default.removeItem(atPath: src) }
+            let url = URL(fileURLWithPath: src)
+            return ambience
+                ? try? store.importFinalAmbienceAsset(from: url, projectID: projectID)
+                : try? store.importFinalAudioAsset(from: url, projectID: projectID)
+        }
+
+        struct Scenario {
+            let name: String
+            let originalAudio: Bool
+            let bgm: Bool
+            let ambience: Bool
+        }
+        let scenarios = [
+            Scenario(name: "1 orig=Y bgm=N amb=N", originalAudio: true,  bgm: false, ambience: false),
+            Scenario(name: "2 orig=Y bgm=Y amb=N", originalAudio: true,  bgm: true,  ambience: false),
+            Scenario(name: "3 orig=Y bgm=N amb=Y", originalAudio: true,  bgm: false, ambience: true),
+            Scenario(name: "4 orig=Y bgm=Y amb=Y", originalAudio: true,  bgm: true,  ambience: true),
+            Scenario(name: "5 orig=N bgm=Y amb=N", originalAudio: false, bgm: true,  ambience: false),
+            Scenario(name: "6 orig=N bgm=N amb=Y", originalAudio: false, bgm: false, ambience: true),
+            Scenario(name: "7 orig=N bgm=Y amb=Y", originalAudio: false, bgm: true,  ambience: true),
+        ]
+
+        for scenario in scenarios {
+            var project = FilmProject(title: scenario.name)
+            project.settings.width = 320
+            project.settings.height = 240
+            var shot = Shot(index: 0, title: "S0", summary: "x")
+            var take = Take(shotID: shot.id, modelID: "m", seed: 0, promptSnapshot: "p",
+                            settingsSnapshot: .default, requestedWidth: 320, requestedHeight: 240,
+                            fps: 24, requestedDuration: movieSeconds, status: .completed)
+            take.outputPath = scenario.originalAudio ? movieWithAudio : movieSilent
+            shot.takes = [take]
+            shot.selectedTakeID = take.id
+            project.shots = [shot]
+
+            if scenario.bgm {
+                // 1s source: shorter than the 2s movie, so it must loop.
+                guard let asset = importAsset(seconds: 1.0, frequency: bgmHz, projectID: project.id, ambience: false) else {
+                    t.check(false, "\(scenario.name): could not import BGM asset"); continue
+                }
+                project.finalAudio.bgmEnabled = true
+                project.finalAudio.bgmAsset = asset
+                project.finalAudio.bgmVolume = 0.6
+            }
+            if scenario.ambience {
+                // 3s source: longer than the 2s movie, so it must be trimmed.
+                guard let asset = importAsset(seconds: 3.0, frequency: ambienceHz, projectID: project.id, ambience: true) else {
+                    t.check(false, "\(scenario.name): could not import Ambience asset"); continue
+                }
+                project.finalAudio.ambienceEnabled = true
+                project.finalAudio.ambienceAsset = asset
+                project.finalAudio.ambienceVolume = 0.6
+            }
+
+            // Unique output per scenario so a stale file can never mask a failure.
+            let out = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ltx-matrix-\(UUID().uuidString).mp4").path
+            defer { try? FileManager.default.removeItem(atPath: out) }
+
+            do {
+                let info = try FinalAssemblyService.assemble(project: project, outputPath: out, store: store)
+                t.check(FileManager.default.fileExists(atPath: out), "\(scenario.name): output file written")
+                t.check(info.videoCodec != nil, "\(scenario.name): video stream present")
+
+                let expectAudio = scenario.originalAudio || scenario.bgm || scenario.ambience
+                t.checkEqual(info.hasAudio, expectAudio, "\(scenario.name): audio stream presence matches expectation")
+
+                let duration = info.durationSeconds ?? 0
+                t.check(abs(duration - movieSeconds) < 0.35,
+                        "\(scenario.name): output duration \(String(format: "%.2f", duration))s follows the movie (\(movieSeconds)s), not the BGM/Ambience source lengths")
+
+                // Objective component proof: each tone that should be in the
+                // mix must measure clearly above every tone that should not.
+                guard expectAudio,
+                      let e440 = bandEnergyDB(path: out, frequency: originalHz, ffmpeg: ffmpeg),
+                      let e880 = bandEnergyDB(path: out, frequency: bgmHz, ffmpeg: ffmpeg),
+                      let e220 = bandEnergyDB(path: out, frequency: ambienceHz, ffmpeg: ffmpeg) else { continue }
+
+                let present = [
+                    (scenario.originalAudio, e440, "original \(originalHz)Hz"),
+                    (scenario.bgm, e880, "BGM \(bgmHz)Hz"),
+                    (scenario.ambience, e220, "ambience \(ambienceHz)Hz"),
+                ]
+                let onLevels = present.filter { $0.0 }
+                let offLevels = present.filter { !$0.0 }
+                let quietestOn = onLevels.map(\.1).min() ?? 0
+                let loudestOff = offLevels.map(\.1).max()
+
+                // 12 dB margin: measured separation in practice is ~20-30 dB,
+                // so this discriminates reliably without being flaky about
+                // AAC artifacts or bandpass skirts.
+                if let loudestOff {
+                    t.check(quietestOn > loudestOff + 12,
+                            "\(scenario.name): enabled components (min \(String(format: "%.1f", quietestOn))dB) stand clearly above disabled ones (max \(String(format: "%.1f", loudestOff))dB)")
+                } else {
+                    t.check(true, "\(scenario.name): all three components enabled, nothing to compare against")
+                }
+                // Every enabled component must be individually audible, not
+                // just loud in aggregate.
+                for (_, level, label) in onLevels {
+                    t.check(level > -45,
+                            "\(scenario.name): \(label) is present in the mix (\(String(format: "%.1f", level))dB)")
+                }
+            } catch {
+                t.check(false, "\(scenario.name): production assemble threw \(error)")
+            }
+        }
+    }
+
+    t.suite("Final Audio — production edge cases") {
+        guard let ffmpeg = FinalAssemblyService.ffmpegPath(), MediaProbe.ffprobePath() != nil else {
+            t.check(true, "ffmpeg/ffprobe unavailable — production edge cases skipped")
+            return
+        }
+        let storeRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ltx-edge-store-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: storeRoot) }
+        let store = FilmProjectStore(projectsDirectory: storeRoot)
+
+        guard let movie = makeSyntheticMovie(withAudio: true, frequency: 440, seconds: 1.0, ffmpeg: ffmpeg) else {
+            t.check(false, "could not build synthetic movie for edge cases"); return
+        }
+        defer { try? FileManager.default.removeItem(atPath: movie) }
+
+        func baseProject(title: String) -> FilmProject {
+            var project = FilmProject(title: title)
+            project.settings.width = 320
+            project.settings.height = 240
+            var shot = Shot(index: 0, title: "S0", summary: "x")
+            var take = Take(shotID: shot.id, modelID: "m", seed: 0, promptSnapshot: "p",
+                            settingsSnapshot: .default, requestedWidth: 320, requestedHeight: 240,
+                            fps: 24, requestedDuration: 1, status: .completed)
+            take.outputPath = movie
+            shot.takes = [take]
+            shot.selectedTakeID = take.id
+            project.shots = [shot]
+            return project
+        }
+
+        func importBGM(seconds: Double, projectID: UUID) -> FinalAudioAsset? {
+            guard let src = makeSyntheticBGM(seconds: seconds, frequency: 880, ffmpeg: ffmpeg) else { return nil }
+            defer { try? FileManager.default.removeItem(atPath: src) }
+            return try? store.importFinalAudioAsset(from: URL(fileURLWithPath: src), projectID: projectID)
+        }
+
+        // Fades far longer than the movie must not produce an invalid filter
+        // graph or an ffmpeg failure — the movie is 1s and the fades are 5s.
+        do {
+            var project = baseProject(title: "LongFades")
+            guard let asset = importBGM(seconds: 2.0, projectID: project.id) else {
+                t.check(false, "could not import BGM for fade edge case"); return
+            }
+            project.finalAudio.bgmEnabled = true
+            project.finalAudio.bgmAsset = asset
+            project.finalAudio.fadeInSeconds = 5
+            project.finalAudio.fadeOutSeconds = 5
+            let out = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ltx-longfade-\(UUID().uuidString).mp4").path
+            defer { try? FileManager.default.removeItem(atPath: out) }
+            do {
+                let info = try FinalAssemblyService.assemble(project: project, outputPath: out, store: store)
+                t.check(info.hasAudio, "fade longer than the movie still produces a valid audio stream")
+                t.check(abs((info.durationSeconds ?? 0) - 1.0) < 0.35, "fade longer than the movie does not distort output duration")
+            } catch {
+                t.check(false, "fade-longer-than-movie threw \(error)")
+            }
+        }
+
+        // A corrupt/unplayable BGM file must fail as a mix error and leave an
+        // existing Final Movie byte-identical.
+        do {
+            var project = baseProject(title: "CorruptBGM")
+            let dir = store.finalAudioDirectory(projectID: project.id)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let corrupt = dir.appendingPathComponent("bgm-corrupt.wav")
+            try? Data("this is not audio data".utf8).write(to: corrupt)
+            project.finalAudio.bgmEnabled = true
+            project.finalAudio.bgmAsset = FinalAudioAsset(
+                projectRelativePath: "Assets/FinalAudio/bgm-corrupt.wav", originalFilename: "bgm-corrupt.wav")
+
+            let out = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ltx-corrupt-\(UUID().uuidString).mp4").path
+            defer { try? FileManager.default.removeItem(atPath: out) }
+            let sentinel = "EXISTING FINAL MOVIE — MUST SURVIVE"
+            try? sentinel.write(toFile: out, atomically: true, encoding: .utf8)
+
+            do {
+                _ = try FinalAssemblyService.assemble(project: project, outputPath: out, store: store)
+                t.check(false, "corrupt BGM should have failed the mix")
+            } catch {
+                let after = try? String(contentsOfFile: out, encoding: .utf8)
+                t.checkEqual(after, sentinel, "a failed mix leaves the existing Final Movie byte-identical")
+            }
+        }
+
+        // REGRESSION (measured defect, fixed): ffmpeg's amix normalizes by
+        // default, dividing every input by the number of inputs. That silently
+        // attenuated the movie's own dialogue/footsteps/SFX by ~6 dB when BGM
+        // was enabled and ~9.5 dB with BGM + Ambience — the user's primary
+        // audio getting quieter simply because a global track was switched on.
+        // The mixer now passes `normalize=0` (+ a limiter for peak safety), so
+        // Shot audio must stay at essentially the same level it has with no
+        // Global Audio at all.
+        do {
+            guard let movie2s = makeSyntheticMovie(withAudio: true, frequency: 440, seconds: 2.0, ffmpeg: ffmpeg) else {
+                t.check(false, "could not build movie for preservation test"); return
+            }
+            defer { try? FileManager.default.removeItem(atPath: movie2s) }
+
+            func assembleAndMeasureOriginal(bgm: Bool, ambience: Bool) -> Double? {
+                var project = FilmProject(title: "Preserve")
+                project.settings.width = 320
+                project.settings.height = 240
+                var shot = Shot(index: 0, title: "S0", summary: "x")
+                var take = Take(shotID: shot.id, modelID: "m", seed: 0, promptSnapshot: "p",
+                                settingsSnapshot: .default, requestedWidth: 320, requestedHeight: 240,
+                                fps: 24, requestedDuration: 2, status: .completed)
+                take.outputPath = movie2s
+                shot.takes = [take]
+                shot.selectedTakeID = take.id
+                project.shots = [shot]
+
+                if bgm, let src = makeSyntheticBGM(seconds: 2.0, frequency: 880, ffmpeg: ffmpeg) {
+                    defer { try? FileManager.default.removeItem(atPath: src) }
+                    if let asset = try? store.importFinalAudioAsset(from: URL(fileURLWithPath: src), projectID: project.id) {
+                        project.finalAudio.bgmEnabled = true
+                        project.finalAudio.bgmAsset = asset
+                        project.finalAudio.bgmVolume = 0.25   // shipping default
+                    }
+                }
+                if ambience, let src = makeSyntheticBGM(seconds: 2.0, frequency: 220, ffmpeg: ffmpeg) {
+                    defer { try? FileManager.default.removeItem(atPath: src) }
+                    if let asset = try? store.importFinalAmbienceAsset(from: URL(fileURLWithPath: src), projectID: project.id) {
+                        project.finalAudio.ambienceEnabled = true
+                        project.finalAudio.ambienceAsset = asset
+                        project.finalAudio.ambienceVolume = 0.20  // shipping default
+                    }
+                }
+
+                let out = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("ltx-preserve-\(UUID().uuidString).mp4").path
+                defer { try? FileManager.default.removeItem(atPath: out) }
+                guard (try? FinalAssemblyService.assemble(project: project, outputPath: out, store: store)) != nil else { return nil }
+                return bandEnergyDB(path: out, frequency: 440, ffmpeg: ffmpeg)
+            }
+
+            guard let baseline = assembleAndMeasureOriginal(bgm: false, ambience: false),
+                  let withBGM = assembleAndMeasureOriginal(bgm: true, ambience: false),
+                  let withBoth = assembleAndMeasureOriginal(bgm: true, ambience: true) else {
+                t.check(false, "could not measure Shot-audio preservation levels")
+                return
+            }
+
+            t.check(abs(withBGM - baseline) < 2.0,
+                    "Shot audio keeps its level when BGM is enabled (baseline \(String(format: "%.1f", baseline))dB → \(String(format: "%.1f", withBGM))dB)")
+            t.check(abs(withBoth - baseline) < 2.0,
+                    "Shot audio keeps its level when BGM + Ambience are both enabled (baseline \(String(format: "%.1f", baseline))dB → \(String(format: "%.1f", withBoth))dB)")
+        }
+
+        // Removing one role's asset must never delete the other role's file.
+        do {
+            let projectID = UUID()
+            guard let bgm = importBGM(seconds: 1.0, projectID: projectID),
+                  let ambSrc = makeSyntheticBGM(seconds: 1.0, frequency: 220, ffmpeg: ffmpeg),
+                  let amb = try? store.importFinalAmbienceAsset(from: URL(fileURLWithPath: ambSrc), projectID: projectID) else {
+                t.check(false, "could not stage both roles for isolation test"); return
+            }
+            try? FileManager.default.removeItem(atPath: ambSrc)
+
+            let bgmURL = store.managedProjectAssetURL(projectID: projectID, relativePath: bgm.projectRelativePath)
+            let ambURL = store.managedProjectAssetURL(projectID: projectID, relativePath: amb.projectRelativePath)
+            t.check(bgm.projectRelativePath != amb.projectRelativePath, "BGM and Ambience get distinct managed paths")
+
+            store.removeManagedFinalAudioAsset(projectID: projectID, asset: bgm)
+            t.check(!FileManager.default.fileExists(atPath: bgmURL?.path ?? ""), "removing BGM deletes the BGM file")
+            t.check(FileManager.default.fileExists(atPath: ambURL?.path ?? ""), "removing BGM does NOT delete the Ambience file")
+
+            store.removeManagedFinalAmbienceAsset(projectID: projectID, asset: amb)
+            t.check(!FileManager.default.fileExists(atPath: ambURL?.path ?? ""), "removing Ambience deletes the Ambience file")
         }
     }
 }

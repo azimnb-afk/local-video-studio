@@ -4,260 +4,235 @@
 [![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-M1%2FM2%2FM3%2FM4-orange.svg)](https://support.apple.com/en-us/HT211814)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-A beautiful, native macOS application for generating AI videos with synchronized audio from text prompts using the LTX-2 model, running natively on Apple Silicon with MLX.
+A native macOS application for AI video generation on Apple Silicon. It drives the LTX-2 model family through [MLX](https://github.com/ml-explore/mlx) via a local Python backend (`mlx-video-with-audio`), and adds a full production layer on top: multi-shot Storyboard and Auto Movie planning, shot continuity, character consistency tracking, a generation queue, and optional audio (built-in, local TTS, or cloud TTS/music).
 
-![screenshot](https://i.imgur.com/LfBhmJa.png)
+**Software license vs. model license — these are different things.** The MIT license in this repository covers the Swift/Python source code in this repository only. It does **not** cover the LTX-2 video weights, the Gemma text-encoder weights, or any other model you download separately from Hugging Face. See [Licensing](#licensing) below and [MODEL_LICENSES.md](MODEL_LICENSES.md) before you rely on this project for anything beyond personal experimentation.
 
-## Features
+**This app is not fully offline.** Generation itself runs locally, but first-run model downloads pull several GB–tens of GB from Hugging Face, Python package installation needs network access, and two *optional* audio features call a cloud API. See [Local vs. Cloud](#local-vs-cloud) below.
 
-- **Native macOS App** - Built with SwiftUI for a seamless Mac experience
-- **Apple Silicon Native** - Uses MLX framework for optimal performance on M-series chips
-- **Text-to-Video Generation** - Transform text prompts into video clips
-- **Image-to-Video** - Animate images into videos
-- **Built-in Audio Generation** - Available model variants generate synchronized audio with video automatically
-- **Voiceover Narration** - Add TTS voiceover using ElevenLabs (cloud) or MLX-Audio (local)
-- **Background Music** - Generate instrumental music with 54 genre presets via ElevenLabs Music API
-- **Auto Package Installer** - Missing Python packages are detected and can be installed with one click
-- **Generation Queue** - Queue multiple generations with real-time progress tracking
-- **History Management** - Browse, preview, and manage all your generated videos
-- **Presets** - Save and load generation parameter presets
-- **Customizable Parameters** - Fine-tune resolution, frames, steps, guidance scale, and more
+## What It Is
+
+LTX Video Generator is a SwiftUI front end that shells out to a Python subprocess (`mlx-video-with-audio`) to run LTX-2 video generation models on-device via MLX. On top of that base generation call, it adds:
+
+- A production/workflow layer (Storyboard, Auto Movie, shot queue, History)
+- Continuity between shots via image conditioning (see [Shot Continuity](#shot-continuity-last-frame-i2v))
+- Character-consistency tracking between an opening reference image and later shots (see [Character Consistency](#character-consistency-opening-reference--character-sheet))
+- Optional prompt rewriting, voiceover, and background music
+
+It is not a hosted service — there is no LTX Video Generator backend server. Every video-generation call runs as a local subprocess on your Mac; the only network calls are model/package downloads and the two explicitly-optional cloud audio features.
+
+## Key Features
+
+- **Native macOS App** — SwiftUI, Apple Silicon native via MLX
+- **Text-to-Video and Image-to-Video** — generate from a prompt, or animate a source image
+- **Built-in Audio** — the official models generate synchronized audio with the video automatically
+- **Director / Auto Movie** — describe a longer narrative and get an auto-planned multi-shot sequence; you can preview and edit the generated shot plan (prompts and continuity) before generating
+- **Storyboard** — build a multi-shot project shot-by-shot, with manual control over each shot's prompt and source image
+- **Shot Continuity (Last Frame I2V)** — carries the previous shot's last frame forward as the next shot's conditioning image (see below — this is not motion or audio continuation)
+- **Character Consistency tracking** — compares an opening reference / character sheet against later shots and reports a match/partial/conflict/unknown verdict per attribute; this is a diagnostic indicator, not an enforced guarantee (see below)
+- **Selected Take workflow** — generate multiple takes per shot, mark one as the take used going forward; the selected take (not simply the most recent one) is what downstream continuity and final assembly use
+- **Production Queue** — queue multiple shots/generations with real-time progress
+- **Generation & Runtime Diagnostics** — surfaces which backend path, model, and runtime state a generation actually used, for troubleshooting
+- **Final Assembly** — concatenates a project's shots into one output video via `ffmpeg` (see [Requirements](#requirements) — `ffmpeg` is not bundled)
+- **History** — browse, preview, and manage generated videos and takes
+- **Presets & Parameters** — resolution, frame count, steps, guidance scale, seed, VAE tiling, and saved presets
+- **Optional Prompt Enhancement** — off by default; see [Prompt Enhancement](#prompt-enhancement--important-disclosure) — read this before enabling it
+- **Optional Voiceover** — MLX-Audio (local) or ElevenLabs (cloud, requires your own API key)
+- **Optional Background Music** — ElevenLabs Music API (cloud, requires your own API key), 54 genre presets
+- **Add Audio to Existing Videos** — attach voiceover/music to a previously generated video from History
 
 ## Requirements
 
-- **macOS 14.0** or later
-- **Apple Silicon** Mac (M1, M2, M3, M4 series)
-- **32GB RAM** minimum (64GB+ recommended for higher resolutions)
-- **Python 3.10+** installed (via Homebrew, pyenv, or system)
-- **~20-42GB disk space** for model weights (depends on selected model)
+| Requirement | Supported | Tested in this repository |
+|:---|:---|:---|
+| macOS | 14.0 or later | — |
+| Processor | Apple Silicon (M1 or later) | — |
+| Python | 3.11 or later (required by `mlx-video-with-audio`) | 3.14.5 (the version this codebase's Python integration was exercised against) |
+| `ffmpeg` / `ffprobe` | Required for Final Assembly, shot-continuity frame extraction, and media duration probing. **Not bundled** — install separately (e.g. `brew install ffmpeg`). The app looks for it at `/opt/homebrew/bin`, `/usr/local/bin`, or `/usr/bin`. | — |
+| Unified memory | See the per-model table below | — |
+| Disk space | 20–50GB per video model, plus 7–24GB for the text encoder, in `~/.cache/huggingface/` | — |
+
+"Supported" is what the code targets or requires; "Tested" is what has actually been run against this codebase. Where a row has no "Tested" entry, treat "Supported" as the vendor/package's own stated requirement, not an independent benchmark by this project.
+
+### Memory by model
+
+The application declares its own per-model minimum/recommended unified-memory figures (from the model registry in source); these are the app's own stated guidance, not independently re-benchmarked for this documentation pass. Actual usage also depends on your chosen text encoder, resolution, and frame count.
+
+| Model | Minimum | Recommended |
+|:---|:---|:---|
+| LTX-2.3 Distilled Q4 (default) | 32GB | 32GB |
+| LTX-2 Unified | 48GB | 64GB |
+| LTX-2.3 Unified (Beta) | 48GB | 64GB |
+
+Add roughly 7–24GB more if you use a larger text-encoder preset (see [Text Encoders](#text-encoders) below) — the encoder and video model are both resident in memory during generation.
 
 ## Installation
 
-### 1. Download the App
+### 1. Get the App
 
-Obtain a release published by the repository maintainer, or build from source.
+Obtain a release built by the repository maintainer, or build from source (see [Building from Source](#building-from-source)).
 
-### 2. First Launch Setup
+### 2. Configure Python
 
-1. Open LTX Video Generator
-2. Go to **Preferences** (⌘,)
-3. Click **Auto Detect** to find your Python installation, or manually set the path
-4. Click **Validate Setup** - the app will check for required packages
+1. Open **LTX Video Generator** → **Preferences** (⌘,)
+2. Click **Auto Detect** to locate a Python 3.11+ installation (Homebrew, pyenv, conda, and system Python are searched), or set the path manually
+3. Click **Validate Setup** — this checks, in a subprocess, that the configured Python can import the `mlx_video` entry point and LTX text-encoder module that `mlx-video-with-audio` provides. It does not check for `torch`, `diffusers`, or other transitive dependencies of that package; those are that package's own concern.
 
-### 3. Install Python Packages
+### 3. Install the Python Backend
 
-If packages are missing, the app will show an "Install Missing Packages" button. Click it to automatically install:
+If **Validate Setup** reports missing packages, either:
 
-```
-mlx mlx-vlm mlx-video-with-audio transformers safetensors huggingface_hub numpy opencv-python tqdm
-```
+- Click **Install Missing Packages** in Preferences (runs `pip` for you), or
+- Install manually:
 
-Or install manually:
 ```bash
-pip install mlx mlx-vlm mlx-video-with-audio transformers safetensors huggingface_hub numpy opencv-python tqdm
+python3 -m pip install "mlx-video-with-audio==0.1.36"
 ```
 
-The `mlx-video-with-audio` package is available on [PyPI](https://pypi.org/project/mlx-video-with-audio/) and provides the unified audio-video generation.
+The app's own minimum pinned version is `0.1.36`. No normal first-run or generation check runs `pip` automatically — installation is always an explicit, visible user action.
 
-### 4. First Generation - Model Download
+### 4. Install ffmpeg
 
-**Important:** On first generation, the app downloads your selected model from Hugging Face. This is a one-time download that may take 15-30 minutes depending on model size and internet connection.
+```bash
+brew install ffmpeg
+```
 
-The model is cached in `~/.cache/huggingface/` and will not be re-downloaded on subsequent runs.
+Required for Final Assembly (combining shots into one video), shot-continuity frame extraction, and media probing. Not required for a single-shot generation with no audio post-processing.
 
-Progress is shown in the app during download.
+### 5. First Generation — Model Download
 
-**Available models:**
-- LTX-2 Unified (`notapalindrome/ltx2-mlx-av`, ~42GB)
-- LTX-2.3 Unified Beta (`notapalindrome/ltx23-mlx-av`, ~48GB)
-- LTX-2.3 Distilled Q4 Beta (`notapalindrome/ltx23-mlx-av-q4`, ~22GB, default for new installs)
+The first generation with a given model downloads it from Hugging Face into `~/.cache/huggingface/hub/`. This is a one-time, explicit download triggered by starting a generation — the app does not download models in the background. Expect roughly 20–50 minutes depending on the model and your connection; progress is shown in the app, and an interrupted download resumes.
+
+**Official video models** (all include built-in synchronized audio):
+
+| Model | Repository | Approx. size | Default |
+|:---|:---|:---|:---|
+| LTX-2.3 Distilled Q4 (Beta) | [`notapalindrome/ltx23-mlx-av-q4`](https://huggingface.co/notapalindrome/ltx23-mlx-av-q4) | ~22GB | Yes |
+| LTX-2 Unified | [`notapalindrome/ltx2-mlx-av`](https://huggingface.co/notapalindrome/ltx2-mlx-av) | ~42GB | No |
+| LTX-2.3 Unified (Beta) | [`notapalindrome/ltx23-mlx-av`](https://huggingface.co/notapalindrome/ltx23-mlx-av) | ~48GB | No |
+
+"Beta" reflects the upstream/community status of those checkpoints, not a stability guarantee from this project. See [MODEL_LICENSES.md](MODEL_LICENSES.md) — the license status of these three specific repositories is not uniformly resolved; check it before relying on them beyond personal use.
+
+### Text Encoders
+
+Independent of the video model, you choose a text encoder that turns your prompt into embeddings:
+
+| Preset | Repository | Approx. size | Notes |
+|:---|:---|:---|:---|
+| Gemma 12B bf16 (default) | `mlx-community/gemma-3-12b-it-bf16` | ~24GB | Highest quality |
+| Gemma 4B bf16 | `mlx-community/gemma-3-4b-it-bf16` | ~10GB | Balanced |
+| Gemma 12B 4-bit | `mlx-community/gemma-3-12b-it-4bit` | ~7GB | Lowest RAM among the presets |
+| Custom | user-specified Hugging Face repo | varies | Advanced use |
+
+These are the standard, unmodified Gemma models under Google's Gemma license — do not confuse this with the optional prompt-enhancement model described next, which is a different, third-party model.
+
+## Prompt Enhancement — Important Disclosure
+
+The app has an **optional, off-by-default** "Enable Gemma Prompt Enhancement" toggle (Settings → Generation). When you enable it, an LLM rewrites your prompt into a more detailed, LTX-optimized version before generation, and you can preview the rewrite before committing to it. If enhancement fails for any reason, generation automatically falls back to your original prompt.
+
+**Read this before enabling it:** the prompt-enhancement feature does not use the Gemma text-encoder model above. It unconditionally uses a specific third-party fine-tune, [`TheCluster/amoral-gemma-3-12B-v2-mlx-4bit`](https://huggingface.co/TheCluster/amoral-gemma-3-12B-v2-mlx-4bit) (~7GB first-run download), whose own model card describes it as a variant of Gemma 3 12B with reduced refusal/content-filtering behavior relative to the base instruction-tuned model. There is currently no in-app toggle to use the standard Gemma model for this feature instead — enabling prompt enhancement at all means this specific model is what rewrites your prompt. See [Known Limitations](#known-limitations) and [MODEL_LICENSES.md](MODEL_LICENSES.md).
+
+This is disclosed here so you can make an informed decision before enabling the feature — it is not necessary for core text-to-video or image-to-video generation, which uses only the text encoder selected above.
 
 ## Usage
 
-1. Enter a descriptive prompt in the text field
-2. Adjust parameters using presets or manual controls
-3. Click **Generate** to start
+1. Enter a prompt (or build a multi-shot project via Storyboard/Auto Movie)
+2. Choose a preset or set parameters manually
+3. Click **Generate** (or **Add to Queue**)
 4. Watch progress in the Queue sidebar
-5. Find completed videos in your configured output directory (default: Application Support)
+5. Find results in History, or your configured output directory (default: Application Support)
 
-### Gemma Prompt Enhancement
+For copy-paste-ready prompt examples, see [EXAMPLES.md](EXAMPLES.md). For a full walkthrough, see [docs/usage.md](docs/usage.md).
 
-When enabled in **Settings > Generation**, Gemma rewrites your prompt before generation—expanding short descriptions into detailed, LTX-2–optimized prompts with visuals, audio, camera movement, and style. Use the **Preview enhanced prompt** button to see the rewritten prompt before generating.
+### Shot Continuity (Last Frame I2V)
 
-> **Note:** This enhancer is optional.  
-> The core text encoder used for generation embeddings is still required even when prompt enhancement is off.
+When a multi-shot project (Storyboard or Auto Movie) generates shot *N+1*, the app extracts the **last frame** of shot *N*'s selected take and uses it as the **conditioning starting image** for shot *N+1* (an image-to-video conditioning bridge), with a continuity-strength value chosen automatically based on how much the scene changes between shots.
 
-1. Go to **Settings > Generation**
-2. Turn on **Enable Gemma Prompt Enhancement**
-3. First run downloads the Gemma enhancer (~7GB)
-4. In the prompt view, expand **Prompt Enhancement (Gemma)** and adjust sliders (Repetition Penalty, Top-P) if desired
-5. Click **Preview enhanced prompt** to see the enhanced version before generating
-6. Generate as usual—the enhanced prompt is used automatically
+This is the current, official continuity mechanism. It is a still-image handoff between shots, not motion carried forward and not audio carried forward — each shot's audio (if any) is independent. Do not read this as "video-tail continuation" or "motion context" between shots.
 
-If enhancement fails for any reason, generation automatically falls back to your original prompt.
+### Character Consistency (Opening Reference / Character Sheet)
 
-### Tips for Better Results
+For hybrid/character-driven projects, you can set an **Opening Reference** image (and optionally a **Character Sheet**) that establishes a character's appearance. As later shots are planned or generated, the app compares extracted attributes (clothing, accessories, notable features) against the reference and shows a verdict per shot: match, partial, conflict, or unknown.
 
-- Be descriptive: "A river flowing through a misty forest at dawn" works better than "river forest"
-- Use camera directions: "The camera slowly pans across..."
-- Specify lighting: "golden hour lighting", "dramatic shadows"
-- Include motion: "waves crashing", "leaves falling"
+This is a diagnostic aid, not an enforced constraint on the model — the underlying video model is not guaranteed to reproduce a character identically across shots, and the comparison itself can report `unknown` when an attribute can't be confidently extracted. Do not read "match" as a guarantee of pixel- or identity-level consistency.
 
-For more detailed, copy-paste-ready prompts, see **[Example Prompts](EXAMPLES.md)**.
+## Local vs. Cloud
 
-## Audio Features
+| Capability | Local or Cloud | Notes |
+|:---|:---|:---|
+| Video generation (LTX-2 via MLX) | Local | Runs as a subprocess on your Mac; no video/prompt data leaves your machine for this step |
+| Prompt Enhancement | Local | Runs a local MLX model subprocess (see disclosure above) |
+| Voiceover — MLX-Audio | Local | Free, no API key |
+| Voiceover — ElevenLabs | **Cloud, optional** | Requires your own ElevenLabs API key; your narration text and generated audio go to ElevenLabs' API |
+| Background Music | **Cloud, optional** | Requires your own ElevenLabs API key; uses the ElevenLabs Music API |
+| Model / package downloads | Network, one-time | Hugging Face Hub and PyPI; explicit user-triggered action, not background telemetry |
 
-### Built-in Audio (Default)
+The ElevenLabs API key is currently stored in `UserDefaults` (not macOS Keychain). It is user-provided, optional, and not required for local generation, but this storage mechanism is a known hardening gap — see [Known Limitations](#known-limitations).
 
-Selected models generate synchronized audio alongside video automatically. No additional configuration needed - just generate and your video will have audio.
+## Known Limitations
 
-For best speech/lip-sync alignment, use **24 FPS**.
-
-You can still layer additional voiceover or background music on top of the built-in audio if desired.
-
-### Voiceover / Narration
-
-Add text-to-speech voiceover to your videos:
-
-1. Expand **Voiceover / Narration** in the generation view
-2. Choose your source: **MLX-Audio** (local, free) or **ElevenLabs** (cloud, requires API key)
-3. Select a voice from the dropdown
-4. Enter your narration text
-5. Audio generates with your video or can be added later from History
-
-### Background Music
-
-Add AI-generated instrumental music (requires ElevenLabs API key):
-
-1. Expand **Background Music** in the generation view
-2. Toggle **Generate background music**
-3. Choose from 54 genre presets:
-   - **Electronic**: EDM, House, Techno, Ambient, Synthwave, etc.
-   - **Hip-Hop/R&B**: Trap, Lo-Fi, Boom Bap, Soul, etc.
-   - **Rock**: Classic, Alternative, Indie, Metal, etc.
-   - **Pop**: Modern, Indie, Dance, Acoustic
-   - **Jazz/Blues**: Smooth Jazz, Bebop, Lounge, Blues
-   - **Classical/Cinematic**: Orchestral, Piano, Epic, Tense, Uplifting
-   - **World**: Latin, Reggae, Afrobeat, Middle Eastern, Asian
-   - **Country/Folk**: Modern, Classic, Acoustic, Indie
-   - **Functional**: Corporate, Motivational, Relaxing, Suspense, Action, Romantic, etc.
-
-Music automatically matches your video length and is mixed at background volume (30%) or ducked further (20%) when combined with voiceover.
-
-### Adding Audio to Existing Videos
-
-Right-click any video thumbnail in **Video Archive** and select **Add Audio** to add voiceover, music, or both to previously generated videos.
-
-## Example
-
-Here's an example video generated with LTX Video Generator:
-
-[Open video link](https://github.com/user-attachments/assets/82031683-1763-4dff-97f9-c2b6d38f7ee8)
-
-**Prompt used:**
-> Create a 15-second cinematic product commercial for a sleek, premium TIME MACHINE device called "ChronoShift One."
->
-> Overall style: glossy tech product ad, filmed in 4K, smooth dolly and slider shots, soft studio lighting, subtle retro‑futuristic aesthetic (think brushed aluminum, glowing rings, clean UI). The time machine looks like a compact desktop appliance about the size of a toaster: brushed metal body, circular time dial with glowing blue light, small display, and a single illuminated control knob.
-
-### Example (X/Twitter Link)
-
-And a second run produced this one:
-
-[Open video link](https://github.com/user-attachments/assets/59e9f752-4d0c-43fd-96bf-711134e65944)
-
-[Open X/Twitter post](https://twitter.com/jc50000000/status/2029412416472203277)
-
-**Prompt used:**
-> Scene tone: quiet, reflective, fragmented memory. Cinematic realism, muted natural colors. Overcast but DRY weather. No rain, no raindrops, no wet falling precipitation.
->
-> START FRAME (0-2.5s)  
-> Extreme close-up (85mm) of the elderly man's face. He breathes slowly. A tiny tremor in the lower eyelid. Strands of white hair drift gently in a light breeze.  
-> Dialogue (man, barely above a whisper):  
-> "I remember."
->
-> Motion: micro push-in only.
->
-> JUMP CUT 1 (2.5-5s)  
-> Hard cut to an extreme close-up of his hands: weathered fingers rubbing a small object (a coin / pebble / ring) in his palm.  
-> Dialogue (man):  
-> "Not the day..."
->
-> Motion: hands move slowly, deliberately.
->
-> JUMP CUT 2 (5-7.5s)  
-> Hard cut to close-up (50-85mm) of his boots stepping into soft mud at the lake edge. The movement is careful, almost hesitant. No splashing, just a quiet press into wet ground.  
-> Dialogue (man):  
-> "The feeling."
->
-> Motion: one slow step, then stillness.
->
-> JUMP CUT 3 (7.5-10s)  
-> Hard cut to close-up of the lake surface: perfectly still water with faint ripples spreading outward (from a dropped pebble or a gentle touch).  
-> Dialogue (man):  
-> "It stayed."
+- **Character/identity consistency is not guaranteed.** The Character Consistency indicator is evaluative and can be wrong or `unknown`; it does not constrain what the underlying model actually generates.
+- **Shot continuity is Last-Frame I2V, not motion or audio continuation.** Each shot's motion and audio are independent of neighboring shots.
+- **Prompt Enhancement uses a third-party "reduced-filtering" model unconditionally when enabled**, not the standard Gemma text encoder. See [above](#prompt-enhancement--important-disclosure).
+- **The ElevenLabs API key is stored in UserDefaults, not Keychain.** SHOULD FIX before a hardened distribution release — see [docs/public-readiness/PUBLIC_READINESS_AUDIT.md](docs/public-readiness/PUBLIC_READINESS_AUDIT.md).
+- **`ffmpeg` is a separate, user-installed dependency** (not bundled); Final Assembly and continuity frame extraction do not work without it.
+- **Two of the three official video-model Hugging Face repositories have no declared license/model card**, and the third's license tag conflicts with its own model-card text. See [MODEL_LICENSES.md](MODEL_LICENSES.md) — do not assume these weights are MIT-licensed.
+- **Optional "lab" models (10Eros) and MiniMax H3 are not supported or verified by this project.** The 10Eros models exist behind an explicit, off-by-default Adult Content Mode toggle plus a disabled-by-default feature flag; they are marked `unverified` compatibility in the app's own model registry. MiniMax H3 is not integrated or supported by this app at all.
+- **RAM figures are the app's own declared minimum/recommended values**, not independently benchmarked across the full parameter space (resolution, frame count, text encoder) in this documentation pass.
 
 ## Building from Source
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone <PUBLIC_REPOSITORY_URL>
 cd ltx-video-mac
 
-# Open in Xcode
-open LTXVideoGenerator/LTXVideoGenerator.xcodeproj
-
-# Or build from command line
-./scripts/build-local.sh
+# Open in Xcode and build/run normally (⌘R), or build unsigned from the CLI:
+cd LTXVideoGenerator
+xcodebuild -project LTXVideoGenerator.xcodeproj -scheme LTXVideoGenerator \
+  -configuration Debug CODE_SIGNING_ALLOWED=NO build
 ```
 
-## Technical Details
+`scripts/build-local.sh` and `scripts/build-release.sh` are **maintainer-only distribution packaging scripts** — they sign, notarize, and package a DMG, and require your own Apple Developer ID credentials (`CODE_SIGN_IDENTITY`, `APPLE_TEAM_ID`, a notary profile). They are not a plain local dev build; use the `xcodebuild` command above for that.
 
-- **Frontend**: SwiftUI
-- **Python Bridge**: Subprocess execution with progress streaming
-- **ML Framework**: [MLX](https://github.com/ml-explore/mlx) (Apple's machine learning framework)
-- **Models**:
-  - [LTX-2 Unified](https://huggingface.co/notapalindrome/ltx2-mlx-av) (~42GB, synchronized audio+video)
-  - [LTX-2.3 Unified Beta](https://huggingface.co/notapalindrome/ltx23-mlx-av) (~48GB, synchronized audio+video)
-  - [LTX-2.3 Distilled Q4 Beta](https://huggingface.co/notapalindrome/ltx23-mlx-av-q4) (~22GB, synchronized audio+video)
-- **Precision**: bfloat16
+### Running the test suite
 
-### Architecture
+The root `Package.swift` defines an SPM-only test harness (the Xcode project remains the canonical `.app` build):
 
-Generation uses a 2-stage pipeline:
-1. Stage 1: Generate at half resolution
-2. Stage 2: Upsample and refine to full resolution
+```bash
+swift build
+swift run LTXTests
+```
+
+## Architecture
+
+See [docs/architecture.md](docs/architecture.md) for the generation pipeline, model internals, and Python/Swift boundary. In short: SwiftUI app → subprocess → `mlx-video-with-audio` (Python, MLX) → LTX-2 transformer + VAE + vocoder → `ffmpeg` mux for any post-processing.
+
+## Licensing
+
+- **This repository's source code** (Swift, Python glue scripts, build scripts) is MIT-licensed — see [LICENSE](LICENSE).
+- **Model weights are not covered by that license.** Every model you download (video models, text encoders, the prompt-enhancement model) is a separate work with its own license, governed by its own upstream terms — see [MODEL_LICENSES.md](MODEL_LICENSES.md) for what is and isn't currently verified.
+- **Third-party software** this app depends on or bundles has its own licenses — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+This codebase originated as a fork of [james-see/ltx-video-mac](https://github.com/james-see/ltx-video-mac) and has been substantially extended since.
 
 ## Troubleshooting
 
-### "Model download stuck"
-The download progress updates every 1%. Download time depends on selected model size (~19.4GB or ~42GB). Be patient.
+See [docs/troubleshooting.md](docs/troubleshooting.md). Common starting points:
 
-### "Out of memory"
-- Reduce resolution (512x320 is fastest)
-- Reduce frame count (25/33/49 recommended)
-- Use 24 FPS
-- Set VAE tiling to aggressive
-- Close other applications
-- 32GB RAM minimum, 64GB recommended
-
-### "Python not found"
-- Install Python via Homebrew: `brew install python@3.12`
-- Or use pyenv: `pyenv install 3.12`
-- Then click "Auto Detect" in Preferences
-
-### "LTX 2.3 conversion / LoRA compatibility"
-- This app supports multiple AV model repos, including `notapalindrome/ltx2-mlx-av`, `notapalindrome/ltx23-mlx-av`, and `notapalindrome/ltx23-mlx-av-q4`.
-- Converting additional upstream checkpoints can require package-level updates in `mlx-video-with-audio` before they run reliably here.
-- Standard LTX LoRA workflows are not guaranteed to transfer directly to the MLX-converted AV path without conversion tooling support.
-
-## License
-
-MIT License - see [LICENSE](LICENSE) for details.
+- **"Python not found"** — `brew install python@3.12` (or use pyenv), then **Auto Detect** in Preferences.
+- **"Missing packages"** — `python3 -m pip install "mlx-video-with-audio==0.1.36"` to the same Python the app is configured to use.
+- **Out of memory** — use a smaller resolution/frame count, 24 FPS, aggressive VAE tiling, and close other apps; see the per-model memory table above.
 
 ## Acknowledgments
 
-- [Lightricks](https://www.lightricks.com/) for the LTX-2 model
-- [mlx-video-with-audio](https://pypi.org/project/mlx-video-with-audio/) for unified audio-video generation
-- [MLX Community](https://huggingface.co/mlx-community) for the MLX-converted weights
+- [Lightricks](https://www.lightricks.com/) for the original LTX-2 model
+- [mlx-video-with-audio](https://pypi.org/project/mlx-video-with-audio/) for the unified audio-video MLX generation backend
+- [MLX Community](https://huggingface.co/mlx-community) for MLX-converted weights
 - [Blaizzy/mlx-video](https://github.com/Blaizzy/mlx-video) for the original MLX video generation code
+- [PythonKit](https://github.com/pvieito/PythonKit) for the Swift↔Python bridge
 - [Hugging Face](https://huggingface.co/) for model hosting
+
+## License
+
+MIT License — see [LICENSE](LICENSE) for the full text. This covers the source code in this repository; see [Licensing](#licensing) above for model weights and third-party software.

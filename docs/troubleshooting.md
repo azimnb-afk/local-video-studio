@@ -55,7 +55,7 @@ which python3
 
 **Option 2:** Install manually:
 ```bash
-pip install mlx mlx-vlm mlx-video-with-audio transformers safetensors huggingface_hub numpy opencv-python tqdm
+python3 -m pip install "mlx-video-with-audio==0.1.36"
 ```
 
 {: .note }
@@ -100,25 +100,23 @@ Make sure you're installing to the same Python that the app is configured to use
 To force a fresh download:
 ```bash
 rm -rf ~/.cache/huggingface/hub/models--notapalindrome--ltx2-mlx-av
-rm -rf ~/.cache/huggingface/hub/models--dgrauet--ltx-2.3-mlx-distilled-q4
+rm -rf ~/.cache/huggingface/hub/models--notapalindrome--ltx23-mlx-av-q4
+rm -rf ~/.cache/huggingface/hub/models--notapalindrome--ltx23-mlx-av
 ```
 
-### "App downloaded Lightricks/LTX-2 (~150GB) - I only want app models"
+### Freeing up cache space
 
-**Problem:** Cache grew to 400GB+ because both app models and Lightricks/LTX-2 (~150GB) were downloaded.
+The three official model caches, if you have downloaded more than one:
+- `models--notapalindrome--ltx2-mlx-av` (~42GB)
+- `models--notapalindrome--ltx23-mlx-av-q4` (~22GB, app default)
+- `models--notapalindrome--ltx23-mlx-av` (~48GB)
 
-**Solution:** Remove the unused Lightricks cache to free ~150GB:
 ```bash
 # See cache sizes
 du -sh ~/.cache/huggingface/hub/*
-
-# Remove Lightricks model (app no longer uses it)
-rm -rf ~/.cache/huggingface/hub/models--Lightricks--LTX-2
 ```
 
-Keep the app model caches you use:
-- `models--notapalindrome--ltx2-mlx-av` (~42GB)
-- `models--dgrauet--ltx-2.3-mlx-distilled-q4` (~19.4GB)
+Remove any model cache you're not actively using; it will re-download automatically the next time you select that model.
 
 ---
 
@@ -143,11 +141,7 @@ cat /tmp/ltx_generation.log
 2. Reduce frame count (start with 25, 33, or 49)
 3. Use 24 FPS for safer memory profile
 4. Set VAE tiling to `aggressive`
-5. If model seems corrupted, delete and re-download:
-   ```bash
-   rm -rf ~/.cache/huggingface/hub/models--notapalindrome--ltx2-mlx-av
-   rm -rf ~/.cache/huggingface/hub/models--dgrauet--ltx-2.3-mlx-distilled-q4
-   ```
+5. If model seems corrupted, delete and re-download the cache folder for your selected model (see "Freeing up cache space" above for the current repository names)
 
 ### Black video output
 
@@ -200,7 +194,7 @@ cat /tmp/ltx_generation.log
    - Should have minimal swap usage
 
 {: .warning }
-LTX-2 is a 19B parameter model. **32GB RAM minimum** required. 64GB+ recommended for higher resolutions.
+LTX-2 is a 19B parameter model. Minimum/recommended RAM varies by which model you select — the app-default LTX-2.3 Distilled Q4 needs 32GB minimum/recommended; the two larger Unified models need 48GB minimum, 64GB+ recommended. See the [README's per-model memory table](../README.md#memory-by-model).
 
 ### Generation slower than expected
 

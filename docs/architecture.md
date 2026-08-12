@@ -61,6 +61,9 @@ LTX Video Generator is a native macOS SwiftUI application that shells out to a P
 
 ## Supported Models
 
+{: .note }
+The app's current official catalog has **three** models, all under the `notapalindrome` Hugging Face account. Earlier revisions of this page referenced a `dgrauet/ltx-2.3-mlx-distilled-q4` repository; that is not the repository the app actually uses for the distilled Q4 model — this was a documentation/implementation mismatch, corrected here. The per-property tables below were written against the two models the app originally integrated; the third row (LTX-2.3 Unified Beta) is added for completeness but its internal format/vocoder specifics have not been independently re-verified for this pass — treat that row as approximate pending verification.
+
 ### notapalindrome/ltx2-mlx-av (LTX-2 Unified)
 
 | Property | Value |
@@ -73,17 +76,25 @@ LTX Video Generator is a native macOS SwiftUI application that shells out to a P
 | Weight layout | MLX-native — `ConvTranspose1d` weights stored as `(out_ch, kernel, in_ch)` |
 | Config | No `embedded_config.json` — uses hardcoded defaults |
 
-### dgrauet/ltx-2.3-mlx-distilled-q4 (LTX-2.3 Distilled Q4)
+### notapalindrome/ltx23-mlx-av-q4 (LTX-2.3 Distilled Q4, app default)
 
 | Property | Value |
 |:---------|:------|
 | Parameters | ~19B (quantized to 4-bit) |
-| Download size | ~19.4GB |
+| Download size | ~22GB |
 | Format | Split safetensors (`transformer.safetensors`, `vocoder.safetensors`, etc.) |
 | Audio | Built-in (stereo, 24kHz base → 48kHz with BWE) |
 | Vocoder type | `BigVGANVocoder` (SnakeBeta activations + anti-aliased upsampling) |
 | Weight layout | PyTorch-origin — `ConvTranspose1d` weights stored as `(in_ch, out_ch, kernel)` |
 | Config | Has `embedded_config.json` with vocoder/transformer/scheduler overrides |
+
+### notapalindrome/ltx23-mlx-av (LTX-2.3 Unified, Beta)
+
+| Property | Value |
+|:---------|:------|
+| Download size | ~48GB |
+| Audio | Built-in, per the app's model registry |
+| Format / vocoder / weight layout | Not independently re-verified in this documentation pass — **Needs verification** against `generate_av.py` before treating the details above as applying to this repository too |
 
 ---
 
@@ -133,8 +144,8 @@ The two models store vocoder upsampler (`ups.*`) weights differently:
 
 | Model | Stored layout | Needs transpose? |
 |:------|:-------------|:-----------------|
-| notapalindrome (unified) | `(out_ch, kernel, in_ch)` | No — already MLX format |
-| dgrauet (distilled) | `(in_ch, out_ch, kernel)` | Yes — `transpose(1, 2, 0)` |
+| notapalindrome ltx2-mlx-av (unified) | `(out_ch, kernel, in_ch)` | No — already MLX format |
+| notapalindrome ltx23-mlx-av-q4 (distilled) | `(in_ch, out_ch, kernel)` | Yes — `transpose(1, 2, 0)` |
 
 The loader in `generate_av.py` auto-detects the layout: if the last dimension is the largest (since `in_ch > out_ch` for upsamplers), the weight is already in MLX format. Otherwise it transposes.
 

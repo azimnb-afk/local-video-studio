@@ -92,16 +92,17 @@ If download is interrupted, it will resume from where it left off.
 Models are cached by Hugging Face in folders such as:
 ```
 ~/.cache/huggingface/hub/models--notapalindrome--ltx2-mlx-av/
-~/.cache/huggingface/hub/models--dgrauet--ltx-2.3-mlx-distilled-q4/
+~/.cache/huggingface/hub/models--notapalindrome--ltx23-mlx-av-q4/
+~/.cache/huggingface/hub/models--notapalindrome--ltx23-mlx-av/
 ```
 
 To free up space later, you can delete this folder (the model will re-download on next use).
 
-## Optional: Gemma Prompt Enhancement
+## Optional: Prompt Enhancement
 
-For better results, enable **Settings > Generation > Enable Gemma Prompt Enhancement**. Gemma rewrites your prompts with vivid details before generation.
+For better results, enable **Settings > Generation > Enable Gemma Prompt Enhancement**. An LLM rewrites your prompt with vivid details before generation; first run downloads ~7GB.
 
-If prompts with certain words (e.g. medical terms) return empty enhancement, enable **Use uncensored enhancer**. First run downloads ~7GB (TheCluster/amoral-gemma-3-12B-v2-mlx-4bit).
+**Important:** this feature does not use the Gemma text encoder described above. It unconditionally uses a third-party fine-tune, [`TheCluster/amoral-gemma-3-12B-v2-mlx-4bit`](https://huggingface.co/TheCluster/amoral-gemma-3-12B-v2-mlx-4bit), whose own model card describes reduced refusal/content-filtering behavior relative to the base Gemma model. There is no in-app toggle to use the standard model for this feature instead — enabling Prompt Enhancement at all means this specific model rewrites your prompt. See the [README's disclosure](../README.md#prompt-enhancement--important-disclosure) and [MODEL_LICENSES.md](../MODEL_LICENSES.md) before enabling it.
 
 ## Verify Installation
 

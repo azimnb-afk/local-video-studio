@@ -23,10 +23,10 @@ LTX Video Generator is a beautiful, native macOS application built with SwiftUI.
 ### Key Features
 
 - **Apple Silicon Native** - Uses MLX for optimal M1/M2/M3/M4 performance
-- **Two LTX-2 Models** - LTX-2 Unified (~42GB) and LTX-2.3 Distilled Q4 (~19.4GB), both with built-in audio
+- **Three LTX-2 Models** - LTX-2 Unified (~42GB), LTX-2.3 Unified Beta (~48GB), and LTX-2.3 Distilled Q4 Beta (~22GB, app default), all with built-in audio
 - **Text-to-Video** - Generate videos from text descriptions
 - **Image-to-Video** - Animate images into videos
-- **Gemma Prompt Enhancement** - Optional AI rewrites prompts for better results; uncensored enhancer avoids content filters
+- **Optional Prompt Enhancement** - Off by default; when enabled, unconditionally uses a third-party fine-tuned model chosen for reduced content-filtering behavior, not the standard text encoder — [read the disclosure](../README.md#prompt-enhancement--important-disclosure) before enabling it
 - **Voiceover Narration** - Add TTS audio using ElevenLabs (cloud) or MLX-Audio (local)
 - **Background Music** - 54 genre presets for AI-generated instrumental music via ElevenLabs
 - **Auto Package Installer** - Missing Python packages detected and installed with one click
@@ -47,7 +47,7 @@ LTX Video Generator is a beautiful, native macOS application built with SwiftUI.
 |:------------|:--------|:------------|
 | macOS | 14.0+ | 15.0+ |
 | Processor | Apple M1 | Apple M2 Pro/M3/M4 |
-| Unified Memory | 32GB | 64GB+ |
+| Unified Memory | 32GB (app-default model) / 48GB (larger models) | 64GB+ |
 | Storage | 100GB free | 150GB+ free |
 | Python | 3.11+ | 3.11+ (3.14.5 exercised) |
 

@@ -251,8 +251,9 @@ Choose between local or cloud-based text-to-speech.
 - Daniel, George (UK Male)
 
 **ElevenLabs Voices:**
-- Rachel, Domi, Bella, Elli (Female)
-- Antoni, Josh, Arnold, Adam, Sam (Male)
+- Rachel, Sarah, Jessica, Aria (US Female), Adam, Josh, Brian, Eric (US Male)
+- Alice, Lily, Charlotte (UK Female), Daniel, George, Harry (UK Male)
+- Matilda (AU Female), Charlie (AU Male)
 
 ### Background Music
 
@@ -311,4 +312,4 @@ Times vary based on:
 - Resolution and frame count
 
 {: .warning }
-**32GB RAM minimum required.** Macs with 16GB will likely fail or be extremely slow. 64GB+ recommended for comfortable usage.
+**Minimum/recommended RAM depends on the selected model.** The app-default LTX-2.3 Distilled Q4 declares 32GB minimum/recommended; the two larger Unified models declare 48GB minimum, 64GB+ recommended. Macs with 16GB are not supported by any current model. See the [README's per-model memory table](../README.md#memory-by-model).

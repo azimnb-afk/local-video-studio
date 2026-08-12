@@ -64,9 +64,11 @@ Improve results by having Gemma rewrite your prompt with vivid details:
 
 1. Go to **Settings > Generation** and enable **Enable Gemma Prompt Enhancement**
 2. In the prompt view, expand **Prompt Enhancement (Gemma)**
-3. Optionally enable **Use uncensored enhancer** to avoid content filters (first run downloads ~7GB)
-4. Click **Preview enhanced prompt** to see the rewritten prompt before generating
-5. Generate as usual—the enhanced prompt is used automatically
+3. Click **Preview enhanced prompt** to see the rewritten prompt before generating (first run downloads ~7GB)
+4. Generate as usual—the enhanced prompt is used automatically
+
+{: .important }
+Enabling this feature unconditionally uses a third-party fine-tuned model chosen for reduced content-filtering behavior, not the standard Gemma text encoder used for core generation. There is no separate toggle for a "standard" vs. "uncensored" enhancer — enabling Prompt Enhancement at all means this model is used. See the [README disclosure](../README.md#prompt-enhancement--important-disclosure) before enabling it.
 
 {: .note }
 If enhancement returns empty (e.g. safety filter), the app auto-retries with filtered words replaced, then merges originals back.
@@ -90,7 +92,7 @@ Add text-to-speech voiceover to your videos:
 2. Choose your source:
    - **MLX Audio (Local)** - Free, runs on-device, good quality
    - **ElevenLabs (Cloud)** - High quality, requires API key
-3. Select a voice from the dropdown (10 voices for MLX, 9 for ElevenLabs)
+3. Select a voice from the dropdown (10 voices for MLX Audio, 16 for ElevenLabs)
 4. Enter your narration text
 5. Generate your video - audio will be added automatically
 
@@ -246,4 +248,4 @@ worst quality, blurry, jittery, distorted, watermark
 
 - Higher resolutions use more memory
 - Close other apps if you encounter issues
-- 32GB RAM minimum, 64GB recommended
+- Minimum/recommended RAM depends on which model you select — see the [README's per-model memory table](../README.md#memory-by-model)

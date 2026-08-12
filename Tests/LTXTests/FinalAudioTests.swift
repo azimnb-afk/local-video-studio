@@ -250,4 +250,48 @@ func runFinalAudioTests(_ t: TestKit) {
             }
         }
     }
+
+    t.suite("Final Assembly — atomic replace") {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("ltx-replace-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        // 1. No existing output + successful replacement -> new output exists
+        let dest1 = tmp.appendingPathComponent("dest1.txt").path
+        let src1 = tmp.appendingPathComponent("src1.txt").path
+        try? "new1".write(toFile: src1, atomically: true, encoding: .utf8)
+        do {
+            try FinalAssemblyService.replaceFile(at: dest1, with: src1)
+            let result = try? String(contentsOfFile: dest1, encoding: .utf8)
+            t.checkEqual(result, "new1", "replacement of non-existent destination succeeds")
+        } catch {
+            t.check(false, "replacement of non-existent threw: \(error)")
+        }
+
+        // 2. Existing valid output + successful replacement -> new output replaces old
+        let dest2 = tmp.appendingPathComponent("dest2.txt").path
+        let src2 = tmp.appendingPathComponent("src2.txt").path
+        try? "old2".write(toFile: dest2, atomically: true, encoding: .utf8)
+        try? "new2".write(toFile: src2, atomically: true, encoding: .utf8)
+        do {
+            try FinalAssemblyService.replaceFile(at: dest2, with: src2)
+            let result = try? String(contentsOfFile: dest2, encoding: .utf8)
+            t.checkEqual(result, "new2", "replacement of existing destination succeeds and overwrites")
+        } catch {
+            t.check(false, "replacement of existing threw: \(error)")
+        }
+
+        // 3. Existing valid output + replacement failure -> old output still exists and remains unchanged
+        let dest3 = tmp.appendingPathComponent("dest3.txt").path
+        let src3 = tmp.appendingPathComponent("src3.txt").path
+        try? "old3".write(toFile: dest3, atomically: true, encoding: .utf8)
+        // intentionally do not create src3 to force a failure in replaceFile
+        do {
+            try FinalAssemblyService.replaceFile(at: dest3, with: src3)
+            t.check(false, "expected replacement to fail due to missing source")
+        } catch {
+            let result = try? String(contentsOfFile: dest3, encoding: .utf8)
+            t.checkEqual(result, "old3", "failed replacement preserves existing destination")
+        }
+    }
 }

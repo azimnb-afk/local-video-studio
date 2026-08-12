@@ -161,15 +161,17 @@ final class FinalAssemblyService {
         }
     }
 
-    /// Atomic-enough replace for a local single-user file: write finished
-    /// elsewhere (already done by the caller), remove any previous file at
-    /// the destination only once the new one is validated, then move the new
-    /// one into place. A failure here still leaves the temporary source in
-    /// `workDir`, which the caller's `defer` cleans up either way.
-    private static func replaceFile(at destination: String, with source: String) throws {
+    /// Atomic replace for a local single-user file: write finished
+    /// elsewhere (already done by the caller), safely replace any previous file
+    /// at the destination so a failure never destroys existing output.
+    static func replaceFile(at destination: String, with source: String) throws {
         let destinationURL = URL(fileURLWithPath: destination)
-        try? FileManager.default.removeItem(at: destinationURL)
-        try FileManager.default.copyItem(at: URL(fileURLWithPath: source), to: destinationURL)
+        let sourceURL = URL(fileURLWithPath: source)
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            _ = try FileManager.default.replaceItemAt(destinationURL, withItemAt: sourceURL)
+        } else {
+            try FileManager.default.moveItem(at: sourceURL, to: destinationURL)
+        }
     }
 
     private static func runFFmpeg(_ arguments: [String], ffmpeg: String) throws {

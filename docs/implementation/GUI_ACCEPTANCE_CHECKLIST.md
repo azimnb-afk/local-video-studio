@@ -814,3 +814,28 @@ path. The app was launched by full path, not `open -a`.
       confirmed Shot 1 selection plus both Shot 2 source filenames persisted.
 - [x] Production Queue showed `No pending generations`; no LTX render, model
       download, assembly, or production evidence mutation was started.
+
+## 2026-08-12 LTX Generation Diagnostics — Phase 2 GUI acceptance PASS
+
+- [x] Canonical Debug app resolved from `TARGET_BUILD_DIR` + `WRAPPER_NAME`,
+      launched by full path after terminating the pre-build process; `open -a`
+      and `/tmp` apps were not used.
+- [x] Isolated project `RUNTIME DIAGNOSTICS GUI ACCEPTANCE`
+      (`AAFA7FFA-7859-4F95-B2AA-ECA77AB483E0`) loaded without changing a
+      production project or starting a queue job.
+- [x] Legacy completed Take visibly displayed both `Generation diagnostics
+      unavailable for this earlier Take.` and `Runtime diagnostics unavailable
+      for this earlier Take.` with no crash.
+- [x] Success disclosure displayed Source plus Runtime: `Succeeded`, `12.00s`,
+      Requested `768×1080`, Effective `704×1024`, Actual `512×320`, actual
+      output difference warning, `1.01s · 24.00 fps · 23 frames`, backend
+      success, filename, present output, and readable metadata.
+- [x] Failure disclosure displayed Source plus Runtime: `Failed`, `3.00s`,
+      effective dimensions, backend `Failed · exit 15`, `Backend generation`,
+      concise error, missing output filename, and unavailable metadata.
+- [x] Selected Take regression remained visible: Shot 4 seed 402 stayed
+      selected and Shot 5 disclosed `Previous shot's last frame` with
+      `Continuation: Selected take · B21CAE7E`.
+- [x] Existing MP4 fixtures supplied the terminal records; no LTX render,
+      model download, cloud request, assembly, or production queue mutation was
+      started for diagnostics acceptance.

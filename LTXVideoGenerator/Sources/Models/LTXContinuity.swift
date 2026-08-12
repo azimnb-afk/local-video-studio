@@ -112,6 +112,161 @@ struct GenerationSourceDiagnostics: Codable, Equatable {
     }
 }
 
+/// The execution state recorded for one concrete Take. This intentionally
+/// records observations only: it does not participate in source selection,
+/// settings resolution, retry policy, or any generation decision.
+enum GenerationRuntimeStatus: String, Codable, Equatable {
+    case running
+    case succeeded
+    case failed
+    case cancelled
+
+    var displayName: String {
+        switch self {
+        case .running: return "Running"
+        case .succeeded: return "Succeeded"
+        case .failed: return "Failed"
+        case .cancelled: return "Cancelled"
+        }
+    }
+}
+
+/// What the backend boundary reported for the historical Take. `notStarted`
+/// is useful when source preparation or Python configuration failed before a
+/// backend subprocess could be launched.
+enum GenerationBackendResultStatus: String, Codable, Equatable {
+    case notStarted
+    case succeeded
+    case failed
+    case cancelled
+    case unavailable
+
+    var displayName: String {
+        switch self {
+        case .notStarted: return "Not started"
+        case .succeeded: return "Succeeded"
+        case .failed: return "Failed"
+        case .cancelled: return "Cancelled"
+        case .unavailable: return "Unavailable"
+        }
+    }
+}
+
+/// A deliberately small failure vocabulary. It separates preparation from the
+/// video backend without attempting to turn diagnostics into a second retry
+/// or queue state machine.
+enum GenerationFailureStage: String, Codable, Equatable {
+    case sourcePreparation
+    case backendLaunch
+    case backendGeneration
+    case outputMissing
+    case outputValidation
+    case cancelled
+    case unknown
+
+    var displayName: String {
+        switch self {
+        case .sourcePreparation: return "Source preparation"
+        case .backendLaunch: return "Backend launch"
+        case .backendGeneration: return "Backend generation"
+        case .outputMissing: return "Output missing"
+        case .outputValidation: return "Output validation"
+        case .cancelled: return "Cancelled"
+        case .unknown: return "Unknown"
+        }
+    }
+}
+
+/// Immutable runtime facts captured from execution start through terminal
+/// finalization. Requested, effective, and actual values stay separate:
+/// `actual*` is populated only by inspection of the output media file.
+struct GenerationRuntimeDiagnostics: Codable, Equatable {
+    var status: GenerationRuntimeStatus
+    var startedAt: Date
+    var finishedAt: Date?
+    var elapsedSeconds: Double?
+
+    var requestedWidth: Int
+    var requestedHeight: Int
+    var effectiveWidth: Int?
+    var effectiveHeight: Int?
+    var actualWidth: Int?
+    var actualHeight: Int?
+
+    var requestedFrames: Int?
+    var requestedDurationSeconds: Double?
+    var actualDurationSeconds: Double?
+    var actualFPS: Double?
+    /// Only set when the media inspector reports a native frame count. It is
+    /// never inferred from duration × FPS.
+    var actualFrameCount: Int?
+
+    var backendResult: GenerationBackendResultStatus
+    var backendExitCode: Int?
+    var failureStage: GenerationFailureStage?
+    /// Bounded, single-line diagnostic suitable for project JSON. Full runner
+    /// stderr remains in the existing local log rather than being persisted.
+    var errorSummary: String?
+
+    var outputFilename: String?
+    var outputExists: Bool
+    var outputMetadataReadable: Bool?
+}
+
+/// Pure helpers shared by the runtime recorder and its tests. They deliberately
+/// inspect only the existing error message; they never alter the error that is
+/// surfaced to the user or returned to the generation queue.
+enum GenerationRuntimeFailureClassifier {
+    static let maximumErrorSummaryLength = 320
+
+    static func conciseSummary(for error: Error) -> String {
+        let candidate = error.localizedDescription
+            .split(whereSeparator: { $0.isNewline })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty }) ?? "Generation failed."
+        guard candidate.count > maximumErrorSummaryLength else { return candidate }
+        let end = candidate.index(candidate.startIndex, offsetBy: maximumErrorSummaryLength)
+        return String(candidate[..<end]) + "…"
+    }
+
+    static func stage(for error: Error) -> GenerationFailureStage {
+        let message = error.localizedDescription.lowercased()
+        if message.contains("unable to prepare the starting image")
+            || message.contains("source image preparation") {
+            return .sourcePreparation
+        }
+        if message.contains("python environment not configured")
+            || message.contains("failed to launch")
+            || message.contains("no generation adapter supports") {
+            return .backendLaunch
+        }
+        if message.contains("output file")
+            && (message.contains("missing") || message.contains("not found")) {
+            return .outputMissing
+        }
+        if message.contains("failed to parse generation output")
+            || message.contains("invalid output")
+            || message.contains("corrupt output") {
+            return .outputValidation
+        }
+        return .backendGeneration
+    }
+
+    static func exitCode(from error: Error) -> Int? {
+        let message = error.localizedDescription.lowercased()
+        for marker in ["exit code", "exit status"] {
+            guard let range = message.range(of: marker) else { continue }
+            let suffix = message[range.upperBound...]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let token = suffix.prefix { $0 == "-" || $0.isNumber }
+            if !token.isEmpty, let value = Int(token) {
+                return value
+            }
+        }
+        return nil
+    }
+}
+
 /// What kind of continuation a shot performs.
 enum LTXContinuityStrategy: String, Codable, Equatable {
     /// Inherits visual state from the previous shot.

@@ -143,6 +143,14 @@ class GenerationService: ObservableObject {
         
         isProcessing = true
         progress = 0
+        let diagnosticsRequest = queue[index]
+        let executionStartedAt = Date()
+        if FeatureFlags.isEnabled(.filmProjectV1), diagnosticsRequest.takeID != nil {
+            TakeGenerationCoordinator().recordExecutionStarted(
+                request: diagnosticsRequest,
+                startedAt: executionStartedAt
+            )
+        }
         
         // Ensure Python packages (including mlx-video-with-audio min version) match the path in Settings — no manual Validate required.
         if let pythonPath = UserDefaults.standard.string(forKey: "pythonPath"), !pythonPath.isEmpty {
@@ -151,6 +159,14 @@ class GenerationService: ObservableObject {
             if !ensure.success {
                 queue[index].status = .failed
                 error = .generationFailed(ensure.message)
+                if FeatureFlags.isEnabled(.filmProjectV1), diagnosticsRequest.takeID != nil {
+                    TakeGenerationCoordinator().recordFailure(
+                        request: diagnosticsRequest,
+                        error: LTXError.generationFailed(ensure.message),
+                        stage: .backendLaunch,
+                        finalizedAt: Date()
+                    )
+                }
                 currentRequest = nil
                 isProcessing = false
                 progress = 0
@@ -163,6 +179,14 @@ class GenerationService: ObservableObject {
         } else {
             queue[index].status = .failed
             error = .pythonNotConfigured
+            if FeatureFlags.isEnabled(.filmProjectV1), diagnosticsRequest.takeID != nil {
+                TakeGenerationCoordinator().recordFailure(
+                    request: diagnosticsRequest,
+                    error: LTXError.pythonNotConfigured,
+                    stage: .backendLaunch,
+                    finalizedAt: Date()
+                )
+            }
             currentRequest = nil
             isProcessing = false
             progress = 0
@@ -174,6 +198,14 @@ class GenerationService: ObservableObject {
         if !isModelLoaded {
             await loadModel()
             guard isModelLoaded else {
+                if FeatureFlags.isEnabled(.filmProjectV1), diagnosticsRequest.takeID != nil {
+                    TakeGenerationCoordinator().recordFailure(
+                        request: diagnosticsRequest,
+                        error: error ?? LTXError.modelLoadFailed("The LTX model could not be loaded."),
+                        stage: .backendLaunch,
+                        finalizedAt: Date()
+                    )
+                }
                 isProcessing = false
                 return
             }
@@ -198,6 +230,7 @@ class GenerationService: ObservableObject {
         }
         let filename = "\(request.id.uuidString).mp4"
         let outputPath = outputDir.appendingPathComponent(filename).path
+        var effectiveParametersForDiagnostics = request.parameters
         
         do {
             let progressCallback: (Double, String) -> Void = { [weak self] prog, message in
@@ -253,6 +286,7 @@ class GenerationService: ObservableObject {
                     snapshot: MemoryMonitor.shared.snapshot()
                 )
                 effectiveRequest = resolution.request
+                effectiveParametersForDiagnostics = effectiveRequest.parameters
                 effectiveProfile = resolution.profile
                 effectiveProfileReason = resolution.reason
                 if resolution.profile != nil {
@@ -309,6 +343,7 @@ class GenerationService: ObservableObject {
                     attemptIndex = nextIndex
                     let lower = attemptProfiles[attemptIndex]
                     effectiveRequest = GenerationSettingsResolver.applying(profile: lower, to: request)
+                    effectiveParametersForDiagnostics = effectiveRequest.parameters
                     effectiveProfileReason = "\(effectiveProfileReason); runtime memory fallback to \(lower.id)"
                     statusMessage = "Retrying with lower profile: \(lower.displayName)"
                 }
@@ -461,15 +496,43 @@ class GenerationService: ObservableObject {
             statusMessage = "Video saved to \(outputDir)"
             
         } catch where Task.isCancelled {
-            recordCancellation(request: request, at: index)
+            recordCancellation(
+                request: request,
+                at: index,
+                effectiveParameters: effectiveParametersForDiagnostics,
+                outputPath: outputPath
+            )
         } catch is CancellationError {
-            recordCancellation(request: request, at: index)
+            recordCancellation(
+                request: request,
+                at: index,
+                effectiveParameters: effectiveParametersForDiagnostics,
+                outputPath: outputPath
+            )
         } catch let err as LTXError {
             queue[index].status = .failed
             error = err
+            if FeatureFlags.isEnabled(.filmProjectV1), request.takeID != nil {
+                TakeGenerationCoordinator().recordFailure(
+                    request: request,
+                    error: err,
+                    effectiveParameters: effectiveParametersForDiagnostics,
+                    outputPath: outputPath,
+                    finalizedAt: Date()
+                )
+            }
         } catch {
             queue[index].status = .failed
             self.error = .generationFailed(error.localizedDescription)
+            if FeatureFlags.isEnabled(.filmProjectV1), request.takeID != nil {
+                TakeGenerationCoordinator().recordFailure(
+                    request: request,
+                    error: error,
+                    effectiveParameters: effectiveParametersForDiagnostics,
+                    outputPath: outputPath,
+                    finalizedAt: Date()
+                )
+            }
         }
         
         currentRequest = nil
@@ -591,10 +654,20 @@ class GenerationService: ObservableObject {
         }
     }
 
-    private func recordCancellation(request: GenerationRequest, at index: Int) {
+    private func recordCancellation(
+        request: GenerationRequest,
+        at index: Int,
+        effectiveParameters: GenerationParameters? = nil,
+        outputPath: String? = nil
+    ) {
         queue[index].status = .cancelled
         if FeatureFlags.isEnabled(.filmProjectV1), request.takeID != nil {
-            TakeGenerationCoordinator().recordCancellation(request: request)
+            TakeGenerationCoordinator().recordCancellation(
+                request: request,
+                effectiveParameters: effectiveParameters,
+                outputPath: outputPath,
+                finalizedAt: Date()
+            )
         }
         error = nil
         statusMessage = "Generation cancelled"

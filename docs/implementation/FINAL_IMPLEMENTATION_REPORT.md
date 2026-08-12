@@ -468,3 +468,39 @@ was `31841` at that exact path. Isolated GUI project
 Take 1 and the regenerated Shot 2 provenance tied to selected Take 2, before
 and after app restart. Existing fixture media supplied already-completed Takes;
 no heavyweight LTX generation or production-queue mutation was required.
+
+## LTX Generation Diagnostics — Phase 2: Failure & Runtime Diagnostics
+
+Phase 2 adds persistence-only runtime snapshots to `Take`. `GenerationRuntimeDiagnostics`
+is separate from the already-accepted Phase 1 source/provenance snapshot, so the
+existing source-selection contract is neither recalculated nor changed. The
+snapshot begins when the single-flight queue starts that Take and terminates at
+the existing completion, failure, or cancellation finalization.
+
+Successful Takes record status, start/finish/elapsed time, requested/effective
+resolution, original request frames/duration, actual MP4 resolution/duration/FPS,
+optional native frame count, backend success, output filename/existence, and
+metadata readability. Actual media values come from the existing lightweight
+ffprobe path; frame count is absent unless ffprobe explicitly reports it.
+
+Failed Takes record elapsed time, a bounded concise error, output state, backend
+result/exit code where the existing error supplies one, and a limited failure
+stage. Source image preparation is distinct from backend launch/execution;
+missing/invalid output has an explicit safe path. The full runner stderr remains
+in `/tmp/ltx_generation.log` rather than being embedded in FilmProject JSON.
+
+The storyboard Take disclosure retains its Phase 1 source section and adds a
+compact Runtime section. Legacy Takes explicitly say runtime diagnostics are
+unavailable rather than guessing from mutable current settings. Historical
+terminal snapshots remain immutable across later Shot/action/camera/continuity,
+resolution, preset, or selection edits.
+
+Verification: starting suite **1547 passed / 0 failed**; final suite **1600
+passed / 0 failed**. `swift build`, `xcodebuild ... clean build`, and
+`git diff --check` passed. Canonical-app acceptance used a full-path DerivedData
+Debug app and isolated `RUNTIME DIAGNOSTICS GUI ACCEPTANCE` project. The app
+showed a legacy-unavailable Take, a fixture-backed success with 12.00s elapsed,
+768×1080 requested / 704×1024 effective / 512×320 actual, MP4 duration/FPS/native
+frame count, a fixture-backed failure with exit 15 and missing-output state, and
+a continuation explicitly attributed to the selected upstream Take. No model
+download or heavyweight LTX render was run.

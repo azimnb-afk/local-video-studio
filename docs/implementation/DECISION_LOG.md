@@ -1622,3 +1622,32 @@ reuse a new anchor from the current frame. Historical Takes and their diagnostic
 are snapshots and are never backfilled or rewritten. This decision applies only
 to future generations and does not redesign selection, assembly, refresh policy,
 image conditioning, or LTX generation.
+
+## D-094 (2026-08-12) Runtime facts are terminal Take snapshots, not a new renderer policy
+
+Phase 1 recorded why a Take got its source image; it deliberately did not say
+whether the renderer completed, how long it took, or what the MP4 actually
+contained. Reconstructing those facts later from a mutable project or copying
+effective settings into actual fields would make diagnostics misleading.
+
+`GenerationRuntimeDiagnostics` is therefore optional and attached directly to
+the existing `Take`, separate from `GenerationSourceDiagnostics`. It is created
+at the current queue execution boundary and finalized only by the existing
+success/failure/cancellation paths. This records the existing lifecycle without
+introducing another queue, retry, source-selection, or resolution state machine.
+Historical Takes with no record remain unavailable; no regeneration or
+best-effort backfill is authorized.
+
+Requested and effective values are facts of the request; actual values are facts
+of an inspected output file. MediaProbe/ffprobe supplies width, height,
+duration, FPS, and only an explicit native `nb_frames` count. A missing or
+unreadable media file is recorded as such; duration × FPS is never represented
+as an actual frame count, and unreadable metadata does not trigger auto-retry or
+turn a backend-reported success into a changed generation policy.
+
+Failure categories stay intentionally small. Source preparation, backend launch,
+backend execution, output missing/validation, cancellation, and unknown are
+enough to distinguish the actionable boundaries. Project JSON gets one bounded
+concise error and any existing exit code; raw stderr stays in the established
+local log. This makes failure history useful without bloating or exposing an
+unbounded log viewer.

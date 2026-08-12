@@ -7,6 +7,9 @@ struct MediaInfo: Codable, Equatable {
     var height: Int?
     var fps: Double?
     var durationSeconds: Double?
+    /// Native packet/frame count reported by ffprobe when the container makes
+    /// one available. A missing value is intentionally not estimated.
+    var frameCount: Int?
     var videoCodec: String?
     var audioCodec: String?
     var sampleRate: Int?
@@ -71,6 +74,11 @@ enum MediaProbe {
                     } else if parts.count == 1 {
                         info.fps = parts[0]
                     }
+                }
+                if let frames = stream["nb_frames"] as? String {
+                    info.frameCount = Int(frames)
+                } else if let frames = stream["nb_frames"] as? Int {
+                    info.frameCount = frames
                 }
             case "audio":
                 info.audioCodec = stream["codec_name"] as? String

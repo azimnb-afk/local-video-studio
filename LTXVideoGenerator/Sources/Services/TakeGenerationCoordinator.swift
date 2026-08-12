@@ -321,8 +321,64 @@ final class TakeGenerationCoordinator {
         store.save(project)
     }
 
+    /// Marks the existing Take as executing and captures the start of the
+    /// runtime observation window. This is deliberately after queue selection
+    /// and before Python/source preparation; it never changes the request or
+    /// any generation policy.
+    func recordExecutionStarted(
+        request: GenerationRequest,
+        startedAt: Date = Date()
+    ) {
+        guard let projectID = request.filmProjectID,
+              let shotID = request.shotID,
+              let takeID = request.takeID,
+              var project = store.project(id: projectID),
+              let shotIndex = project.shots.firstIndex(where: { $0.id == shotID }),
+              let takeIndex = project.shots[shotIndex].takes.firstIndex(where: { $0.id == takeID }) else {
+            return
+        }
+
+        var take = project.shots[shotIndex].takes[takeIndex]
+        let effective = request.parameters
+        take.status = .generating
+        take.generationStartedAt = startedAt
+        take.generationCompletedAt = nil
+        take.generationTime = nil
+        take.generationRuntimeDiagnostics = GenerationRuntimeDiagnostics(
+            status: .running,
+            startedAt: startedAt,
+            finishedAt: nil,
+            elapsedSeconds: nil,
+            requestedWidth: take.requestedWidth,
+            requestedHeight: take.requestedHeight,
+            effectiveWidth: effectiveDimension(effective.width),
+            effectiveHeight: effectiveDimension(effective.height),
+            actualWidth: nil,
+            actualHeight: nil,
+            requestedFrames: take.settingsSnapshot.numFrames,
+            requestedDurationSeconds: take.requestedDuration,
+            actualDurationSeconds: nil,
+            actualFPS: nil,
+            actualFrameCount: nil,
+            backendResult: .notStarted,
+            backendExitCode: nil,
+            failureStage: nil,
+            errorSummary: nil,
+            outputFilename: nil,
+            outputExists: false,
+            outputMetadataReadable: nil
+        )
+        project.shots[shotIndex].takes[takeIndex] = take
+        for jobIndex in project.jobs.indices where project.jobs[jobIndex].takeID == takeID {
+            project.jobs[jobIndex].state = .running
+            project.jobs[jobIndex].updatedAt = startedAt
+            project.jobs[jobIndex].errorMessage = nil
+        }
+        store.save(project)
+    }
+
     /// Marks a take completed from a finished GenerationResult (matched by takeID).
-    func recordCompletion(result: GenerationResult) {
+    func recordCompletion(result: GenerationResult, finalizedAt: Date = Date()) {
         guard let projectID = result.filmProjectID,
               let shotID = result.shotID,
               let takeID = result.takeID,
@@ -332,14 +388,26 @@ final class TakeGenerationCoordinator {
             return
         }
         var take = project.shots[shotIndex].takes[takeIndex]
+        let outputExists = FileManager.default.fileExists(atPath: result.videoPath)
+        let mediaInfo = outputExists ? MediaProbe.probe(path: result.videoPath) : nil
+        let previousRuntime = take.generationRuntimeDiagnostics
+        let startedAt = previousRuntime?.startedAt ?? take.generationStartedAt ?? result.createdAt
+        let elapsed = max(0, finalizedAt.timeIntervalSince(startedAt))
+        let requestedFrames = previousRuntime?.requestedFrames ?? take.settingsSnapshot.numFrames
+        let requestedDuration = previousRuntime?.requestedDurationSeconds ?? take.requestedDuration
+        let actualMetadataWasRead = mediaInfo != nil
+            || result.actualWidth != nil
+            || result.actualHeight != nil
+            || result.actualDuration != nil
+            || result.actualFPS != nil
         take.status = .completed
         take.outputPath = result.videoPath
         take.seed = result.seed
         take.effectiveWidth = result.effectiveWidth
         take.effectiveHeight = result.effectiveHeight
-        take.actualWidth = result.actualWidth
-        take.actualHeight = result.actualHeight
-        take.actualDuration = result.actualDuration
+        take.actualWidth = result.actualWidth ?? mediaInfo?.width
+        take.actualHeight = result.actualHeight ?? mediaInfo?.height
+        take.actualDuration = result.actualDuration ?? mediaInfo?.durationSeconds
         take.modelRevision = result.modelRevision
         take.quantization = result.quantization
         take.preset = result.preset ?? take.preset
@@ -352,23 +420,58 @@ final class TakeGenerationCoordinator {
         take.settingsSnapshot = result.parameters
         take.fps = result.parameters.fps
         take.requestedDuration = result.requestedDurationSeconds ?? take.requestedDuration
+        take.generationStartedAt = startedAt
         take.generationCompletedAt = result.completedAt
         take.generationTime = result.duration
         take.peakMemoryBytes = result.peakMemoryBytes
         take.swapPeakBytes = result.swapPeakBytes
-        if let path = take.outputPath, let info = MediaProbe.probe(path: path) {
-            take.audioMetadata = info
+        if let mediaInfo {
+            take.audioMetadata = mediaInfo
         }
+        take.generationRuntimeDiagnostics = GenerationRuntimeDiagnostics(
+            status: .succeeded,
+            startedAt: startedAt,
+            finishedAt: finalizedAt,
+            elapsedSeconds: elapsed,
+            requestedWidth: previousRuntime?.requestedWidth ?? take.requestedWidth,
+            requestedHeight: previousRuntime?.requestedHeight ?? take.requestedHeight,
+            effectiveWidth: result.effectiveWidth ?? effectiveDimension(result.parameters.width),
+            effectiveHeight: result.effectiveHeight ?? effectiveDimension(result.parameters.height),
+            actualWidth: mediaInfo?.width ?? result.actualWidth,
+            actualHeight: mediaInfo?.height ?? result.actualHeight,
+            requestedFrames: requestedFrames,
+            requestedDurationSeconds: requestedDuration,
+            actualDurationSeconds: mediaInfo?.durationSeconds ?? result.actualDuration,
+            actualFPS: mediaInfo?.fps ?? result.actualFPS,
+            actualFrameCount: mediaInfo?.frameCount,
+            backendResult: .succeeded,
+            backendExitCode: nil,
+            failureStage: nil,
+            errorSummary: nil,
+            outputFilename: URL(fileURLWithPath: result.videoPath).lastPathComponent,
+            outputExists: outputExists,
+            outputMetadataReadable: actualMetadataWasRead
+        )
         project.shots[shotIndex].takes[takeIndex] = take
         for jobIndex in project.jobs.indices where project.jobs[jobIndex].takeID == takeID {
             project.jobs[jobIndex].state = .completed
-            project.jobs[jobIndex].updatedAt = Date()
+            project.jobs[jobIndex].updatedAt = finalizedAt
+            project.jobs[jobIndex].errorMessage = nil
         }
         store.save(project)
     }
 
-    /// Mirrors a cancelled GenerationRequest into its persisted Take and Job.
-    func recordCancellation(request: GenerationRequest) {
+    /// Persists a terminal failure without changing the error returned to the
+    /// queue/UI. Full stderr remains in the existing runner log; the project
+    /// stores only a bounded summary and the existing output-file facts.
+    func recordFailure(
+        request: GenerationRequest,
+        error: Error,
+        stage explicitStage: GenerationFailureStage? = nil,
+        effectiveParameters: GenerationParameters? = nil,
+        outputPath: String? = nil,
+        finalizedAt: Date = Date()
+    ) {
         guard let projectID = request.filmProjectID,
               let shotID = request.shotID,
               let takeID = request.takeID,
@@ -377,12 +480,138 @@ final class TakeGenerationCoordinator {
               let takeIndex = project.shots[shotIndex].takes.firstIndex(where: { $0.id == takeID }) else {
             return
         }
-        project.shots[shotIndex].takes[takeIndex].status = .cancelled
+
+        var take = project.shots[shotIndex].takes[takeIndex]
+        let stage = explicitStage ?? GenerationRuntimeFailureClassifier.stage(for: error)
+        let summary = GenerationRuntimeFailureClassifier.conciseSummary(for: error)
+        let previousRuntime = take.generationRuntimeDiagnostics
+        let startedAt = previousRuntime?.startedAt ?? take.generationStartedAt ?? finalizedAt
+        let elapsed = max(0, finalizedAt.timeIntervalSince(startedAt))
+        let parameters = effectiveParameters ?? request.parameters
+        let recordedOutputPath = outputPath ?? take.outputPath
+        let outputExists = recordedOutputPath.map(FileManager.default.fileExists(atPath:)) ?? false
+        let mediaInfo = (recordedOutputPath.flatMap { outputExists ? MediaProbe.probe(path: $0) : nil })
+        let backendResult: GenerationBackendResultStatus
+        switch stage {
+        case .sourcePreparation, .backendLaunch:
+            backendResult = .notStarted
+        case .cancelled:
+            backendResult = .cancelled
+        case .unknown:
+            backendResult = .unavailable
+        case .backendGeneration, .outputMissing, .outputValidation:
+            backendResult = .failed
+        }
+
+        take.status = .failed
+        take.outputPath = recordedOutputPath
+        take.actualWidth = mediaInfo?.width ?? take.actualWidth
+        take.actualHeight = mediaInfo?.height ?? take.actualHeight
+        take.actualDuration = mediaInfo?.durationSeconds ?? take.actualDuration
+        take.audioMetadata = mediaInfo ?? take.audioMetadata
+        take.generationStartedAt = startedAt
+        take.generationCompletedAt = finalizedAt
+        take.generationTime = elapsed
+        take.generationRuntimeDiagnostics = GenerationRuntimeDiagnostics(
+            status: .failed,
+            startedAt: startedAt,
+            finishedAt: finalizedAt,
+            elapsedSeconds: elapsed,
+            requestedWidth: previousRuntime?.requestedWidth ?? take.requestedWidth,
+            requestedHeight: previousRuntime?.requestedHeight ?? take.requestedHeight,
+            effectiveWidth: effectiveDimension(parameters.width),
+            effectiveHeight: effectiveDimension(parameters.height),
+            actualWidth: mediaInfo?.width,
+            actualHeight: mediaInfo?.height,
+            requestedFrames: previousRuntime?.requestedFrames ?? take.settingsSnapshot.numFrames,
+            requestedDurationSeconds: previousRuntime?.requestedDurationSeconds ?? take.requestedDuration,
+            actualDurationSeconds: mediaInfo?.durationSeconds,
+            actualFPS: mediaInfo?.fps,
+            actualFrameCount: mediaInfo?.frameCount,
+            backendResult: backendResult,
+            backendExitCode: GenerationRuntimeFailureClassifier.exitCode(from: error),
+            failureStage: stage,
+            errorSummary: summary,
+            outputFilename: recordedOutputPath.map { URL(fileURLWithPath: $0).lastPathComponent },
+            outputExists: outputExists,
+            outputMetadataReadable: outputExists ? mediaInfo != nil : false
+        )
+        project.shots[shotIndex].takes[takeIndex] = take
         for jobIndex in project.jobs.indices where project.jobs[jobIndex].takeID == takeID {
-            project.jobs[jobIndex].state = .cancelled
-            project.jobs[jobIndex].updatedAt = Date()
+            project.jobs[jobIndex].state = .failed
+            project.jobs[jobIndex].updatedAt = finalizedAt
+            project.jobs[jobIndex].errorMessage = summary
         }
         store.save(project)
+    }
+
+    /// Mirrors a cancelled GenerationRequest into its persisted Take and Job.
+    func recordCancellation(
+        request: GenerationRequest,
+        effectiveParameters: GenerationParameters? = nil,
+        outputPath: String? = nil,
+        finalizedAt: Date = Date()
+    ) {
+        guard let projectID = request.filmProjectID,
+              let shotID = request.shotID,
+              let takeID = request.takeID,
+              var project = store.project(id: projectID),
+              let shotIndex = project.shots.firstIndex(where: { $0.id == shotID }),
+              let takeIndex = project.shots[shotIndex].takes.firstIndex(where: { $0.id == takeID }) else {
+            return
+        }
+        var take = project.shots[shotIndex].takes[takeIndex]
+        let previousRuntime = take.generationRuntimeDiagnostics
+        let startedAt = previousRuntime?.startedAt ?? take.generationStartedAt ?? finalizedAt
+        let elapsed = max(0, finalizedAt.timeIntervalSince(startedAt))
+        let parameters = effectiveParameters ?? request.parameters
+        let recordedOutputPath = outputPath ?? take.outputPath
+        let outputExists = recordedOutputPath.map(FileManager.default.fileExists(atPath:)) ?? false
+        let mediaInfo = recordedOutputPath.flatMap { outputExists ? MediaProbe.probe(path: $0) : nil }
+        take.status = .cancelled
+        take.outputPath = recordedOutputPath
+        take.actualWidth = mediaInfo?.width ?? take.actualWidth
+        take.actualHeight = mediaInfo?.height ?? take.actualHeight
+        take.actualDuration = mediaInfo?.durationSeconds ?? take.actualDuration
+        take.audioMetadata = mediaInfo ?? take.audioMetadata
+        take.generationStartedAt = startedAt
+        take.generationCompletedAt = finalizedAt
+        take.generationTime = elapsed
+        take.generationRuntimeDiagnostics = GenerationRuntimeDiagnostics(
+            status: .cancelled,
+            startedAt: startedAt,
+            finishedAt: finalizedAt,
+            elapsedSeconds: elapsed,
+            requestedWidth: previousRuntime?.requestedWidth ?? take.requestedWidth,
+            requestedHeight: previousRuntime?.requestedHeight ?? take.requestedHeight,
+            effectiveWidth: effectiveDimension(parameters.width),
+            effectiveHeight: effectiveDimension(parameters.height),
+            actualWidth: mediaInfo?.width,
+            actualHeight: mediaInfo?.height,
+            requestedFrames: previousRuntime?.requestedFrames ?? take.settingsSnapshot.numFrames,
+            requestedDurationSeconds: previousRuntime?.requestedDurationSeconds ?? take.requestedDuration,
+            actualDurationSeconds: mediaInfo?.durationSeconds,
+            actualFPS: mediaInfo?.fps,
+            actualFrameCount: mediaInfo?.frameCount,
+            backendResult: .cancelled,
+            backendExitCode: nil,
+            failureStage: .cancelled,
+            errorSummary: "Generation cancelled.",
+            outputFilename: recordedOutputPath.map { URL(fileURLWithPath: $0).lastPathComponent },
+            outputExists: outputExists,
+            outputMetadataReadable: outputExists ? mediaInfo != nil : false
+        )
+        project.shots[shotIndex].takes[takeIndex] = take
+        for jobIndex in project.jobs.indices where project.jobs[jobIndex].takeID == takeID {
+            project.jobs[jobIndex].state = .cancelled
+            project.jobs[jobIndex].updatedAt = finalizedAt
+            project.jobs[jobIndex].errorMessage = nil
+        }
+        store.save(project)
+    }
+
+    private func effectiveDimension(_ value: Int) -> Int {
+        (value / 64) * 64
     }
 
     /// Selects a take for final assembly.

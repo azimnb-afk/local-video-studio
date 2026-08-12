@@ -533,6 +533,10 @@ struct Take: Codable, Equatable, Identifiable {
     /// Historical source/provenance for this queued generation. Optional so
     /// all projects written before Generation Diagnostics continue to decode.
     var generationSourceDiagnostics: GenerationSourceDiagnostics?
+    /// Historical execution facts. Optional so projects created before runtime
+    /// diagnostics safely remain "unavailable" rather than being guessed from
+    /// current settings or a later output file.
+    var generationRuntimeDiagnostics: GenerationRuntimeDiagnostics?
 }
 
 // MARK: - Continuity chain

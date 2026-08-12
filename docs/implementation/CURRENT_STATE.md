@@ -1181,3 +1181,46 @@ Shot 1 Take 2 (`72C073D4…`) remained selected after restart; the historical
 Shot 2 Take still reported Take 1 (`5DE36E94…`), while the regenerated Shot 2
 Take reported `Selected take · 72C073D4` and a Take-2-named managed continuity
 PNG. The production queue stayed empty and no LTX render was started.
+
+## 2026-08-12 LTX Generation Diagnostics — Phase 2
+
+**Status: PASS — runtime/failure diagnostics frozen after this checkpoint.**
+Each project-backed Take now has an optional immutable
+`GenerationRuntimeDiagnostics` snapshot in addition to the existing Phase 1
+`GenerationSourceDiagnostics`. It starts at the existing queue execution
+boundary and is finalized on the existing success, failure, or cancellation
+paths. No source precedence, selected-Take semantics, Cut/Continue behavior,
+Identity Refresh, image conditioning, generation settings, retry ladder, model
+selection, or queue ordering changed.
+
+The snapshot separates requested, effective, and actual values. Requested
+resolution/frames/duration remain the Take's original planning facts; effective
+resolution records the existing backend request after its normal 64-pixel floor
+and any already-existing profile resolution; actual resolution, duration, FPS,
+and frame count are read only from the output media file. `actualFrameCount` is
+saved only when ffprobe explicitly supplies `nb_frames`; duration × FPS is never
+used as a substitute. Output existence and metadata readability are recorded
+independently, so an unreadable/corrupt output is safe and never becomes fake
+metadata.
+
+Failures record a small stage (`sourcePreparation`, `backendLaunch`,
+`backendGeneration`, `outputMissing`, `outputValidation`, `cancelled`, or
+`unknown`), concise size-capped error text, backend result, and any exit code
+already present in the existing error plumbing. Full stderr remains in the
+existing local runner log rather than project JSON. Earlier Takes remain runtime
+diagnostics-unavailable; the app does not infer or backfill their historical
+facts from current settings.
+
+The existing compact Take disclosure now groups **Source** and **Runtime**
+without a raw-log viewer. It shows status, elapsed, requested/effective/actual
+resolution, available video facts, backend/exit result, failure stage/error,
+and output/metadata state. Phase 1 provenance remains unchanged.
+
+Validation: baseline was **1547 passed / 0 failed**; Phase 2 finishes at
+**1600 passed / 0 failed**. `swift build`, Xcode Debug `clean build`, and
+`git diff --check` pass. The canonical app was resolved by
+`xcodebuild -showBuildSettings`, then launched by its full path (not `open -a`)
+after stopping the old process. GUI acceptance project
+`RUNTIME DIAGNOSTICS GUI ACCEPTANCE` confirmed legacy, success, failure, and
+selected-Take continuation details using existing MP4 fixtures; no LTX render,
+download, or production-queue work was started.

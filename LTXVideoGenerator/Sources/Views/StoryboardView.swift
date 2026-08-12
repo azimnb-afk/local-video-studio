@@ -2084,25 +2084,77 @@ private struct TakeRow: View {
 
     @ViewBuilder
     private var diagnosticsDisclosure: some View {
-        if let diagnostics = take.generationSourceDiagnostics {
+        if take.generationSourceDiagnostics != nil || take.generationRuntimeDiagnostics != nil {
             DisclosureGroup(diagnosticsHeading) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Mode: \(diagnostics.actualVideoMode.displayName)")
-                    Text("Source: \(diagnostics.effectiveSource.displayName)")
-                    if let filename = diagnostics.sourceFilename {
-                        Text("Image: \(filename)")
+                    if let diagnostics = take.generationSourceDiagnostics {
+                        Text("Source")
+                            .fontWeight(.semibold)
+                        Text("Mode: \(diagnostics.actualVideoMode.displayName)")
+                        Text("Source: \(diagnostics.effectiveSource.displayName)")
+                        if let filename = diagnostics.sourceFilename {
+                            Text("Image: \(filename)")
+                        }
+                        if let takeID = diagnostics.continuitySourceTakeID {
+                            let reason = diagnostics.continuityTakeSelectionReason?.displayName ?? "Recorded source take"
+                            Text("Continuation: \(reason) · \(takeID.uuidString.prefix(8))")
+                        }
+                        if let origin = diagnostics.refreshAnchorOrigin {
+                            Text("Refresh provenance: \(origin.displayName)")
+                        }
+                        if let preparation = diagnostics.imagePreparation {
+                            Text("Image prep: \(preparation.originalWidth)×\(preparation.originalHeight) → \(preparation.effectiveWidth)×\(preparation.effectiveHeight) · \(preparation.mode.displayName)")
+                        } else if diagnostics.actualVideoMode == .imageToVideo && isHistoricalTake {
+                            Text("Image prep: not recorded")
+                        }
                     }
-                    if let takeID = diagnostics.continuitySourceTakeID {
-                        let reason = diagnostics.continuityTakeSelectionReason?.displayName ?? "Recorded source take"
-                        Text("Continuation: \(reason) · \(takeID.uuidString.prefix(8))")
-                    }
-                    if let origin = diagnostics.refreshAnchorOrigin {
-                        Text("Refresh provenance: \(origin.displayName)")
-                    }
-                    if let preparation = diagnostics.imagePreparation {
-                        Text("Image prep: \(preparation.originalWidth)×\(preparation.originalHeight) → \(preparation.effectiveWidth)×\(preparation.effectiveHeight) · \(preparation.mode.displayName)")
-                    } else if diagnostics.actualVideoMode == .imageToVideo && isHistoricalTake {
-                        Text("Image prep: not recorded")
+
+                    if let runtime = take.generationRuntimeDiagnostics {
+                        if take.generationSourceDiagnostics != nil {
+                            Divider().padding(.vertical, 2)
+                        }
+                        Text("Runtime")
+                            .fontWeight(.semibold)
+                        Text("Status: \(runtime.status.displayName)")
+                        if let elapsed = runtime.elapsedSeconds {
+                            Text("Elapsed: \(formattedSeconds(elapsed))")
+                        }
+                        Text("Requested: \(resolution(runtime.requestedWidth, runtime.requestedHeight))")
+                        if let width = runtime.effectiveWidth, let height = runtime.effectiveHeight {
+                            Text("Effective: \(resolution(width, height))")
+                        }
+                        if let width = runtime.actualWidth, let height = runtime.actualHeight {
+                            Text("Actual: \(resolution(width, height))")
+                            if width != runtime.requestedWidth || height != runtime.requestedHeight {
+                                Text("Actual output differs from requested resolution.")
+                                    .foregroundStyle(.orange)
+                            }
+                        } else if runtime.status == .succeeded {
+                            Text("Actual: unavailable")
+                        }
+                        if let videoFacts = runtimeVideoFacts(runtime) {
+                            Text("Video: \(videoFacts)")
+                        }
+                        Text("Backend: \(runtime.backendResult.displayName)\(runtime.backendExitCode.map { " · exit \($0)" } ?? "")")
+                        if let stage = runtime.failureStage {
+                            Text("Failure: \(stage.displayName)")
+                        }
+                        if let summary = runtime.errorSummary, !summary.isEmpty {
+                            Text("Error: \(summary)")
+                        }
+                        if let filename = runtime.outputFilename {
+                            Text("Output: \(filename) · \(runtime.outputExists ? "present" : "missing")")
+                        } else if runtime.status != .running {
+                            Text("Output: not created")
+                        }
+                        if let readable = runtime.outputMetadataReadable {
+                            Text("Metadata: \(readable ? "readable" : "unavailable")")
+                        }
+                    } else if isHistoricalTake {
+                        if take.generationSourceDiagnostics != nil {
+                            Divider().padding(.vertical, 2)
+                        }
+                        Text("Runtime diagnostics unavailable for this earlier Take.")
                     }
                 }
                 .font(.caption2)
@@ -2112,10 +2164,35 @@ private struct TakeRow: View {
             .font(.caption2)
             .foregroundStyle(.secondary)
         } else if isHistoricalTake {
-            Text("Generation diagnostics unavailable for this earlier Take.")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Generation diagnostics unavailable for this earlier Take.")
+                Text("Runtime diagnostics unavailable for this earlier Take.")
+            }
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
         }
+    }
+
+    private func resolution(_ width: Int, _ height: Int) -> String {
+        "\(width)×\(height)"
+    }
+
+    private func formattedSeconds(_ seconds: Double) -> String {
+        String(format: "%.2fs", seconds)
+    }
+
+    private func runtimeVideoFacts(_ runtime: GenerationRuntimeDiagnostics) -> String? {
+        var parts: [String] = []
+        if let duration = runtime.actualDurationSeconds {
+            parts.append(formattedSeconds(duration))
+        }
+        if let fps = runtime.actualFPS {
+            parts.append(String(format: "%.2f fps", fps))
+        }
+        if let frameCount = runtime.actualFrameCount {
+            parts.append("\(frameCount) frames")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private var diagnosticsHeading: String {

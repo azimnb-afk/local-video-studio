@@ -354,6 +354,223 @@ if CommandLine.arguments.count == 2,
     }
 }
 
+// Creates a no-render acceptance project for Generation Diagnostics Phase 2.
+// Existing completed MP4 fixtures exercise the production Take persistence and
+// media-inspection path; no model is loaded and no video is generated.
+//
+//   swift run LTXTests --prepare-runtime-diagnostics-gui
+if CommandLine.arguments.count == 2,
+   CommandLine.arguments[1] == "--prepare-runtime-diagnostics-gui" {
+    let fixtureA = "/tmp/ltx_baseline/T2V-A-ON.mp4"
+    let fixtureB = "/tmp/ltx_baseline/I2V-A-ON.mp4"
+    guard FileManager.default.fileExists(atPath: fixtureA),
+          FileManager.default.fileExists(atPath: fixtureB) else {
+        fputs("Baseline fixture videos are unavailable.\n", stderr)
+        exit(2)
+    }
+
+    let store = FilmProjectStore.shared
+    let coordinator = TakeGenerationCoordinator(store: store)
+    let now = Date()
+    var project = FilmProject(title: "RUNTIME DIAGNOSTICS GUI ACCEPTANCE")
+    project.workflowMode = "storyboard"
+    project.settings.applyPreset(.custom)
+    project.settings.width = 768
+    project.settings.height = 1080
+    project.settings.fps = 24
+    project.settings.numFrames = 121
+    var acceptanceParameters = GenerationParameters.default
+    acceptanceParameters.width = 768
+    acceptanceParameters.height = 1080
+    acceptanceParameters.fps = 24
+    acceptanceParameters.numFrames = 121
+
+    func makeTake(
+        shot: Shot,
+        seed: Int,
+        status: TakeStatus = .completed,
+        source: GenerationSourceDiagnostics? = nil
+    ) -> Take {
+        Take(
+            shotID: shot.id,
+            modelID: "acceptance-fixture",
+            seed: seed,
+            promptSnapshot: shot.compiledPrompt,
+            settingsSnapshot: acceptanceParameters,
+            requestedWidth: 768,
+            requestedHeight: 1080,
+            fps: 24,
+            requestedDuration: 121.0 / 24.0,
+            status: status,
+            generationSourceDiagnostics: source
+        )
+    }
+
+    var legacyShot = Shot(index: 0, title: "Legacy Take")
+    legacyShot.compiledPrompt = "A legacy completed take without diagnostics."
+    var legacyTake = makeTake(shot: legacyShot, seed: 101)
+    legacyTake.outputPath = fixtureA
+    legacyTake.generationCompletedAt = now.addingTimeInterval(-80)
+    legacyShot.takes = [legacyTake]
+
+    let t2vSource = GenerationSourceDiagnostics(
+        requestedContinuityMode: .cut,
+        effectiveSource: .none,
+        actualVideoMode: .textToVideo,
+        sourceFilename: nil,
+        sourceProjectRelativePath: nil,
+        continuitySourceShotID: nil,
+        continuitySourceTakeID: nil,
+        continuityTakeSelectionReason: nil,
+        refreshAnchorOrigin: nil,
+        refreshAnchorSourceShotID: nil,
+        refreshAnchorSourceTakeID: nil,
+        imagePreparation: nil,
+        recordedAt: now.addingTimeInterval(-70)
+    )
+    var successShot = Shot(index: 1, title: "Succeeded Runtime")
+    successShot.compiledPrompt = "A fixture-backed success with runtime facts."
+    let successTake = makeTake(shot: successShot, seed: 202, status: .queued, source: t2vSource)
+    successShot.takes = [successTake]
+
+    let i2vSource = GenerationSourceDiagnostics(
+        requestedContinuityMode: .cut,
+        effectiveSource: .explicitStartingImage,
+        actualVideoMode: .imageToVideo,
+        sourceFilename: "missing-starting-image.png",
+        sourceProjectRelativePath: nil,
+        continuitySourceShotID: nil,
+        continuitySourceTakeID: nil,
+        continuityTakeSelectionReason: nil,
+        refreshAnchorOrigin: nil,
+        refreshAnchorSourceShotID: nil,
+        refreshAnchorSourceTakeID: nil,
+        imagePreparation: nil,
+        recordedAt: now.addingTimeInterval(-60)
+    )
+    var failedShot = Shot(index: 2, title: "Failed Runtime")
+    failedShot.compiledPrompt = "A fixture-backed failure with a concise backend result."
+    let failedTake = makeTake(shot: failedShot, seed: 303, status: .queued, source: i2vSource)
+    failedShot.takes = [failedTake]
+
+    var selectedSourceShot = Shot(index: 3, title: "Selected Source Take")
+    selectedSourceShot.compiledPrompt = "The upstream selected take."
+    var sourceTake1 = makeTake(shot: selectedSourceShot, seed: 401)
+    sourceTake1.outputPath = fixtureA
+    sourceTake1.generationCompletedAt = now.addingTimeInterval(-50)
+    var sourceTake2 = makeTake(shot: selectedSourceShot, seed: 402)
+    sourceTake2.outputPath = fixtureB
+    sourceTake2.generationCompletedAt = now.addingTimeInterval(-40)
+    var sourceTake3 = makeTake(shot: selectedSourceShot, seed: 403)
+    sourceTake3.outputPath = fixtureA
+    sourceTake3.generationCompletedAt = now.addingTimeInterval(-30)
+    selectedSourceShot.takes = [sourceTake1, sourceTake2, sourceTake3]
+    selectedSourceShot.selectedTakeID = sourceTake2.id
+
+    let selectedSourceDiagnostics = GenerationSourceDiagnostics(
+        requestedContinuityMode: .continueFromPrevious,
+        effectiveSource: .inheritedLastFrame,
+        actualVideoMode: .imageToVideo,
+        sourceFilename: URL(fileURLWithPath: fixtureB).lastPathComponent,
+        sourceProjectRelativePath: nil,
+        continuitySourceShotID: selectedSourceShot.id,
+        continuitySourceTakeID: sourceTake2.id,
+        continuityTakeSelectionReason: .selectedTake,
+        refreshAnchorOrigin: nil,
+        refreshAnchorSourceShotID: nil,
+        refreshAnchorSourceTakeID: nil,
+        imagePreparation: nil,
+        recordedAt: now.addingTimeInterval(-20)
+    )
+    var selectedDownstreamShot = Shot(index: 4, title: "Selected Take Continuation")
+    selectedDownstreamShot.compiledPrompt = "The downstream Take must continue from the selected source Take."
+    var downstreamTake = makeTake(
+        shot: selectedDownstreamShot,
+        seed: 404,
+        source: selectedSourceDiagnostics
+    )
+    downstreamTake.outputPath = fixtureB
+    downstreamTake.generationCompletedAt = now.addingTimeInterval(-10)
+    selectedDownstreamShot.takes = [downstreamTake]
+
+    project.shots = [legacyShot, successShot, failedShot, selectedSourceShot, selectedDownstreamShot]
+    let successRequest = GenerationRequest(
+        prompt: successShot.compiledPrompt,
+        modelId: "acceptance-fixture",
+        parameters: acceptanceParameters,
+        filmProjectID: project.id,
+        shotID: successShot.id,
+        takeID: successTake.id
+    )
+    let failedRequest = GenerationRequest(
+        prompt: failedShot.compiledPrompt,
+        sourceImagePath: "/tmp/missing-starting-image.png",
+        modelId: "acceptance-fixture",
+        parameters: acceptanceParameters,
+        filmProjectID: project.id,
+        shotID: failedShot.id,
+        takeID: failedTake.id
+    )
+    project.jobs = [
+        GenerationJob(projectID: project.id, shotID: successShot.id, takeID: successTake.id, requestID: successRequest.id),
+        GenerationJob(projectID: project.id, shotID: failedShot.id, takeID: failedTake.id, requestID: failedRequest.id),
+    ]
+    store.save(project)
+
+    let successStartedAt = now.addingTimeInterval(-19)
+    let successFinishedAt = now.addingTimeInterval(-7)
+    coordinator.recordExecutionStarted(request: successRequest, startedAt: successStartedAt)
+    var effective = successRequest.parameters
+    effective.width = 704
+    effective.height = 1024
+    coordinator.recordCompletion(
+        result: GenerationResult(
+            id: UUID(), requestId: successRequest.id, prompt: successRequest.prompt,
+            enhancedPrompt: nil, negativePrompt: "", voiceoverText: "",
+            voiceoverSource: "mlx-audio", voiceoverVoice: "af_heart",
+            modelId: successRequest.modelId, parameters: effective,
+            videoPath: fixtureA, thumbnailPath: nil, audioPath: nil, musicPath: nil,
+            musicGenre: nil, sourceImagePath: nil, createdAt: successStartedAt,
+            completedAt: successFinishedAt, duration: 12, seed: successTake.seed,
+            requestedWidth: 768, requestedHeight: 1080,
+            requestedDurationSeconds: 121.0 / 24.0,
+            effectiveWidth: 704, effectiveHeight: 1024,
+            filmProjectID: project.id, shotID: successShot.id, takeID: successTake.id
+        ),
+        finalizedAt: successFinishedAt
+    )
+
+    let failureStartedAt = now.addingTimeInterval(-6)
+    let failureFinishedAt = now.addingTimeInterval(-3)
+    coordinator.recordExecutionStarted(request: failedRequest, startedAt: failureStartedAt)
+    coordinator.recordFailure(
+        request: failedRequest,
+        error: LTXError.generationFailed("Exit code 15. Fixture backend failure."),
+        effectiveParameters: failedRequest.parameters,
+        outputPath: store.projectsDirectory
+            .appendingPathComponent(project.id.uuidString, isDirectory: true)
+            .appendingPathComponent("missing-runtime-output.mp4").path,
+        finalizedAt: failureFinishedAt
+    )
+
+    let reopened = FilmProjectStore(projectsDirectory: store.projectsDirectory)
+    guard let verified = reopened.project(id: project.id),
+          verified.shots[1].takes.first?.generationRuntimeDiagnostics?.status == .succeeded,
+          verified.shots[2].takes.first?.generationRuntimeDiagnostics?.failureStage == .backendGeneration,
+          verified.shots[4].takes.first?.generationSourceDiagnostics?.continuitySourceTakeID == sourceTake2.id,
+          verified.shots[3].selectedTakeID == sourceTake2.id else {
+        fputs("Runtime diagnostics acceptance fixture verification failed.\n", stderr)
+        exit(3)
+    }
+    print("projectID=\(project.id.uuidString)")
+    print("projectFile=\(store.projectsDirectory.appendingPathComponent(project.id.uuidString + ".json").path)")
+    print("successTake=\(successTake.id.uuidString)")
+    print("failedTake=\(failedTake.id.uuidString)")
+    print("selectedSourceTake=\(sourceTake2.id.uuidString)")
+    print("selectedContinuationTake=\(downstreamTake.id.uuidString)")
+    exit(0)
+}
+
 // Re-runs the shipping local-Vision visibility assessor against one saved
 // production frame and prints the complete Codable result. This is a read-only
 // acceptance diagnostic: it uses the same model selection/provider/prompt as
@@ -436,6 +653,7 @@ runCharacterSheetTests(t)
 runCharacterReferenceExtractionTests(t)
 runImageConditioningPreparerTests(t)
 runGenerationSourceDiagnosticsTests(t)
+runGenerationRuntimeDiagnosticsTests(t)
 runStartingImageBridgeTests(t)
 runStartingImageUXTests(t)
 runStoryboardTests(t)

@@ -681,13 +681,13 @@ struct PromptInputView: View {
                 } else {
                     // Normal state - generate button
                     Button {
-                        if DependencyHealthManager.shared.isGenerationReady {
+                        if DependencyHealthManager.shared.canStartGeneration {
                             requestSingleGeneration()
                         } else {
                             DependencyHealthManager.shared.showSetupWizard = true
                         }
                     } label: {
-                        if DependencyHealthManager.shared.isGenerationReady {
+                        if DependencyHealthManager.shared.canStartGeneration {
                             Label("Generate", systemImage: "play.fill")
                                 .frame(maxWidth: .infinity)
                         } else {
@@ -697,7 +697,7 @@ struct PromptInputView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-                    .disabled(generationActionsDisabled && DependencyHealthManager.shared.isGenerationReady)
+                    .disabled(generationActionsDisabled && DependencyHealthManager.shared.canStartGeneration)
                 }
                 
                 // Track completion - only when currentRequest goes away (actual generation done)
@@ -950,7 +950,7 @@ struct PromptInputView: View {
     }
 
     private func requestSingleGeneration() {
-        if !DependencyHealthManager.shared.isGenerationReady {
+        if !DependencyHealthManager.shared.canStartGeneration {
             DependencyHealthManager.shared.showSetupWizard = true
             return
         }
@@ -991,7 +991,7 @@ struct PromptInputView: View {
     }
 
     private func requestBatchGeneration(count: Int) {
-        if !DependencyHealthManager.shared.isGenerationReady {
+        if !DependencyHealthManager.shared.canStartGeneration {
             DependencyHealthManager.shared.showSetupWizard = true
             return
         }

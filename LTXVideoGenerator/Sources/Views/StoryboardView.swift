@@ -257,7 +257,7 @@ struct StoryboardView: View {
                 CharacterPromptPipeline.recompile(project: &project)
                 store.save(project)
                 if mode == .hybrid, generateFirstPass {
-                    if !DependencyHealthManager.shared.isGenerationReady {
+                    if !DependencyHealthManager.shared.canStartGeneration {
                         DependencyHealthManager.shared.showSetupWizard = true
                     } else {
                         // Rendering goes through the global production queue so
@@ -687,7 +687,7 @@ private struct ProjectDetailView: View {
     }
 
     private func generateMissingTakes() {
-        if !DependencyHealthManager.shared.isGenerationReady {
+        if !DependencyHealthManager.shared.canStartGeneration {
             DependencyHealthManager.shared.showSetupWizard = true
             return
         }
@@ -702,7 +702,7 @@ private struct ProjectDetailView: View {
     }
 
     private func regenerateSelectedShots() {
-        if !DependencyHealthManager.shared.isGenerationReady {
+        if !DependencyHealthManager.shared.canStartGeneration {
             DependencyHealthManager.shared.showSetupWizard = true
             return
         }
@@ -970,7 +970,7 @@ private struct ShotCard: View {
     }
 
     private func plan(count: Int) {
-        if !DependencyHealthManager.shared.isGenerationReady {
+        if !DependencyHealthManager.shared.canStartGeneration {
             DependencyHealthManager.shared.showSetupWizard = true
             return
         }

@@ -344,7 +344,22 @@ struct PreferencesView: View {
                     
                     Toggle("Auto-load model on startup", isOn: $autoLoadModel)
                 }
-                
+                .onChange(of: selectedModelID) { _, _ in
+                    // A newly selected model is very likely not downloaded yet.
+                    // Re-check dependency health now so the setup dashboard and
+                    // Generate button reflect the new selection immediately,
+                    // instead of showing stale status from before the change.
+                    Task { await DependencyHealthManager.shared.refresh() }
+                }
+                .onChange(of: selectedTextEncoderID) { _, _ in
+                    Task { await DependencyHealthManager.shared.refresh() }
+                }
+                .onChange(of: customTextEncoderRepo) { _, _ in
+                    if selectedTextEncoderID == "custom" {
+                        Task { await DependencyHealthManager.shared.refresh() }
+                    }
+                }
+
                 Section("Storage") {
                     HStack {
                         TextField("Output Directory", text: $outputDirectory)

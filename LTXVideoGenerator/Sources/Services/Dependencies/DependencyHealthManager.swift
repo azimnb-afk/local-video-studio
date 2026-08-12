@@ -6,6 +6,23 @@ public enum SetupStatus: Equatable {
     case missing(String)
     case invalid(String)
     case unsupported(String)
+
+    /// True for `.ready` (already available locally) and `.missing` (a valid,
+    /// registered selection that simply isn't downloaded yet). A generation
+    /// attempt is what actually triggers the download for official models
+    /// (the Python backend fetches from Hugging Face on first use), so
+    /// "not yet downloaded" must not block the attempt that downloads it.
+    /// `.invalid`/`.unsupported` (e.g. an unregistered model id) describe a
+    /// real problem a generation attempt cannot resolve, so those still block.
+    /// `.checking` blocks until the first check completes.
+    var allowsGenerationAttempt: Bool {
+        switch self {
+        case .ready, .missing:
+            return true
+        case .checking, .invalid, .unsupported:
+            return false
+        }
+    }
 }
 
 public enum SetupRequirement: String, CaseIterable, Hashable {
@@ -68,7 +85,20 @@ public class DependencyHealthManager: ObservableObject {
         .vision: .checking
     ]
     
+    /// Selected == Installed/Available == Ready for every requirement,
+    /// including a text encoder / video model that is already downloaded.
+    /// Used for the setup dashboard's own "fully ready" display, not for
+    /// gating whether a generation attempt may start (see `canStartGeneration`).
     @Published public private(set) var isGenerationReady: Bool = false
+
+    /// True when a generation attempt may be started: the hard runtime
+    /// prerequisites (Python, ffmpeg) are ready, and the selected video
+    /// model / text encoder are not in a broken (`.invalid`/`.unsupported`)
+    /// state. A selected-but-not-yet-downloaded model ("Download Required")
+    /// does not block this — starting generation is what triggers that
+    /// model's download via the Python backend.
+    @Published public private(set) var canStartGeneration: Bool = false
+
     @Published public private(set) var isChecking: Bool = false
     
     @Published public var showSetupWizard: Bool = false
@@ -119,12 +149,18 @@ public class DependencyHealthManager: ObservableObject {
             .vision: visionStatus
         ]
         
-        self.isGenerationReady = 
+        self.isGenerationReady =
             pythonStatus == .ready &&
             ffmpegStatus == .ready &&
             videoModelStatus == .ready &&
             textEncoderStatus == .ready
-            
+
+        self.canStartGeneration =
+            pythonStatus == .ready &&
+            ffmpegStatus == .ready &&
+            videoModelStatus.allowsGenerationAttempt &&
+            textEncoderStatus.allowsGenerationAttempt
+
         isChecking = false
     }
     

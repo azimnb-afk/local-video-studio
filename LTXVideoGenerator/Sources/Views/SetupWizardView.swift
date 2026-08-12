@@ -36,7 +36,12 @@ public struct SetupWizardView: View {
         .frame(minWidth: 700, minHeight: 600)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
-            if healthManager.statuses[.python] == .checking {
+            // Re-check every time the wizard is (re)presented, not only on the
+            // very first launch check — otherwise a selection made in
+            // Preferences while the wizard was dismissed (or a dependency
+            // resolved outside the app, e.g. installing ffmpeg) never gets
+            // reflected here, and the wizard shows stale status forever.
+            if !healthManager.isChecking {
                 Task { await healthManager.refresh() }
             }
         }

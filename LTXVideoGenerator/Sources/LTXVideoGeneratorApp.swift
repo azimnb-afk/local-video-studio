@@ -98,7 +98,7 @@ struct RootView: View {
                 hasCheckedPython = true
                 
                 await healthManager.refresh()
-                if !healthManager.isGenerationReady {
+                if !healthManager.canStartGeneration {
                     healthManager.showSetupWizard = true
                 } else if let savedPath = UserDefaults.standard.string(forKey: "pythonPath") {
                     let result = await PythonEnvironment.shared.validateWithSubprocess(path: savedPath, automaticInstallAndUpgrade: false)

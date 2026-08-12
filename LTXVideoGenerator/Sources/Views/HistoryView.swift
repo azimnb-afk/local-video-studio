@@ -222,7 +222,7 @@ struct HistoryView: View {
     }
     
     private func regenerate(_ result: GenerationResult) {
-        if !DependencyHealthManager.shared.isGenerationReady {
+        if !DependencyHealthManager.shared.canStartGeneration {
             DependencyHealthManager.shared.showSetupWizard = true
             return
         }

@@ -404,7 +404,7 @@ private struct OneShotView: View {
             status = error.localizedDescription
             return
         }
-        if !DependencyHealthManager.shared.isGenerationReady {
+        if !DependencyHealthManager.shared.canStartGeneration {
             DependencyHealthManager.shared.showSetupWizard = true
             return
         }

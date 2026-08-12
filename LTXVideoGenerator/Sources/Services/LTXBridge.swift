@@ -213,7 +213,18 @@ class LTXBridge {
         let genHeight = (params.height / 64) * 64
         let seed = params.seed ?? Int.random(in: 0..<Int(Int32.max))
         
-        let selectedModel = LTXModelCatalog.resolvedModel(id: request.modelId)
+        // Resolve through the one boundary that knows what the installed
+        // backend can actually run. A model that is selectable for policy
+        // reasons but not runnable must fail loudly here: silently generating
+        // with a different checkpoint than the user chose is worse than not
+        // generating at all.
+        let selectedModel: LTXModel
+        switch GenerationModelResolver.resolve(modelID: request.modelId) {
+        case .runnable(let model):
+            selectedModel = model
+        case .unsupported(let reason):
+            throw LTXError.modelLoadFailed(reason.userMessage)
+        }
         let modelRepo = selectedModel.repo
         let selectedTextEncoder = LTXTextEncoderCatalog.resolvedTextEncoder(id: request.textEncoderId)
         let textEncoderRepo = selectedTextEncoder.repo

@@ -59,6 +59,83 @@ func runRegistryTests(_ t: TestKit) {
         }
     }
 
+    t.suite("Generation model resolution / no silent fallback") {
+        let registry = ModelRegistry(userDefaults: defaults)
+
+        // Official models resolve to themselves.
+        for official in LTXModelCatalog.all {
+            switch GenerationModelResolver.resolve(modelID: official.id, registry: registry) {
+            case .runnable(let model):
+                t.checkEqual(model.id, official.id, "official \(official.id) resolves to itself")
+            case .unsupported:
+                t.check(false, "official \(official.id) must be runnable")
+            }
+        }
+
+        // No selection keeps the historical default for pre-selection projects.
+        switch GenerationModelResolver.resolve(modelID: nil, registry: registry) {
+        case .runnable(let model):
+            t.checkEqual(model.id, LTXModelCatalog.defaultModel.id, "nil model ID → default")
+        case .unsupported:
+            t.check(false, "nil model ID must stay runnable")
+        }
+        t.check(GenerationModelResolver.isRunnable(modelID: "", registry: registry),
+                "empty model ID → default, still runnable")
+
+        // The regression this boundary exists for: a model the pickers can
+        // offer, that the backend cannot run, must NOT resolve to a different
+        // checkpoint. Before the fix these returned LTX-2.3 Distilled Q4.
+        for labID in ["10eros_v12_q8", "10eros_v13_dmd_q4"] {
+            t.check(registry.descriptor(id: labID) != nil, "\(labID) is a registered model")
+            switch GenerationModelResolver.resolve(modelID: labID, registry: registry) {
+            case .runnable(let model):
+                t.check(false, "\(labID) must not silently resolve to \(model.id)")
+            case .unsupported(let reason):
+                guard case .notRunnableOnInstalledBackend(_, _, let detail) = reason else {
+                    t.check(false, "\(labID) should report a backend reason"); break
+                }
+                t.check(!detail.isEmpty, "\(labID) carries a concrete reason")
+                t.check(reason.userMessage.contains("cannot be generated"),
+                        "\(labID) message states it cannot generate")
+            }
+            t.check(!GenerationModelResolver.isRunnable(modelID: labID, registry: registry),
+                    "\(labID) is not runnable")
+        }
+
+        // A completely unknown ID also fails loudly rather than substituting.
+        switch GenerationModelResolver.resolve(modelID: "no_such_model", registry: registry) {
+        case .runnable(let model):
+            t.check(false, "unknown ID must not resolve to \(model.id)")
+        case .unsupported(let reason):
+            t.checkEqual(reason, .unknownModel(modelID: "no_such_model"), "unknown ID reported as unknown")
+        }
+
+        // Gating is independent of runnability: a model being hidden must not
+        // change how a stored selection resolves.
+        FeatureFlags.disableAll(userDefaults: defaults)
+        t.check(!GenerationModelResolver.isRunnable(modelID: "10eros_v13_dmd_q4", registry: registry),
+                "not runnable with flags off")
+        FeatureFlags.set(.derivedModelsV1, enabled: true, userDefaults: defaults)
+        FeatureFlags.set(.adultModelsV1, enabled: true, userDefaults: defaults)
+        t.check(!GenerationModelResolver.isRunnable(modelID: "10eros_v13_dmd_q4", registry: registry),
+                "still not runnable with flags on — visibility is not capability")
+        FeatureFlags.disableAll(userDefaults: defaults)
+
+        // Every model the pickers can offer must resolve to itself or fail
+        // loudly. This is the invariant that broke: it guards future additions.
+        FeatureFlags.set(.derivedModelsV1, enabled: true, userDefaults: defaults)
+        FeatureFlags.set(.adultModelsV1, enabled: true, userDefaults: defaults)
+        for offered in registry.selectableModels(adultMode: true) {
+            switch GenerationModelResolver.resolve(modelID: offered.id, registry: registry) {
+            case .runnable(let model):
+                t.checkEqual(model.id, offered.id, "offered \(offered.id) resolves to itself")
+            case .unsupported(let reason):
+                t.check(!reason.userMessage.isEmpty, "offered \(offered.id) explains why not")
+            }
+        }
+        FeatureFlags.disableAll(userDefaults: defaults)
+    }
+
     t.suite("Selectable models / flags") {
         let registry = ModelRegistry(userDefaults: defaults)
         // All flags OFF: only official models visible.

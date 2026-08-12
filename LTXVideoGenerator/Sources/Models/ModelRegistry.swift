@@ -223,7 +223,7 @@ final class ModelRegistry {
                 backend: "mlx-video-with-audio",
                 minimumBackendVersion: nil,
                 verified: false,
-                verificationNotes: "Packaged for dgrauet/ltx-2-mlx; direct compatibility with mlx-video-with-audio is UNVERIFIED."
+                verificationNotes: "Measured against mlx-video-with-audio 0.1.36: the transformer ships as transformer-distilled.safetensors while the loader resolves transformer.safetensors, and the weights carry 576 gated-attention tensors the installed LTX model does not define plus a different quantization group size (32 vs 64) that split_model.json does not declare. Not runnable on this backend."
             ),
             policy: PolicyMetadata(
                 contentClassification: .adultVerified,
@@ -248,7 +248,7 @@ final class ModelRegistry {
                 backend: "mlx-video-with-audio",
                 minimumBackendVersion: nil,
                 verified: false,
-                verificationNotes: "Packaged for dgrauet/ltx-2-mlx; direct compatibility with mlx-video-with-audio is UNVERIFIED."
+                verificationNotes: "Measured against mlx-video-with-audio 0.1.36: the transformer ships as transformer-distilled.safetensors while the loader resolves transformer.safetensors, and the weights carry 576 gated-attention tensors the installed LTX model does not define plus a different quantization group size (32 vs 64) that split_model.json does not declare. Not runnable on this backend."
             ),
             policy: PolicyMetadata(
                 contentClassification: .adultVerified,

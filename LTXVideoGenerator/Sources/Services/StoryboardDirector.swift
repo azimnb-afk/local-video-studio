@@ -164,10 +164,20 @@ final class StoryboardDirector {
     private(set) var lastProviderModel: String?
     private(set) var lastPlanningMode: String?
     private(set) var lastFallbackReason: String?
+    /// Which local protocol actually produced the plan, for provenance and
+    /// diagnostics. nil when no local provider succeeded.
+    private(set) var lastProtocol: LocalDirectorProtocol?
+    private let compatibility: LocalDirectorCompatibilityService
+    /// Why the protocol the model was expected to use failed. Kept separate
+    /// from later protocol attempts so trying a second protocol cannot make
+    /// the reported reason less actionable than it was before negotiation.
+    private var preferredProtocolFallbackReason: String?
 
     init(providers: [DirectorProvider]? = nil,
-         requestedMode: DirectorMode = DirectorMode.selected()) {
+         requestedMode: DirectorMode = DirectorMode.selected(),
+         compatibility: LocalDirectorCompatibilityService = LocalDirectorCompatibilityService()) {
         self.requestedMode = requestedMode
+        self.compatibility = compatibility
         if let providers {
             self.providers = providers
         } else if requestedMode == .basic {
@@ -186,6 +196,8 @@ final class StoryboardDirector {
         lastProviderModel = nil
         lastPlanningMode = nil
         lastFallbackReason = nil
+        lastProtocol = nil
+        preferredProtocolFallbackReason = nil
         var lastError: Error = DirectorError.noProviderAvailable
         var precedingProviderFailed = false
         for provider in providers {
@@ -201,15 +213,61 @@ final class StoryboardDirector {
             }
             if precedingProviderFailed, provider.isFallbackProvider {
                 if lastFallbackReason == nil {
-                    lastFallbackReason = diagnostics.reversed().first {
+                    lastFallbackReason = preferredProtocolFallbackReason
+                        ?? diagnostics.reversed().first {
                         $0.stage != .repairFailed && $0.stage != .retryFailed
-                    }?.stage.rawValue
+                        }?.stage.rawValue
                 }
                 record(.templateFallback, provider: provider.name, attempt: 0,
                        message: "using deterministic template after structured planning failed")
             }
             do {
-                let draft = try await draftWithProvider(provider, brief: brief, characterBible: characterBible)
+                let draft: StoryboardDraft
+                if provider.isFallbackProvider {
+                    draft = try await draftWithProvider(
+                        provider, brief: brief, characterBible: characterBible)
+                } else {
+                    // Capability negotiation: start from what this model was
+                    // last seen to handle, and if that protocol fails in
+                    // production, try the remaining ones once each before
+                    // giving up on local planning entirely. Each protocol is
+                    // attempted at most once, so the chain is bounded at
+                    // Structured -> Text -> (next provider).
+                    let model = provider.modelIdentifier ?? ""
+                    let preferred = compatibility.startingProtocol(for: model)
+                    let order = [preferred] + LocalDirectorProtocol.negotiationOrder.filter { $0 != preferred }
+                    var localDraft: StoryboardDraft?
+                    var localError: Error?
+                    for planProtocol in order {
+                        let diagnosticMark = diagnostics.count
+                        do {
+                            localDraft = try await draftWithProvider(
+                                provider, brief: brief, characterBible: characterBible,
+                                planProtocol: planProtocol)
+                            lastProtocol = planProtocol
+                            if !model.isEmpty {
+                                // Remember a downgrade so the next run starts
+                                // with the protocol that actually works.
+                                compatibility.recordSuccessfulProtocol(planProtocol, model: model)
+                            }
+                            break
+                        } catch {
+                            localError = error
+                            if preferredProtocolFallbackReason == nil {
+                                preferredProtocolFallbackReason = diagnostics[diagnosticMark...]
+                                    .reversed()
+                                    .first { $0.stage != .repairFailed && $0.stage != .retryFailed }?
+                                    .stage.rawValue
+                            }
+                            record(.retryFailed, provider: provider.name, attempt: 0,
+                                   message: "\(planProtocol.displayName) protocol did not produce a valid plan")
+                        }
+                    }
+                    guard let negotiated = localDraft else {
+                        throw localError ?? DirectorError.noProviderAvailable
+                    }
+                    draft = negotiated
+                }
                 await provider.terminate()
                 lastPlanningMode = provider.isFallbackProvider
                     ? (requestedMode == .basic ? "basic" : "fallback")
@@ -228,19 +286,37 @@ final class StoryboardDirector {
         throw lastError
     }
 
+    /// Runs exactly one protocol against one provider, with the same bounded
+    /// repair a production run gets. Capability probing uses this so the probe
+    /// asks precisely what production asks — no second implementation of the
+    /// request/parse/repair loop, and no probe that is stricter than the real
+    /// thing and under-reports a usable model.
+    func draftUsingProtocol(
+        _ planProtocol: LocalDirectorProtocol,
+        provider: DirectorProvider,
+        brief: String,
+        characterBible: CharacterBible = CharacterBible()
+    ) async throws -> StoryboardDraft {
+        try await draftWithProvider(provider, brief: brief,
+                                    characterBible: characterBible,
+                                    planProtocol: planProtocol)
+    }
+
     private func draftWithProvider(
         _ provider: DirectorProvider,
         brief: String,
-        characterBible: CharacterBible
+        characterBible: CharacterBible,
+        planProtocol: LocalDirectorProtocol = .structuredJSON
     ) async throws -> StoryboardDraft {
-        var prompt = "BRIEF: \(brief)"
+        var prompt = DirectorPlanFormat.userPrompt(for: planProtocol, brief: brief)
         var lastFailure = ""
         for attempt in 0...maxRepairAttempts {
             let response: String
             do {
                 response = try await provider.complete(
-                    system: Self.storyboardSystemPrompt(characterBible: characterBible),
-                    prompt: prompt
+                    system: DirectorPlanFormat.systemPrompt(for: planProtocol, characterBible: characterBible),
+                    prompt: prompt,
+                    expectsJSON: planProtocol == .structuredJSON
                 )
             } catch {
                 let stage: FailureStage
@@ -251,11 +327,10 @@ final class StoryboardDirector {
                 }
                 record(stage, provider: provider.name, attempt: attempt, message: error.localizedDescription)
                 if attempt < maxRepairAttempts {
-                    prompt = """
-                    The previous request returned no usable response (\(error.localizedDescription)). \
-                    Respond with ONLY the JSON object described in the system prompt.
-                    BRIEF: \(brief)
-                    """
+                    prompt = DirectorPlanFormat.repairPrompt(
+                        for: planProtocol,
+                        failure: error.localizedDescription,
+                        brief: brief)
                     continue
                 }
                 record(.retryFailed, provider: provider.name, attempt: attempt,
@@ -264,7 +339,7 @@ final class StoryboardDirector {
             }
             appendDebugRawResponse(response, provider: provider.name, attempt: attempt)
 
-            let parsed = Self.parseDraftDetailed(from: response, brief: brief)
+            let parsed = DirectorPlanFormat.parse(response, as: planProtocol, brief: brief)
             if var draft = parsed.draft {
                 let repair = Self.repairSemantics(draft, brief: brief)
                 draft = repair.draft
@@ -291,11 +366,8 @@ final class StoryboardDirector {
                        message: lastFailure)
                 break
             }
-            prompt = """
-            Your previous response was invalid (\(lastFailure)). \
-            Respond again with ONLY the JSON object described in the system prompt.
-            BRIEF: \(brief)
-            """
+            prompt = DirectorPlanFormat.repairPrompt(
+                for: planProtocol, failure: lastFailure, brief: brief)
         }
         throw DirectorError.planValidationFailed([lastFailure])
     }
@@ -535,6 +607,7 @@ final class StoryboardDirector {
         project.directorProvider = providerName
         project.directorModel = lastProviderModel
         project.planningMode = lastPlanningMode
+        project.directorProtocol = lastProtocol?.rawValue
         project.fallbackReason = lastFallbackReason
         project.requestedDirectorMode = requestedMode.rawValue
         project.effectiveDirectorMode = providerName == "template"

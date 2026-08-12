@@ -939,18 +939,18 @@ private struct DirectorPreferencesView: View {
     @MainActor
     private func testConnection() async {
         isTesting = true
-        switch await environment.testSelectedModel() {
-        case .success(let model):
-            testResult = (true, "Local AI Director is ready (\(model)) — it returned a usable plan.")
-        case .failure(let error):
-            // A model that replies but cannot produce a plan is a different
-            // problem from an unreachable server, and needs a different fix
-            // from the user, so the two are not reported with one message.
-            if case DirectorError.invalidPlanJSON = error {
-                testResult = (false, "This model replied but did not return a usable plan, so Auto Movie would fall back to the Basic Director. Try a different Local AI model.")
-            } else {
-                testResult = (false, "Local AI could not be reached. Basic Director remains available.")
-            }
+        // Negotiates which planning protocol this model can actually drive and
+        // caches it, so Auto Movie starts with a protocol already known to
+        // work. Users are told the outcome, not the mechanism.
+        let (model, capability) = await environment.testCompatibility()
+        switch capability {
+        case .ready(let planProtocol):
+            let name = model.map { " (\($0))" } ?? ""
+            testResult = (true, "Local AI Director is ready\(name) — protocol: \(planProtocol.displayName).")
+        case .incompatible:
+            testResult = (false, "This model replied but could not produce a usable plan in any supported format, so Auto Movie would use the Basic Director. Try a different Local AI model.")
+        case .unavailable:
+            testResult = (false, "Local AI could not be reached. Basic Director remains available.")
         }
         isTesting = false
         await refresh()

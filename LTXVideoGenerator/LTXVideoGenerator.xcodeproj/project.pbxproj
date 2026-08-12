@@ -98,6 +98,9 @@
 		AA000224 /* ContinuityEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000225; };
 		AA000226 /* StoryboardDirector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000227; };
 		AA000228 /* FinalAssemblyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000229; };
+		AA000308 /* LocalDirectorProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000309; };
+		AA00030A /* TextProtocolPlanParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00030B; };
+		AA00030C /* LocalDirectorCompatibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00030D; };
 		AA000304 /* FinalAudioMixer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000305; };
 		AA00022A /* FilmProjectStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00022B; };
 		AA00022C /* TakeGenerationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00022D; };
@@ -198,6 +201,9 @@
 		AA000225 /* ContinuityEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityEngine.swift; sourceTree = "<group>"; };
 		AA000227 /* StoryboardDirector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryboardDirector.swift; sourceTree = "<group>"; };
 		AA000229 /* FinalAssemblyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalAssemblyService.swift; sourceTree = "<group>"; };
+		AA000309 /* LocalDirectorProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDirectorProtocol.swift; sourceTree = "<group>"; };
+		AA00030B /* TextProtocolPlanParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextProtocolPlanParser.swift; sourceTree = "<group>"; };
+		AA00030D /* LocalDirectorCompatibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDirectorCompatibility.swift; sourceTree = "<group>"; };
 		AA000305 /* FinalAudioMixer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalAudioMixer.swift; sourceTree = "<group>"; };
 		AA00022B /* FilmProjectStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmProjectStore.swift; sourceTree = "<group>"; };
 		AA00022D /* TakeGenerationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TakeGenerationCoordinator.swift; sourceTree = "<group>"; };
@@ -342,6 +348,9 @@
 				AA000225 /* ContinuityEngine.swift */,
 				AA000227 /* StoryboardDirector.swift */,
 				AA000229 /* FinalAssemblyService.swift */,
+				AA000309 /* LocalDirectorProtocol.swift */,
+				AA00030B /* TextProtocolPlanParser.swift */,
+				AA00030D /* LocalDirectorCompatibility.swift */,
 				AA000305 /* FinalAudioMixer.swift */,
 				AA00022B /* FilmProjectStore.swift */,
 				AA000243 /* CharacterSheetAnalysis.swift */,
@@ -542,6 +551,9 @@
 				AA000224 /* ContinuityEngine.swift in Sources */,
 				AA000226 /* StoryboardDirector.swift in Sources */,
 				AA000228 /* FinalAssemblyService.swift in Sources */,
+				AA000308 /* LocalDirectorProtocol.swift in Sources */,
+				AA00030A /* TextProtocolPlanParser.swift in Sources */,
+				AA00030C /* LocalDirectorCompatibility.swift in Sources */,
 				AA000304 /* FinalAudioMixer.swift in Sources */,
 				AA00022A /* FilmProjectStore.swift in Sources */,
 				AA000242 /* CharacterSheetAnalysis.swift in Sources */,

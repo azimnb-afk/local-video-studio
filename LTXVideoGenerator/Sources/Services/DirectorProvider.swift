@@ -15,11 +15,21 @@ protocol DirectorProvider {
     func isAvailable() async -> Bool
     /// Single completion call. `system` frames the role; `prompt` is the task.
     func complete(system: String, prompt: String) async throws -> String
+    /// Completion where the caller states whether it wants a JSON object.
+    /// Backends that can constrain decoding must only do so when `expectsJSON`
+    /// is true: constraining a plain-text protocol to JSON makes it impossible
+    /// for the model to answer in that protocol at all.
+    func complete(system: String, prompt: String, expectsJSON: Bool) async throws -> String
     /// Unload/terminate the underlying model so LTX gets the memory back.
     func terminate() async
 }
 
 extension DirectorProvider {
+    /// Providers that do not distinguish response formats answer both the same.
+    func complete(system: String, prompt: String, expectsJSON: Bool) async throws -> String {
+        try await complete(system: system, prompt: prompt)
+    }
+
     var modelIdentifier: String? { nil }
     var isFallbackProvider: Bool { false }
     var availabilityFailureReason: String? { nil }
@@ -271,6 +281,19 @@ final class DirectorEnvironmentService {
         }
     }
 
+    /// Negotiates which Director protocol this model can actually drive and
+    /// caches the verdict, so Auto Movie can start with a protocol already
+    /// known to work instead of discovering it mid-run.
+    func testCompatibility(
+        compatibility: LocalDirectorCompatibilityService = LocalDirectorCompatibilityService()
+    ) async -> (model: String?, capability: LocalDirectorCapability) {
+        let snapshot = await refresh()
+        guard let model = snapshot.effectiveModel else {
+            return (nil, .unavailable("No Local AI model is configured."))
+        }
+        return (model, await compatibility.negotiate(model: model))
+    }
+
     static func compatibleCandidates(from models: [String]) -> [String] {
         models.filter { model in
             let value = model.lowercased()
@@ -348,11 +371,15 @@ final class OllamaDirectorProvider: DirectorProvider {
     }
 
     func complete(system: String, prompt: String) async throws -> String {
+        try await complete(system: system, prompt: prompt, expectsJSON: true)
+    }
+
+    func complete(system: String, prompt: String, expectsJSON: Bool) async throws -> String {
         var request = URLRequest(url: baseURL.appendingPathComponent("api/generate"))
         request.httpMethod = "POST"
         request.timeoutInterval = 300
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": model,
             "system": system,
             "prompt": prompt,
@@ -360,7 +387,6 @@ final class OllamaDirectorProvider: DirectorProvider {
             // Thinking-capable models may otherwise put the requested JSON in
             // Ollama's `thinking` field and leave `response` empty.
             "think": false,
-            "format": "json",
             // A multi-shot plan with camera, dialogue and continuity fields can
             // exceed Ollama's default response budget and come back as
             // truncated JSON, which then burns the repair attempts and drops the
@@ -368,6 +394,11 @@ final class OllamaDirectorProvider: DirectorProvider {
             // four-shot plan.
             "options": ["num_predict": 4096],
         ]
+        if expectsJSON {
+            // Ollama's grammar constraint. Correct for the Structured JSON
+            // protocol, and actively harmful for a plain-text protocol.
+            body["format"] = "json"
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {

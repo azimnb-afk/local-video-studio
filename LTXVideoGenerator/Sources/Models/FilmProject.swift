@@ -901,6 +901,10 @@ struct FilmProject: Codable, Equatable, Identifiable {
     var directorProvider: String?
     var directorModel: String?
     var planningMode: String?
+    /// Which local protocol produced the plan ("structuredJSON"/"textProtocol").
+    /// Absent in every project planned before capability negotiation existed,
+    /// and absent for Basic Director plans, which use no local protocol.
+    var directorProtocol: String?
     var fallbackReason: String?
     var requestedDirectorMode: String?
     var effectiveDirectorMode: String?
@@ -956,7 +960,7 @@ struct FilmProject: Codable, Equatable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, id, title, createdAt, updatedAt, workflowMode,
              directorProvider, directorModel, planningMode, fallbackReason,
-             requestedDirectorMode, effectiveDirectorMode, settings,
+             requestedDirectorMode, effectiveDirectorMode, directorProtocol, settings,
              storyBible, characterBible, shots, jobs,
              lastAssemblySignature, assembledMoviePath, assembledAt,
              continuityChainEnabled, characterAnchor, openingReferenceImage,
@@ -975,6 +979,7 @@ struct FilmProject: Codable, Equatable, Identifiable {
         directorProvider = try container.decodeIfPresent(String.self, forKey: .directorProvider)
         directorModel = try container.decodeIfPresent(String.self, forKey: .directorModel)
         planningMode = try container.decodeIfPresent(String.self, forKey: .planningMode)
+        directorProtocol = try container.decodeIfPresent(String.self, forKey: .directorProtocol)
         fallbackReason = try container.decodeIfPresent(String.self, forKey: .fallbackReason)
         requestedDirectorMode = try container.decodeIfPresent(String.self, forKey: .requestedDirectorMode)
         effectiveDirectorMode = try container.decodeIfPresent(String.self, forKey: .effectiveDirectorMode)

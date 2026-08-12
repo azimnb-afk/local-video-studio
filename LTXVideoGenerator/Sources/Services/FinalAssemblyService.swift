@@ -114,7 +114,16 @@ final class FinalAssemblyService {
         // so a missing/invalid asset fails before any file is written or
         // overwritten — the existing Final Movie, if any, is never disturbed.
         let bgmSourcePath: String? = try {
-            guard project.finalAudio.isActive, let asset = project.finalAudio.bgmAsset else { return nil }
+            guard project.finalAudio.isBGMActive, let asset = project.finalAudio.bgmAsset else { return nil }
+            guard let url = store.managedProjectAssetURL(projectID: project.id, relativePath: asset.projectRelativePath),
+                  FileManager.default.fileExists(atPath: url.path) else {
+                throw AssemblyError.bgmFileMissing(asset.originalFilename ?? asset.projectRelativePath)
+            }
+            return url.path
+        }()
+        
+        let ambienceSourcePath: String? = try {
+            guard project.finalAudio.isAmbienceActive, let asset = project.finalAudio.ambienceAsset else { return nil }
             guard let url = store.managedProjectAssetURL(projectID: project.id, relativePath: asset.projectRelativePath),
                   FileManager.default.fileExists(atPath: url.path) else {
                 throw AssemblyError.bgmFileMissing(asset.originalFilename ?? asset.projectRelativePath)
@@ -137,12 +146,13 @@ final class FinalAssemblyService {
             throw AssemblyError.probeFailed(concatOutputPath)
         }
 
-        if let bgmSourcePath {
+        if project.finalAudio.isActive && (bgmSourcePath != nil || ambienceSourcePath != nil) {
             let mixedOutputPath = workDir.appendingPathComponent("mixed.mp4").path
             try FinalAudioMixer.mix(
                 movieInputPath: concatOutputPath,
                 movieInfo: concatInfo,
                 bgmInputPath: bgmSourcePath,
+                ambienceInputPath: ambienceSourcePath,
                 settings: project.finalAudio,
                 outputPath: mixedOutputPath,
                 ffmpeg: ffmpeg

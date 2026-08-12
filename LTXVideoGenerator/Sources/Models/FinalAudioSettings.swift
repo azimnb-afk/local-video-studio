@@ -4,7 +4,7 @@ import Foundation
 /// whole movie's background music. Mirrors `OpeningReferenceImage`'s
 /// project-managed-asset shape: a project-relative path only, never an
 /// external absolute path, so the project stays portable and self-contained.
-struct FinalBGMAsset: Codable, Equatable {
+struct FinalAudioAsset: Codable, Equatable {
     /// Path relative to the project directory. Its presence is what makes the
     /// asset resolvable — there is no separate "file exists" flag to fall out
     /// of sync with it.
@@ -26,19 +26,40 @@ struct FinalBGMAsset: Codable, Equatable {
 /// their exact previous Final Assembly output (no BGM mix pass at all).
 struct FinalAudioSettings: Codable, Equatable {
     var bgmEnabled: Bool = false
-    var bgmAsset: FinalBGMAsset?
-
-    /// Linear multiplier (0.0-1.0), matching the existing ffmpeg `volume=`
-    /// filter convention already used for background music in
-    /// `AudioService.swift` (0.3 alone, 0.2 ducked under voiceover) rather
-    /// than introducing a separate dB convention.
+    var bgmAsset: FinalAudioAsset?
     var bgmVolume: Double = 0.25
-
     var fadeInSeconds: Double = 0
     var fadeOutSeconds: Double = 0
 
-    /// True only when there is something to actually mix. A leftover
-    /// `bgmEnabled == true` with no asset (e.g. the asset was somehow
-    /// removed from disk) must not attempt a mix with nothing to mix.
-    var isActive: Bool { bgmEnabled && bgmAsset != nil }
+    var ambienceEnabled: Bool = false
+    var ambienceAsset: FinalAudioAsset?
+    var ambienceVolume: Double = 0.20
+    var ambienceFadeInSeconds: Double = 0
+    var ambienceFadeOutSeconds: Double = 0
+
+    var isBGMActive: Bool { bgmEnabled && bgmAsset != nil }
+    var isAmbienceActive: Bool { ambienceEnabled && ambienceAsset != nil }
+    var isActive: Bool { isBGMActive || isAmbienceActive }
+
+    enum CodingKeys: String, CodingKey {
+        case bgmEnabled, bgmAsset, bgmVolume, fadeInSeconds, fadeOutSeconds
+        case ambienceEnabled, ambienceAsset, ambienceVolume, ambienceFadeInSeconds, ambienceFadeOutSeconds
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        bgmEnabled = try container.decodeIfPresent(Bool.self, forKey: .bgmEnabled) ?? false
+        bgmAsset = try container.decodeIfPresent(FinalAudioAsset.self, forKey: .bgmAsset)
+        bgmVolume = try container.decodeIfPresent(Double.self, forKey: .bgmVolume) ?? 0.25
+        fadeInSeconds = try container.decodeIfPresent(Double.self, forKey: .fadeInSeconds) ?? 0
+        fadeOutSeconds = try container.decodeIfPresent(Double.self, forKey: .fadeOutSeconds) ?? 0
+
+        ambienceEnabled = try container.decodeIfPresent(Bool.self, forKey: .ambienceEnabled) ?? false
+        ambienceAsset = try container.decodeIfPresent(FinalAudioAsset.self, forKey: .ambienceAsset)
+        ambienceVolume = try container.decodeIfPresent(Double.self, forKey: .ambienceVolume) ?? 0.20
+        ambienceFadeInSeconds = try container.decodeIfPresent(Double.self, forKey: .ambienceFadeInSeconds) ?? 0
+        ambienceFadeOutSeconds = try container.decodeIfPresent(Double.self, forKey: .ambienceFadeOutSeconds) ?? 0
+    }
 }

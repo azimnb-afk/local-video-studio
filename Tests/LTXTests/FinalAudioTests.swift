@@ -48,7 +48,7 @@ func runFinalAudioTests(_ t: TestKit) {
         // Settings round-trip through Codable.
         var withBGM = FilmProject(title: "WithBGM")
         withBGM.finalAudio.bgmEnabled = true
-        withBGM.finalAudio.bgmAsset = FinalBGMAsset(
+        withBGM.finalAudio.bgmAsset = FinalAudioAsset(
             projectRelativePath: "Assets/FinalAudio/bgm-test.mp3",
             originalFilename: "forest_theme.mp3",
             mimeType: "audio/mpeg",
@@ -82,7 +82,7 @@ func runFinalAudioTests(_ t: TestKit) {
         defer { try? FileManager.default.removeItem(atPath: sourcePath) }
 
         do {
-            let asset = try store.importFinalBGMAsset(from: URL(fileURLWithPath: sourcePath), projectID: projectID)
+            let asset = try store.importFinalAudioAsset(from: URL(fileURLWithPath: sourcePath), projectID: projectID)
             t.check(asset.projectRelativePath.hasPrefix("Assets/FinalAudio/"), "imported asset lives under the project's FinalAudio directory")
             let resolved = store.managedProjectAssetURL(projectID: projectID, relativePath: asset.projectRelativePath)
             t.check(resolved != nil && FileManager.default.fileExists(atPath: resolved!.path), "imported file actually exists at its managed path")
@@ -92,7 +92,7 @@ func runFinalAudioTests(_ t: TestKit) {
             try? "not audio".write(to: badSource, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: badSource) }
             do {
-                _ = try store.importFinalBGMAsset(from: badSource, projectID: projectID)
+                _ = try store.importFinalAudioAsset(from: badSource, projectID: projectID)
                 t.check(false, "unsupported format should have thrown")
             } catch FilmProjectStore.StoreError.unsupportedFinalBGMFormat {
                 t.check(true, "unsupported format correctly rejected")
@@ -136,7 +136,7 @@ func runFinalAudioTests(_ t: TestKit) {
         func settings(assetPath: String, volume: Double = 0.3, fadeIn: Double = 0, fadeOut: Double = 0) -> FinalAudioSettings {
             var s = FinalAudioSettings()
             s.bgmEnabled = true
-            s.bgmAsset = FinalBGMAsset(projectRelativePath: assetPath, originalFilename: "test.wav")
+            s.bgmAsset = FinalAudioAsset(projectRelativePath: assetPath, originalFilename: "test.wav")
             s.bgmVolume = volume
             s.fadeInSeconds = fadeIn
             s.fadeOutSeconds = fadeOut

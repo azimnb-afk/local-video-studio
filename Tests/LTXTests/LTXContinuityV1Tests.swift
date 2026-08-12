@@ -80,6 +80,20 @@ func runLTXContinuityV1Tests(_ t: TestKit) {
         t.checkEqual(resolution.effectiveStrategy, .none, "and performs no continuation")
         t.check(resolution.actualRelativePath == nil, "and hands LTX no image")
 
+        var staleCut = shot(
+            index: 2, mode: .cut,
+            refresh: "Assets/IdentityRefresh/stale.png",
+            inherited: "Assets/Continuity/stale.png")
+        staleCut.identityRefreshSourceTakeID = UUID()
+        staleCut.continuitySourceTakeID = UUID()
+        let staleResolution = LTXContinuityResolver.resolve(
+            shot: staleCut, shotIndex: 2,
+            hasOpeningReference: true, hasCharacterAnchor: true)
+        t.checkEqual(staleResolution.source, .none,
+                     "a persisted Cut ignores stale previous-shot paths")
+        t.check(staleResolution.actualRelativePath == nil,
+                "stale continuity metadata cannot leak into the resolved Cut source")
+
         let continuing = LTXContinuityResolver.resolve(
             shot: shot(inherited: "Assets/Continuity/c.png"), shotIndex: 1,
             hasOpeningReference: false, hasCharacterAnchor: false)

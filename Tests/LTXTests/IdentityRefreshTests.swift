@@ -576,6 +576,46 @@ func runIdentityRefreshTests(_ t: TestKit) {
         t.checkEqual(legacy.shots.count, 2, "and is otherwise intact")
     }
 
+    t.suite("Identity refresh — an edited Cut never enters refresh") {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LTXTests-refresh-cut-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = FilmProjectStore(projectsDirectory: root)
+        var project = FilmProject(title: "Cut refresh guard")
+        project.workflowMode = AutoMovieRunCoordinator.autoMovieWorkflowMode
+        project.continuityChainEnabled = true
+        var first = Shot(index: 0, title: "Opening")
+        first.continuityMode = .cut
+        var second = Shot(
+            index: 1, title: "Close", summary: "Maya looks toward camera",
+            camera: CameraPlan(shotScale: "close-up", angle: "eye-level", movement: "static"))
+        second.continuityMode = .cut
+        second.continuityImageRelativePath = "Assets/Continuity/stale.png"
+        project.shots = [first, second]
+        store.save(project)
+
+        let assessor = StubIdentityAssessmentProvider([:])
+        let generator = CountingIdentityAnchorGenerator(imageData: onePixelPNG)
+        let done = DispatchSemaphore(value: 0)
+        Task { @MainActor in
+            let outcome = await IdentityRefreshService.prepareIfNeeded(
+                projectID: project.id, shotIndex: 1, store: store,
+                generator: generator, assessor: assessor)
+            if case .notNeeded(let reason) = outcome {
+                t.check(reason.contains("Cut"),
+                        "the service records why continuation refresh is not applicable")
+            } else {
+                t.check(false, "an edited Cut must not prepare Identity Refresh: \(outcome)")
+            }
+            t.checkEqual(assessor.requestedPaths.count, 0,
+                         "Cut performs no continuation-frame assessment")
+            t.checkEqual(generator.callCount, 0,
+                         "Cut performs no Identity Refresh generation")
+            done.signal()
+        }
+        waitForMainActor(done)
+    }
+
     t.suite("Identity refresh — the generator is a transformation, not a continuation") {
         var shot = Shot(index: 2, title: "Closer")
         shot.camera = CameraPlan(shotScale: "medium-close-up", angle: "eye-level", movement: "slow push-in")

@@ -1559,3 +1559,21 @@ contract while ensuring the actual future `GenerationRequest.prompt` is the
 same revised prompt the user reviewed. A new Auto Movie remains a separately
 materialized Director plan; we do not attempt semantic matching or carry old
 edits into it.
+
+## D-091 (2026-08-12) A continuity edit invalidates derivatives, not history
+
+Cut / Continue already has a persisted source of truth: `Shot.continuityMode`.
+Phase B edits it directly. A last-frame PNG or Identity Refresh anchor prepared
+for the old mode is derived execution state, so either mode transition clears
+the shot's references and provenance to those derivatives. The next Continue
+then resolves the current selected previous Take through the accepted Last
+Frame I2V path. Cut skips those paths at both preview and Take-planning
+boundaries.
+
+The files themselves are not deleted, because they are project-owned evidence
+and deletion is unnecessary to prevent reuse. Past Takes remain immutable and
+retain their original `sourceImagePath`; only future Takes use the new mode.
+Cut means “do not inherit the previous shot,” not “remove every image”: an
+explicit per-shot Starting Image continues to win through the existing source
+precedence. Shot 1 is normalized to Cut in display and execution and cannot be
+saved as Continue from this UI.

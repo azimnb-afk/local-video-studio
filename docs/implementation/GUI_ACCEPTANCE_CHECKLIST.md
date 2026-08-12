@@ -749,3 +749,21 @@ path. The app was launched by full path, not `open -a`.
       confirmed the saved action and camera values persisted.
 - [x] No LTX generation, take creation, opening-reference mutation or queue job
       was started during this acceptance.
+
+## 2026-08-12 Auto Movie Plan Preview Phase B — GUI acceptance PASS
+
+- [x] Clean-built canonical DerivedData Debug app was relaunched by full path;
+      the pre-build process was explicitly quit before acceptance.
+- [x] Used isolated Basic Director project `Plan Edit GUI Acceptance` with zero
+      generated Takes and an empty generation queue.
+- [x] Shot 2 changed Continue → Cut; both preview and lower Shot status changed
+      from `Previous shot's last frame` / link to `Text to video` / Cut.
+- [x] Shot 2 changed Cut → Continue; both surfaces immediately returned to the
+      existing Last Frame description.
+- [x] Saved Shot 2 as Cut, quit and relaunched the canonical app, reopened the
+      project, and confirmed Cut persisted.
+- [x] Shot 1's segmented control stayed disabled with Cut selected.
+- [x] Phase A Action and Camera controls remained available, and its previously
+      saved `medium close-up`, `low`, `slow dolly-in` values remained visible.
+- [x] No LTX generation, Take creation, queue job, source import, or production
+      project edit occurred.

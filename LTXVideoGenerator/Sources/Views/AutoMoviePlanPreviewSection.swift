@@ -2,9 +2,9 @@ import SwiftUI
 
 /// Shows and lightly edits the Director's plan before generation starts.
 ///
-/// Phase A intentionally limits editing to Action and the fields already in
-/// `CameraPlan`. Cut/Continue and its source remain a readable consequence of
-/// the saved plan, not an editable timeline control.
+/// Phase A edits Action and the existing `CameraPlan`. Phase B adds only the
+/// existing Cut / Continue intent; its source remains a derived consequence of
+/// the production continuity resolver, not a separately editable value.
 struct AutoMoviePlanPreviewSection: View {
     let project: FilmProject
     let onChanged: () -> Void
@@ -29,7 +29,7 @@ struct AutoMoviePlanPreviewSection: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                Text("Review or adjust Action and Camera before generation. Durations, Cut / Continue, and sources stay unchanged.")
+                Text("Review Action, Camera, and Cut / Continue before generation. Durations and sources stay derived from the plan.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
@@ -43,6 +43,11 @@ struct AutoMoviePlanPreviewSection: View {
                                 shotScale: shotScale,
                                 angle: angle,
                                 movement: movement)
+                        },
+                        onContinuityChange: { mode in
+                            saveContinuityEdit(
+                                shotID: project.shots[index].id,
+                                mode: mode)
                         }
                     )
                     if index != project.shots.indices.last {
@@ -71,12 +76,23 @@ struct AutoMoviePlanPreviewSection: View {
             onChanged()
         }
     }
+
+    private func saveContinuityEdit(shotID: UUID, mode: ShotContinuityMode) {
+        guard var fresh = store.project(id: project.id) else { return }
+        if AutoMoviePlanEditor.applyContinuityMode(
+            project: &fresh, shotID: shotID, mode: mode
+        ) {
+            store.save(fresh)
+            onChanged()
+        }
+    }
 }
 
 private struct AutoMoviePlanPreviewRow: View {
     let row: AutoMoviePlanPreview.Row
     let shot: Shot
     let onSave: (String, String, String, String) -> Void
+    let onContinuityChange: (ShotContinuityMode) -> Void
 
     @State private var isEditing = false
     @State private var action: String
@@ -87,11 +103,13 @@ private struct AutoMoviePlanPreviewRow: View {
     init(
         row: AutoMoviePlanPreview.Row,
         shot: Shot,
-        onSave: @escaping (String, String, String, String) -> Void
+        onSave: @escaping (String, String, String, String) -> Void,
+        onContinuityChange: @escaping (ShotContinuityMode) -> Void
     ) {
         self.row = row
         self.shot = shot
         self.onSave = onSave
+        self.onContinuityChange = onContinuityChange
         _action = State(initialValue: shot.summary)
         _shotScale = State(initialValue: shot.camera.shotScale)
         _angle = State(initialValue: shot.camera.angle)
@@ -140,7 +158,7 @@ private struct AutoMoviePlanPreviewRow: View {
                     }
                     .textFieldStyle(.roundedBorder)
                     HStack {
-                        Text("Cut / Continue and source are read-only in this phase.")
+                        Text("Continuity changes apply to future takes; its source is resolved automatically.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -170,11 +188,32 @@ private struct AutoMoviePlanPreviewRow: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                Text("\(row.continuityIntent) · \(row.sourceDescription)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Picker("Continuity", selection: continuityBinding) {
+                        Text("Cut").tag(ShotContinuityMode.cut)
+                        Text("Continue").tag(ShotContinuityMode.continueFromPrevious)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .frame(width: 150)
+                    .disabled(row.number == 1)
+                    .help(row.number == 1
+                          ? "Shot 1 is always a Cut because there is no previous shot."
+                          : "Choose whether this shot inherits the previous shot's last frame.")
+                    Text("· \(row.sourceDescription)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
+    }
+
+    private var continuityBinding: Binding<ShotContinuityMode> {
+        Binding(
+            get: { row.number == 1 ? .cut : (shot.continuityMode ?? .cut) },
+            set: { onContinuityChange($0) }
+        )
     }
 
     private func resetDraft() {

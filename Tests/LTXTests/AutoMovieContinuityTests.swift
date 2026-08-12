@@ -181,6 +181,82 @@ func runAutoMovieContinuityTests(_ t: TestKit) {
                 "cut shot stores no continuity asset")
     }
 
+    t.suite("Auto Movie — edited Cut / Continue reaches execution") {
+        guard hasFixtures else {
+            t.check(true, "fixture videos unavailable — edited execution wiring skipped")
+            return
+        }
+
+        // CUT → CONTINUE uses the accepted Last Frame I2V path: the currently
+        // selected previous Take is extracted, recorded, and passed to the new
+        // request. The editor adds no second continuity algorithm.
+        let continueStore = makeStore("edited-continue")
+        var continueProject = makeProject(
+            store: continueStore, shotCount: 2, continuity: .cut)
+        let previousTakeID = completeShot(
+            store: continueStore, projectID: continueProject.id,
+            shotIndex: 0, videoPath: fixtureA, selected: true)
+        continueProject = continueStore.project(id: continueProject.id)!
+        t.check(AutoMoviePlanEditor.applyContinuityMode(
+            project: &continueProject,
+            shotID: continueProject.shots[1].id,
+            mode: .continueFromPrevious),
+                "an edited Cut becomes Continue before execution")
+        continueStore.save(continueProject)
+        var continueRequests: [GenerationRequest] = []
+        let continueStep = AutoMovieRunCoordinator(store: continueStore).advance(
+            projectID: continueProject.id) { continueRequests = $0 }
+        if case .enqueued = continueStep {
+            t.check(true, "the edited Continue is enqueued through the existing run coordinator")
+        } else {
+            t.check(false, "expected edited Continue to enqueue, got \(continueStep)")
+        }
+        let continued = continueStore.project(id: continueProject.id)!
+        t.checkEqual(continued.shots[1].continuitySourceTakeID, previousTakeID,
+                     "the selected previous Take is the recorded continuity source")
+        t.check(continued.shots[1].continuityImageRelativePath != nil,
+                "the existing extractor creates a fresh last-frame asset")
+        t.check(continueRequests.first?.sourceImagePath != nil,
+                "the future request receives that last usable frame")
+        t.check(continueRequests.first?.isImageToVideo == true,
+                "the edited Continue executes as Last Frame I2V")
+
+        // CONTINUE → CUT after a frame was already prepared must not leak that
+        // path. Advance sees the new effective mode and plans an independent
+        // request; the editor has also removed every stale prepared reference.
+        let cutStore = makeStore("edited-cut")
+        var cutProject = makeProject(store: cutStore, shotCount: 2)
+        _ = completeShot(
+            store: cutStore, projectID: cutProject.id,
+            shotIndex: 0, videoPath: fixtureA, selected: true)
+        _ = AutoMovieRunCoordinator(store: cutStore)
+            .prepareContinuityAsset(projectID: cutProject.id, shotIndex: 1)
+        cutProject = cutStore.project(id: cutProject.id)!
+        t.check(cutProject.shots[1].continuityImageRelativePath != nil,
+                "fixture begins with a prepared continuation frame")
+        t.check(AutoMoviePlanEditor.applyContinuityMode(
+            project: &cutProject, shotID: cutProject.shots[1].id, mode: .cut),
+                "a prepared Continue can be changed to Cut")
+        cutStore.save(cutProject)
+        var cutRequests: [GenerationRequest] = []
+        let cutStep = AutoMovieRunCoordinator(store: cutStore).advance(
+            projectID: cutProject.id) { cutRequests = $0 }
+        if case .enqueued = cutStep {
+            t.check(true, "the edited Cut is enqueued independently")
+        } else {
+            t.check(false, "expected edited Cut to enqueue, got \(cutStep)")
+        }
+        let cutSaved = cutStore.project(id: cutProject.id)!
+        t.check(cutSaved.shots[1].continuityImageRelativePath == nil,
+                "edited Cut retains no prepared previous-frame path")
+        t.check(cutSaved.shots[1].identityRefreshAnchorRelativePath == nil,
+                "edited Cut retains no continuation-derived refresh anchor")
+        t.check(cutRequests.first?.sourceImagePath == nil,
+                "the generation request contains no previous-frame leak")
+        t.check(cutRequests.first?.isImageToVideo == false,
+                "without another valid source the edited Cut executes as T2V")
+    }
+
     // MARK: - No silent fallback
 
     t.suite("Auto Movie — no silent text-to-video fallback") {

@@ -1086,3 +1086,26 @@ disabled. Shot 1 was edited to a bridge action with `medium close-up`, `low`,
 and `slow dolly-in`; the preview and the actual shot card both updated, later
 shots kept their Continue sources, and the project retained the edit after an
 app restart. No LTX generation was started.
+
+## 2026-08-12 Auto Movie Plan Preview Phase B — editable Cut / Continue
+
+**Status: PASS.** Planned Shots now expose a compact Cut / Continue segmented
+control. `Shot.continuityMode` remains the only persisted source of truth; no
+override model or new continuity engine was added. Shot 1 is always shown and
+executed as Cut, and its control is disabled.
+
+Changing either direction invalidates prepared state derived from the previous
+choice (`continuityImageRelativePath`, source-Take/block metadata and Adaptive
+Identity Refresh provenance). It does not delete project assets, rewrite past
+Take snapshots, or clear an explicit per-shot Starting Image. At execution,
+Auto Movie still uses `AutoMovieRunCoordinator` to extract the selected previous
+Take's last usable frame for Continue. `TakeGenerationCoordinator` and
+`LTXContinuityResolver` now also refuse stale previous-shot paths when the
+effective mode is Cut; unrelated valid source precedence is unchanged.
+
+Validation: `swift build` PASS, `swift run LTXTests` **1510 passed / 0 failed**,
+Xcode Debug clean build succeeded, and `git diff --check` passed. Canonical GUI
+acceptance toggled Shot 2 Continue → Cut → Continue → Cut in the isolated
+`Plan Edit GUI Acceptance` project. The preview and lower Shot status stayed in
+sync, restart preserved Cut, Shot 1 stayed fixed, and Phase A Action/Camera
+values remained. No LTX generation was started.

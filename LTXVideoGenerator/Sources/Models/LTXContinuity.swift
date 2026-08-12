@@ -92,7 +92,8 @@ enum LTXContinuityResolver {
         shot: Shot,
         shotIndex: Int,
         hasOpeningReference: Bool,
-        hasCharacterAnchor: Bool
+        hasCharacterAnchor: Bool,
+        inheritsPreviousShot: Bool? = nil
     ) -> LTXContinuityResolution {
         var resolution = LTXContinuityResolution(
             requestedMode: shot.continuityMode,
@@ -109,9 +110,17 @@ enum LTXContinuityResolver {
             resolution.effectiveStrategy = .lastFrame
             return resolution
         }
+        // A Cut can still use an explicit image above, but it can never reuse
+        // previous-shot state. The optional argument lets the Auto Movie
+        // preview pass the same effective (including `auto`) resolution as the
+        // run coordinator; direct callers get the persisted explicit mode.
+        let mayInheritPrevious = inheritsPreviousShot
+            ?? (shotIndex > 0 && shot.continuityMode != .cut)
+
         // 2. A refresh anchor replaces an inherited frame that could not carry
         //    the character; it is still a continuation.
-        if let refresh = shot.identityRefreshAnchorRelativePath, !refresh.isEmpty {
+        if mayInheritPrevious,
+           let refresh = shot.identityRefreshAnchorRelativePath, !refresh.isEmpty {
             resolution.source = .identityRefreshAnchor
             resolution.effectiveStrategy = .lastFrame
             resolution.actualRelativePath = refresh
@@ -119,7 +128,8 @@ enum LTXContinuityResolver {
             return resolution
         }
         // 3. The ordinary continuation.
-        if let inherited = shot.continuityImageRelativePath, !inherited.isEmpty {
+        if mayInheritPrevious,
+           let inherited = shot.continuityImageRelativePath, !inherited.isEmpty {
             resolution.source = .inheritedLastFrame
             resolution.effectiveStrategy = .lastFrame
             resolution.actualRelativePath = inherited

@@ -87,6 +87,11 @@ enum IdentityRefreshService {
               shotIndex > 0, shotIndex < project.shots.count else {
             return .notNeeded(reason: "No shot to prepare.")
         }
+        guard AutoMovieRunCoordinator(store: store)
+            .resolvedContinuityMode(forShotAt: shotIndex, in: project)
+            == .continueFromPrevious else {
+            return .notNeeded(reason: "This shot is a Cut and inherits no previous-shot identity source.")
+        }
         invalidateStaleAnchor(shotIndex: shotIndex, in: &project)
         store.save(project)
 

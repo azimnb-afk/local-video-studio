@@ -221,4 +221,170 @@ func runAutoMoviePlanPreviewTests(_ t: TestKit) {
                      "She walks across the courtyard toward the gate.",
                      "a newly materialized Director plan remains its own baseline")
     }
+
+    t.suite("Auto Movie plan preview — Cut / Continue editing and persistence") {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LTXTests-continuity-edit-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = FilmProjectStore(projectsDirectory: root)
+        var project = plannedProject(withOpeningReference: false)
+        project.workflowMode = AutoMovieRunCoordinator.autoMovieWorkflowMode
+        project.continuityChainEnabled = true
+        let targetID = project.shots[1].id
+        let originalPlannedMode = ShotContinuityMode.continueFromPrevious
+        project.shots[1].plannedContinuityMode = originalPlannedMode
+        project.shots[1].continuityImageRelativePath = "Assets/Continuity/old.png"
+        project.shots[1].continuitySourceTakeID = UUID()
+        project.shots[1].continuityBlockedReason = .continuityAssetMissing
+        project.shots[1].identityRefreshAnchorRelativePath = "Assets/IdentityRefresh/old.png"
+        project.shots[1].identityRefreshAnchorOrigin = .generated
+        project.shots[1].identityRefreshAnchorSourceShotID = project.shots[0].id
+        project.shots[1].identityRefreshSourceTakeID = UUID()
+        project.shots[1].identityRefreshNote = "old refresh"
+
+        let historicalTake = Take(
+            shotID: targetID, modelID: "m", seed: 7,
+            promptSnapshot: "historical", settingsSnapshot: .default,
+            requestedWidth: 768, requestedHeight: 512, fps: 24,
+            requestedDuration: 5, status: .completed,
+            sourceImagePath: "/historical/previous-frame.png")
+        project.shots[1].takes = [historicalTake]
+
+        // Phase A remains composable with the new continuity edit.
+        t.check(AutoMoviePlanEditor.apply(
+            project: &project, shotID: targetID,
+            action: "She checks the map before entering.",
+            shotScale: "medium-close-up", angle: "high", movement: "tilt down"),
+                "Action/Camera editing still applies before a continuity edit")
+        t.check(AutoMoviePlanEditor.applyContinuityMode(
+            project: &project, shotID: targetID, mode: .cut),
+                "Continue can be explicitly changed to Cut")
+        t.checkEqual(project.shots[1].continuityMode, .cut,
+                     "Cut becomes the persisted effective mode")
+        t.checkEqual(project.shots[1].plannedContinuityMode, originalPlannedMode,
+                     "the original Director mode remains provenance")
+        t.checkEqual(project.shots[1].summary, "She checks the map before entering.",
+                     "the Phase A Action edit coexists with Cut")
+        t.checkEqual(project.shots[1].camera.movement, "tilt down",
+                     "the Phase A Camera edit coexists with Cut")
+        t.check(project.shots[1].continuityImageRelativePath == nil,
+                "Cut clears the prepared previous-frame path")
+        t.check(project.shots[1].continuitySourceTakeID == nil,
+                "Cut clears stale previous-Take provenance")
+        t.check(project.shots[1].continuityBlockedReason == nil,
+                "changing the intent clears an obsolete continuity block")
+        t.check(project.shots[1].identityRefreshAnchorRelativePath == nil,
+                "Cut clears a continuation-derived refresh anchor")
+        t.check(project.shots[1].identityRefreshSourceTakeID == nil,
+                "Cut clears refresh provenance derived from the previous Take")
+        t.checkEqual(project.shots[1].takes, [historicalTake],
+                     "existing Take history is immutable across the plan edit")
+        t.checkEqual(AutoMoviePlanPreview.make(project: project).rows[1].sourceDescription,
+                     "Text to video", "the preview immediately derives the Cut source")
+
+        store.save(project)
+        var reopened = FilmProjectStore(projectsDirectory: root).project(id: project.id)!
+        t.checkEqual(reopened.shots[1].continuityMode, .cut,
+                     "Continue-to-Cut survives project reopen")
+        t.checkEqual(reopened.shots[1].summary, project.shots[1].summary,
+                     "reopen also preserves the Phase A Action edit")
+        t.check(AutoMoviePlanEditor.applyContinuityMode(
+            project: &reopened, shotID: targetID, mode: .continueFromPrevious),
+                "Cut can be explicitly changed back to Continue")
+        store.save(reopened)
+        let continued = FilmProjectStore(projectsDirectory: root).project(id: project.id)!
+        t.checkEqual(continued.shots[1].continuityMode, .continueFromPrevious,
+                     "Cut-to-Continue survives project reopen")
+        t.check(continued.shots[1].continuityImageRelativePath == nil,
+                "Continue waits for a fresh previous-Take frame at execution time")
+        t.checkEqual(AutoMoviePlanPreview.make(project: continued).rows[1].sourceDescription,
+                     "Previous shot's last frame",
+                     "the pre-generation preview describes the source Continue will prepare")
+    }
+
+    t.suite("Auto Movie plan preview — Shot 1 safety and future-Take history") {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LTXTests-continuity-history-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = FilmProjectStore(projectsDirectory: root)
+        var project = plannedProject(withOpeningReference: false)
+        project.workflowMode = AutoMovieRunCoordinator.autoMovieWorkflowMode
+        project.continuityChainEnabled = true
+
+        let untouched = project
+        t.check(!AutoMoviePlanEditor.applyContinuityMode(
+            project: &project, shotID: project.shots[0].id, mode: .continueFromPrevious),
+                "Shot 1 cannot be changed to invalid Continue")
+        t.checkEqual(project, untouched, "a rejected Shot 1 edit changes no project state")
+        t.check(!AutoMoviePlanEditor.applyContinuityMode(
+            project: &project, shotID: project.shots[1].id, mode: .auto),
+                "Auto remains a Director state, not a third user-facing option")
+
+        var invalidLegacy = project
+        invalidLegacy.shots[0].continuityMode = .continueFromPrevious
+        let normalizedPreview = AutoMoviePlanPreview.make(project: invalidLegacy)
+        t.checkEqual(normalizedPreview.rows[0].continuityIntent, "Cut",
+                     "an invalid persisted Shot 1 Continue is safely displayed as Cut")
+        t.checkEqual(AutoMovieRunCoordinator(store: store)
+            .resolvedContinuityMode(forShotAt: 0, in: invalidLegacy), .cut,
+                     "runtime also normalizes invalid Shot 1 Continue to Cut")
+
+        // Simulate a previously generated I2V Take and stale prepared paths.
+        let targetID = project.shots[1].id
+        let oldTake = Take(
+            shotID: targetID, modelID: "m", seed: 11,
+            promptSnapshot: "old", settingsSnapshot: .default,
+            requestedWidth: 768, requestedHeight: 512, fps: 24,
+            requestedDuration: 5, status: .completed,
+            sourceImagePath: "/old/inherited.png")
+        project.shots[1].takes = [oldTake]
+        project.shots[1].continuityImageRelativePath = "Assets/Continuity/stale.png"
+        project.shots[1].identityRefreshAnchorRelativePath = "Assets/IdentityRefresh/stale.png"
+        _ = AutoMoviePlanEditor.applyContinuityMode(
+            project: &project, shotID: targetID, mode: .cut)
+        store.save(project)
+        let request = try! TakeGenerationCoordinator(store: store).planTakes(
+            projectID: project.id, shotID: targetID, count: 1, baseSeed: 99).first!
+        t.check(request.sourceImagePath == nil,
+                "the future Cut request cannot leak a stale previous-frame or refresh path")
+        let saved = store.project(id: project.id)!
+        t.checkEqual(saved.shots[1].takes[0], oldTake,
+                     "the existing Take keeps its historical source snapshot")
+        t.check(saved.shots[1].takes.last?.sourceImagePath == nil,
+                "only the new Take snapshots the edited Cut semantics")
+    }
+
+    t.suite("Auto Movie plan preview — Cut preserves an explicit shot source") {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LTXTests-cut-explicit-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = FilmProjectStore(projectsDirectory: root)
+        var project = plannedProject(withOpeningReference: false)
+        project.workflowMode = AutoMovieRunCoordinator.autoMovieWorkflowMode
+        project.continuityChainEnabled = true
+        let characterID = UUID(), assetID = UUID()
+        let directory = store.characterAssetsDirectory(projectID: project.id, characterID: characterID)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let imageURL = directory.appendingPathComponent("front.png")
+        FileManager.default.createFile(
+            atPath: imageURL.path,
+            contents: Data(base64Encoded:
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z0xkAAAAASUVORK5CYII="))
+        var character = BibleCharacter(id: characterID, name: "Maya")
+        character.referenceAssets = [CharacterReferenceAsset(
+            id: assetID, type: .front,
+            projectRelativePath: "Assets/Characters/\(characterID.uuidString)/front.png")]
+        project.characterBible.characters = [character]
+        project.shots[1].startingImageReferenceAssetID = assetID
+        _ = AutoMoviePlanEditor.applyContinuityMode(
+            project: &project, shotID: project.shots[1].id, mode: .cut)
+        store.save(project)
+
+        let request = try! TakeGenerationCoordinator(store: store).planTakes(
+            projectID: project.id, shotID: project.shots[1].id, count: 1, baseSeed: 12).first!
+        t.check(request.sourceImagePath?.hasSuffix("front.png") == true,
+                "Cut disables previous-shot inheritance but preserves an explicit source")
+        t.checkEqual(request.parameters.imageStrength, 1.0,
+                     "the explicit source keeps its existing exact-first-frame strength")
+    }
 }

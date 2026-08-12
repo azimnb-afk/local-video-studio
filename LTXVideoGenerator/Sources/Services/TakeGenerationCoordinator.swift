@@ -65,6 +65,16 @@ final class TakeGenerationCoordinator {
         let settings = project.settings
         let targetDuration = settings.resolvedPreset == .custom ? nil : shot.durationSeconds
         let generationSource = project.workflowMode == "hybrid" ? "hybrid" : "storyboard"
+        let mayInheritPreviousShot: Bool
+        if project.workflowMode == AutoMovieRunCoordinator.autoMovieWorkflowMode {
+            mayInheritPreviousShot = AutoMovieRunCoordinator(store: store)
+                .resolvedContinuityMode(forShotAt: shotIndex, in: project)
+                == .continueFromPrevious
+        } else {
+            // Preserve legacy/manual Storyboard behaviour: absent/auto modes
+            // may use a prepared path, but an explicit Cut never may.
+            mayInheritPreviousShot = shotIndex > 0 && shot.continuityMode != .cut
+        }
 
         // Starting image precedence:
         //   1. the shot's explicit user/CharacterBible selection
@@ -93,7 +103,8 @@ final class TakeGenerationCoordinator {
                 throw CoordinatorError.startingImageUnavailable(assetID)
             }
             sourceImagePath = url.path
-        } else if let refreshPath = shot.identityRefreshAnchorRelativePath,
+        } else if mayInheritPreviousShot,
+                  let refreshPath = shot.identityRefreshAnchorRelativePath,
                   !refreshPath.isEmpty,
                   let url = store.managedProjectAssetURL(projectID: projectID, relativePath: refreshPath),
                   ContinuityFrameExtractor.isUsableImage(atPath: url.path) {
@@ -103,7 +114,8 @@ final class TakeGenerationCoordinator {
             // camera and action still move on.
             sourceImagePath = url.path
             usesInheritedContinuityFrame = true
-        } else if let relativePath = shot.continuityImageRelativePath {
+        } else if mayInheritPreviousShot,
+                  let relativePath = shot.continuityImageRelativePath {
             guard let url = store.managedProjectAssetURL(projectID: projectID, relativePath: relativePath),
                   ContinuityFrameExtractor.isUsableImage(atPath: url.path) else {
                 throw CoordinatorError.continuityImageUnavailable(shotID)

@@ -6,15 +6,16 @@ set -e
 
 # Configuration
 APP_NAME="LTX Video Generator"
-BUNDLE_ID="com.jamescampbell.ltxvideogenerator"
+BUNDLE_ID="${PRODUCT_BUNDLE_IDENTIFIER:-com.example.ltxvideogenerator}"
 SCHEME="LTXVideoGenerator"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="${PROJECT_DIR}/build"
 ARCHIVE_PATH="${BUILD_DIR}/${SCHEME}.xcarchive"
 APP_PATH="${BUILD_DIR}/${APP_NAME}.app"
 DMG_PATH="${BUILD_DIR}/${SCHEME}.dmg"
-DEVELOPER_ID="Developer ID Application: James Campbell (529AKJCKRC)"
-TEAM_ID="529AKJCKRC"
+DEVELOPER_ID="${CODE_SIGN_IDENTITY:?Set CODE_SIGN_IDENTITY to your Developer ID Application identity.}"
+TEAM_ID="${APPLE_TEAM_ID:?Set APPLE_TEAM_ID to your Apple Developer Team ID.}"
+NOTARY_PROFILE="${NOTARY_PROFILE:?Set NOTARY_PROFILE to your notarytool keychain profile.}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -70,7 +71,7 @@ ditto -c -k --keepParent "${APP_PATH}" "${BUILD_DIR}/app-for-notarization.zip"
 
 # Submit for notarization
 xcrun notarytool submit "${BUILD_DIR}/app-for-notarization.zip" \
-    --keychain-profile "notarytool-profile" \
+    --keychain-profile "${NOTARY_PROFILE}" \
     --wait
 
 # Staple the notarization ticket
@@ -92,7 +93,7 @@ codesign --force --sign "${DEVELOPER_ID}" "${DMG_PATH}"
 # Notarize the DMG
 echo -e "${YELLOW}Notarizing DMG...${NC}"
 xcrun notarytool submit "${DMG_PATH}" \
-    --keychain-profile "notarytool-profile" \
+    --keychain-profile "${NOTARY_PROFILE}" \
     --wait
 
 # Staple the DMG
@@ -113,5 +114,4 @@ echo "App: ${APP_PATH}"
 echo "DMG: ${DMG_PATH}"
 echo "SHA256: ${CHECKSUM}"
 echo ""
-echo -e "${YELLOW}Note: Before first use, create a notarytool profile:${NC}"
-echo "  xcrun notarytool store-credentials \"notarytool-profile\" --apple-id YOUR_APPLE_ID --team-id ${TEAM_ID}"
+echo -e "${YELLOW}Use a maintainer-owned notarytool profile; none is configured by this repository.${NC}"

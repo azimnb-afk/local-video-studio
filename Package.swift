@@ -24,6 +24,7 @@ let package = Package(
             name: "LTXTests",
             dependencies: ["LTXVideoGeneratorCore"],
             path: "Tests/LTXTests",
+            exclude: ["Fixtures"],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
                 .define("SPM_BUILD")

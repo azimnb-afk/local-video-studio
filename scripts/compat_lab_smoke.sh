@@ -9,7 +9,7 @@
 # Example:
 #   ./scripts/compat_lab_smoke.sh MLXBits/ltx-2.3-10eros-v1.2-mlx-q8 t2v
 #
-# Record outcomes in the app's Compatibility Lab (docs/implementation/MODEL_COMPATIBILITY.md
+# Record outcomes in the app's Compatibility Lab documentation
 # and Application Support/LTXVideoGenerator/compat_lab.json via the app).
 set -euo pipefail
 

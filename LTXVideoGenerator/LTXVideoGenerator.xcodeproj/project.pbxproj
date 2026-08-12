@@ -685,7 +685,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 2.3.66;
-				PRODUCT_BUNDLE_IDENTIFIER = com.ltxvideo.generator;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.ltxvideogenerator;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -698,22 +698,21 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = LTXVideoGenerator.entitlements;
-				CODE_SIGN_IDENTITY = "Developer ID Application";
-				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 8;
-				DEVELOPMENT_TEAM = 529AKJCKRC;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "LTX Video Generator";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2025 James Campbell. All rights reserved.";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 2.3.66;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jamescampbell.ltxvideogenerator;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.ltxvideogenerator;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -748,10 +747,10 @@
 		AA000090 /* XCRemoteSwiftPackageReference "PythonKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/pvieito/PythonKit.git";
-			requirement = {
-				branch = main;
-				kind = branch;
-			};
+				requirement = {
+					kind = revision;
+					revision = 1ac25ddddca845ba0184911de9c00e1508948cf8;
+				};
 		};
 /* End XCRemoteSwiftPackageReference section */
 

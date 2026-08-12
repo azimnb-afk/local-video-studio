@@ -14,7 +14,7 @@ LABEL="${1:?label required}"; shift || true
 PYTHON="${LTX_PYTHON:-$HOME/ltx-venv/bin/python3}"
 MODEL_REPO="${LTX_MODEL_REPO:-notapalindrome/ltx23-mlx-av-q4}"
 ENCODER_REPO="${LTX_ENCODER_REPO:-mlx-community/gemma-3-12b-it-4bit}"
-OUTDIR="${LTX_BENCH_OUTDIR:-/tmp/ltx_baseline}"
+OUTDIR="${LTX_BENCH_OUTDIR:-${TMPDIR:-/tmp}/ltx-benchmark-baseline}"
 mkdir -p "$OUTDIR"
 OUT="$OUTDIR/${LABEL}.mp4"
 LOG="$OUTDIR/${LABEL}.log"

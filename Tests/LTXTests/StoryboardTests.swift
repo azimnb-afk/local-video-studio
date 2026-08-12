@@ -537,10 +537,10 @@ func runStoryboardTests(_ t: TestKit) {
     }
 
     t.suite("Final assembly") {
-        // Build a project whose selected takes point at real baseline MP4s.
-        let a = "/tmp/ltx_baseline/T2V-A-ON.mp4"    // h264+aac
-        let b = "/tmp/ltx_baseline/I2V-A-ON.mp4"    // h264+aac same profile
-        let c = "/tmp/ltx_baseline/T2V-A-OFF.mp4"   // h264, NO audio
+        // Build a project whose selected takes point at real synthetic MP4s.
+        let a = TestFixtures.videoWithAudioA // h264+aac
+        let b = TestFixtures.videoWithAudioB // h264+aac same profile
+        let c = TestFixtures.videoOnly       // h264, no audio
         guard FileManager.default.fileExists(atPath: a),
               FileManager.default.fileExists(atPath: b),
               FinalAssemblyService.ffmpegPath() != nil else {

@@ -61,7 +61,7 @@ final class LowRAMMLXAdapter: VideoGenerationAdapter {
         // low-RAM hardware this path is intentionally unreachable — no fake
         // implementation is shipped as working.
         throw LTXError.generationFailed(
-            "Low-RAM adapter runtime integration is gated on hardware verification (see docs/implementation/MODEL_COMPATIBILITY.md)."
+            "Low-RAM adapter runtime integration is gated on hardware verification."
         )
     }
 }

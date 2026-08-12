@@ -12,8 +12,7 @@ permalink: /
 Transform text into stunning AI-generated videos on your Mac.
 {: .fs-6 .fw-300 }
 
-[Download Latest Release](https://github.com/james-see/ltx-video-mac/releases){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
-[View on GitHub](https://github.com/james-see/ltx-video-mac){: .btn .fs-5 .mb-4 .mb-md-0 }
+[Install from source](installation){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
 
 ---
 
@@ -37,7 +36,7 @@ LTX Video Generator is a beautiful, native macOS application built with SwiftUI.
 
 ## Quick Start
 
-1. **Download** the app from the [Releases page](https://github.com/james-see/ltx-video-mac/releases)
+1. **Build or obtain** a release from the repository maintainer
 2. **Open Preferences** and click Auto Detect to find Python
 3. **Install packages** if prompted (one-click install available)
 4. **Generate** your first video! (model downloads on first run)
@@ -74,4 +73,4 @@ Generate videos like:
 
 ## Contributing
 
-LTX Video Generator is open source! Contributions, issues, and feature requests are welcome on [GitHub](https://github.com/james-see/ltx-video-mac).
+LTX Video Generator is open source. Contributions, issues, and feature requests are welcome through this repository.

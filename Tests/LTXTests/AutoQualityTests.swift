@@ -294,8 +294,8 @@ func runAutoQualityTests(_ t: TestKit) {
     }
 
     t.suite("MediaProbe") {
-        // Probe the Phase 0 baseline MP4 when present (real integration check).
-        let baseline = "/tmp/ltx_baseline/T2V-A-ON.mp4"
+        // Probe a repository-owned synthetic MP4 (real integration check).
+        let baseline = TestFixtures.videoWithAudioA
         if FileManager.default.fileExists(atPath: baseline), MediaProbe.ffprobePath() != nil {
             if let info = MediaProbe.probe(path: baseline) {
                 t.checkEqual(info.width, 512, "baseline mp4 width")

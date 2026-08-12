@@ -349,7 +349,7 @@ func runFilmProjectTests(_ t: TestKit) {
                 enhancedPrompt: nil, negativePrompt: "", voiceoverText: "",
                 voiceoverSource: "mlx-audio", voiceoverVoice: "af_heart",
                 modelId: take.modelID, parameters: effectiveQuickParameters,
-                videoPath: "/tmp/ltx_baseline/T2V-A-ON.mp4", thumbnailPath: nil,
+                videoPath: TestFixtures.videoWithAudioA, thumbnailPath: nil,
                 audioPath: nil, musicPath: nil, musicGenre: nil, sourceImagePath: nil,
                 createdAt: Date(), completedAt: Date(), duration: 49, seed: take.seed,
                 qualityMode: QualityMode.compact.rawValue,
@@ -369,7 +369,7 @@ func runFilmProjectTests(_ t: TestKit) {
             let after = store.project(id: project.id)!
             let completedTake = after.shots[0].takes.first { $0.id == take.id }
             t.checkEqual(completedTake?.status, .completed, "take marked completed")
-            t.checkEqual(completedTake?.outputPath, "/tmp/ltx_baseline/T2V-A-ON.mp4", "output path recorded")
+            t.checkEqual(completedTake?.outputPath, TestFixtures.videoWithAudioA, "output path recorded")
             t.checkEqual(completedTake?.preset, GenerationPreset.quickPreview.rawValue, "completed Take persists actual preset")
             t.checkEqual(completedTake?.effectiveProfileID, "C3", "completed Take persists effective profile")
             t.checkEqual(completedTake?.settingsSnapshot.width, 512, "completed Take persists effective width")
@@ -400,7 +400,7 @@ func runFilmProjectTests(_ t: TestKit) {
             settingsSnapshot: .default, requestedWidth: 512, requestedHeight: 320,
             fps: 24, requestedDuration: 1, status: .generating
         )
-        takeA.outputPath = "/tmp/ltx_baseline/T2V-A-ON.mp4"
+        takeA.outputPath = TestFixtures.videoWithAudioA
         // Take B: was generating, no file → back to queued.
         var takeB = Take(
             shotID: shotID, modelID: "m", seed: 2, promptSnapshot: "p",
@@ -415,7 +415,7 @@ func runFilmProjectTests(_ t: TestKit) {
         let reconciled = store.reconcileInFlightTakes(projectID: project.id)
         t.checkEqual(reconciled, 2, "two in-flight takes reconciled")
         let after = store.project(id: project.id)!
-        let baselineExists = FileManager.default.fileExists(atPath: "/tmp/ltx_baseline/T2V-A-ON.mp4")
+        let baselineExists = FileManager.default.fileExists(atPath: TestFixtures.videoWithAudioA)
         if baselineExists {
             t.checkEqual(after.shots[0].takes[0].status, .completed, "take with real MP4 → completed")
             t.checkEqual(after.shots[0].takes[0].actualWidth, 512, "actual width filled from probe")

@@ -3,7 +3,6 @@
 [![macOS](https://img.shields.io/badge/macOS-14.0+-blue.svg)](https://www.apple.com/macos/)
 [![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-M1%2FM2%2FM3%2FM4-orange.svg)](https://support.apple.com/en-us/HT211814)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/james-see/ltx-video-mac)](https://github.com/james-see/ltx-video-mac/releases)
 
 A beautiful, native macOS application for generating AI videos with synchronized audio from text prompts using the LTX-2 model, running natively on Apple Silicon with MLX.
 
@@ -36,7 +35,7 @@ A beautiful, native macOS application for generating AI videos with synchronized
 
 ### 1. Download the App
 
-Download the latest release from the [Releases page](https://github.com/james-see/ltx-video-mac/releases).
+Obtain a release published by the repository maintainer, or build from source.
 
 ### 2. First Launch Setup
 
@@ -201,7 +200,7 @@ And a second run produced this one:
 
 ```bash
 # Clone the repository
-git clone https://github.com/james-see/ltx-video-mac.git
+git clone <repository-url>
 cd ltx-video-mac
 
 # Open in Xcode

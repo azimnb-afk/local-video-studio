@@ -2,7 +2,7 @@
 # Low-RAM backend verification benchmark (dgrauet/ltx-2-mlx block streaming).
 # Walks the Compact ladder C0 → C1 → C2 → audio, stopping at the first failure.
 # Run this on the target (ideally 16GB) hardware; record results in
-# docs/implementation/BENCHMARK_RESULTS.md and only then set the
+# documented benchmark results and only then set the
 # lowRAMBackendVerified preference.
 #
 # Usage:

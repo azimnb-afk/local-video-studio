@@ -87,7 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.3.53] - 2026-04-22
 
 ### Fixed
-- **MLX Audio voiceover** — Kokoro / mlx-audio can print status lines to Python stdout before the app's JSON result. The client now parses the last JSON line with a `success` field, so successful local TTS is no longer misreported as `Failed to parse output` ([#42](https://github.com/james-see/ltx-video-mac/issues/42)).
+- **MLX Audio voiceover** — Kokoro / mlx-audio can print status lines to Python stdout before the app's JSON result. The client now parses the last JSON line with a `success` field, so successful local TTS is no longer misreported as `Failed to parse output` (#42).
 
 ### Changed
 - **Docs** — Image-to-Video steps in `docs/usage.md` match the app (disclosure location and **Select Source Image...** label).

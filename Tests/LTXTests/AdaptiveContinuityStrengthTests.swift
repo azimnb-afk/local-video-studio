@@ -105,7 +105,7 @@ func runAdaptiveContinuityStrengthTests(_ t: TestKit) {
             .appendingPathComponent("LTXTests-adaptive-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
-        let fixture = "/tmp/ltx_baseline/T2V-A-ON.mp4"
+        let fixture = TestFixtures.videoWithAudioA
         let hasFixture = FileManager.default.fileExists(atPath: fixture)
             && FinalAssemblyService.ffmpegPath() != nil
 

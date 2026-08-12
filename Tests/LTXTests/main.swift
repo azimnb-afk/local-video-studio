@@ -233,8 +233,8 @@ if CommandLine.arguments.count == 3,
 //   swift run LTXTests --prepare-selected-take-gui
 if CommandLine.arguments.count == 2,
    CommandLine.arguments[1] == "--prepare-selected-take-gui" {
-    let fixtureA = "/tmp/ltx_baseline/T2V-A-ON.mp4"
-    let fixtureB = "/tmp/ltx_baseline/I2V-A-ON.mp4"
+    let fixtureA = TestFixtures.videoWithAudioA
+    let fixtureB = TestFixtures.videoWithAudioB
     guard FileManager.default.fileExists(atPath: fixtureA),
           FileManager.default.fileExists(atPath: fixtureB) else {
         fputs("Baseline fixture videos are unavailable.\n", stderr)
@@ -361,8 +361,8 @@ if CommandLine.arguments.count == 2,
 //   swift run LTXTests --prepare-runtime-diagnostics-gui
 if CommandLine.arguments.count == 2,
    CommandLine.arguments[1] == "--prepare-runtime-diagnostics-gui" {
-    let fixtureA = "/tmp/ltx_baseline/T2V-A-ON.mp4"
-    let fixtureB = "/tmp/ltx_baseline/I2V-A-ON.mp4"
+    let fixtureA = TestFixtures.videoWithAudioA
+    let fixtureB = TestFixtures.videoWithAudioB
     guard FileManager.default.fileExists(atPath: fixtureA),
           FileManager.default.fileExists(atPath: fixtureB) else {
         fputs("Baseline fixture videos are unavailable.\n", stderr)

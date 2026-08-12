@@ -283,7 +283,7 @@ EOF
 ### Report an Issue
 
 If problems persist:
-1. Check existing [GitHub Issues](https://github.com/james-see/ltx-video-mac/issues)
+1. Check existing issues in this repository
 2. Open a new issue with:
    - macOS version
    - Mac model (M1/M2/M3/M4) and RAM

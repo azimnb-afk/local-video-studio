@@ -20,7 +20,7 @@ Complete setup instructions for LTX Video Generator.
 
 ## Download the App
 
-1. Go to the [Releases page](https://github.com/james-see/ltx-video-mac/releases)
+1. Obtain a release published by the repository maintainer
 2. Download the latest `.dmg` file
 3. Open the DMG and drag **LTX Video Generator** to your Applications folder
 4. Open the app normally. A released DMG will be Developer ID signed and

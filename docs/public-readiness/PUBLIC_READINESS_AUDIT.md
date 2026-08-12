@@ -1,156 +1,119 @@
-# GitHub Public Readiness — Phase 1 Audit
+# GitHub Public Readiness — Phase 1 and Phase 2
 
-**Audit date:** 2026-08-12  
-**Audited commit:** `cbb867c` (`director-extensions`)  
-**Scope:** repository audit and minimal safe cleanup only. No generation, model download, cloud request, history rewrite, release publication, or push was run.
+**Phase 2 audit date:** 2026-08-12
+**Sanitized snapshot base:** `6f2bdf6` on `director-extensions`
+**Scope:** public-snapshot cleanup only. No LTX generation, model download, cloud request, remote mutation, public-repository creation, push, history rewrite, or private-history deletion was performed.
 
-## Executive summary
+## Readiness decision
 
-The tracked application source does not contain a discovered credential or a hard-coded personal home-directory path, and it is small enough for ordinary Git hosting. It is **not ready to be published as a new public repository** without a focused Phase 2. The blockers are release ownership/configuration, unredacted internal engineering records, unproven public image provenance, and a test suite that relies on untracked `/tmp` video fixtures.
+**Ready for Phase 3 — the sanitized working snapshot is safe to use as the initial content of a new clean-history public repository, after the Phase 2 checkpoint is created.**
 
-The source build itself is healthy on the audited Mac, but that is not a clean-clone proof: the Xcode Swift dependency is floating and the full test suite uses local baseline media that is not in Git.
+This decision applies to the tracked snapshot, not to this private development repository's historical commits. The development history is intentionally not part of the proposed public repository.
 
-## Audit method
+## Public history strategy
 
-- Examined tracked files, ignored generated directories, current remote/tags, Xcode project references, scripts, feature flags, model registry, README and docs tree.
-- Searched tracked text for credential-shaped material and personal absolute paths. Findings are described by file/category only; no credential values are recorded here.
-- Checked reachable history for common token/private-key indicators without printing content.
-- Inspected current and historical blob sizes, installed dependency metadata, and the two tracked documentation images.
-- Performed static clean-clone analysis. A separate clean clone was deliberately not made because dependency resolution would require network access and this phase must not download models or alter remote state.
+When publication is approved, export the tracked files from the accepted sanitized checkpoint and initialize a new repository from that snapshot:
 
-## Repository safety
+```text
+private development repository (history remains private)
+    -> sanitized accepted HEAD
+    -> tracked public files only
+    -> new clean Git repository
+    -> initial public release commit
+```
 
-### Secrets and credentials
+Do not push this repository's existing history to the public remote. This phase did not run `git filter-repo`, `git filter-branch`, `git rebase --root`, a history rewrite, a remote change, or a push.
 
-- No credential-shaped value was found in current tracked content for the searched GitHub, Hugging Face, AWS, OpenAI-style, bearer-token, or private-key patterns.
-- The history indicator scan found configuration *names* for Apple notarization and an ElevenLabs preference, but no matching token/private-key indicator. This is not a substitute for a dedicated secret scanner before publication.
-- `scripts/setup-secrets.sh` is a credential-handling helper. It does not embed a credential, but it exports a signing certificate and uploads secrets to a hard-coded GitHub repository. It must not be presented as a normal contributor setup step.
-- The optional ElevenLabs feature stores a user-provided API key in `UserDefaults`, rather than Keychain. The key is not in Git, but secure storage and privacy disclosure require a release decision.
-- Debug-only Director logs can retain raw local LLM responses in a temporary application-support file. Release builds do not use that path; the public privacy/debugging policy should still document it.
+## Resolved Phase 1 blockers
 
-### Personal information and absolute paths
+### Personal and internal records
 
-- Production Swift source and Xcode file references have no audited `/Users/<person>/…` reference. Runtime uses `FileManager`, Application Support, and documented system locations appropriately.
-- Tracked internal documentation contains the local username, full home paths, project UUIDs, output filenames, PIDs, local virtual-environment paths, and historical acceptance instructions. Concentrated examples include `docs/implementation/DECISION_LOG.md`, `FINAL_IMPLEMENTATION_REPORT.md`, `GUI_ACCEPTANCE_CHECKLIST.md`, `ORIGINAL_FACE_MELT_FORENSIC.md`, `FACE_SCALE_ISOLATION_EVAL.md`, `OPENING_REFERENCE_ASPECT_FIX_EVAL.md`, and `CHARACTER_REFERENCE_CAPABILITY_AUDIT.md`.
-- Xcode Release settings, legacy `scripts/build-local.sh`, `scripts/setup-secrets.sh`, the release workflow, Jekyll configuration, and public docs contain a specific owner/repository, signing identity, team identifier, or funding handle. These are not secret values, but are not transferable public-repository defaults.
+- Removed the tracked internal implementation, acceptance, forensic, environment, and handoff record collection.
+- Removed the tracked issue-response draft collection.
+- Replaced the one remaining product-facing reference to removed internal documentation with a self-contained statement.
+- Re-audited the remaining tracked text for the former developer home path: no match remains. The remaining documentation is public-facing material plus this readiness record.
 
-### Ignore rules and generated artifacts
+### Release ownership and signing
 
-- `build/`, `dist/`, DerivedData, SwiftPM build state, Xcode user state, Python environments, logs, and macOS metadata were already ignored.
-- This phase added ignore rules for dotenv files, Apple API/private signing material, keychain files, model-weight extensions, generated video formats, `.app`, and `.xcarchive`. Existing tracked files are unaffected by ignore rules.
-- The current Git tree has 211 tracked files; no tracked model weights, generated video, application bundle, archive, DMG, or Python environment was found. Largest tracked blobs are two documentation PNGs (about 1.39 MiB and 1.29 MiB). Reachable Git objects total about 12.6 MiB.
+- Debug and Release now use the neutral development bundle identifier `com.example.ltxvideogenerator`. A distributor must supply its own final bundle identity before shipping a signed build.
+- Release signing is automatic with an empty `DEVELOPMENT_TEAM`; no original Apple team or certificate is embedded in the project.
+- Legacy packaging and secret helpers now require maintainer-supplied environment values for signing, notarization, team, and target repository. They neither choose an owner nor create a tag or push.
+- The existing release workflow no longer names a particular signing identity; it reads that identity from a repository secret. It was not run or published in this phase.
+- Documentation-site links, release links, funding entry, and source clone example no longer point to a specific upstream owner. Required MIT copyright attribution in `LICENSE` is intentionally retained.
 
-## Licensing and model distribution
+### Repository-owned media fixtures
 
-### Project and upstream
+- Replaced the former machine-local video baseline dependency with three small, repository-owned synthetic MP4 fixtures under `Tests/LTXTests/Fixtures/`.
+- The fixtures are FFmpeg test patterns and generated sine audio only; they contain no LTX output, model weights, user media, or real people.
+- Fixture provenance, stream intent, and generation method are documented in `Tests/LTXTests/Fixtures/README.md`.
+- `.gitignore` explicitly permits those test MP4 files while continuing to ignore generated media elsewhere.
+- Tests resolve fixtures relative to the checkout, so no developer-maintained temporary baseline directory is required. The optional benchmark script also uses a neutral temporary output directory name.
 
-- Root `LICENSE` is MIT and attributes the existing project copyright to its recorded upstream author.
-- `origin` points to `james-see/ltx-video-mac`; README, docs site configuration, release badges, and release links currently point there too. A public fork or successor must choose its own ownership, keep required MIT notices, and update links rather than imply that it is the upstream release channel.
+### Unverified sample assets
 
-### Dependency inventory
+- Removed both documentation images whose public redistribution provenance was not established during the audit. No replacement asset was introduced.
+- No remaining tracked documentation sample image or large media asset was found. The only tracked binary media is the documented synthetic test fixture set (101,416 bytes total).
 
-None of the following Python dependencies are vendored in the repository; they are installed in a user-selected Python environment. The recorded licenses are only what was locally available at audit time.
+## Re-audit results
 
-| Dependency | Role | Local metadata result | Public-release action |
-| --- | --- | --- | --- |
-| PythonKit | Swift bridge, fetched by SPM | Apache-2.0 | Commit a resolution and include required third-party notices for binary distribution. |
-| mlx-video-with-audio 0.1.36 | LTX backend | MIT | Verify release artifact and upstream notice requirements. |
-| MLX / mlx-lm / mlx-vlm | ML runtime / text / vision | MIT | Record version and notices in a third-party inventory. |
-| huggingface_hub / transformers | model retrieval / tokenization | Apache-2.0 | Record versions and notices. |
-| opencv-python | video helpers | Apache-2.0 | Verify packaged-wheel notices if distributed. |
-| tqdm | progress reporting | MPL-2.0 AND MIT | Verify selected distribution terms. |
-| mlx-audio, safetensors, numpy, Pillow | optional/local audio and support | license field unavailable locally | External license verification required. |
-| FFmpeg / ffprobe | external executable at runtime | not bundled | Document installation and that licensing depends on the user-installed build. |
+### Credentials and privacy
 
-### Models
+- A tracked-content scan for common credential and private-key indicators found no embedded credential value. This is a focused audit, not a substitute for a dedicated secret scanner before actual publication.
+- The optional cloud-audio API key remains user-provided, default-off, and is not required for a build or normal local generation. Its current UserDefaults storage is a **SHOULD FIX** security-hardening item, not a sanitized-snapshot blocker: no credential is tracked and the feature is optional.
+- No personal home-directory path, PID, DerivedData path, local project ID, internal acceptance log, handoff record, or forensic record was found in the remaining tracked text by the Phase 2 search.
 
-- The repository contains no model weights. Official LTX and optional derived models are external Hugging Face artifacts; the app records model-card URLs and performs user-controlled disk/license checks.
-- The software MIT license does **not** license model weights. Before release, publish a model-license table with exact repository/revision, license link, download size, and whether explicit acknowledgement is required.
-- Official descriptors track upstream rather than a pinned revision; derived descriptors are blocked until appropriately pinned and verified. That is a sound runtime policy but not a reproducible distribution manifest.
+### Project and dependency safety
 
-## Build reproducibility and runtime prerequisites
+- The Xcode project contains only relative source references and has no original developer signing-team requirement or personal absolute reference.
+- PythonKit is pinned to the resolved revision in both the Xcode project and the app package manifest. The shared Xcode `Package.resolved` is tracked for reproducible package resolution.
+- No model weights, app bundles, archives, DMGs, Python environments, or generated videos are tracked.
 
-- The audited Xcode project targets macOS 14.0 and uses relative project file references; no personal absolute Xcode reference was found.
-- `LTXVideoGenerator/Package.swift` and the Xcode project both use a floating PythonKit branch, and no `Package.resolved` is committed. The two declarations also name different branches (`master` vs `main`). A future build can resolve different source than this audit used.
-- Python 3.11+, `mlx-video-with-audio==0.1.36`, external model/text-encoder assets, and FFmpeg/ffprobe are operational requirements. Root README and website instructions disagree with current setup behavior in several places.
-- Normal tests use untracked `/tmp/ltx_baseline/*.mp4` media. Some suites skip their media assertions when absent, but `GenerationRuntimeDiagnosticsTests` treats its required real-MP4 fixture as a failure. Therefore a fresh clone cannot reliably reproduce the audited 1600-pass result.
-- Release signing is also not portable: the project Release configuration and legacy automation contain a specific Developer ID/team/bundle identity.
+## Fresh tracked-files-only snapshot verification
 
-## README and documentation audit
+An isolated temporary directory was created from the candidate tracked snapshot with a new local Git repository and a separate DerivedData path. It did not use the original checkout, its DerivedData, the original signing team, a model, or the former external media baseline.
 
-### Public-facing documentation
+| Gate | Result |
+| --- | --- |
+| `swift build` | PASS |
+| `swift run LTXTests` | PASS — 1600 passed, 0 failed |
+| Xcode Debug `clean build` with `CODE_SIGNING_ALLOWED=NO` | `BUILD SUCCEEDED` |
 
-- README and Jekyll pages have a clear initial product description and Apple-Silicon framing, but still describe an earlier feature/configuration state. Examples include automatic model/package download language, stale model sizes/names, an old preset table, and release links for the upstream repository.
-- The product is not universally local-only: optional ElevenLabs TTS/music sends selected user content to that cloud provider. Local LTX, local Ollama, and optional cloud audio need a precise privacy statement.
-- Installation pages omit one current reproducible source-build path and do not fully reconcile Python, FFmpeg, model cache, model download consent, and optional services.
-- Current public pages include claims such as an "uncensored" enhancer and adult-adjacent language that require explicit release policy review.
+The isolated Xcode build resolved the pinned PythonKit revision from its local package cache. A truly network-air-gapped first build still requires that dependency to be available through SwiftPM; this is an ordinary external source dependency, not a private-machine file dependency.
 
-### Internal documentation and assets
+## Remaining public-readiness work
 
-- `docs/implementation/` and `docs/issue-comments/` are a useful engineering archive, but are not ready to be served as public product documentation. They contain local operational records, old branch/release claims, forensic notes, private-environment paths, and historical issue-response drafts.
-- The two tracked documentation images have no provenance or license statement. One is a photorealistic identifiable person. Treat both as non-public until ownership/model-output provenance and publication rights are recorded.
+### BLOCKER — 0
 
-## Feature flags, APIs, and safety posture
+No blocker was found in the sanitized tracked snapshot for creating a new clean-history public repository.
 
-- General user-facing flags (registry, auto quality, director, film projects, storyboard, adaptive refresh) default on.
-- Derived models, adult models, low-RAM adapter, and local API default off. Adult-classified models additionally require Adult Content Mode and policy/verification gates. This is an appropriate conservative default.
-- The local API has token authentication and is optional. Its OpenClaw documentation is developer-oriented and should be separated from normal end-user onboarding.
-- Retained adult-model code and terminology are not a secret, but a public repository needs a concise content policy, default behavior, and an explicit explanation that no such weights are bundled.
+### SHOULD FIX before a distribution release
 
-## Findings
-
-### BLOCKER
-
-1. **Unredacted internal records are tracked.** Sanitize, remove from the public branch, or move the identified implementation/forensic/issue-comment documents to a private archive before publishing. They expose personal local environment details and may describe private acceptance assets.
-2. **Release ownership is hard-coded.** The Release project settings, legacy local build script, secret helper, workflow, site configuration, funding, README badges, and release links still identify a specific upstream owner. A public successor must be explicitly re-owned and must not ship/sign/release under that identity.
-3. **Fixture provenance is incomplete.** The two documentation images lack a recorded reusable license/provenance; the photorealistic-person image needs explicit publication clearance or replacement.
-4. **Full test success is not clean-clone reproducible.** Required `/tmp` baseline MP4s are not tracked or generated deterministically by the test harness.
-
-### SHOULD FIX BEFORE PUBLIC
-
-1. Pin Swift dependencies and commit `Package.resolved`; reconcile the two PythonKit branch declarations.
-2. Replace legacy signing/secret scripts and tag-triggered workflow with owner-neutral, opt-in release configuration after a deliberate release-owner decision. Do not configure credentials in source.
-3. Rewrite public README/site installation material from current source of truth: supported macOS, Apple Silicon/memory, Python/FFmpeg setup, model-install consent, Auto Movie/Storyboard basics, local-vs-cloud behavior, and current limitations.
-4. Add `THIRD_PARTY_NOTICES` / a dependency license inventory and a separate model-license table. Verify unknown local metadata against upstream sources.
-5. Replace UserDefaults storage for optional cloud API credentials with Keychain or explicitly limit the released feature and document its privacy behavior.
-6. Add a clear public policy for optional adult/derived models, local API, debug log retention, and cloud audio.
-7. Make media tests self-contained using a small licensed/generated fixture or deterministic fixture generator; never depend on a developer's `/tmp`.
+1. Phase 3: rewrite README and installation material from the current source of truth, including model download consent, Python/FFmpeg setup, optional cloud audio, and current capabilities.
+2. Add third-party software notices and a model-license table with exact repositories, revisions, terms, and acknowledgement requirements.
+3. Move optional cloud-audio credentials from UserDefaults to Keychain and add a concise privacy disclosure.
+4. Decide a maintainer-owned release identity, final bundle identifier, signing/notarization policy, and public repository URL before publishing a binary release.
+5. Review optional adult/derived-model terminology and add a public content policy before promoting those features.
 
 ### NICE TO HAVE
 
-1. Add CI build/test workflow after dependency pinning; do not add it in this audit phase.
-2. Add a documented support matrix and troubleshooting decision tree.
-3. Add reproducible screenshots with attribution and an explicit privacy note for generated content.
-4. Split public reference docs from private engineering decision/evaluation records once the public document set is established.
-5. Add release checklist coverage for license notices, model-card changes, credential scanning, and notarization ownership.
+1. Add public CI after the public owner and dependency policy are decided.
+2. Add attributed public screenshots only after provenance and publication rights are recorded.
+3. Add a release checklist for secret scanning, dependency changes, model-card review, license notices, signing, and notarization.
 
-### ALREADY READY
+## Explicitly unchanged
 
-- MIT project license is present.
-- No audited current tracked secret, private key, model weight, generated video, DMG, app bundle, archive, or Python environment was found.
-- Production source and Xcode file references do not use a personal absolute path; normal user storage is based on system-provided directories.
-- `.gitignore` already covered major build/distribution artifacts and was strengthened during this audit.
-- Model weights are external rather than silently committed to Git.
-- Conservative feature defaults keep local API, derived/adult models, and low-RAM adapter opt-in.
-- Current baseline verification remains documented as `swift build`, 1600 test assertions, and Xcode Debug clean build success.
+This cleanup did not change LTX generation behavior, Director, Auto Movie, Storyboard, generation settings, presets, continuity, selected-take precedence, cut/continue semantics, Identity Refresh, ImageConditioning, generation or runtime diagnostics, Production Queue, or model runtime behavior.
 
-## Changes made in Phase 1
+## Verification commands
 
-- Added conservative ignore coverage for dotenv files, Apple signing/keychain material, local model weight files, generated media, app bundles, and Xcode archives.
-- Added this audit report. No application, generation, continuity, diagnostic, preset, model-runtime, or release behavior was changed.
+Run after the final checkpoint:
 
-## Recommended Phase 2
+```text
+swift build
+swift run LTXTests
+xcodebuild -project LTXVideoGenerator/LTXVideoGenerator.xcodeproj \\
+  -scheme LTXVideoGenerator -configuration Debug CODE_SIGNING_ALLOWED=NO clean build
+git diff --check
+```
 
-**GitHub Public Readiness — Phase 2: Public Documentation & Cleanup**
-
-Priority order:
-
-1. Decide public repository/release ownership, then remove or parameterize inherited owner/team/release links and release automation.
-2. Create a public-doc set and private-archive plan; sanitize or exclude internal implementation/forensic/issue-response records.
-3. Resolve image provenance and replace any asset without publication rights.
-4. Make tests self-contained and pin all Swift/Python dependency inputs.
-5. Write owner-neutral README/install/privacy/model-license/third-party-notice documentation, then add CI and release automation in a later dedicated phase.
-
-## Verification after audit changes
-
-Run the standard local gates before committing: `swift build`, `swift run LTXTests`, canonical Xcode Debug `clean build`, and `git diff --check`.
+LTX generation was not run.

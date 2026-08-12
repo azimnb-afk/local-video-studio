@@ -45,7 +45,7 @@ jobs:
 
       - name: Build and Sign App
         env:
-          CODE_SIGN_IDENTITY: "Developer ID Application: James Campbell (529AKJCKRC)"
+          CODE_SIGN_IDENTITY: ${{ secrets.CODE_SIGN_IDENTITY }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
@@ -95,7 +95,7 @@ jobs:
 
       - name: Create DMG
         env:
-          CODE_SIGN_IDENTITY: "Developer ID Application: James Campbell (529AKJCKRC)"
+          CODE_SIGN_IDENTITY: ${{ secrets.CODE_SIGN_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}

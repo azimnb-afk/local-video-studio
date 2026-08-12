@@ -4,11 +4,12 @@ import Foundation
 /// Covers the Auto Movie vertical slice: sequential shot advancement,
 /// continuity inheritance between consecutive shots, and single automatic
 /// Final Assembly. Fixture videos come from the Phase 0 baseline renders when
-/// present; media-dependent checks are skipped (not failed) without them.
+/// present; media-dependent checks are skipped (not failed) if an explicitly
+/// unsupported local FFmpeg installation is unavailable.
 func runAutoMovieContinuityTests(_ t: TestKit) {
 
-    let fixtureA = "/tmp/ltx_baseline/T2V-A-ON.mp4"
-    let fixtureB = "/tmp/ltx_baseline/I2V-A-ON.mp4"
+    let fixtureA = TestFixtures.videoWithAudioA
+    let fixtureB = TestFixtures.videoWithAudioB
     let hasFixtures = FileManager.default.fileExists(atPath: fixtureA)
         && FileManager.default.fileExists(atPath: fixtureB)
         && FinalAssemblyService.ffmpegPath() != nil
@@ -748,7 +749,7 @@ func runAutoMovieContinuityTests(_ t: TestKit) {
 /// inherited frames only, and every explicit starting-image path must keep its
 /// original exact-first-frame behaviour.
 func runContinuityStrengthTests(_ t: TestKit) {
-    let fixtureA = "/tmp/ltx_baseline/T2V-A-ON.mp4"
+    let fixtureA = TestFixtures.videoWithAudioA
     let hasFixtures = FileManager.default.fileExists(atPath: fixtureA)
         && FinalAssemblyService.ffmpegPath() != nil
 

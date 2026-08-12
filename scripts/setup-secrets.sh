@@ -4,8 +4,8 @@
 
 set -e
 
-REPO="james-see/ltx-video-mac"
-CERT_NAME="Developer ID Application: James Campbell (529AKJCKRC)"
+REPO="${GITHUB_REPOSITORY:?Set GITHUB_REPOSITORY to owner/repository before configuring secrets.}"
+CERT_NAME="${CODE_SIGN_IDENTITY:-Developer ID Application}"
 
 echo "=== LTX Video Generator - GitHub Secrets Setup ==="
 echo ""
@@ -93,6 +93,4 @@ echo ""
 echo "Secrets set:"
 gh secret list -R "$REPO"
 echo ""
-echo "You can now create a release by pushing a tag:"
-echo "  git tag v1.0.0"
-echo "  git push origin v1.0.0"
+echo "Release publication remains a maintainer decision; this helper does not create tags or push."

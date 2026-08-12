@@ -275,7 +275,7 @@ pip show mlx-video-with-audio
 
 ## Version History
 
-See the full [CHANGELOG](https://github.com/james-see/ltx-video-mac/blob/main/CHANGELOG.md) for release details.
+See the repository's `CHANGELOG.md` for release details.
 
 Key milestones:
 - **v2.3.42**: Fix vocoder crash with unified model (ConvTranspose1d weight layout detection)

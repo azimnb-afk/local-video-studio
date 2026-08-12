@@ -141,7 +141,7 @@ func runGenerationRuntimeDiagnosticsTests(_ t: TestKit) {
         t.checkEqual(running?.generationRuntimeDiagnostics?.effectiveHeight, 1024, "effective resolution uses existing 64-pixel floor")
         t.checkEqual(context.store.project(id: context.projectID)?.jobs.first?.state, .running, "job mirrors runtime start")
 
-        let fixture = "/tmp/ltx_baseline/T2V-A-ON.mp4"
+        let fixture = TestFixtures.videoWithAudioA
         guard FileManager.default.fileExists(atPath: fixture),
               let media = MediaProbe.probe(path: fixture) else {
             t.check(false, "runtime fixture MP4 is readable"); return

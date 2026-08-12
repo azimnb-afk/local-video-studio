@@ -61,10 +61,26 @@ venv/
 /tmp/
 
 # Secrets (never commit)
+.env
+.env.*
+!.env.example
 *.p12
+*.p8
 *.mobileprovision
 *.provisionprofile
+*.keychain
+*.keychain-db
 secrets/
+
+# Local model weights and generated media (keep intentionally curated assets explicit)
+*.safetensors
+*.gguf
+*.npz
+*.mp4
+*.mov
+*.mkv
+*.xcarchive
+*.app
 dist/
 AppIcon.aseprite
 AppIcon_128.png

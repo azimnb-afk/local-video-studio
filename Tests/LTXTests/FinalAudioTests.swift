@@ -28,7 +28,7 @@ private func makeSyntheticBGM(seconds: Double, frequency: Int, ffmpeg: String) -
 func runFinalAudioTests(_ t: TestKit) {
     t.suite("Final Audio — persistence") {
         // A. Old project JSON without `finalAudio` at all must decode with
-        // BGM off, reproducing every project written before this feature.
+        // BGM and Ambience off, reproducing every project written before this feature.
         let legacyJSON = """
         {"id":"\(UUID().uuidString)","title":"Legacy"}
         """.data(using: .utf8)!
@@ -36,32 +36,58 @@ func runFinalAudioTests(_ t: TestKit) {
             let decoded = try JSONDecoder().decode(FilmProject.self, from: legacyJSON)
             t.checkEqual(decoded.finalAudio.bgmEnabled, false, "legacy project without finalAudio decodes with BGM off")
             t.check(decoded.finalAudio.bgmAsset == nil, "legacy project has no BGM asset")
+            t.checkEqual(decoded.finalAudio.ambienceEnabled, false, "legacy project without finalAudio decodes with Ambience off")
+            t.check(decoded.finalAudio.ambienceAsset == nil, "legacy project has no Ambience asset")
             t.checkEqual(decoded.finalAudio.isActive, false, "legacy project's finalAudio is not active")
         } catch {
             t.check(false, "legacy project without finalAudio failed to decode: \(error)")
         }
 
-        // A fresh project also defaults to BGM off.
+        // B. BGM-era project JSON without Ambience fields must decode with Ambience off.
+        let bgmEraJSON = """
+        {"id":"\(UUID().uuidString)","title":"BGM-era", "finalAudio": {"bgmEnabled": true, "bgmVolume": 0.5}}
+        """.data(using: .utf8)!
+        do {
+            let decoded = try JSONDecoder().decode(FilmProject.self, from: bgmEraJSON)
+            t.checkEqual(decoded.finalAudio.bgmEnabled, true, "BGM-era project decodes BGM enabled correctly")
+            t.checkEqual(decoded.finalAudio.ambienceEnabled, false, "BGM-era project defaults Ambience to off")
+        } catch {
+            t.check(false, "BGM-era project without Ambience failed to decode: \(error)")
+        }
+
+        // A fresh project also defaults to BGM off and Ambience off.
         let fresh = FilmProject(title: "Fresh")
         t.checkEqual(fresh.finalAudio.bgmEnabled, false, "new project defaults to BGM off")
+        t.checkEqual(fresh.finalAudio.ambienceEnabled, false, "new project defaults to Ambience off")
 
         // Settings round-trip through Codable.
-        var withBGM = FilmProject(title: "WithBGM")
-        withBGM.finalAudio.bgmEnabled = true
-        withBGM.finalAudio.bgmAsset = FinalAudioAsset(
+        var withAudio = FilmProject(title: "WithAudio")
+        withAudio.finalAudio.bgmEnabled = true
+        withAudio.finalAudio.bgmAsset = FinalAudioAsset(
             projectRelativePath: "Assets/FinalAudio/bgm-test.mp3",
             originalFilename: "forest_theme.mp3",
             mimeType: "audio/mpeg",
             fileSizeBytes: 12345
         )
-        withBGM.finalAudio.bgmVolume = 0.4
-        withBGM.finalAudio.fadeInSeconds = 2
-        withBGM.finalAudio.fadeOutSeconds = 3
+        withAudio.finalAudio.bgmVolume = 0.4
+        withAudio.finalAudio.fadeInSeconds = 2
+        withAudio.finalAudio.fadeOutSeconds = 3
+        withAudio.finalAudio.ambienceEnabled = true
+        withAudio.finalAudio.ambienceAsset = FinalAudioAsset(
+            projectRelativePath: "Assets/FinalAudio/amb-test.wav",
+            originalFilename: "room_tone.wav",
+            mimeType: "audio/wav",
+            fileSizeBytes: 6789
+        )
+        withAudio.finalAudio.ambienceVolume = 0.2
+        withAudio.finalAudio.ambienceFadeInSeconds = 1
+        withAudio.finalAudio.ambienceFadeOutSeconds = 1
         do {
-            let data = try JSONEncoder().encode(withBGM)
+            let data = try JSONEncoder().encode(withAudio)
             let decoded = try JSONDecoder().decode(FilmProject.self, from: data)
-            t.checkEqual(decoded.finalAudio, withBGM.finalAudio, "FinalAudioSettings round-trips through Codable")
-            t.checkEqual(decoded.finalAudio.bgmAsset?.originalFilename, "forest_theme.mp3", "imported asset reference persists")
+            t.checkEqual(decoded.finalAudio, withAudio.finalAudio, "FinalAudioSettings round-trips through Codable")
+            t.checkEqual(decoded.finalAudio.bgmAsset?.originalFilename, "forest_theme.mp3", "imported BGM reference persists")
+            t.checkEqual(decoded.finalAudio.ambienceAsset?.originalFilename, "room_tone.wav", "imported Ambience reference persists")
         } catch {
             t.check(false, "round-trip failed: \(error)")
         }
@@ -86,6 +112,12 @@ func runFinalAudioTests(_ t: TestKit) {
             t.check(asset.projectRelativePath.hasPrefix("Assets/FinalAudio/"), "imported asset lives under the project's FinalAudio directory")
             let resolved = store.managedProjectAssetURL(projectID: projectID, relativePath: asset.projectRelativePath)
             t.check(resolved != nil && FileManager.default.fileExists(atPath: resolved!.path), "imported file actually exists at its managed path")
+
+            let ambAsset = try store.importFinalAmbienceAsset(from: URL(fileURLWithPath: sourcePath), projectID: projectID)
+            t.check(ambAsset.projectRelativePath.hasPrefix("Assets/FinalAudio/"), "imported ambience asset lives under FinalAudio")
+            t.check(ambAsset.projectRelativePath.contains("ambience-"), "imported ambience uses correct prefix")
+            let ambResolved = store.managedProjectAssetURL(projectID: projectID, relativePath: ambAsset.projectRelativePath)
+            t.check(ambResolved != nil && FileManager.default.fileExists(atPath: ambResolved!.path), "imported ambience actually exists")
 
             // Unsupported format is rejected before touching the filesystem.
             let badSource = FileManager.default.temporaryDirectory.appendingPathComponent("not-audio-\(UUID().uuidString).txt")

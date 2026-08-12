@@ -1,6 +1,6 @@
 # CURRENT_STATE
 
-Updated: 2026-08-09
+Updated: 2026-08-12
 
 ## Current Phase
 Phase A2 — Distribution Runtime / Packaging is packaging-complete pending Apple
@@ -1109,3 +1109,47 @@ acceptance toggled Shot 2 Continue → Cut → Continue → Cut in the isolated
 `Plan Edit GUI Acceptance` project. The preview and lower Shot status stayed in
 sync, restart preserved Cut, Shot 1 stayed fixed, and Phase A Action/Camera
 values remained. No LTX generation was started.
+
+## 2026-08-12 LTX Generation Diagnostics — Phase 1
+
+**Status: implementation and automated verification PASS; latest-binary GUI
+acceptance deferred safely.** Each newly queued Storyboard, Hybrid, or Auto
+Movie Take now persists an immutable `GenerationSourceDiagnostics` snapshot.
+It records the requested continuity mode, the existing logical source term
+(explicit Starting Image, Identity Refresh anchor, inherited last frame,
+Opening Reference, Character Anchor, or T2V), actual T2V/I2V mode, a safe
+filename/project-relative source reference, continuation Take and its selected
+versus latest-completed reason, and Identity Refresh reuse/generation
+provenance. It is a reporting record: no source precedence, prompt, strength,
+refresh policy, queue, or LTX-generation behavior changed.
+
+At the existing backend image-conditioning boundary, I2V Takes receive the
+observed original and effective dimensions and either `No-op` or
+`Scale to fill · center crop`; only the backend filename is retained, never a
+cache absolute path. Take cards distinguish a queued **source plan** from
+historical **recorded generation details**. Earlier Takes with no snapshot show
+an explicit unavailable message and still load normally.
+
+Validation: `swift build` PASS; `swift run LTXTests` **1530 passed / 0 failed**;
+Xcode Debug `clean build` **BUILD SUCCEEDED**; `git diff --check` PASS. The
+debug build is at the canonical DerivedData path documented below, with
+executable mtime `2026-08-12 10:16:23 +0900` from HEAD
+`4051d91282ba3925447577ee40fe076d9864114e` before the local checkpoint.
+
+The active render completed, so the earlier process was quit only after the
+queue reported no pending generations. The latest app was then launched at the
+full canonical path as PID `29138` at `10:19:23`; a completed legacy Take
+visibly displayed `Generation diagnostics unavailable for this earlier Take.`
+No new LTX render was queued merely to populate a new diagnostic Take; the
+new-Take source/provenance and image-preparation paths are covered by the
+automated integration tests.
+
+### Canonical development app path
+
+Resolve `TARGET_BUILD_DIR` and `WRAPPER_NAME` with
+`xcodebuild -showBuildSettings`; do not hard-code the DerivedData hash. At this
+time the resolved Debug artifact is
+`~/Library/Developer/Xcode/DerivedData/LTXVideoGenerator-*/Build/Products/Debug/LTXVideoGenerator.app`.
+GUI acceptance always records `git HEAD`, executable modification time, and the
+running process’s executable path, launches the explicit full `.app` path, and
+never uses `open -a LTXVideoGenerator` or a `/tmp` build as the normal app.

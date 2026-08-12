@@ -300,6 +300,15 @@ class LTXBridge {
             )
         }
         let backendSourceImagePath = preparedConditioning?.preparedURL.path
+        // Persist observed preparation facts for project-backed requests only.
+        // This is diagnostics; the selected source and backend path are already
+        // fixed above and remain untouched.
+        if request.takeID != nil {
+            TakeGenerationCoordinator().recordImagePreparation(
+                request: request,
+                preparedConditioning: preparedConditioning
+            )
+        }
 
         // Escape the prompt for Python
         let escapedPrompt = generationPrompt

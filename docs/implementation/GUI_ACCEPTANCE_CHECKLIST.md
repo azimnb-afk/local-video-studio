@@ -767,3 +767,28 @@ path. The app was launched by full path, not `open -a`.
       saved `medium close-up`, `low`, `slow dolly-in` values remained visible.
 - [x] No LTX generation, Take creation, queue job, source import, or production
       project edit occurred.
+
+## 2026-08-12 LTX Generation Diagnostics — Phase 1 GUI acceptance
+
+- [x] Automated source/provenance coverage: T2V, explicit Starting Image,
+      Opening Reference, Character Anchor, inherited last frame, Identity
+      Refresh provenance, selected-Take reason, image-preparation dimensions,
+      and legacy JSON decode. `swift run LTXTests`: 1530 passed / 0 failed.
+- [x] Canonical Debug artifact clean-built at
+      `~/Library/Developer/Xcode/DerivedData/LTXVideoGenerator-*/Build/Products/Debug/LTXVideoGenerator.app`.
+      Pre-check HEAD `4051d91282ba3925447577ee40fe076d9864114e`; executable
+      mtime `2026-08-12 10:16:23 +0900`. The pre-build process began at
+      `09:46:59` with a running render, so it was not interrupted; after the
+      queue reached no pending generations it was quit and the rebuilt app
+      launched by full path as PID `29138` at `10:19:23`.
+- [x] A historical pre-Phase-1 completed Take visibly says
+      `Generation diagnostics unavailable for this earlier Take.` No Take or
+      source-selection state was changed.
+- [x] New-Take source plan, I2V image preparation, continuation-selection and
+      refresh-provenance paths are covered without starting LTX:
+      `swift run LTXTests` 1530 passed / 0 failed.
+- [ ] Optional future live-render observation: after a normal user-initiated
+      new I2V Take, its disclosure should show **Queued source plan** before
+      execution, then original → effective dimensions and either **No-op** or
+      **Scale to fill · center crop**. This task intentionally did not start a
+      heavyweight render solely for UI evidence.

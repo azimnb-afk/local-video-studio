@@ -87,6 +87,7 @@ final class TakeGenerationCoordinator {
         // continuity strength; an image the user chose keeps the existing
         // exact-first-frame behaviour.
         var usesInheritedContinuityFrame = false
+        var effectiveSource: LTXContinuitySource = .none
         // The optional Character Anchor sits between the two: it applies to the
         // opening shot only, never overrides an image the user picked for that
         // shot, and is never re-injected into a later shot, which continues to
@@ -103,6 +104,7 @@ final class TakeGenerationCoordinator {
                 throw CoordinatorError.startingImageUnavailable(assetID)
             }
             sourceImagePath = url.path
+            effectiveSource = .explicitStartingImage
         } else if mayInheritPreviousShot,
                   let refreshPath = shot.identityRefreshAnchorRelativePath,
                   !refreshPath.isEmpty,
@@ -114,6 +116,7 @@ final class TakeGenerationCoordinator {
             // camera and action still move on.
             sourceImagePath = url.path
             usesInheritedContinuityFrame = true
+            effectiveSource = .identityRefreshAnchor
         } else if mayInheritPreviousShot,
                   let relativePath = shot.continuityImageRelativePath {
             guard let url = store.managedProjectAssetURL(projectID: projectID, relativePath: relativePath),
@@ -122,6 +125,7 @@ final class TakeGenerationCoordinator {
             }
             sourceImagePath = url.path
             usesInheritedContinuityFrame = true
+            effectiveSource = .inheritedLastFrame
         } else if shotIndex == 0,
                   let openingReference = CharacterAnchorResolver.resolveOpeningReference(
                       project: project, store: store) {
@@ -132,6 +136,7 @@ final class TakeGenerationCoordinator {
             case .success(let url):
                 sourceImagePath = url.path
                 usesOpeningReference = true
+                effectiveSource = .openingReference
             case .failure(let issue):
                 throw CoordinatorError.openingReferenceUnavailable(issue)
             }
@@ -140,6 +145,7 @@ final class TakeGenerationCoordinator {
             case .resolved(let anchor):
                 sourceImagePath = anchor.fileURL.path
                 usesCharacterAnchor = true
+                effectiveSource = .characterAnchor
             case .unavailable(let issue):
                 throw CoordinatorError.characterAnchorUnavailable(issue)
             case .inactive:
@@ -205,7 +211,14 @@ final class TakeGenerationCoordinator {
                 targetDurationSeconds: targetDuration,
                 status: .queued,
                 startingImageReferenceAssetID: shot.startingImageReferenceAssetID,
-                sourceImagePath: sourceImagePath
+                sourceImagePath: sourceImagePath,
+                generationSourceDiagnostics: makeSourceDiagnostics(
+                    project: project,
+                    shot: shot,
+                    shotIndex: shotIndex,
+                    source: effectiveSource,
+                    sourceImagePath: sourceImagePath
+                )
             )
             project.shots[shotIndex].takes.append(take)
 
@@ -238,6 +251,36 @@ final class TakeGenerationCoordinator {
             }
         }
         return requests
+    }
+
+    /// Records only the observed output of `ImageConditioningPreparer` for an
+    /// already-queued Take. It never re-runs source selection or modifies the
+    /// request that reaches the backend.
+    func recordImagePreparation(
+        request: GenerationRequest,
+        preparedConditioning: PreparedImageConditioning?
+    ) {
+        guard let projectID = request.filmProjectID,
+              let shotID = request.shotID,
+              let takeID = request.takeID,
+              var project = store.project(id: projectID),
+              let shotIndex = project.shots.firstIndex(where: { $0.id == shotID }),
+              let takeIndex = project.shots[shotIndex].takes.firstIndex(where: { $0.id == takeID }),
+              var diagnostics = project.shots[shotIndex].takes[takeIndex].generationSourceDiagnostics else {
+            return
+        }
+        diagnostics.imagePreparation = preparedConditioning.map { prepared in
+            GenerationImagePreparationDiagnostics(
+                originalWidth: prepared.geometry.sourceWidth,
+                originalHeight: prepared.geometry.sourceHeight,
+                effectiveWidth: prepared.geometry.targetWidth,
+                effectiveHeight: prepared.geometry.targetHeight,
+                mode: prepared.mode == .reusedExactCanvas ? .noOp : .scaleToFillCenterCrop,
+                backendFilename: prepared.preparedURL.lastPathComponent
+            )
+        }
+        project.shots[shotIndex].takes[takeIndex].generationSourceDiagnostics = diagnostics
+        store.save(project)
     }
 
     /// Marks a take completed from a finished GenerationResult (matched by takeID).
@@ -312,5 +355,74 @@ final class TakeGenerationCoordinator {
         }
         project.shots[shotIndex].selectedTakeID = takeID
         store.save(project)
+    }
+
+    private func makeSourceDiagnostics(
+        project: FilmProject,
+        shot: Shot,
+        shotIndex: Int,
+        source: LTXContinuitySource,
+        sourceImagePath: String?
+    ) -> GenerationSourceDiagnostics {
+        let previousShot = shotIndex > 0 ? project.shots[shotIndex - 1] : nil
+        let continuityTakeID: UUID?
+        let continuitySelection: ContinuityTakeSelectionReason?
+        switch source {
+        case .inheritedLastFrame:
+            continuityTakeID = shot.continuitySourceTakeID
+            continuitySelection = selectionReason(
+                for: continuityTakeID,
+                in: previousShot
+            )
+        case .identityRefreshAnchor:
+            continuityTakeID = shot.identityRefreshSourceTakeID
+            continuitySelection = selectionReason(
+                for: continuityTakeID,
+                in: previousShot
+            )
+        default:
+            continuityTakeID = nil
+            continuitySelection = nil
+        }
+        return GenerationSourceDiagnostics(
+            requestedContinuityMode: shot.continuityMode,
+            effectiveSource: source,
+            actualVideoMode: sourceImagePath == nil ? .textToVideo : .imageToVideo,
+            sourceFilename: sourceImagePath.map { URL(fileURLWithPath: $0).lastPathComponent },
+            sourceProjectRelativePath: relativeProjectPath(
+                sourceImagePath, projectID: project.id
+            ),
+            continuitySourceShotID: source == .inheritedLastFrame ? previousShot?.id : nil,
+            continuitySourceTakeID: continuityTakeID,
+            continuityTakeSelectionReason: continuitySelection,
+            refreshAnchorOrigin: source == .identityRefreshAnchor
+                ? shot.identityRefreshAnchorOrigin : nil,
+            refreshAnchorSourceShotID: source == .identityRefreshAnchor
+                ? shot.identityRefreshAnchorSourceShotID : nil,
+            refreshAnchorSourceTakeID: source == .identityRefreshAnchor
+                ? shot.identityRefreshSourceTakeID : nil,
+            imagePreparation: nil,
+            recordedAt: Date()
+        )
+    }
+
+    private func selectionReason(
+        for takeID: UUID?,
+        in previousShot: Shot?
+    ) -> ContinuityTakeSelectionReason? {
+        guard let takeID, let previousShot else { return nil }
+        return previousShot.selectedTake?.id == takeID
+            ? .selectedTake : .latestCompletedTake
+    }
+
+    private func relativeProjectPath(_ path: String?, projectID: UUID) -> String? {
+        guard let path, !path.isEmpty else { return nil }
+        let root = store.projectsDirectory
+            .appendingPathComponent(projectID.uuidString, isDirectory: true)
+            .standardizedFileURL.path
+        let candidate = URL(fileURLWithPath: path).standardizedFileURL.path
+        let prefix = root.hasSuffix("/") ? root : root + "/"
+        guard candidate.hasPrefix(prefix) else { return nil }
+        return String(candidate.dropFirst(prefix.count))
     }
 }

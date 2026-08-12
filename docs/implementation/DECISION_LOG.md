@@ -1577,3 +1577,26 @@ Cut means “do not inherit the previous shot,” not “remove every image”: 
 explicit per-shot Starting Image continues to win through the existing source
 precedence. Shot 1 is normalized to Cut in display and execution and cannot be
 saved as Continue from this UI.
+
+## D-092 (2026-08-12) Generation diagnostics snapshot the decision; they do not re-decide it
+
+The source-selection chain is an execution decision made when a Take is queued.
+Reconstructing it later from a mutable Shot would make retakes, Cut/Continue
+edits, refreshed anchors, and changed selections look like historical facts.
+Each new Take therefore stores an optional, immutable diagnostics snapshot at
+that boundary. It names the existing winning `LTXContinuitySource`, requested
+mode, I2V/T2V mode, safe source reference, relevant continuation Take and its
+selection reason, and any refresh provenance.
+
+Image geometry is not known until the existing `ImageConditioningPreparer` has
+prepared the backend-facing input. That boundary enriches the already-created
+snapshot with its observed dimensions, no-op or deterministic center-crop mode,
+and a filename only. It neither changes the source path nor has authority to
+choose a source. Project JSON never stores an absolute conditioning-cache path.
+
+The UI calls a queued record a source plan and a terminal/running one recorded
+generation details. Missing diagnostics are a normal legacy state, not an error
+or an invitation to infer history from today’s plan. This is deliberately
+observability-only: continuity precedence, ImageConditioning geometry,
+Identity Refresh, prompts, request parameters, LTXBridge semantics, and queue
+ordering remain untouched.

@@ -530,6 +530,9 @@ struct Take: Codable, Equatable, Identifiable {
 
     var startingImageReferenceAssetID: UUID?
     var sourceImagePath: String?
+    /// Historical source/provenance for this queued generation. Optional so
+    /// all projects written before Generation Diagnostics continue to decode.
+    var generationSourceDiagnostics: GenerationSourceDiagnostics?
 }
 
 // MARK: - Continuity chain
@@ -588,6 +591,14 @@ enum IdentityRefreshAnchorOrigin: String, Codable, Equatable {
     case generated
     case reusedOpeningReference
     case reusedPriorRefresh
+
+    var displayName: String {
+        switch self {
+        case .generated: return "Generated refresh"
+        case .reusedOpeningReference: return "Opening Reference reuse"
+        case .reusedPriorRefresh: return "Prior refresh reuse"
+        }
+    }
 }
 
 // MARK: - Shot

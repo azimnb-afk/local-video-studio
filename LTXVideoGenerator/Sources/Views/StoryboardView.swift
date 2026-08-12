@@ -2001,75 +2001,78 @@ private struct TakeRow: View {
     let onChanged: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            statusIcon
-            Text("Seed \(take.seed)")
-                .font(.caption.monospaced())
-            if let preset = take.preset.flatMap(GenerationPreset.init(rawValue:)) {
-                Text(preset.displayName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            if let profile = take.effectiveProfileID {
-                Text("Effective \(profile)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            if let width = take.actualWidth, let height = take.actualHeight {
-                Text("\(width)×\(height)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            if let duration = take.actualDuration {
-                Text(String(format: "%.2fs", duration))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Text("Requested \(take.requestedWidth)×\(take.requestedHeight)")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .help(take.effectiveProfileReason ?? "No profile resolution reason recorded")
-            if let target = take.targetDurationSeconds {
-                Text(String(format: "Target %.2fs", target))
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                statusIcon
+                Text("Seed \(take.seed)")
+                    .font(.caption.monospaced())
+                if let preset = take.preset.flatMap(GenerationPreset.init(rawValue:)) {
+                    Text(preset.displayName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let profile = take.effectiveProfileID {
+                    Text("Effective \(profile)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let width = take.actualWidth, let height = take.actualHeight {
+                    Text("\(width)×\(height)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let duration = take.actualDuration {
+                    Text(String(format: "%.2fs", duration))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text("Requested \(take.requestedWidth)×\(take.requestedHeight)")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
-            }
-            if let assetID = take.startingImageReferenceAssetID,
-               let (character, asset) = project.findReferenceAsset(id: assetID) {
-                Text("Starting Image: \(character.name) · \(asset.displayLabel)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else if let path = take.sourceImagePath, !path.isEmpty {
-                Text("Starting Image: \(URL(fileURLWithPath: path).lastPathComponent)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if take.status == .completed {
-                Button("Play") {
-                    if let path = take.outputPath {
-                        NSWorkspace.shared.open(URL(fileURLWithPath: path))
-                    }
+                    .help(take.effectiveProfileReason ?? "No profile resolution reason recorded")
+                if let target = take.targetDurationSeconds {
+                    Text(String(format: "Target %.2fs", target))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
-                .controlSize(.small)
-                if isSelected {
-                    Button("Selected ✓") {}
-                        .controlSize(.small)
-                        .buttonStyle(.borderedProminent)
-                        .disabled(true)
-                } else {
-                    Button("Select") {
-                        try? coordinator.selectTake(projectID: project.id, shotID: shot.id, takeID: take.id)
-                        onChanged()
+                if let assetID = take.startingImageReferenceAssetID,
+                   let (character, asset) = project.findReferenceAsset(id: assetID) {
+                    Text("Starting Image: \(character.name) · \(asset.displayLabel)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else if let path = take.sourceImagePath, !path.isEmpty {
+                    Text("Starting Image: \(URL(fileURLWithPath: path).lastPathComponent)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if take.status == .completed {
+                    Button("Play") {
+                        if let path = take.outputPath {
+                            NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                        }
                     }
                     .controlSize(.small)
-                    .buttonStyle(.bordered)
+                    if isSelected {
+                        Button("Selected ✓") {}
+                            .controlSize(.small)
+                            .buttonStyle(.borderedProminent)
+                            .disabled(true)
+                    } else {
+                        Button("Select") {
+                            try? coordinator.selectTake(projectID: project.id, shotID: shot.id, takeID: take.id)
+                            onChanged()
+                        }
+                        .controlSize(.small)
+                        .buttonStyle(.bordered)
+                    }
+                } else {
+                    Text(take.status.rawValue)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-            } else {
-                Text(take.status.rawValue)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
+            diagnosticsDisclosure
         }
         .padding(.vertical, 2)
         .padding(.horizontal, 6)
@@ -2077,6 +2080,55 @@ private struct TakeRow: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
         )
+    }
+
+    @ViewBuilder
+    private var diagnosticsDisclosure: some View {
+        if let diagnostics = take.generationSourceDiagnostics {
+            DisclosureGroup(diagnosticsHeading) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Mode: \(diagnostics.actualVideoMode.displayName)")
+                    Text("Source: \(diagnostics.effectiveSource.displayName)")
+                    if let filename = diagnostics.sourceFilename {
+                        Text("Image: \(filename)")
+                    }
+                    if let takeID = diagnostics.continuitySourceTakeID {
+                        let reason = diagnostics.continuityTakeSelectionReason?.displayName ?? "Recorded source take"
+                        Text("Continuation: \(reason) · \(takeID.uuidString.prefix(8))")
+                    }
+                    if let origin = diagnostics.refreshAnchorOrigin {
+                        Text("Refresh provenance: \(origin.displayName)")
+                    }
+                    if let preparation = diagnostics.imagePreparation {
+                        Text("Image prep: \(preparation.originalWidth)×\(preparation.originalHeight) → \(preparation.effectiveWidth)×\(preparation.effectiveHeight) · \(preparation.mode.displayName)")
+                    } else if diagnostics.actualVideoMode == .imageToVideo && isHistoricalTake {
+                        Text("Image prep: not recorded")
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.leading, 6)
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        } else if isHistoricalTake {
+            Text("Generation diagnostics unavailable for this earlier Take.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    private var diagnosticsHeading: String {
+        isHistoricalTake ? "Recorded generation details" : "Queued source plan"
+    }
+
+    private var isHistoricalTake: Bool {
+        switch take.status {
+        case .completed, .failed, .cancelled, .interrupted, .generating:
+            return true
+        case .planned, .queued:
+            return false
+        }
     }
 
     @ViewBuilder

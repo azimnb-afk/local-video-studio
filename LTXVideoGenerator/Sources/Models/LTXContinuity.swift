@@ -33,6 +33,85 @@ enum LTXContinuitySource: String, Codable, Equatable, CaseIterable {
     }
 }
 
+/// The video mode actually submitted for a Take. This is deliberately a
+/// historical execution fact rather than a new planning input.
+enum GenerationVideoMode: String, Codable, Equatable {
+    case textToVideo
+    case imageToVideo
+
+    var displayName: String {
+        switch self {
+        case .textToVideo: return "Text to video"
+        case .imageToVideo: return "Image to video"
+        }
+    }
+}
+
+/// Why a particular prior Take supplied an inherited continuity frame.
+enum ContinuityTakeSelectionReason: String, Codable, Equatable {
+    case selectedTake
+    case latestCompletedTake
+
+    var displayName: String {
+        switch self {
+        case .selectedTake: return "Selected take"
+        case .latestCompletedTake: return "Latest completed take"
+        }
+    }
+}
+
+/// The non-destructive image preparation applied between a canonical source
+/// image and the backend. The terms mirror `PreparedImageConditioning.Mode`.
+enum GenerationImagePreparationMode: String, Codable, Equatable {
+    case noOp
+    case scaleToFillCenterCrop
+
+    var displayName: String {
+        switch self {
+        case .noOp: return "No-op"
+        case .scaleToFillCenterCrop: return "Scale to fill · center crop"
+        }
+    }
+}
+
+/// Facts recorded after the existing image-conditioning boundary has prepared
+/// an I2V source for the backend. It does not influence that boundary.
+struct GenerationImagePreparationDiagnostics: Codable, Equatable {
+    var originalWidth: Int
+    var originalHeight: Int
+    var effectiveWidth: Int
+    var effectiveHeight: Int
+    var mode: GenerationImagePreparationMode
+    /// The backend-facing filename only. The cache's absolute path stays out
+    /// of project JSON and the user-facing UI.
+    var backendFilename: String?
+}
+
+/// Immutable per-Take provenance captured at queue time, then enriched with
+/// the result of the existing backend image-preparation boundary. New planning
+/// edits never recalculate a historical Take's snapshot.
+struct GenerationSourceDiagnostics: Codable, Equatable {
+    var requestedContinuityMode: ShotContinuityMode?
+    var effectiveSource: LTXContinuitySource
+    var actualVideoMode: GenerationVideoMode
+    /// Canonical source filename, not an absolute local path.
+    var sourceFilename: String?
+    /// Project-relative only when the canonical source belongs to this project.
+    var sourceProjectRelativePath: String?
+    var continuitySourceShotID: UUID?
+    var continuitySourceTakeID: UUID?
+    var continuityTakeSelectionReason: ContinuityTakeSelectionReason?
+    var refreshAnchorOrigin: IdentityRefreshAnchorOrigin?
+    var refreshAnchorSourceShotID: UUID?
+    var refreshAnchorSourceTakeID: UUID?
+    var imagePreparation: GenerationImagePreparationDiagnostics?
+    var recordedAt: Date
+
+    var summary: String {
+        "\(actualVideoMode.displayName) · \(effectiveSource.displayName)"
+    }
+}
+
 /// What kind of continuation a shot performs.
 enum LTXContinuityStrategy: String, Codable, Equatable {
     /// Inherits visual state from the previous shot.

@@ -167,10 +167,17 @@ final class FinalAssemblyService {
     static func replaceFile(at destination: String, with source: String) throws {
         let destinationURL = URL(fileURLWithPath: destination)
         let sourceURL = URL(fileURLWithPath: source)
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
-            _ = try FileManager.default.replaceItemAt(destinationURL, withItemAt: sourceURL)
+        let fm = FileManager.default
+        let stagingDir = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: destinationURL, create: true)
+        defer { try? fm.removeItem(at: stagingDir) }
+        
+        let stagingURL = stagingDir.appendingPathComponent(destinationURL.lastPathComponent)
+        try fm.copyItem(at: sourceURL, to: stagingURL)
+        
+        if fm.fileExists(atPath: destinationURL.path) {
+            _ = try fm.replaceItemAt(destinationURL, withItemAt: stagingURL)
         } else {
-            try FileManager.default.moveItem(at: sourceURL, to: destinationURL)
+            try fm.moveItem(at: stagingURL, to: destinationURL)
         }
     }
 

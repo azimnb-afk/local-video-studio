@@ -60,6 +60,7 @@
 		AA0002A4 /* OpeningReferenceSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002A5; };
 		AA0002A2 /* OpeningReferencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002A3; };
 		AA0002A0 /* OpeningReferenceImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002A1; };
+		AA000306 /* FinalAudioSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000307; };
 		AA00029C /* CharacterAnchorSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00029D; };
 		AA00029A /* CharacterAnchorPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00029B; };
 		AA000298 /* CharacterAnchorResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000299; };
@@ -97,6 +98,7 @@
 		AA000224 /* ContinuityEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000225; };
 		AA000226 /* StoryboardDirector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000227; };
 		AA000228 /* FinalAssemblyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000229; };
+		AA000304 /* FinalAudioMixer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000305; };
 		AA00022A /* FilmProjectStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00022B; };
 		AA00022C /* TakeGenerationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00022D; };
 		AA00022E /* APIv1Handler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00022F; };
@@ -158,6 +160,7 @@
 		AA0002A5 /* OpeningReferenceSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferenceSection.swift; sourceTree = "<group>"; };
 		AA0002A3 /* OpeningReferencePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferencePolicy.swift; sourceTree = "<group>"; };
 		AA0002A1 /* OpeningReferenceImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferenceImage.swift; sourceTree = "<group>"; };
+		AA000307 /* FinalAudioSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalAudioSettings.swift; sourceTree = "<group>"; };
 		AA00029D /* CharacterAnchorSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterAnchorSection.swift; sourceTree = "<group>"; };
 		AA00029B /* CharacterAnchorPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterAnchorPolicy.swift; sourceTree = "<group>"; };
 		AA000299 /* CharacterAnchorResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterAnchorResolver.swift; sourceTree = "<group>"; };
@@ -195,6 +198,7 @@
 		AA000225 /* ContinuityEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityEngine.swift; sourceTree = "<group>"; };
 		AA000227 /* StoryboardDirector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryboardDirector.swift; sourceTree = "<group>"; };
 		AA000229 /* FinalAssemblyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalAssemblyService.swift; sourceTree = "<group>"; };
+		AA000305 /* FinalAudioMixer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalAudioMixer.swift; sourceTree = "<group>"; };
 		AA00022B /* FilmProjectStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmProjectStore.swift; sourceTree = "<group>"; };
 		AA00022D /* TakeGenerationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TakeGenerationCoordinator.swift; sourceTree = "<group>"; };
 		AA00022F /* APIv1Handler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIv1Handler.swift; sourceTree = "<group>"; };
@@ -282,6 +286,7 @@
 				AA0002D1 /* IdentitySourceAssessment.swift */,
 				AA0002C1 /* OpeningReferenceAppearance.swift */,
 				AA0002A1 /* OpeningReferenceImage.swift */,
+				AA000307 /* FinalAudioSettings.swift */,
 				AA000297 /* CharacterAnchor.swift */,
 			);
 			path = Models;
@@ -337,6 +342,7 @@
 				AA000225 /* ContinuityEngine.swift */,
 				AA000227 /* StoryboardDirector.swift */,
 				AA000229 /* FinalAssemblyService.swift */,
+				AA000305 /* FinalAudioMixer.swift */,
 				AA00022B /* FilmProjectStore.swift */,
 				AA000243 /* CharacterSheetAnalysis.swift */,
 				AA000245 /* CharacterReferenceExtraction.swift */,
@@ -500,6 +506,7 @@
 				AA0002A4 /* OpeningReferenceSection.swift in Sources */,
 				AA0002A2 /* OpeningReferencePolicy.swift in Sources */,
 				AA0002A0 /* OpeningReferenceImage.swift in Sources */,
+				AA000306 /* FinalAudioSettings.swift in Sources */,
 				AA00029C /* CharacterAnchorSection.swift in Sources */,
 				AA00029A /* CharacterAnchorPolicy.swift in Sources */,
 				AA000298 /* CharacterAnchorResolver.swift in Sources */,
@@ -535,6 +542,7 @@
 				AA000224 /* ContinuityEngine.swift in Sources */,
 				AA000226 /* StoryboardDirector.swift in Sources */,
 				AA000228 /* FinalAssemblyService.swift in Sources */,
+				AA000304 /* FinalAudioMixer.swift in Sources */,
 				AA00022A /* FilmProjectStore.swift in Sources */,
 				AA000242 /* CharacterSheetAnalysis.swift in Sources */,
 				AA000244 /* CharacterReferenceExtraction.swift in Sources */,

@@ -941,6 +941,13 @@ struct FilmProject: Codable, Equatable, Identifiable {
     /// the first shot starts from.
     var characterOpeningConsistency: CharacterOpeningConsistency?
 
+    /// One global BGM overlay applied once, after Final Assembly, to the
+    /// whole movie. Never injected into any Shot's audio plan or prompt.
+    /// Absent in every project written before this feature; those decode
+    /// with `bgmEnabled == false` and produce byte-identical Final Assembly
+    /// behavior to before this field existed.
+    var finalAudio: FinalAudioSettings = FinalAudioSettings()
+
     init(id: UUID = UUID(), title: String) {
         self.id = id
         self.title = title
@@ -953,7 +960,7 @@ struct FilmProject: Codable, Equatable, Identifiable {
              storyBible, characterBible, shots, jobs,
              lastAssemblySignature, assembledMoviePath, assembledAt,
              continuityChainEnabled, characterAnchor, openingReferenceImage,
-             openingReferenceAppearance, characterOpeningConsistency
+             openingReferenceAppearance, characterOpeningConsistency, finalAudio
     }
 
     init(from decoder: Decoder) throws {
@@ -990,6 +997,10 @@ struct FilmProject: Codable, Equatable, Identifiable {
             OpeningReferenceAppearance.self, forKey: .openingReferenceAppearance)
         characterOpeningConsistency = try container.decodeIfPresent(
             CharacterOpeningConsistency.self, forKey: .characterOpeningConsistency)
+        // Absent in every project written before this feature; those decode
+        // with BGM off, reproducing their exact previous assembly output.
+        finalAudio = try container.decodeIfPresent(FinalAudioSettings.self, forKey: .finalAudio)
+            ?? FinalAudioSettings()
     }
 
     mutating func touch() {

@@ -12,6 +12,9 @@ final class FinalAssemblyService {
         case ffmpegNotFound
         case ffmpegFailed(String)
         case probeFailed(String)
+        case bgmFileMissing(String)
+        case bgmProbeFailed(String)
+        case bgmMixFailed(String)
     }
 
     struct AssemblyPlan: Equatable {
@@ -64,7 +67,13 @@ final class FinalAssemblyService {
     }
 
     /// Runs the assembly. Blocking; call from a background context.
-    static func assemble(project: FilmProject, outputPath: String) throws -> MediaInfo {
+    ///
+    /// When `project.finalAudio` is off (the default, and every project
+    /// written before this feature existed), this produces exactly the same
+    /// concatenated movie at `outputPath` as before Global BGM existed — no
+    /// extra ffmpeg pass runs at all. Only when BGM is on and an asset is
+    /// resolvable does a second, post-assembly mix pass run.
+    static func assemble(project: FilmProject, outputPath: String, store: FilmProjectStore = .shared) throws -> MediaInfo {
         let assemblyPlan = try plan(for: project)
         guard let ffmpeg = ffmpegPath() else { throw AssemblyError.ffmpegNotFound }
 
@@ -101,16 +110,66 @@ final class FinalAssemblyService {
             .joined(separator: "\n")
         try listContent.write(to: listFile, atomically: true, encoding: .utf8)
 
+        // Resolve the BGM asset (if any) before touching `outputPath` at all,
+        // so a missing/invalid asset fails before any file is written or
+        // overwritten — the existing Final Movie, if any, is never disturbed.
+        let bgmSourcePath: String? = try {
+            guard project.finalAudio.isActive, let asset = project.finalAudio.bgmAsset else { return nil }
+            guard let url = store.managedProjectAssetURL(projectID: project.id, relativePath: asset.projectRelativePath),
+                  FileManager.default.fileExists(atPath: url.path) else {
+                throw AssemblyError.bgmFileMissing(asset.originalFilename ?? asset.projectRelativePath)
+            }
+            return url.path
+        }()
+
+        // Concat always writes to a scratch path first. When BGM is off this
+        // scratch file *is* effectively the whole job; it is copied into
+        // place only after ffmpeg exits 0, so a failed concat never touches
+        // an existing Final Movie at `outputPath`.
+        let concatOutputPath = workDir.appendingPathComponent("concatenated.mp4").path
         try runFFmpeg([
             "-y", "-f", "concat", "-safe", "0", "-i", listFile.path,
             "-c", "copy",
-            outputPath,
+            concatOutputPath,
         ], ffmpeg: ffmpeg)
 
-        guard let info = MediaProbe.probe(path: outputPath) else {
-            throw AssemblyError.probeFailed(outputPath)
+        guard let concatInfo = MediaProbe.probe(path: concatOutputPath) else {
+            throw AssemblyError.probeFailed(concatOutputPath)
         }
-        return info
+
+        if let bgmSourcePath {
+            let mixedOutputPath = workDir.appendingPathComponent("mixed.mp4").path
+            try FinalAudioMixer.mix(
+                movieInputPath: concatOutputPath,
+                movieInfo: concatInfo,
+                bgmInputPath: bgmSourcePath,
+                settings: project.finalAudio,
+                outputPath: mixedOutputPath,
+                ffmpeg: ffmpeg
+            )
+            guard let mixedInfo = MediaProbe.probe(path: mixedOutputPath), mixedInfo.hasAudio else {
+                throw AssemblyError.bgmProbeFailed(mixedOutputPath)
+            }
+            try replaceFile(at: outputPath, with: mixedOutputPath)
+            return mixedInfo
+        } else {
+            try replaceFile(at: outputPath, with: concatOutputPath)
+            guard let info = MediaProbe.probe(path: outputPath) else {
+                throw AssemblyError.probeFailed(outputPath)
+            }
+            return info
+        }
+    }
+
+    /// Atomic-enough replace for a local single-user file: write finished
+    /// elsewhere (already done by the caller), remove any previous file at
+    /// the destination only once the new one is validated, then move the new
+    /// one into place. A failure here still leaves the temporary source in
+    /// `workDir`, which the caller's `defer` cleans up either way.
+    private static func replaceFile(at destination: String, with source: String) throws {
+        let destinationURL = URL(fileURLWithPath: destination)
+        try? FileManager.default.removeItem(at: destinationURL)
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: source), to: destinationURL)
     }
 
     private static func runFFmpeg(_ arguments: [String], ffmpeg: String) throws {

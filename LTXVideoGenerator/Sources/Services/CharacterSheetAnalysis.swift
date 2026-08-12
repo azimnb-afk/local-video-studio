@@ -711,6 +711,8 @@ extension FilmProjectStore.StoreError: LocalizedError {
         case .invalidManagedAssetPath: return "The managed Character Sheet path is invalid."
         case .unsupportedOpeningReferenceFormat: return "Choose a PNG, JPG, or JPEG image for the opening reference."
         case .invalidOpeningReferenceSource: return "The selected opening reference image could not be read."
+        case .unsupportedFinalBGMFormat: return "Choose an MP3, WAV, M4A, or AAC file for the Final Audio BGM."
+        case .invalidFinalBGMSource: return "The selected BGM file could not be read."
         }
     }
 }

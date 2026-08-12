@@ -615,6 +615,9 @@ private struct ProjectDetailView: View {
             ProjectSettingsEditor(project: project) {
                 onChanged()
             }
+            FinalAudioEditor(project: project) {
+                onChanged()
+            }
             ProjectCharactersSection(
                 project: project,
                 generationActive: generationService.isProcessing,
@@ -673,6 +676,11 @@ private struct ProjectDetailView: View {
                         Text(URL(fileURLWithPath: moviePath).lastPathComponent)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        if project.finalAudio.isActive {
+                            Text("Final Audio — BGM: \(project.finalAudio.bgmAsset?.originalFilename ?? "—") · Volume: \(Int(project.finalAudio.bgmVolume * 100))% · Fade In: \(fmtSeconds(project.finalAudio.fadeInSeconds)) · Fade Out: \(fmtSeconds(project.finalAudio.fadeOutSeconds)) · Applied: Yes")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     Spacer()
                     Button("Play") { NSWorkspace.shared.open(URL(fileURLWithPath: moviePath)) }
@@ -740,6 +748,10 @@ private struct ProjectDetailView: View {
             }
         }
     }
+}
+
+private func fmtSeconds(_ value: Double) -> String {
+    value == value.rounded() ? "\(Int(value))s" : String(format: "%.1fs", value)
 }
 
 // MARK: - Shared project settings
@@ -847,6 +859,158 @@ private struct ProjectSettingsEditor: View {
                 settings[keyPath: keyPath] = value
                 settings.markCustom()
             } }
+        )
+    }
+}
+
+// MARK: - Final Audio (Global BGM overlay)
+
+/// One BGM file applied once, after Final Assembly, to the whole movie —
+/// never per Shot, never injected into any Shot's prompt. Off by default;
+/// existing Final Assembly behavior is unchanged unless the user explicitly
+/// enables this and imports a file.
+private struct FinalAudioEditor: View {
+    let project: FilmProject
+    let onChanged: () -> Void
+
+    @State private var expanded = false
+    @State private var importError: String?
+    private let store = FilmProjectStore.shared
+
+    var body: some View {
+        DisclosureGroup("Final Audio", isExpanded: $expanded) {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("Enable Global BGM", isOn: bgmEnabledBinding)
+                    .help("Applies one background music track to the whole assembled movie, once, after Final Assembly. Shot audio (dialogue, footsteps, SFX, ambience) is preserved and mixed with it — no Shot is ever regenerated.")
+
+                if project.finalAudio.bgmEnabled {
+                    HStack {
+                        if let asset = project.finalAudio.bgmAsset {
+                            Image(systemName: "music.note")
+                            Text(asset.originalFilename ?? "Imported audio")
+                                .font(.callout)
+                            Spacer()
+                            Button("Replace…") { importAudio() }
+                            Button("Remove") { removeAudio() }
+                        } else {
+                            Text("No BGM file selected.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Import Audio…") { importAudio() }
+                        }
+                    }
+
+                    if let importError {
+                        Text(importError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+
+                    if project.finalAudio.bgmAsset != nil {
+                        HStack(spacing: 16) {
+                            HStack(spacing: 6) {
+                                Text("Volume")
+                                Slider(value: bgmVolumeBinding, in: 0...1)
+                                    .frame(width: 140)
+                                Text("\(Int(project.finalAudio.bgmVolume * 100))%")
+                                    .font(.caption.monospaced())
+                                    .frame(width: 40, alignment: .trailing)
+                            }
+                            Stepper(
+                                "Fade In: \(fmtSeconds(project.finalAudio.fadeInSeconds))",
+                                value: fadeInBinding, in: 0...30, step: 1
+                            )
+                            Stepper(
+                                "Fade Out: \(fmtSeconds(project.finalAudio.fadeOutSeconds))",
+                                value: fadeOutBinding, in: 0...30, step: 1
+                            )
+                        }
+                        Text("BGM mixes under existing Shot audio at re-assembly — re-run Assemble Final Video after changing these to hear the update.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("Off — Final Assembly output is unchanged from before this feature existed.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.top, 8)
+        }
+        .font(.headline)
+    }
+
+    private func importAudio() {
+        importError = nil
+        let panel = NSOpenPanel()
+        panel.title = "Import Global BGM"
+        panel.prompt = "Use Audio"
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.mp3, .wav, .mpeg4Audio]
+        guard panel.runModal() == .OK, let sourceURL = panel.url else { return }
+        do {
+            let imported = try store.importFinalBGMAsset(from: sourceURL, projectID: project.id)
+            guard var stored = store.project(id: project.id) else { return }
+            if let previous = stored.finalAudio.bgmAsset {
+                store.removeManagedFinalBGMAsset(projectID: project.id, asset: previous)
+            }
+            stored.finalAudio.bgmAsset = imported
+            stored.touch()
+            store.save(stored)
+            onChanged()
+        } catch {
+            importError = error.localizedDescription
+        }
+    }
+
+    private func removeAudio() {
+        guard var stored = store.project(id: project.id) else { return }
+        if let previous = stored.finalAudio.bgmAsset {
+            store.removeManagedFinalBGMAsset(projectID: project.id, asset: previous)
+        }
+        stored.finalAudio.bgmAsset = nil
+        stored.finalAudio.bgmEnabled = false
+        stored.touch()
+        store.save(stored)
+        onChanged()
+    }
+
+    private func save(_ change: (inout FinalAudioSettings) -> Void) {
+        guard var updated = store.project(id: project.id) else { return }
+        change(&updated.finalAudio)
+        updated.touch()
+        store.save(updated)
+        onChanged()
+    }
+
+    private var bgmEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { project.finalAudio.bgmEnabled },
+            set: { value in save { $0.bgmEnabled = value } }
+        )
+    }
+
+    private var bgmVolumeBinding: Binding<Double> {
+        Binding(
+            get: { project.finalAudio.bgmVolume },
+            set: { value in save { $0.bgmVolume = value } }
+        )
+    }
+
+    private var fadeInBinding: Binding<Double> {
+        Binding(
+            get: { project.finalAudio.fadeInSeconds },
+            set: { value in save { $0.fadeInSeconds = value } }
+        )
+    }
+
+    private var fadeOutBinding: Binding<Double> {
+        Binding(
+            get: { project.finalAudio.fadeOutSeconds },
+            set: { value in save { $0.fadeOutSeconds = value } }
         )
     }
 }

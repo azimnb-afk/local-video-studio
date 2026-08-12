@@ -14,6 +14,8 @@ final class FilmProjectStore {
         case unsupportedOpeningReferenceFormat(String)
         case invalidOpeningReferenceSource
         case invalidManagedAssetPath
+        case unsupportedFinalBGMFormat(String)
+        case invalidFinalBGMSource
     }
 
     let projectsDirectory: URL
@@ -120,6 +122,72 @@ final class FilmProjectStore {
     func removeManagedOpeningReference(projectID: UUID, reference: OpeningReferenceImage) {
         guard let url = managedProjectAssetURL(
             projectID: projectID, relativePath: reference.projectRelativePath) else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    /// The imported Global BGM file lives beside the other project-owned
+    /// assets so it survives relaunch and is removed with the project.
+    func finalAudioDirectory(projectID: UUID) -> URL {
+        projectsDirectory
+            .appendingPathComponent(projectID.uuidString, isDirectory: true)
+            .appendingPathComponent("Assets", isDirectory: true)
+            .appendingPathComponent("FinalAudio", isDirectory: true)
+    }
+
+    /// Copies an MP3/WAV/M4A/AAC file into the project as its Global BGM
+    /// asset. Mirrors `importOpeningReferenceImage`: copy to a temporary name,
+    /// then atomically move into a UUID filename, so the external original is
+    /// never moved or persisted as an absolute path, and a failed import
+    /// cannot leave a half-written file where the project expects audio.
+    func importFinalBGMAsset(from sourceURL: URL, projectID: UUID) throws -> FinalBGMAsset {
+        let source = sourceURL.standardizedFileURL
+        let ext = source.pathExtension.lowercased()
+        let mimeType: String
+        switch ext {
+        case "mp3": mimeType = "audio/mpeg"
+        case "wav": mimeType = "audio/wav"
+        case "m4a": mimeType = "audio/mp4"
+        case "aac": mimeType = "audio/aac"
+        default:
+            throw StoreError.unsupportedFinalBGMFormat(ext)
+        }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: source.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else {
+            throw StoreError.invalidFinalBGMSource
+        }
+
+        let directory = finalAudioDirectory(projectID: projectID)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let filename = "bgm-\(UUID().uuidString).\(ext)"
+        let destination = directory.appendingPathComponent(filename)
+        let temporary = directory.appendingPathComponent(".\(UUID().uuidString).importing")
+        do {
+            try FileManager.default.copyItem(at: source, to: temporary)
+            guard !FileManager.default.fileExists(atPath: destination.path) else {
+                throw CocoaError(.fileWriteFileExists)
+            }
+            try FileManager.default.moveItem(at: temporary, to: destination)
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
+
+        let size = (try? destination.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init)
+        return FinalBGMAsset(
+            projectRelativePath: "Assets/FinalAudio/\(filename)",
+            originalFilename: source.lastPathComponent,
+            mimeType: mimeType,
+            fileSizeBytes: size
+        )
+    }
+
+    /// Removes only the project-owned copy. Replacing/removing the BGM deletes
+    /// the copy it supersedes so the directory does not accumulate orphans.
+    func removeManagedFinalBGMAsset(projectID: UUID, asset: FinalBGMAsset) {
+        guard let url = managedProjectAssetURL(
+            projectID: projectID, relativePath: asset.projectRelativePath) else { return }
         try? FileManager.default.removeItem(at: url)
     }
 

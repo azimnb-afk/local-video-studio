@@ -2,6 +2,7 @@ import SwiftUI
 
 public struct SetupWizardView: View {
     @ObservedObject var healthManager = DependencyHealthManager.shared
+    @ObservedObject var downloadCoordinator = TextEncoderDownloadCoordinator.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openSettings) private var openSettingsAction
     
@@ -105,25 +106,60 @@ public struct SetupWizardView: View {
         let status = healthManager.statuses[requirement] ?? .checking
         
         HStack(alignment: .top, spacing: 16) {
-            statusIcon(status)
+            statusIcon(for: requirement, status: status)
                 .frame(width: 24, height: 24)
-            
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(requirement.displayName)
                     .font(.body.weight(.medium))
-                
+
                 statusDescription(for: requirement, status: status)
+
+                if requirement == .textEncoder, case .downloading(let progress, _) = downloadCoordinator.state {
+                    if let progress {
+                        ProgressView(value: progress)
+                            .frame(maxWidth: 220)
+                            .controlSize(.small)
+                    } else {
+                        ProgressView()
+                            .frame(maxWidth: 220, alignment: .leading)
+                            .controlSize(.small)
+                    }
+                }
             }
-            
+
             Spacer()
-            
+
             actionButton(for: requirement, status: status)
         }
         .padding(16)
     }
-    
+
     @ViewBuilder
-    private func statusIcon(_ status: SetupStatus) -> some View {
+    private func statusIcon(for requirement: SetupRequirement, status: SetupStatus) -> some View {
+        if requirement == .textEncoder, case .missing = status {
+            textEncoderStatusIcon
+        } else {
+            defaultStatusIcon(status)
+        }
+    }
+
+    @ViewBuilder
+    private var textEncoderStatusIcon: some View {
+        switch downloadCoordinator.state {
+        case .downloading:
+            ProgressView().controlSize(.small)
+        case .failed:
+            Image(systemName: "xmark.circle.fill")
+                .foregroundStyle(.red)
+        case .idle, .succeeded:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        }
+    }
+
+    @ViewBuilder
+    private func defaultStatusIcon(_ status: SetupStatus) -> some View {
         switch status {
         case .checking:
             ProgressView().controlSize(.small)
@@ -135,9 +171,39 @@ public struct SetupWizardView: View {
                 .foregroundStyle(.orange)
         }
     }
-    
+
     @ViewBuilder
     private func statusDescription(for requirement: SetupRequirement, status: SetupStatus) -> some View {
+        if requirement == .textEncoder, case .missing(let msg) = status {
+            textEncoderStatusDescription(fallbackMessage: msg)
+        } else {
+            defaultStatusDescription(status)
+        }
+    }
+
+    @ViewBuilder
+    private func textEncoderStatusDescription(fallbackMessage: String) -> some View {
+        switch downloadCoordinator.state {
+        case .idle, .succeeded:
+            Text("Not installed. \(fallbackMessage)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        case .downloading(_, let message):
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        case .failed(let error):
+            Text("Download failed: \(error)")
+                .font(.caption)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private func defaultStatusDescription(_ status: SetupStatus) -> some View {
         switch status {
         case .checking:
             Text("Checking...")
@@ -154,9 +220,18 @@ public struct SetupWizardView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
-    
+
     @ViewBuilder
     private func actionButton(for requirement: SetupRequirement, status: SetupStatus) -> some View {
+        if requirement == .textEncoder, case .missing = status {
+            textEncoderDownloadAction()
+        } else {
+            defaultActionButton(for: requirement, status: status)
+        }
+    }
+
+    @ViewBuilder
+    private func defaultActionButton(for requirement: SetupRequirement, status: SetupStatus) -> some View {
         switch status {
         case .ready, .checking:
             EmptyView()
@@ -178,6 +253,40 @@ public struct SetupWizardView: View {
                 Button("Copy Install Command") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString("brew install --cask ollama", forType: .string)
+                }
+                .controlSize(.small)
+            }
+        }
+    }
+
+    /// The explicit Text Encoder download action: Selected + Missing shows
+    /// Download; a repo-less custom selection routes to Preferences instead
+    /// (there is nothing to download yet); an in-flight download shows no
+    /// button (progress is shown elsewhere in the row); a failure offers
+    /// Retry. Selecting a picker option never reaches this on its own —
+    /// only tapping Download does.
+    @ViewBuilder
+    private func textEncoderDownloadAction() -> some View {
+        let encoderID = UserDefaults.standard.string(forKey: LTXTextEncoderCatalog.selectedTextEncoderIDKey)
+            ?? LTXTextEncoderCatalog.defaultTextEncoderID
+        let repo = LTXTextEncoderCatalog.resolvedTextEncoder(id: encoderID).repo
+
+        if repo.isEmpty {
+            Button("Open Settings") { openSettings() }
+                .controlSize(.small)
+        } else {
+            switch downloadCoordinator.state {
+            case .idle, .succeeded:
+                Button("Download") {
+                    Task { await downloadCoordinator.startDownload() }
+                }
+                .controlSize(.small)
+                .buttonStyle(.borderedProminent)
+            case .downloading:
+                EmptyView()
+            case .failed:
+                Button("Retry") {
+                    Task { await downloadCoordinator.retry() }
                 }
                 .controlSize(.small)
             }

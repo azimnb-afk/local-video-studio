@@ -90,7 +90,7 @@ func runDependencyHealthTests(_ t: TestKit) {
         // and ffmpeg being unready, or the selected model being genuinely
         // invalid/unsupported, may block a generation attempt.
 
-        print("Test 4: selected Text Encoder missing locally -> download required, attempt still allowed")
+        print("Test 4: selected Text Encoder missing locally -> Generate blocked, routes to explicit Download instead")
         var done4 = false
         Task { @MainActor in
             let models4 = FakeModelChecker()
@@ -105,7 +105,7 @@ func runDependencyHealthTests(_ t: TestKit) {
             await manager4.refresh()
             t.checkEqual(manager4.statuses[.textEncoder], models4.textStatus, "textEncoder status reflects missing selection, not silently 'installed'")
             t.checkEqual(manager4.isGenerationReady, false, "isGenerationReady false while a required model is missing")
-            t.checkEqual(manager4.canStartGeneration, true, "canStartGeneration true — missing selected model must not block the attempt that downloads it")
+            t.checkEqual(manager4.canStartGeneration, false, "canStartGeneration false — a missing text encoder now routes to the explicit Download flow instead of an implicit first-use download")
             done4 = true
         }
         while !done4 { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) }
@@ -195,7 +195,7 @@ func runDependencyHealthTests(_ t: TestKit) {
         }
         while !done8 { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) }
 
-        print("Test 9: a failed/partial download (still .missing after retry) keeps retry available, never silently 'ready'")
+        print("Test 9: a still-missing text encoder after a failed download attempt stays not-ready and Generate stays blocked (Download's own Retry is the recovery path, see TextEncoderDownloadCoordinator tests)")
         var done9 = false
         Task { @MainActor in
             let models9 = FakeModelChecker()
@@ -209,7 +209,7 @@ func runDependencyHealthTests(_ t: TestKit) {
             )
             await manager9.refresh()
             t.checkEqual(manager9.isGenerationReady, false, "a still-missing model after a failed download is not marked ready")
-            t.checkEqual(manager9.canStartGeneration, true, "retry remains available — canStartGeneration stays true so the user can attempt again")
+            t.checkEqual(manager9.canStartGeneration, false, "canStartGeneration stays false — Generate is not the retry path for a missing text encoder anymore")
             done9 = true
         }
         while !done9 { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) }

@@ -99,9 +99,11 @@ brew install ffmpeg
 
 Required for Final Assembly (combining shots into one video), shot-continuity frame extraction, and media probing. Not required for a single-shot generation with no audio post-processing.
 
-### 5. First Generation — Model Download
+### 5. Model Download
 
-The first generation with a given model downloads it from Hugging Face into `~/.cache/huggingface/hub/`. This is a one-time, explicit download triggered by starting a generation — the app does not download models in the background. Expect roughly 20–50 minutes depending on the model and your connection; progress is shown in the app, and an interrupted download resumes.
+**Video model:** the first generation with a given model downloads it from Hugging Face into `~/.cache/huggingface/hub/`. This is a one-time download triggered by starting a generation — the app does not download models in the background. Expect roughly 20–50 minutes depending on the model and your connection; progress is shown in the app, and an interrupted download resumes.
+
+**Text encoder:** on first launch (or whenever the selected encoder isn't cached yet), the setup screen shows an explicit **Download** button next to "Text Encoder" instead of silently downloading it during your first generation. Click it to fetch the selected encoder; progress is shown, and a failed attempt leaves your selection untouched with a **Retry** button — Generate stays unavailable until the encoder is actually downloaded. An already-cached encoder shows as ready immediately, with no network access.
 
 **Official video models** (all include built-in synchronized audio):
 

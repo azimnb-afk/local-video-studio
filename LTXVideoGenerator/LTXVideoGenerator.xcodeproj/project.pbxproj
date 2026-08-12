@@ -84,6 +84,7 @@
 		AA00020C /* CompatibilityLab.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00020D; };
 		AA00020E /* ManifestValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00020F; };
 		AA000210 /* ModelInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000211; };
+		AA000302 /* TextEncoderDownloadService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000303; };
 		AA000212 /* MemoryMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000213; };
 		AA000214 /* HardwareProfiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000215; };
 		AA000216 /* HistoricalSuccessStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000217; };
@@ -181,6 +182,7 @@
 		AA00020D /* CompatibilityLab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompatibilityLab.swift; sourceTree = "<group>"; };
 		AA00020F /* ManifestValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManifestValidator.swift; sourceTree = "<group>"; };
 		AA000211 /* ModelInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelInstaller.swift; sourceTree = "<group>"; };
+		AA000303 /* TextEncoderDownloadService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextEncoderDownloadService.swift; sourceTree = "<group>"; };
 		AA000213 /* MemoryMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryMonitor.swift; sourceTree = "<group>"; };
 		AA000215 /* HardwareProfiler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardwareProfiler.swift; sourceTree = "<group>"; };
 		AA000217 /* HistoricalSuccessStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoricalSuccessStore.swift; sourceTree = "<group>"; };
@@ -322,6 +324,7 @@
 				AA00020D /* CompatibilityLab.swift */,
 				AA00020F /* ManifestValidator.swift */,
 				AA000211 /* ModelInstaller.swift */,
+				AA000303 /* TextEncoderDownloadService.swift */,
 				AA000213 /* MemoryMonitor.swift */,
 				AA000215 /* HardwareProfiler.swift */,
 				AA000217 /* HistoricalSuccessStore.swift */,
@@ -519,6 +522,7 @@
 				AA00020C /* CompatibilityLab.swift in Sources */,
 				AA00020E /* ManifestValidator.swift in Sources */,
 				AA000210 /* ModelInstaller.swift in Sources */,
+				AA000302 /* TextEncoderDownloadService.swift in Sources */,
 				AA000212 /* MemoryMonitor.swift in Sources */,
 				AA000214 /* HardwareProfiler.swift in Sources */,
 				AA000216 /* HistoricalSuccessStore.swift in Sources */,

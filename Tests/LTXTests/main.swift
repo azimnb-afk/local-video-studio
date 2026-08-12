@@ -676,5 +676,6 @@ runProductionQueueTests(t)
 runAPITests(t)
 runDependencyHealthTests(t)
 runHuggingFaceCacheCheckerTests(t)
+runTextEncoderDownloadTests(t)
 
 t.finish()

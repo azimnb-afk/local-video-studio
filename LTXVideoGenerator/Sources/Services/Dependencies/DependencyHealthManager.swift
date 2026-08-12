@@ -91,12 +91,19 @@ public class DependencyHealthManager: ObservableObject {
     /// gating whether a generation attempt may start (see `canStartGeneration`).
     @Published public private(set) var isGenerationReady: Bool = false
 
-    /// True when a generation attempt may be started: the hard runtime
-    /// prerequisites (Python, ffmpeg) are ready, and the selected video
-    /// model / text encoder are not in a broken (`.invalid`/`.unsupported`)
-    /// state. A selected-but-not-yet-downloaded model ("Download Required")
-    /// does not block this — starting generation is what triggers that
-    /// model's download via the Python backend.
+    /// True when a generation attempt may be started.
+    ///
+    /// The video model keeps the original first-use-download semantics: a
+    /// selected-but-not-yet-downloaded video model ("Download Required")
+    /// does not block this, since starting generation is still what triggers
+    /// that model's download via the Python backend (unchanged).
+    ///
+    /// The text encoder does NOT get that same allowance: it has an
+    /// explicit, user-initiated Download flow now (see
+    /// `TextEncoderDownloadCoordinator`), so a missing text encoder should
+    /// route the user to that Download action instead of quietly falling
+    /// back to an implicit download hidden inside a generation run. Only a
+    /// `.ready` text encoder allows an attempt.
     @Published public private(set) var canStartGeneration: Bool = false
 
     @Published public private(set) var isChecking: Bool = false
@@ -148,7 +155,7 @@ public class DependencyHealthManager: ObservableObject {
             .localDirector: directorStatus,
             .vision: visionStatus
         ]
-        
+
         self.isGenerationReady =
             pythonStatus == .ready &&
             ffmpegStatus == .ready &&
@@ -159,7 +166,7 @@ public class DependencyHealthManager: ObservableObject {
             pythonStatus == .ready &&
             ffmpegStatus == .ready &&
             videoModelStatus.allowsGenerationAttempt &&
-            textEncoderStatus.allowsGenerationAttempt
+            textEncoderStatus == .ready
 
         isChecking = false
     }

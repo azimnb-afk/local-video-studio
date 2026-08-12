@@ -352,10 +352,15 @@ struct PreferencesView: View {
                     Task { await DependencyHealthManager.shared.refresh() }
                 }
                 .onChange(of: selectedTextEncoderID) { _, _ in
+                    // A different selection invalidates any Download/Failed
+                    // state left over from the previous encoder — it must not
+                    // leak into the newly selected one's setup row.
+                    TextEncoderDownloadCoordinator.shared.resetForNewSelection()
                     Task { await DependencyHealthManager.shared.refresh() }
                 }
                 .onChange(of: customTextEncoderRepo) { _, _ in
                     if selectedTextEncoderID == "custom" {
+                        TextEncoderDownloadCoordinator.shared.resetForNewSelection()
                         Task { await DependencyHealthManager.shared.refresh() }
                     }
                 }

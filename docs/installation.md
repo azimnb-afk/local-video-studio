@@ -73,11 +73,14 @@ not silently begin a multi-gigabyte download.
 
 ### What to Expect
 
+**Video model:**
 1. Start a generation with any prompt
 2. Progress shows "Downloading model..." with percentage
 3. Download takes 30-60 minutes depending on connection speed
 4. Model is cached in `~/.cache/huggingface/hub/`
 5. Subsequent runs skip the download
+
+**Text encoder:** the first-run setup screen shows an explicit **Download** button next to "Text Encoder" whenever the selected encoder isn't cached yet — this is the primary way to fetch it, rather than waiting for your first generation to trigger it. A failed download leaves your selection in place with a **Retry** button; an already-cached encoder shows as ready with no download or network access.
 
 ### Download Progress
 

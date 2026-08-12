@@ -141,18 +141,54 @@ final class OllamaDirectorEnvironmentClient: DirectorEnvironmentClient {
         return Array(Set(names)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
+    /// Probe shaped like the real planning task rather than a trivial JSON
+    /// echo. Reaching the server and returning *some* JSON does not predict
+    /// whether a model can actually plan: a model that happily answers
+    /// `{"ready":true}` can still return `{}` or free prose for the real
+    /// storyboard request, which then fails schema validation and silently
+    /// drops Auto Movie to the Basic Director. Asking for the smallest
+    /// plan-shaped object — an object containing a non-empty `shots` array of
+    /// objects — is what distinguishes the two, so "Ready" means the model can
+    /// actually produce a plan.
+    static let readinessProbeSystemPrompt = """
+    You plan short films. Respond with ONLY a JSON object of the form
+    {"logline":"one sentence","shots":[{"index":0,"summary":"what happens"}]}.
+    Include at least one shot.
+    """
+    static let readinessProbePrompt = "BRIEF: A woman walks through a hallway."
+
     func testModel(_ model: String) async throws {
         let provider = OllamaDirectorProvider(model: model, session: session)
+        let response: String
         do {
-            _ = try await provider.complete(
-                system: "Return only a JSON object.",
-                prompt: "Return {\"ready\":true}."
+            response = try await provider.complete(
+                system: Self.readinessProbeSystemPrompt,
+                prompt: Self.readinessProbePrompt
             )
             await provider.terminate()
         } catch {
             await provider.terminate()
             throw error
         }
+        guard Self.probeResponseLooksLikeAPlan(response) else {
+            throw DirectorError.invalidPlanJSON(
+                "The model replied, but did not return a usable plan.")
+        }
+    }
+
+    /// True when the probe response is a JSON object carrying a non-empty
+    /// `shots` array of objects. Deliberately structural only: the probe is a
+    /// capability check, not a content check.
+    static func probeResponseLooksLikeAPlan(_ response: String) -> Bool {
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let data = trimmed.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let shots = object["shots"] as? [Any],
+              !shots.isEmpty,
+              shots.first is [String: Any] else {
+            return false
+        }
+        return true
     }
 }
 
@@ -248,6 +284,13 @@ final class DirectorEnvironmentService {
         case "localAIModelMissing": return "The selected Local AI model was unavailable."
         case "configuredModelMissingUsingInstalledAlternative": return "The preferred model was unavailable; another installed model was used."
         case nil: return "Basic Director was selected."
+        // These are reached with the server up and the model loaded: the model
+        // answered but its reply was not a usable plan. Say so, rather than
+        // implying a connection problem the user would go looking for.
+        case "schemaValidationFailed", "codableDecodeFailed":
+            return "Local AI replied, but the plan was missing required details. Try a different Local AI model in Settings."
+        case "jsonSyntaxInvalid", "jsonExtractionFailed":
+            return "Local AI replied, but not in the required format. Try a different Local AI model in Settings."
         default: return "Local AI could not complete the plan."
         }
     }

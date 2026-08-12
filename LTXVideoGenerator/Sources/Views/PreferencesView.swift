@@ -941,9 +941,16 @@ private struct DirectorPreferencesView: View {
         isTesting = true
         switch await environment.testSelectedModel() {
         case .success(let model):
-            testResult = (true, "Local AI Director is ready (\(model)).")
-        case .failure:
-            testResult = (false, "Local AI could not be reached. Basic Director remains available.")
+            testResult = (true, "Local AI Director is ready (\(model)) — it returned a usable plan.")
+        case .failure(let error):
+            // A model that replies but cannot produce a plan is a different
+            // problem from an unreachable server, and needs a different fix
+            // from the user, so the two are not reported with one message.
+            if case DirectorError.invalidPlanJSON = error {
+                testResult = (false, "This model replied but did not return a usable plan, so Auto Movie would fall back to the Basic Director. Try a different Local AI model.")
+            } else {
+                testResult = (false, "Local AI could not be reached. Basic Director remains available.")
+            }
         }
         isTesting = false
         await refresh()

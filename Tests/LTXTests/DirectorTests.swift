@@ -450,4 +450,74 @@ func runDirectorTests(_ t: TestKit) {
         t.checkEqual(directGenerate.generationSource, "generate", "direct request remains Generate-owned")
         t.check(directGenerate.isImageToVideo, "Generate direct I2V request remains supported")
     }
+
+    // MARK: - Local Director readiness probe (Settings Test honesty)
+    //
+    // A model that answers a trivial JSON echo can still be unable to produce
+    // a storyboard: the model configured on the audited machine returned
+    // `{"ready":true}` for the old probe but `{}` for the real planning
+    // request, so Settings reported "Ready" while every Auto Movie silently
+    // fell back to the Basic Director. The probe is therefore plan-shaped and
+    // these tests pin that contract.
+    t.suite("Local Director readiness probe") {
+        let probe = OllamaDirectorEnvironmentClient.probeResponseLooksLikeAPlan
+
+        t.check(probe("{\"logline\":\"x\",\"shots\":[{\"index\":0,\"summary\":\"y\"}]}"),
+                "a plan-shaped reply with one shot object is accepted")
+        t.check(probe("  {\"shots\":[{\"index\":0}]}  "),
+                "surrounding whitespace does not reject a valid reply")
+
+        // The exact reply the audited model gave for the real planning task.
+        t.check(!probe("{}"),
+                "an empty JSON object is rejected — this is what silently caused Basic fallback")
+        // The exact reply the audited model gave for a plan-shaped request.
+        t.check(!probe("{\"input\":\"A woman is walking.\",\"output\":\"A woman walks.\"}"),
+                "a well-formed object that ignores the requested schema is rejected")
+        // What the old probe accepted.
+        t.check(!probe("{\"ready\":true}"),
+                "the trivial JSON echo the old probe accepted no longer counts as ready")
+
+        t.check(!probe("{\"shots\":[]}"), "an empty shots array is rejected")
+        t.check(!probe("{\"shots\":\"soon\"}"), "a non-array shots value is rejected")
+        t.check(!probe("{\"shots\":[\"a\",\"b\"]}"), "an array of non-objects is rejected")
+        t.check(!probe("Sure! Here is your plan."), "free prose is rejected")
+        t.check(!probe(""), "an empty reply is rejected")
+
+        // A model that fails the probe must surface as a plan problem, not as
+        // an unreachable server, because the two need different user action.
+        var probeDone = false
+        Task {
+            let failing = MockDirectorEnvironmentClient(
+                models: ["m:latest"],
+                testError: DirectorError.invalidPlanJSON("The model replied, but did not return a usable plan."))
+            let defaults = UserDefaults(suiteName: "director-probe-\(UUID().uuidString)")!
+            defaults.set(DirectorMode.localAI.rawValue, forKey: DirectorMode.userDefaultsKey)
+            defaults.set("m:latest", forKey: DirectorEnvironmentService.modelUserDefaultsKey)
+            let service = DirectorEnvironmentService(userDefaults: defaults, client: failing)
+            let result = await service.testSelectedModel()
+            switch result {
+            case .success:
+                t.check(false, "a model that cannot plan must not report success")
+            case .failure(let error):
+                if case DirectorError.invalidPlanJSON = error {
+                    t.check(true, "an unusable plan is reported as a plan failure, not a connection failure")
+                } else {
+                    t.check(false, "unexpected error kind: \(error)")
+                }
+            }
+            probeDone = true
+        }
+        while !probeDone { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
+
+        // Fallback reasons that occur with the server up and the model loaded
+        // must not tell the user the server was unreachable.
+        let schemaText = DirectorEnvironmentService.friendlyFallbackReason("schemaValidationFailed")
+        t.check(schemaText.contains("replied"), "schema failure explains the model replied")
+        t.check(!schemaText.lowercased().contains("unavailable"), "schema failure is not described as unavailability")
+        let syntaxText = DirectorEnvironmentService.friendlyFallbackReason("jsonSyntaxInvalid")
+        t.check(syntaxText.contains("format"), "syntax failure explains the reply format was wrong")
+        t.checkEqual(DirectorEnvironmentService.friendlyFallbackReason("localAIServerUnavailable"),
+                     "Local AI was unavailable.",
+                     "genuine unavailability wording is unchanged")
+    }
 }

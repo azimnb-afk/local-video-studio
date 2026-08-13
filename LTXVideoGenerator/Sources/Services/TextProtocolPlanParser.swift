@@ -69,13 +69,18 @@ enum TextProtocolPlanParser {
         var currentTitle: String?
         var currentAction: String?
         var currentCamera: String?
+        var currentMotionTempo: String?
+        var currentCameraTempo: String?
+        var currentPlaybackStyle: String?
         var currentContinuity: String?
         var sawShotMarker = false
 
         func flushShot() {
             defer {
                 currentTitle = nil; currentAction = nil
-                currentCamera = nil; currentContinuity = nil
+                currentCamera = nil; currentMotionTempo = nil
+                currentCameraTempo = nil; currentPlaybackStyle = nil
+                currentContinuity = nil
             }
             guard let action = currentAction, isMeaningful(action) else { return }
             let camera = currentCamera.flatMap { isMeaningful($0) ? $0 : nil }
@@ -87,6 +92,9 @@ enum TextProtocolPlanParser {
                 shot.movement = camera
                 shot.shotScale = detectedShotScale(in: camera)
             }
+            shot.motionTempo = normalizedMotionTempo(currentMotionTempo)
+            shot.cameraTempo = normalizedCameraTempo(currentCameraTempo)
+            shot.playbackStyle = normalizedPlaybackStyle(currentPlaybackStyle)
             shot.continuity = normalizedContinuity(currentContinuity)
             shots.append(shot)
         }
@@ -106,6 +114,12 @@ enum TextProtocolPlanParser {
                 currentAction = value
             } else if let value = keyValue(line, key: "CAMERA") {
                 currentCamera = value
+            } else if let value = keyValue(line, key: "MOTION_TEMPO") {
+                currentMotionTempo = value
+            } else if let value = keyValue(line, key: "CAMERA_TEMPO") {
+                currentCameraTempo = value
+            } else if let value = keyValue(line, key: "PLAYBACK_STYLE") {
+                currentPlaybackStyle = value
             } else if let value = keyValue(line, key: "CONTINUITY") {
                 currentContinuity = value
             }
@@ -188,6 +202,31 @@ enum TextProtocolPlanParser {
         if value.hasPrefix("continue") { return "continue" }
         if value.hasPrefix("cut") { return "cut" }
         return nil
+    }
+
+    static func normalizedMotionTempo(_ raw: String?) -> String? {
+        normalizedEnumToken(raw, allowed: MotionTempo.allCases.map(\.rawValue))
+    }
+
+    static func normalizedCameraTempo(_ raw: String?) -> String? {
+        normalizedEnumToken(raw, allowed: CameraTempo.allCases.map(\.rawValue))
+    }
+
+    static func normalizedPlaybackStyle(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let compact = raw.lowercased().filter { $0.isLetter }
+        switch compact {
+        case "realtime": return PlaybackStyle.realTime.rawValue
+        case "slowmotion", "slomo": return PlaybackStyle.slowMotion.rawValue
+        case "fastmotion", "timelapse": return PlaybackStyle.fastMotion.rawValue
+        default: return nil
+        }
+    }
+
+    private static func normalizedEnumToken(_ raw: String?, allowed: [String]) -> String? {
+        guard let raw else { return nil }
+        let token = raw.trimmingCharacters(in: CharacterSet(charactersIn: " .*_<>")).lowercased()
+        return allowed.first { $0.lowercased() == token }
     }
 
     private static let shotScaleKeywords: [(needle: String, scale: String)] = [

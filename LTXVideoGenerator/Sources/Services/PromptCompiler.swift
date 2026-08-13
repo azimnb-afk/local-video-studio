@@ -123,6 +123,41 @@ enum DialogueNormalizer {
     }
 }
 
+/// Converts persisted story pacing into one compact renderer-facing sentence.
+/// It is prompt guidance only: generation timing and backend settings remain
+/// owned by the existing settings resolver.
+enum MotionTempoPromptPolicy {
+    static func instruction(
+        motionTempo: MotionTempo,
+        cameraTempo: CameraTempo,
+        playbackStyle: PlaybackStyle
+    ) -> String {
+        let playback: String
+        switch playbackStyle {
+        case .realTime: playback = "real-time playback"
+        case .slowMotion: playback = "slow-motion playback"
+        case .fastMotion: playback = "fast-motion playback"
+        }
+
+        let subject: String
+        switch motionTempo {
+        case .slow: subject = "deliberately slow subject movement"
+        case .normal: subject = "natural subject movement at normal speed"
+        case .fast: subject = "quick subject movement"
+        }
+
+        let camera: String
+        switch cameraTempo {
+        case .static: camera = "a static camera"
+        case .slow: camera = "slow, measured camera movement"
+        case .normal: camera = "camera movement at a natural steady pace"
+        case .fast: camera = "quick camera movement"
+        }
+
+        return "\(playback); \(subject); \(camera)"
+    }
+}
+
 /// Compiles a structured OneShotPlan into a single flowing LTX prompt:
 /// chronological, present tense, visible action, camera, motion, lighting,
 /// dialogue and audio in one description (official LTX prompt guidance).
@@ -266,6 +301,11 @@ enum CharacterPromptPipeline {
         let plan = OneShotPlan(
             camera: "\(shot.camera.shotScale) shot, \(shot.camera.angle) angle, \(shot.camera.movement) camera",
             action: shot.summary,
+            motion: MotionTempoPromptPolicy.instruction(
+                motionTempo: shot.motionTempo,
+                cameraTempo: shot.cameraTempo,
+                playbackStyle: shot.playbackStyle
+            ),
             lighting: snapshot.lighting,
             dialogue: shot.audio.dialogue.map {
                 OneShotPlan.DialogueLine(

@@ -153,17 +153,30 @@ enum DirectorPlanFormat {
     SHOT 1
     ACTION: <what happens>
     CAMERA: <shot scale and movement>
+    MOTION_TEMPO: <SLOW, NORMAL, or FAST>
+    CAMERA_TEMPO: <STATIC, SLOW, NORMAL, or FAST>
+    PLAYBACK_STYLE: <REAL_TIME, SLOW_MOTION, or FAST_MOTION>
     CONTINUITY: CUT
     SHOT 2
     ACTION: <what happens>
     CAMERA: <shot scale and movement>
+    MOTION_TEMPO: <SLOW, NORMAL, or FAST>
+    CAMERA_TEMPO: <STATIC, SLOW, NORMAL, or FAST>
+    PLAYBACK_STYLE: <REAL_TIME, SLOW_MOTION, or FAST_MOTION>
     CONTINUITY: CONTINUE
     SHOT 3
     ACTION: <what happens>
     CAMERA: <shot scale and movement>
+    MOTION_TEMPO: <SLOW, NORMAL, or FAST>
+    CAMERA_TEMPO: <STATIC, SLOW, NORMAL, or FAST>
+    PLAYBACK_STYLE: <REAL_TIME, SLOW_MOTION, or FAST_MOTION>
     CONTINUITY: CONTINUE
 
     Plan 3 to 5 shots. CONTINUITY must be exactly CUT or CONTINUE.
+    Keep REAL_TIME for ordinary actions, including actions described with words
+    such as "slowly". Use SLOW_MOTION only when the brief explicitly requests
+    slow motion. A CONTINUE shot keeps the preceding tempos unless the story
+    explicitly changes them.
     \(PerShotAudioPolicy.directorInstruction)
     """
 

@@ -43,6 +43,9 @@ final class StoryboardDirector {
         var shotScale: String?
         var angle: String?
         var movement: String?
+        var motionTempo: String?
+        var cameraTempo: String?
+        var playbackStyle: String?
         var lighting: String?
         var dialogue: [OneShotPlan.DialogueLine]?
         var audioCues: [String]?
@@ -84,6 +87,8 @@ final class StoryboardDirector {
         {"title":"...","summary":"present-tense visible action","durationSeconds":5,
          "shotScale":"extreme-wide|wide|medium-wide|medium|medium-close-up|close-up|extreme-close-up",
          "angle":"low|eye-level|high|overhead","movement":"static|pan|tilt|dolly|track|handheld",
+         "motionTempo":"slow|normal|fast","cameraTempo":"static|slow|normal|fast",
+         "playbackStyle":"realTime|slowMotion|fastMotion",
          "lighting":"...","dialogue":[{"speaker":"Name","text":"line"}],"audioCues":["..."],
          "explicitChanges":["location=...","outfit:CharacterID=...","prop+:item"],
          "characterIDs":["exact-character-uuid"],
@@ -97,6 +102,13 @@ final class StoryboardDirector {
     prop+:item, prop-:item, propOwner:item=Name, dialogueState=, storyState=.
     2 to 8 shots. Keep user-provided dialogue verbatim.
     \(PerShotAudioPolicy.directorInstruction)
+    Motion tempo describes how quickly the subject acts. Camera tempo describes
+    camera pacing independently. Playback style is realTime unless the brief
+    explicitly asks for slow motion, fast motion, or time-lapse. Words such as
+    "slowly opens the door" describe a slow real-time action, not slow-motion
+    playback. A continuing shot inherits the preceding shot's motion, camera,
+    and playback tempo unless the story explicitly changes one of them. A cut
+    does not by itself imply slow motion.
     Set "continuity":"continue" only when the shot is a direct physical
     continuation of the previous one: same location, same active characters, no
     time jump, one unbroken action. Use "cut" for a location change, a time
@@ -532,6 +544,9 @@ final class StoryboardDirector {
                 if shot["shotScale"] == nil { shot["shotScale"] = shot["scale"] }
                 if shot["angle"] == nil { shot["angle"] = shot["cameraAngle"] }
                 if shot["movement"] == nil { shot["movement"] = shot["cameraMovement"] }
+                if shot["motionTempo"] == nil { shot["motionTempo"] = shot["motion_tempo"] }
+                if shot["cameraTempo"] == nil { shot["cameraTempo"] = shot["camera_tempo"] }
+                if shot["playbackStyle"] == nil { shot["playbackStyle"] = shot["playback_style"] }
                 if shot["audioCues"] == nil { shot["audioCues"] = shot["audio"] }
                 if shot["characterIDs"] == nil { shot["characterIDs"] = shot["characters"] }
                 if shot["characterNames"] == nil { shot["characterNames"] = shot["character_names"] }
@@ -661,6 +676,7 @@ final class StoryboardDirector {
         var state = ContinuityEngine.normalizedCharacterReferences(
             in: draft.initialState ?? ContinuitySnapshot(), bible: bible
         )
+        var previousMotionProfile: MotionTempoProfile?
         let japaneseHandling = JapaneseDialogueHandling(rawValue: settings.japaneseHandling) ?? .native
 
         for (index, shotDraft) in draft.shots.enumerated() {
@@ -672,6 +688,15 @@ final class StoryboardDirector {
             shot.continuityMode = index == 0
                 ? .cut
                 : ShotContinuityMode(rawValue: (shotDraft.continuity ?? "").lowercased()) ?? .auto
+            let motionProfile = MotionTempoPlanningPolicy.resolve(
+                draft: shotDraft,
+                brief: brief,
+                previous: previousMotionProfile,
+                isContinuation: shot.continuityMode == .continueFromPrevious
+            )
+            shot.motionTempo = motionProfile.motionTempo
+            shot.cameraTempo = motionProfile.cameraTempo
+            shot.playbackStyle = motionProfile.playbackStyle
             shot.camera = CameraPlan(
                 shotScale: shotDraft.shotScale ?? "medium",
                 angle: shotDraft.angle ?? "eye-level",
@@ -724,7 +749,11 @@ final class StoryboardDirector {
                 camera: "\(shot.camera.shotScale) shot, \(shot.camera.angle) angle, \(shot.camera.movement) camera",
                 action: shot.summary,
                 acting: nil,
-                motion: nil,
+                motion: MotionTempoPromptPolicy.instruction(
+                    motionTempo: shot.motionTempo,
+                    cameraTempo: shot.cameraTempo,
+                    playbackStyle: shot.playbackStyle
+                ),
                 lighting: shotDraft.lighting ?? nextState.lighting,
                 dialogue: (shotDraft.dialogue ?? []),
                 audioCues: shotDraft.audioCues ?? [],
@@ -752,6 +781,7 @@ final class StoryboardDirector {
 
             project.shots.append(shot)
             state = nextState
+            previousMotionProfile = motionProfile
         }
 
         CharacterPromptPipeline.recompile(project: &project)
@@ -803,6 +833,90 @@ final class StoryboardDirector {
     }
 }
 
+struct MotionTempoProfile: Equatable {
+    var motionTempo: MotionTempo
+    var cameraTempo: CameraTempo
+    var playbackStyle: PlaybackStyle
+}
+
+/// Deterministic continuity policy shared by Structured, Text, and Basic
+/// Director output after all protocols have converged on `StoryboardDraft`.
+enum MotionTempoPlanningPolicy {
+    static let defaultProfile = MotionTempoProfile(
+        motionTempo: .normal,
+        cameraTempo: .normal,
+        playbackStyle: .realTime
+    )
+
+    static func resolve(
+        draft: StoryboardDirector.ShotPlanDraft,
+        brief: String,
+        previous: MotionTempoProfile?,
+        isContinuation: Bool
+    ) -> MotionTempoProfile {
+        let inherited = isContinuation ? previous : nil
+        var result = MotionTempoProfile(
+            motionTempo: decode(draft.motionTempo, as: MotionTempo.self)
+                ?? inherited?.motionTempo ?? defaultProfile.motionTempo,
+            cameraTempo: decode(draft.cameraTempo, as: CameraTempo.self)
+                ?? inherited?.cameraTempo ?? defaultProfile.cameraTempo,
+            playbackStyle: decode(draft.playbackStyle, as: PlaybackStyle.self)
+                ?? inherited?.playbackStyle ?? defaultProfile.playbackStyle
+        )
+
+        // Explicit narrative playback direction is authoritative. Deliberately
+        // match phrases, not the adjective "slowly", so action speed is not
+        // confused with temporal playback.
+        if let explicit = explicitPlaybackStyle(in: draft.summary)
+            ?? explicitPlaybackStyle(in: brief) {
+            result.playbackStyle = explicit
+        }
+        return result
+    }
+
+    static func explicitPlaybackStyle(in text: String) -> PlaybackStyle? {
+        let value = text.lowercased()
+        if ["slow motion", "slow-motion", "slowmo", "slo-mo", "スローモーション"]
+            .contains(where: value.contains) {
+            return .slowMotion
+        }
+        if ["fast motion", "fast-motion", "time lapse", "time-lapse", "早回し"]
+            .contains(where: value.contains) {
+            return .fastMotion
+        }
+        if ["real time", "real-time", "リアルタイム"]
+            .contains(where: value.contains) {
+            return .realTime
+        }
+        return nil
+    }
+
+    private static func decode<T: RawRepresentable>(
+        _ raw: String?, as type: T.Type
+    ) -> T? where T.RawValue == String {
+        guard let raw else { return nil }
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return [value, value.lowercased()].compactMap(T.init(rawValue:)).first
+            ?? fallbackDecode(value, as: type)
+    }
+
+    private static func fallbackDecode<T: RawRepresentable>(
+        _ raw: String, as type: T.Type
+    ) -> T? where T.RawValue == String {
+        let compact = raw.lowercased().filter(\.isLetter)
+        let known = [
+            MotionTempo.slow.rawValue, MotionTempo.normal.rawValue, MotionTempo.fast.rawValue,
+            CameraTempo.static.rawValue,
+            PlaybackStyle.realTime.rawValue, PlaybackStyle.slowMotion.rawValue,
+            PlaybackStyle.fastMotion.rawValue,
+        ]
+        guard let canonical = known.first(where: {
+            $0.lowercased().filter(\.isLetter) == compact
+        }) else { return nil }
+        return T(rawValue: canonical)
+    }
+}
+
 /// Deterministic no-LLM storyboard fallback. Explicit first/next/final shot
 /// cues are decomposed without inventing story content; other briefs remain a
 /// single safe shot.
@@ -830,6 +944,9 @@ final class TemplateStoryboardProvider: DirectorProvider {
                 shotScale: scales[index % scales.count],
                 angle: "eye-level",
                 movement: movements[index % movements.count],
+                motionTempo: MotionTempo.normal.rawValue,
+                cameraTempo: CameraTempo.normal.rawValue,
+                playbackStyle: PlaybackStyle.realTime.rawValue,
                 lighting: "soft natural lighting",
                 dialogue: [],
                 audioCues: [],

@@ -450,6 +450,27 @@ struct CameraPlan: Codable, Equatable {
     var composition: String = ""
 }
 
+/// Story-level motion intent. These values describe pacing only; they do not
+/// alter frames, FPS, duration, presets, or backend parameters.
+enum MotionTempo: String, Codable, CaseIterable {
+    case slow
+    case normal
+    case fast
+}
+
+enum CameraTempo: String, Codable, CaseIterable {
+    case `static`
+    case slow
+    case normal
+    case fast
+}
+
+enum PlaybackStyle: String, Codable, CaseIterable {
+    case realTime
+    case slowMotion
+    case fastMotion
+}
+
 struct AudioPlan: Codable, Equatable {
     var dialogue: [ShotDialogueLine] = []
     var footsteps: Bool = false
@@ -614,6 +635,10 @@ struct Shot: Codable, Equatable, Identifiable {
     var summary: String = ""     // what happens in this shot
     var durationSeconds: Double = 5
     var camera: CameraPlan = CameraPlan()
+    /// Persisted planning intent, independent of CameraPlan's movement type.
+    var motionTempo: MotionTempo = .normal
+    var cameraTempo: CameraTempo = .normal
+    var playbackStyle: PlaybackStyle = .realTime
     var audio: AudioPlan = AudioPlan()
     var continuityBefore: ContinuitySnapshot?
     var explicitChanges: [String] = []   // changes this shot introduces
@@ -699,6 +724,9 @@ struct Shot: Codable, Equatable, Identifiable {
     init(
         id: UUID = UUID(), index: Int, title: String = "", summary: String = "",
         durationSeconds: Double = 5, camera: CameraPlan = CameraPlan(),
+        motionTempo: MotionTempo = .normal,
+        cameraTempo: CameraTempo = .normal,
+        playbackStyle: PlaybackStyle = .realTime,
         audio: AudioPlan = AudioPlan(), continuityBefore: ContinuitySnapshot? = nil,
         explicitChanges: [String] = [], characterIDs: [UUID] = [],
         startingImageReferenceAssetID: UUID? = nil,
@@ -719,6 +747,9 @@ struct Shot: Codable, Equatable, Identifiable {
         self.summary = summary
         self.durationSeconds = durationSeconds
         self.camera = camera
+        self.motionTempo = motionTempo
+        self.cameraTempo = cameraTempo
+        self.playbackStyle = playbackStyle
         self.audio = audio
         self.continuityBefore = continuityBefore
         self.explicitChanges = explicitChanges
@@ -739,7 +770,8 @@ struct Shot: Codable, Equatable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, index, title, summary, durationSeconds, camera, audio,
+        case id, index, title, summary, durationSeconds, camera,
+             motionTempo, cameraTempo, playbackStyle, audio,
              continuityBefore, explicitChanges, characterIDs,
              startingImageReferenceAssetID,
              baseCompiledPrompt, compiledPrompt, takes, selectedTakeID,
@@ -760,6 +792,9 @@ struct Shot: Codable, Equatable, Identifiable {
         summary = try container.decodeIfPresent(String.self, forKey: .summary) ?? ""
         durationSeconds = try container.decodeIfPresent(Double.self, forKey: .durationSeconds) ?? 5
         camera = try container.decodeIfPresent(CameraPlan.self, forKey: .camera) ?? CameraPlan()
+        motionTempo = try container.decodeIfPresent(MotionTempo.self, forKey: .motionTempo) ?? .normal
+        cameraTempo = try container.decodeIfPresent(CameraTempo.self, forKey: .cameraTempo) ?? .normal
+        playbackStyle = try container.decodeIfPresent(PlaybackStyle.self, forKey: .playbackStyle) ?? .realTime
         audio = try container.decodeIfPresent(AudioPlan.self, forKey: .audio) ?? AudioPlan()
         continuityBefore = try container.decodeIfPresent(ContinuitySnapshot.self, forKey: .continuityBefore)
         explicitChanges = try container.decodeIfPresent([String].self, forKey: .explicitChanges) ?? []

@@ -47,6 +47,30 @@ struct OpeningReferenceAppearance: Codable, Equatable {
     var subjectState: String = ""
     var keyObjects: String = ""
 
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        status = try container.decodeIfPresent(Status.self, forKey: .status) ?? .unavailable
+        sourceRelativePath = try container.decodeIfPresent(String.self, forKey: .sourceRelativePath) ?? ""
+        faceVisible = try container.decodeIfPresent(Bool.self, forKey: .faceVisible) ?? false
+        hairDescription = try container.decodeIfPresent(String.self, forKey: .hairDescription) ?? ""
+        clothingDescription = try container.decodeIfPresent(String.self, forKey: .clothingDescription) ?? ""
+        outerwear = try container.decodeIfPresent(String.self, forKey: .outerwear) ?? ""
+        accessories = try container.decodeIfPresent(String.self, forKey: .accessories) ?? ""
+        silhouetteDescription = try container.decodeIfPresent(String.self, forKey: .silhouetteDescription) ?? ""
+        distinctiveTraits = try container.decodeIfPresent(String.self, forKey: .distinctiveTraits) ?? ""
+        subjectCount = try container.decodeIfPresent(Int.self, forKey: .subjectCount) ?? 0
+        analysisModel = try container.decodeIfPresent(String.self, forKey: .analysisModel) ?? ""
+        analysedAt = try container.decodeIfPresent(Date.self, forKey: .analysedAt)
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+
+        sceneEnvironment = try container.decodeIfPresent(String.self, forKey: .sceneEnvironment) ?? ""
+        sceneLighting = try container.decodeIfPresent(String.self, forKey: .sceneLighting) ?? ""
+        subjectState = try container.decodeIfPresent(String.self, forKey: .subjectState) ?? ""
+        keyObjects = try container.decodeIfPresent(String.self, forKey: .keyObjects) ?? ""
+    }
+
     var isUsable: Bool { status == .analysed }
 
     /// The costume line a prompt would carry, built only from what was seen.

@@ -233,6 +233,22 @@ func runOpeningReferenceAppearanceTests(_ t: TestKit) {
         t.check(legacy.openingReferenceAppearance == nil,
                 "legacy projects decode with no derived appearance")
         t.checkEqual(legacy.title, "Round trip", "and are otherwise intact")
+
+        // A project with OpeningReferenceAppearance but missing the new scene evidence fields
+        var appearanceObject = try! JSONSerialization.jsonObject(with: try! JSONEncoder().encode(seenInImage)) as! [String: Any]
+        appearanceObject.removeValue(forKey: "sceneEnvironment")
+        appearanceObject.removeValue(forKey: "sceneLighting")
+        appearanceObject.removeValue(forKey: "subjectState")
+        appearanceObject.removeValue(forKey: "keyObjects")
+
+        let legacyAppearanceData = try! JSONSerialization.data(withJSONObject: appearanceObject)
+        let legacyAppearance = try! JSONDecoder().decode(OpeningReferenceAppearance.self, from: legacyAppearanceData)
+
+        t.checkEqual(legacyAppearance.sceneEnvironment, "", "Missing sceneEnvironment decodes to empty string (default)")
+        t.checkEqual(legacyAppearance.sceneLighting, "", "Missing sceneLighting decodes to empty string (default)")
+        t.checkEqual(legacyAppearance.subjectState, "", "Missing subjectState decodes to empty string (default)")
+        t.checkEqual(legacyAppearance.keyObjects, "", "Missing keyObjects decodes to empty string (default)")
+        t.checkEqual(legacyAppearance.clothingDescription, "navy blue sailor-style vest over a white shirt", "Other fields decode correctly")
     }
 
     t.suite("Opening reference appearance — seeding gives the Director no room to invent") {

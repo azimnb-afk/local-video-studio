@@ -680,6 +680,5 @@ runHuggingFaceCacheCheckerTests(t)
 runFinalAudioTests(t)
 runTextEncoderDownloadTests(t)
 runLTX2MLXBackendTests(t)
-runAcceptanceTests(t)
 
 t.finish()

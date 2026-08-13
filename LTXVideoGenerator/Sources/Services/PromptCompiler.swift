@@ -6,6 +6,66 @@ enum JapaneseDialogueHandling: String, Codable, CaseIterable {
     case keepOriginal    // never touch dialogue at all
 }
 
+/// Lightweight product policy for audio generated inside an individual shot.
+/// Global BGM remains a separate Final Audio concern.
+enum PerShotAudioPolicy: Equatable {
+    case unspecified
+    case naturalProductionSoundNoMusic
+
+    static let directorInstruction = """
+    PER-SHOT AUDIO POLICY
+    Do not plan background music, a musical score, a soundtrack, or an underscore for any individual shot.
+    Keep natural scene audio: spoken dialogue and voices, environmental ambience, footsteps, foley, and scene-appropriate sound effects.
+    If the brief requests music, defer that request to the separate global Final Audio layer; do not place it in a shot's audioCues.
+    """
+
+    private static let generationGuard = "Audio policy: no background music or musical score. Keep synchronized natural production sound: spoken dialogue, environmental ambience, footsteps, foley and scene-appropriate sound effects."
+
+    func filteredAudioCues(_ cues: [String]) -> [String] {
+        guard self == .naturalProductionSoundNoMusic else { return cues }
+        return cues.filter { cue in
+            let normalized = cue.lowercased()
+            let nonDiegeticMusicTerms = [
+                "background music", "bgm", "musical score", "cinematic score",
+                "soundtrack", "underscore", "music bed", "orchestral music"
+            ]
+            return !nonDiegeticMusicTerms.contains { normalized.contains($0) }
+        }
+    }
+
+    /// Basic Director may copy a brief sentence directly into visible action.
+    /// Drop complete sentences containing an explicit non-diegetic music
+    /// direction; never rewrite fragments inside a visual sentence. Spoken
+    /// dialogue is a separate structured field and remains untouched.
+    func filteredAction(_ action: String) -> String {
+        guard self == .naturalProductionSoundNoMusic else { return action }
+        let sentenceSeparated = action.replacingOccurrences(
+            of: "([.!?。！？])\\s+",
+            with: "$1\n",
+            options: .regularExpression)
+        let sentences = sentenceSeparated.components(separatedBy: .newlines)
+        return sentences.filter { sentence in
+            filteredAudioCues([sentence]).count == 1
+        }.joined(separator: " ")
+    }
+
+    func applyingPromptGuard(to prompt: String) -> String {
+        guard self == .naturalProductionSoundNoMusic else { return prompt }
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.lowercased().contains("no background music") else { return trimmed }
+        return trimmed.isEmpty ? Self.generationGuard : trimmed + " " + Self.generationGuard
+    }
+
+    /// Prompt enhancement may rewrite the canonical prompt. Preserve an
+    /// already-selected product policy without imposing it on Direct Generate.
+    static func preservingPolicy(from canonicalPrompt: String, in candidatePrompt: String) -> String {
+        let selected: PerShotAudioPolicy = canonicalPrompt.lowercased().contains("no background music")
+            ? .naturalProductionSoundNoMusic
+            : .unspecified
+        return selected.applyingPromptGuard(to: candidatePrompt)
+    }
+}
+
 /// Normalizes dialogue lines without rewriting the user's words.
 enum DialogueNormalizer {
     static func normalize(
@@ -45,6 +105,7 @@ enum PromptCompiler {
     struct Options {
         var isImageToVideo: Bool = false
         var japaneseHandling: JapaneseDialogueHandling = .native
+        var perShotAudioPolicy: PerShotAudioPolicy = .unspecified
     }
 
     static func compile(plan: OneShotPlan, options: Options = Options()) -> String {
@@ -55,7 +116,9 @@ enum PromptCompiler {
 
         // For I2V the source image is the visual source of truth: do not
         // re-describe static appearance, only what changes/moves.
-        sentences.append(plan.action.trimmingCharacters(in: .whitespacesAndNewlines))
+        sentences.append(options.perShotAudioPolicy.filteredAction(
+            plan.action.trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
 
         if let acting = plan.acting, !acting.isEmpty {
             sentences.append(acting)
@@ -72,13 +135,16 @@ enum PromptCompiler {
             sentences.append(DialogueNormalizer.render(line, handling: options.japaneseHandling))
         }
 
-        if !plan.audioCues.isEmpty {
-            sentences.append("Audio: " + plan.audioCues.joined(separator: ", ") + ".")
+        let audioCues = options.perShotAudioPolicy.filteredAudioCues(plan.audioCues)
+        if !audioCues.isEmpty {
+            sentences.append("Audio: " + audioCues.joined(separator: ", ") + ".")
         }
 
-        return sentences
+        let compiled = sentences
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .map { ensureTerminated($0) }
             .joined(separator: " ")
+        return options.perShotAudioPolicy.applyingPromptGuard(to: compiled)
     }
 
     /// Compact visual-only CharacterBible context. Personality and speaking
@@ -184,7 +250,8 @@ enum CharacterPromptPipeline {
             durationIntentSeconds: shot.durationSeconds
         )
         let options = PromptCompiler.Options(
-            japaneseHandling: JapaneseDialogueHandling(rawValue: project.settings.japaneseHandling) ?? .native)
+            japaneseHandling: JapaneseDialogueHandling(rawValue: project.settings.japaneseHandling) ?? .native,
+            perShotAudioPolicy: .naturalProductionSoundNoMusic)
         let compiled = PromptCompiler.compile(plan: plan, options: options)
         let context = ContinuityEngine.promptContext(for: snapshot, bible: project.characterBible)
         shot.baseCompiledPrompt = context.isEmpty ? compiled : context + " " + compiled
@@ -201,7 +268,9 @@ enum CharacterPromptPipeline {
     private static func recompileCharacterContext(project: inout FilmProject, shotIndex: Int) {
         guard project.shots.indices.contains(shotIndex) else { return }
         var shot = project.shots[shotIndex]
-        let base = shot.baseCompiledPrompt ?? shot.compiledPrompt
+        let base = PerShotAudioPolicy.naturalProductionSoundNoMusic.applyingPromptGuard(
+            to: shot.baseCompiledPrompt ?? shot.compiledPrompt
+        )
         shot.baseCompiledPrompt = base
         let promptSnapshot: ContinuitySnapshot?
         if let before = shot.continuityBefore,

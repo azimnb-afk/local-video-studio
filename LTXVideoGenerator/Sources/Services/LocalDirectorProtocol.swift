@@ -44,7 +44,10 @@ enum DirectorPlanFormat {
             // Deliberately short. The models that need this protocol are the
             // ones that follow a long system prompt least reliably; the
             // format itself is carried in the user turn below.
-            return "You are a film director planning a short film as a sequence of concise shots. When the user provides a total movie duration, treat that total as authoritative."
+            return """
+            You are a film director planning a short film as a sequence of concise shots. When the user provides a total movie duration, treat that total as authoritative.
+            \(PerShotAudioPolicy.directorInstruction)
+            """
         }
     }
 
@@ -85,6 +88,7 @@ enum DirectorPlanFormat {
             return """
             Your previous response was invalid (\(failure)). \
             Respond again with ONLY the JSON object described in the system prompt.
+            \(PerShotAudioPolicy.directorInstruction)
             \(durationBlock)\(evidenceBlock)BRIEF: \(brief)
             """
         case .textProtocol:
@@ -160,6 +164,7 @@ enum DirectorPlanFormat {
     CONTINUITY: CONTINUE
 
     Plan 3 to 5 shots. CONTINUITY must be exactly CUT or CONTINUE.
+    \(PerShotAudioPolicy.directorInstruction)
     """
 
     /// Parses a reply into a draft using the protocol's own rules. Returns the

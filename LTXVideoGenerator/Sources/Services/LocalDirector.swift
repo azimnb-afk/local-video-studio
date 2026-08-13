@@ -63,6 +63,7 @@ final class LocalDirector {
     }
     Keep the user's dialogue lines verbatim if they provided any. Do not add
     scene cuts — this is one continuous shot.
+    \(PerShotAudioPolicy.directorInstruction)
     """
 
     private let providers: [DirectorProvider]
@@ -119,6 +120,7 @@ final class LocalDirector {
             prompt = """
             Your previous response was invalid (\(lastFailure)). \
             Respond again with ONLY the JSON object described in the system prompt.
+            \(PerShotAudioPolicy.directorInstruction)
             BRIEF: \(brief)
             """
         }
@@ -155,7 +157,8 @@ final class LocalDirector {
             plan: plan,
             options: PromptCompiler.Options(
                 isImageToVideo: base.isImageToVideo,
-                japaneseHandling: japaneseHandling
+                japaneseHandling: japaneseHandling,
+                perShotAudioPolicy: .naturalProductionSoundNoMusic
             )
         )
         var params = base.parameters

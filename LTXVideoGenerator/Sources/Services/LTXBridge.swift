@@ -280,8 +280,11 @@ class LTXBridge {
                     progressHandler(0.06, status)
                     }
                 ), !enhanced.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    generationPrompt = enhanced
-                    preEnhancedPrompt = enhanced
+                    generationPrompt = PerShotAudioPolicy.preservingPolicy(
+                        from: request.prompt,
+                        in: enhanced
+                    )
+                    preEnhancedPrompt = generationPrompt
                     progressHandler(0.07, "Prompt enhanced with Gemma")
                 } else {
                     progressHandler(0.07, "Prompt enhancement returned empty text; using original prompt")

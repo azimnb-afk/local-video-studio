@@ -96,6 +96,7 @@ final class StoryboardDirector {
     wet:CharacterID=, injury:CharacterID=,
     prop+:item, prop-:item, propOwner:item=Name, dialogueState=, storyState=.
     2 to 8 shots. Keep user-provided dialogue verbatim.
+    \(PerShotAudioPolicy.directorInstruction)
     Set "continuity":"continue" only when the shot is a direct physical
     continuation of the previous one: same location, same active characters, no
     time jump, one unbroken action. Use "cut" for a location change, a time
@@ -732,7 +733,9 @@ final class StoryboardDirector {
             let context = ContinuityEngine.promptContext(for: nextState, bible: bible)
             let compiled = PromptCompiler.compile(
                 plan: plan,
-                options: PromptCompiler.Options(japaneseHandling: japaneseHandling)
+                options: PromptCompiler.Options(
+                    japaneseHandling: japaneseHandling,
+                    perShotAudioPolicy: .naturalProductionSoundNoMusic)
             )
             shot.baseCompiledPrompt = context.isEmpty ? compiled : context + " " + compiled
             shot.compiledPrompt = shot.baseCompiledPrompt ?? compiled

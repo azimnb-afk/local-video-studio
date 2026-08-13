@@ -7,6 +7,67 @@ import Foundation
 /// must be untouched by this work.
 func runCinematicProgressionTests(_ t: TestKit) {
 
+    t.suite("Auto Movie target duration — deterministic normalization") {
+        func shots(_ count: Int) -> [Shot] {
+            (0..<count).map { index in
+                Shot(index: index, title: "Shot \(index + 1)",
+                     summary: "Visible action \(index + 1).", durationSeconds: 5)
+            }
+        }
+
+        // A/B. A 10-second complete movie is no longer interpreted as ten
+        // seconds per shot. Four Director beats stay four beats and share the
+        // one project-level target.
+        let tenSeconds = AutoMovieDurationPlanner.normalize(
+            shots: shots(4), targetDurationSeconds: 10, fps: 24)
+        t.checkEqual(tenSeconds.count, 4, "A/B: feasible Director shot count is preserved")
+        t.check(abs(tenSeconds.map(\.durationSeconds).reduce(0, +) - 10) < 0.001,
+                "A/B: shot durations sum to the complete-movie target")
+        let tenSecondFrames = tenSeconds.map {
+            PromptCompiler.frameCount(forSeconds: $0.durationSeconds, fps: 24)
+        }
+        t.check(tenSecondFrames.allSatisfy { $0 >= 25 && $0 <= 241 && ($0 - 1) % 8 == 0 },
+                "H: every normalized shot uses a supported 8n+1 frame count")
+        t.check(abs(tenSecondFrames.map { Double($0) / 24 }.reduce(0, +) - 10) < 0.25,
+                "I: expected assembled media duration remains close to ten seconds")
+
+        let twentySeconds = AutoMovieDurationPlanner.normalize(
+            shots: shots(4), targetDurationSeconds: 20, fps: 24)
+        t.check(abs(twentySeconds.map(\.durationSeconds).reduce(0, +) - 20) < 0.001,
+                "B: twenty-second target produces a movie longer than ten seconds")
+        t.check(twentySeconds.map(\.durationSeconds).reduce(0, +)
+                > tenSeconds.map(\.durationSeconds).reduce(0, +),
+                "B: duration targets remain meaningfully distinct")
+
+        // C. When even minimum 25-frame clips cannot fit, contiguous beats are
+        // merged rather than silently dropped.
+        let excessive = AutoMovieDurationPlanner.normalize(
+            shots: shots(12), targetDurationSeconds: 5, fps: 24)
+        t.check(excessive.count <= 5, "C: excessive short-target shot count is reduced")
+        t.check(abs(excessive.map(\.durationSeconds).reduce(0, +) - 5) < 0.001,
+                "C: reduced plan still sums to the target")
+        let mergedText = excessive.map(\.summary).joined(separator: " ")
+        t.check(mergedText.contains("Visible action 1") && mergedText.contains("Visible action 12"),
+                "C: normalization preserves the first and final story actions")
+
+        // D. A long target expands only when the existing shot count cannot
+        // represent it within the backend maximum.
+        let long = AutoMovieDurationPlanner.normalize(
+            shots: shots(2), targetDurationSeconds: 60, fps: 24)
+        t.checkEqual(long.count, 6, "D: long target adds the minimum feasible shot count")
+        t.check(abs(long.map(\.durationSeconds).reduce(0, +) - 60) < 0.001,
+                "D: long plan sums to sixty seconds")
+        t.check(long.allSatisfy {
+            PromptCompiler.frameCount(forSeconds: $0.durationSeconds, fps: 24) <= 241
+        }, "D: long plan never exceeds the backend frame maximum")
+
+        // Legacy/no-op safety.
+        let legacyPlan = shots(2)
+        let unchanged = AutoMovieDurationPlanner.normalize(
+            shots: legacyPlan, targetDurationSeconds: .nan, fps: 24)
+        t.checkEqual(unchanged, legacyPlan, "invalid legacy target leaves the plan unchanged")
+    }
+
     t.suite("Cinematic progression — beat planner") {
         // E. The no-LLM fallback must not emit the same action for every shot.
         let brief = "A young woman walks toward an old stone library."

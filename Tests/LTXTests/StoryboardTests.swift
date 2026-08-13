@@ -382,6 +382,94 @@ func runStoryboardTests(_ t: TestKit) {
         )).isEmpty, "empty draft rejected")
     }
 
+    t.suite("Auto Movie target duration — project to request propagation") {
+        let fourShotJSON = """
+        {"logline":"A compact four-beat film.","shots":[
+          {"title":"One","summary":"The subject enters.","durationSeconds":5,"continuity":"cut"},
+          {"title":"Two","summary":"The subject notices a light.","durationSeconds":5,"continuity":"continue"},
+          {"title":"Three","summary":"The subject follows it.","durationSeconds":5,"continuity":"continue"},
+          {"title":"Four","summary":"The subject reaches it.","durationSeconds":5,"continuity":"continue"}
+        ]}
+        """
+        let provider = MockDirectorProvider(responses: [fourShotJSON])
+        let hybrid = HybridProjectCoordinator(director: StoryboardDirector(providers: [provider]))
+        let sem = DispatchSemaphore(value: 0)
+        Task {
+            do {
+                var settings = ProjectSettings()
+                settings.applyPreset(.quickPreview)
+                settings.targetDurationSeconds = 10
+                let (project, _, _) = try await hybrid.makeProject(
+                    title: "Ten Seconds", brief: "Tell a compact four-beat story.", settings: settings)
+
+                t.check(provider.prompts.first?.contains("approximately 10.0 seconds total") == true,
+                        "structured Director receives the complete-movie target")
+                t.checkEqual(project.settings.targetDurationSeconds, 10,
+                             "target persists as project metadata")
+                t.checkEqual(project.shots.count, 4,
+                             "feasible four-shot structured plan remains four shots")
+                t.check(abs(project.shots.map(\.durationSeconds).reduce(0, +) - 10) < 0.001,
+                        "materialized Shot durations sum to ten seconds")
+                t.check(abs(AutoMoviePlanPreview.make(project: project).totalApproximateSeconds - 10) < 0.001,
+                        "Plan Preview shows the same normalized total")
+                t.check(project.shots.allSatisfy { shot in
+                    let frames = PromptCompiler.frameCount(forSeconds: shot.durationSeconds, fps: settings.fps)
+                    return frames >= 25 && frames <= 241 && (frames - 1) % 8 == 0
+                }, "every planned Shot resolves to backend-valid frames")
+
+                let root = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("LTXTests-target-duration-\(UUID().uuidString)", isDirectory: true)
+                defer { try? FileManager.default.removeItem(at: root) }
+                let store = FilmProjectStore(projectsDirectory: root)
+                store.save(project)
+                let reopened = store.project(id: project.id)
+                t.checkEqual(reopened?.settings.targetDurationSeconds, 10,
+                             "project reopen preserves the total target")
+                t.check(abs((reopened?.shots.map(\.durationSeconds).reduce(0, +) ?? 0) - 10) < 0.001,
+                        "project reopen preserves normalized per-shot durations")
+
+                let request = try TakeGenerationCoordinator(store: store).planTakes(
+                    projectID: project.id, shotID: project.shots[0].id,
+                    count: 1, baseSeed: 9)[0]
+                t.checkEqual(request.targetDurationSeconds, project.shots[0].durationSeconds,
+                             "GenerationRequest receives the shot's normalized share")
+                t.checkEqual(request.parameters.numFrames,
+                             PromptCompiler.frameCount(
+                                forSeconds: project.shots[0].durationSeconds, fps: settings.fps),
+                             "GenerationRequest frame count matches Plan Preview duration")
+            } catch {
+                t.check(false, "structured target-duration pipeline threw \(error)")
+            }
+            sem.signal()
+        }
+        sem.wait()
+
+        let basicBrief = """
+        First, a woman opens a gate.
+        Next, she crosses the garden.
+        Finally, she reaches the house.
+        """
+        let basic = HybridProjectCoordinator(director: StoryboardDirector(
+            providers: [TemplateStoryboardProvider()], requestedMode: .basic))
+        let basicSem = DispatchSemaphore(value: 0)
+        Task {
+            do {
+                var settings = ProjectSettings()
+                settings.targetDurationSeconds = 10
+                let (project, _, _) = try await basic.makeProject(
+                    title: "Basic Ten", brief: basicBrief, settings: settings)
+                t.checkEqual(project.shots.count, 3,
+                             "Basic Director keeps three explicit story beats")
+                t.check(abs(project.shots.map(\.durationSeconds).reduce(0, +) - 10) < 0.001,
+                        "Basic Director obeys the same complete-movie target")
+            } catch {
+                t.check(false, "Basic target-duration pipeline threw \(error)")
+            }
+            basicSem.signal()
+        }
+        basicSem.wait()
+    }
+
     t.suite("CharacterBible Director and prompt propagation") {
         var heroineAppearance = CharacterAppearance()
         heroineAppearance.faceDescription = "young adult woman with a soft oval face"

@@ -133,3 +133,157 @@ enum AutoMovieBeatPlanner {
         }
     }
 }
+
+/// Makes Auto Movie's project-level duration target authoritative after either
+/// Director protocol (or Basic fallback) has produced a valid plan.
+///
+/// The backend accepts 8n+1 frame counts from 25 through 241. Durations are
+/// therefore allocated in deterministic 8-frame units, and stored on each Shot
+/// before Plan Preview or GenerationRequest construction sees it. A Director
+/// plan is left at its original shot count whenever that count can represent
+/// the target; only an impossible count is merged or split.
+enum AutoMovieDurationPlanner {
+    static let minimumFrameCount = 25
+    static let maximumFrameCount = 241
+    private static let frameStride = 8
+
+    static func normalize(
+        shots input: [Shot],
+        targetDurationSeconds: Double,
+        fps requestedFPS: Int
+    ) -> [Shot] {
+        guard !input.isEmpty, targetDurationSeconds.isFinite, targetDurationSeconds > 0 else {
+            return input
+        }
+
+        let fps = max(1, requestedFPS)
+        let targetUnits = max(
+            units(forFrameCount: minimumFrameCount),
+            Int((targetDurationSeconds * Double(fps) / Double(frameStride)).rounded())
+        )
+        let minimumUnits = units(forFrameCount: minimumFrameCount)
+        let maximumUnits = units(forFrameCount: maximumFrameCount)
+        let minimumCount = min(12, max(1, divideRoundingUp(targetUnits, by: maximumUnits)))
+        let maximumCount = min(12, max(1, targetUnits / minimumUnits))
+        let feasibleCount = min(max(input.count, minimumCount), maximumCount)
+
+        var shots: [Shot]
+        if input.count > feasibleCount {
+            shots = merge(input, toCount: feasibleCount)
+        } else if input.count < feasibleCount {
+            shots = split(input, toCount: feasibleCount)
+        } else {
+            shots = input
+        }
+
+        // The feasible-count calculation guarantees this even allocation stays
+        // within the backend's 25...241 frame range.
+        let baseUnits = targetUnits / shots.count
+        let remainder = targetUnits % shots.count
+        for index in shots.indices {
+            let units = baseUnits + (index < remainder ? 1 : 0)
+            let frameCount = min(maximumFrameCount, max(minimumFrameCount, units * frameStride + 1))
+            // Store the visual time span. PromptCompiler maps it back to the
+            // exact 8n+1 frame count, while Plan Preview sums to the target.
+            shots[index].durationSeconds = Double(frameCount - 1) / Double(fps)
+            shots[index].index = index
+        }
+        return shots
+    }
+
+    private static func units(forFrameCount frameCount: Int) -> Int {
+        max(0, (frameCount - 1) / frameStride)
+    }
+
+    private static func divideRoundingUp(_ value: Int, by divisor: Int) -> Int {
+        (value + divisor - 1) / divisor
+    }
+
+    /// Collapses contiguous groups, preserving every action in order rather
+    /// than silently dropping middle story beats.
+    private static func merge(_ input: [Shot], toCount count: Int) -> [Shot] {
+        (0..<count).map { groupIndex in
+            let lower = groupIndex * input.count / count
+            let upper = (groupIndex + 1) * input.count / count
+            let group = Array(input[lower..<upper])
+            var shot = group[0]
+            shot.id = UUID()
+            if group.count > 1 {
+                shot.title = group.first?.title ?? shot.title
+                shot.summary = group.map(\.summary)
+                    .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                    .joined(separator: " Then, ")
+                shot.explicitChanges = unique(group.flatMap(\.explicitChanges))
+                shot.characterIDs = unique(group.flatMap(\.characterIDs))
+                shot.audio.dialogue = group.flatMap { $0.audio.dialogue }
+                shot.audio.foley = unique(group.flatMap { $0.audio.foley })
+                shot.audio.sfx = unique(group.flatMap { $0.audio.sfx })
+            }
+            resetGenerationState(&shot)
+            return shot
+        }
+    }
+
+    /// Splits only when the existing count cannot reach a long target without
+    /// exceeding 241 frames. Each original beat remains present; extra pieces
+    /// deterministically advance that beat and continue from its prior frame.
+    private static func split(_ input: [Shot], toCount count: Int) -> [Shot] {
+        let baseParts = count / input.count
+        let remainder = count % input.count
+        var result: [Shot] = []
+
+        for (sourceIndex, source) in input.enumerated() {
+            let partCount = baseParts + (sourceIndex < remainder ? 1 : 0)
+            let scales = AutoMovieBeatPlanner.shotScales(count: partCount)
+            let angles = AutoMovieBeatPlanner.cameraAngles(count: partCount)
+            let movements = AutoMovieBeatPlanner.cameraMovements(count: partCount)
+            var state = source.continuityBefore ?? ContinuitySnapshot()
+
+            for partIndex in 0..<partCount {
+                var shot = source
+                shot.id = UUID()
+                shot.title = partCount == 1
+                    ? source.title
+                    : "\(source.title) · \(AutoMovieBeatPlanner.title(index: partIndex, count: partCount))"
+                shot.summary = partIndex == 0
+                    ? source.summary
+                    : AutoMovieBeatPlanner.beatSummary(
+                        brief: source.summary, index: partIndex, count: partCount)
+                shot.camera.shotScale = partIndex == 0 ? source.camera.shotScale : scales[partIndex]
+                shot.camera.angle = partIndex == 0 ? source.camera.angle : angles[partIndex]
+                shot.camera.movement = partIndex == 0 ? source.camera.movement : movements[partIndex]
+                shot.continuityBefore = state
+                shot.continuityMode = partIndex == 0 ? source.continuityMode : .continueFromPrevious
+                shot.explicitChanges = partIndex == 0 ? source.explicitChanges : []
+                if partIndex > 0 { shot.startingImageReferenceAssetID = nil }
+                resetGenerationState(&shot)
+                result.append(shot)
+
+                if let next = try? ContinuityEngine.apply(changes: shot.explicitChanges, to: state) {
+                    state = next
+                }
+            }
+        }
+        return result
+    }
+
+    private static func resetGenerationState(_ shot: inout Shot) {
+        shot.takes = []
+        shot.selectedTakeID = nil
+        shot.plannedContinuityMode = nil
+        shot.continuityReconciliationReason = nil
+        shot.continuityImageRelativePath = nil
+        shot.continuitySourceTakeID = nil
+        shot.continuityBlockedReason = nil
+        shot.identityRefreshAnchorRelativePath = nil
+        shot.identityRefreshAnchorOrigin = nil
+        shot.identityRefreshAnchorSourceShotID = nil
+        shot.identityRefreshSourceTakeID = nil
+        shot.identityRefreshNote = nil
+    }
+
+    private static func unique<T: Hashable>(_ values: [T]) -> [T] {
+        var seen = Set<T>()
+        return values.filter { seen.insert($0).inserted }
+    }
+}

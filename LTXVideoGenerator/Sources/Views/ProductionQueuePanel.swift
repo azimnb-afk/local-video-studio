@@ -10,18 +10,19 @@ struct ProductionQueuePanel: View {
     @ObservedObject var queue: ProductionQueueService
 
     var body: some View {
+        let visibleJobs = queue.activeDisplayJobs
         VStack(alignment: .leading, spacing: 8) {
             header
-            if queue.jobs.isEmpty {
+            if visibleJobs.isEmpty {
                 Text("Add movies or renders here to run them one after another, unattended.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
             } else {
-                ForEach(queue.jobs) { job in
+                ForEach(visibleJobs) { job in
                     ProductionQueueRow(job: job, queue: queue)
-                    if job.id != queue.jobs.last?.id { Divider().padding(.leading, 12) }
+                    if job.id != visibleJobs.last?.id { Divider().padding(.leading, 12) }
                 }
             }
         }
@@ -39,7 +40,7 @@ struct ProductionQueuePanel: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if !queue.jobs.isEmpty {
+            if !queue.activeDisplayJobs.isEmpty {
                 Button(queue.isPaused ? "Resume" : "Pause") {
                     queue.setPaused(!queue.isPaused)
                 }

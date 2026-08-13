@@ -243,6 +243,27 @@ final class ProductionQueueCoordinator {
 
     var hasUnfinishedWork: Bool { jobs.contains { !$0.state.isTerminal } }
 
+    /// Presentation-only projection for the active queue. The newest submitted
+    /// work is easiest to find at the top, while scheduling continues to read
+    /// the persisted `jobs` array in FIFO order. Terminal records stay persisted
+    /// for provenance/output history but leave the active list, matching the
+    /// normal render Queue.
+    var activeDisplayJobs: [ProductionJob] {
+        Self.activeDisplayJobs(from: jobs)
+    }
+
+    static func activeDisplayJobs(from jobs: [ProductionJob]) -> [ProductionJob] {
+        jobs.enumerated()
+            .filter { !$0.element.state.isTerminal }
+            .sorted { lhs, rhs in
+                if lhs.element.createdAt != rhs.element.createdAt {
+                    return lhs.element.createdAt > rhs.element.createdAt
+                }
+                return lhs.offset > rhs.offset
+            }
+            .map(\.element)
+    }
+
     func job(id: UUID) -> ProductionJob? { jobs.first { $0.id == id } }
 
     // MARK: - Persistence

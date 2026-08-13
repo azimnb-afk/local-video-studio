@@ -386,6 +386,22 @@ func runLocalDirectorCompatibilityTests(_ t: TestKit) {
                 "the text template travels in the user turn, where models follow it")
         t.check(textPrompt.contains("BRIEF: b"), "the brief is included")
 
+        let structuredDuration = DirectorPlanFormat.userPrompt(
+            for: .structuredJSON, brief: "b", targetDurationSeconds: 10)
+        let textDuration = DirectorPlanFormat.userPrompt(
+            for: .textProtocol, brief: "b", targetDurationSeconds: 10)
+        for prompt in [structuredDuration, textDuration] {
+            t.check(prompt.contains("approximately 10.0 seconds total"),
+                    "Structured and Text protocols receive the same total-duration value")
+            t.check(prompt.contains("sum across all shots"),
+                    "duration intent is explicitly complete-movie, not per-shot")
+        }
+        let repairDuration = DirectorPlanFormat.repairPrompt(
+            for: .textProtocol, failure: "bad format", brief: "b",
+            targetDurationSeconds: 10)
+        t.check(repairDuration.contains("approximately 10.0 seconds total"),
+                "bounded repair retains the total-duration contract")
+
         var doneE = false
         Task {
             let provider = ProtocolAwareMockProvider(jsonReply: validPlanJSON, textReply: validTextPlan)

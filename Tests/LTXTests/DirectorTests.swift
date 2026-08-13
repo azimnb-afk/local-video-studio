@@ -619,8 +619,11 @@ func runDirectorTests(_ t: TestKit) {
             let secondBody = receivedBodies[1]
             t.check((secondBody["format"] as? String) == "json", "Structured JSON / expectsJSON=true is forwarded correctly and DOES produce the JSON format request setting")
         }
+    }
+
     t.suite("DirectorPlanFormat - Opening Scene Evidence Injection") {
         var appearance = OpeningReferenceAppearance()
+        appearance.status = .analysed
         appearance.sceneEnvironment = "night train platform"
         appearance.sceneLighting = "dim overhead lights"
         appearance.subjectState = "standing still"
@@ -680,5 +683,4 @@ func runDirectorTests(_ t: TestKit) {
         t.check(!emptyAppearancePrompt.contains("CURRENT OPENING SCENE EVIDENCE"), "Empty evidence fields generate old behavior (no header)")
         t.checkEqual(emptyAppearancePrompt, "BRIEF: She runs.", "Empty evidence fields generate exactly old behavior")
     }
-}
 }

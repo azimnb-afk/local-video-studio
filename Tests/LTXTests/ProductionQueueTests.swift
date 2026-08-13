@@ -232,6 +232,60 @@ func runProductionQueueTests(_ t: TestKit) {
         t.checkEqual(spy.started.last, d.id, "F: cancelling the running job starts the next")
     }
 
+    t.suite("Production queue — active presentation is newest-first, execution stays FIFO") {
+        let coordinator = ProductionQueueCoordinator(
+            store: makeStore("active-presentation"), restoreOnInit: false)
+        let spy = RunnerSpy()
+        coordinator.runner = { spy.run($0) }
+        coordinator.setPaused(true)
+
+        var first = job(.autoMovie, "First Auto Movie")
+        first.createdAt = Date(timeIntervalSince1970: 1)
+        var second = job(.oneShot, "Second One Shot")
+        second.createdAt = Date(timeIntervalSince1970: 2)
+        var third = job(.generate, "Third Generate")
+        third.createdAt = Date(timeIntervalSince1970: 3)
+        let a = coordinator.enqueue(first)
+        let b = coordinator.enqueue(second)
+        let c = coordinator.enqueue(third)
+
+        t.checkEqual(coordinator.jobs.map(\.title),
+                     ["First Auto Movie", "Second One Shot", "Third Generate"],
+                     "execution storage remains enqueue-order FIFO")
+        t.checkEqual(coordinator.activeDisplayJobs.map(\.title),
+                     ["Third Generate", "Second One Shot", "First Auto Movie"],
+                     "newest submitted active item is displayed at the top")
+
+        coordinator.setPaused(false)
+        t.checkEqual(spy.started.first, a.id,
+                     "display reversal does not change first execution: oldest runs first")
+        t.checkEqual(coordinator.activeDisplayJobs.last?.state, .running,
+                     "older running job remains clearly represented as Running")
+
+        spy.finishOne()
+        coordinator.markCompleted(jobID: a.id, outputPath: "/tmp/first-final.mp4")
+        t.check(!coordinator.activeDisplayJobs.contains { $0.id == a.id },
+                "completed job disappears from the active presentation")
+        t.checkEqual(coordinator.job(id: a.id)?.outputPath, "/tmp/first-final.mp4",
+                     "completed output provenance remains persisted")
+        t.checkEqual(spy.started.last, b.id, "FIFO advances to the second job")
+
+        spy.finishOne()
+        coordinator.markFailed(jobID: b.id, reason: "backend failed")
+        t.check(!coordinator.activeDisplayJobs.contains { $0.id == b.id },
+                "failed job mirrors normal Queue and leaves the active list")
+        t.checkEqual(coordinator.job(id: b.id)?.failureReason, "backend failed",
+                     "failed record remains available outside the active projection")
+        t.checkEqual(spy.started.last, c.id, "failure still advances FIFO to the third job")
+
+        spy.finishOne()
+        coordinator.markCancelled(jobID: c.id)
+        t.check(coordinator.activeDisplayJobs.isEmpty,
+                "cancelled terminal job also leaves the active presentation")
+        t.checkEqual(coordinator.jobs.count, 3,
+                     "presentation cleanup never deletes persisted queue records")
+    }
+
     t.suite("Production queue — preflight, reorder and lifecycle") {
         // A runner that refuses to start models execution-time preflight: the
         // file vanished while the job waited.

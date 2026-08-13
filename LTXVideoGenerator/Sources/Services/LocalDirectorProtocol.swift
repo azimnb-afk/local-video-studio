@@ -44,15 +44,22 @@ enum DirectorPlanFormat {
             // Deliberately short. The models that need this protocol are the
             // ones that follow a long system prompt least reliably; the
             // format itself is carried in the user turn below.
-            return "You are a film director planning a short film as a sequence of 4-6 second shots."
+            return "You are a film director planning a short film as a sequence of concise shots. When the user provides a total movie duration, treat that total as authoritative."
         }
     }
 
-    static func userPrompt(for planProtocol: LocalDirectorProtocol, brief: String, openingSceneEvidence: OpeningReferenceAppearance? = nil, characterBible: CharacterBible? = nil) -> String {
+    static func userPrompt(
+        for planProtocol: LocalDirectorProtocol,
+        brief: String,
+        openingSceneEvidence: OpeningReferenceAppearance? = nil,
+        characterBible: CharacterBible? = nil,
+        targetDurationSeconds: Double? = nil
+    ) -> String {
         let evidenceBlock = formatSceneEvidence(openingSceneEvidence, characterBible: characterBible)
+        let durationBlock = formatDurationIntent(targetDurationSeconds)
         switch planProtocol {
         case .structuredJSON:
-            return "\(evidenceBlock)BRIEF: \(brief)"
+            return "\(durationBlock)\(evidenceBlock)BRIEF: \(brief)"
         case .textProtocol:
             // Measured: models that ignore a format described in the system
             // prompt will still fill in a template presented in the user turn,
@@ -60,7 +67,7 @@ enum DirectorPlanFormat {
             return """
             \(textProtocolTemplate)
 
-            \(evidenceBlock)BRIEF: \(brief)
+            \(durationBlock)\(evidenceBlock)BRIEF: \(brief)
             """
         }
     }
@@ -69,14 +76,16 @@ enum DirectorPlanFormat {
                              failure: String,
                              brief: String,
                              openingSceneEvidence: OpeningReferenceAppearance? = nil,
-                             characterBible: CharacterBible? = nil) -> String {
+                             characterBible: CharacterBible? = nil,
+                             targetDurationSeconds: Double? = nil) -> String {
         let evidenceBlock = formatSceneEvidence(openingSceneEvidence, characterBible: characterBible)
+        let durationBlock = formatDurationIntent(targetDurationSeconds)
         switch planProtocol {
         case .structuredJSON:
             return """
             Your previous response was invalid (\(failure)). \
             Respond again with ONLY the JSON object described in the system prompt.
-            \(evidenceBlock)BRIEF: \(brief)
+            \(durationBlock)\(evidenceBlock)BRIEF: \(brief)
             """
         case .textProtocol:
             return """
@@ -84,9 +93,24 @@ enum DirectorPlanFormat {
 
             \(textProtocolTemplate)
 
-            \(evidenceBlock)BRIEF: \(brief)
+            \(durationBlock)\(evidenceBlock)BRIEF: \(brief)
             """
         }
+    }
+
+    /// Shared by both local protocols so Structured JSON and Text Protocol
+    /// receive identical product intent. This is the complete movie target,
+    /// never a per-shot duration.
+    private static func formatDurationIntent(_ seconds: Double?) -> String {
+        guard let seconds, seconds.isFinite, seconds > 0 else { return "" }
+        let value = String(format: "%.1f", seconds)
+        return """
+        TOTAL MOVIE DURATION TARGET
+        Plan the complete movie to approximately \(value) seconds total.
+        This is the sum across all shots, not the duration of each shot.
+        Choose the shot count and per-shot durations so their total is close to this target.
+
+        """
     }
 
     private static func formatSceneEvidence(_ evidence: OpeningReferenceAppearance?, characterBible: CharacterBible? = nil) -> String {

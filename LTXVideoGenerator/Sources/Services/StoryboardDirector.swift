@@ -69,8 +69,9 @@ final class StoryboardDirector {
 
     static let storyboardSystemPrompt = """
     You are a film production team (director, screenwriter, cinematographer,
-    continuity supervisor) planning a short film as a sequence of 4-6 second
-    continuous shots. Respond with ONLY a JSON object:
+    continuity supervisor) planning a short film as a sequence of concise,
+    continuous shots. When the user provides a TOTAL MOVIE DURATION TARGET,
+    treat it as authoritative for the sum of all shots. Respond with ONLY a JSON object:
     {
       "logline": "one sentence",
       "synopsis": "short paragraph",
@@ -191,7 +192,8 @@ final class StoryboardDirector {
     func draft(
         brief: String,
         characterBible: CharacterBible = CharacterBible(),
-        openingSceneEvidence: OpeningReferenceAppearance? = nil
+        openingSceneEvidence: OpeningReferenceAppearance? = nil,
+        targetDurationSeconds: Double? = nil
     ) async throws -> (draft: StoryboardDraft, providerName: String) {
         diagnostics = []
         lastProviderModel = nil
@@ -227,7 +229,8 @@ final class StoryboardDirector {
                 if provider.isFallbackProvider {
                     draft = try await draftWithProvider(
                         provider, brief: brief, characterBible: characterBible,
-                        openingSceneEvidence: openingSceneEvidence)
+                        openingSceneEvidence: openingSceneEvidence,
+                        targetDurationSeconds: targetDurationSeconds)
                 } else {
                     // Capability negotiation: start from what this model was
                     // last seen to handle, and if that protocol fails in
@@ -246,6 +249,7 @@ final class StoryboardDirector {
                             localDraft = try await draftWithProvider(
                                 provider, brief: brief, characterBible: characterBible,
                                 openingSceneEvidence: openingSceneEvidence,
+                                targetDurationSeconds: targetDurationSeconds,
                                 planProtocol: planProtocol)
                             lastProtocol = planProtocol
                             if !model.isEmpty {
@@ -299,11 +303,13 @@ final class StoryboardDirector {
         provider: DirectorProvider,
         brief: String,
         characterBible: CharacterBible = CharacterBible(),
-        openingSceneEvidence: OpeningReferenceAppearance? = nil
+        openingSceneEvidence: OpeningReferenceAppearance? = nil,
+        targetDurationSeconds: Double? = nil
     ) async throws -> StoryboardDraft {
         try await draftWithProvider(provider, brief: brief,
                                     characterBible: characterBible,
                                     openingSceneEvidence: openingSceneEvidence,
+                                    targetDurationSeconds: targetDurationSeconds,
                                     planProtocol: planProtocol)
     }
 
@@ -312,9 +318,14 @@ final class StoryboardDirector {
         brief: String,
         characterBible: CharacterBible,
         openingSceneEvidence: OpeningReferenceAppearance? = nil,
+        targetDurationSeconds: Double? = nil,
         planProtocol: LocalDirectorProtocol = .structuredJSON
     ) async throws -> StoryboardDraft {
-        var prompt = DirectorPlanFormat.userPrompt(for: planProtocol, brief: brief, openingSceneEvidence: openingSceneEvidence, characterBible: characterBible)
+        var prompt = DirectorPlanFormat.userPrompt(
+            for: planProtocol, brief: brief,
+            openingSceneEvidence: openingSceneEvidence,
+            characterBible: characterBible,
+            targetDurationSeconds: targetDurationSeconds)
         var lastFailure = ""
         for attempt in 0...maxRepairAttempts {
             let response: String
@@ -338,7 +349,8 @@ final class StoryboardDirector {
                         failure: error.localizedDescription,
                         brief: brief,
                         openingSceneEvidence: openingSceneEvidence,
-                        characterBible: characterBible)
+                        characterBible: characterBible,
+                        targetDurationSeconds: targetDurationSeconds)
                     continue
                 }
                 record(.retryFailed, provider: provider.name, attempt: attempt,
@@ -377,7 +389,8 @@ final class StoryboardDirector {
             prompt = DirectorPlanFormat.repairPrompt(
                 for: planProtocol, failure: lastFailure, brief: brief,
                 openingSceneEvidence: openingSceneEvidence,
-                characterBible: characterBible)
+                characterBible: characterBible,
+                targetDurationSeconds: targetDurationSeconds)
         }
         throw DirectorError.planValidationFailed([lastFailure])
     }
@@ -599,7 +612,10 @@ final class StoryboardDirector {
         openingSceneEvidence: OpeningReferenceAppearance? = nil,
         capabilityAwarePlanning: Bool = false
     ) async throws -> (project: FilmProject, violations: [ContinuityEngine.Violation], providerName: String) {
-        let (rawDraft, providerName) = try await self.draft(brief: brief, characterBible: characterBible, openingSceneEvidence: openingSceneEvidence)
+        let (rawDraft, providerName) = try await self.draft(
+            brief: brief, characterBible: characterBible,
+            openingSceneEvidence: openingSceneEvidence,
+            targetDurationSeconds: capabilityAwarePlanning ? settings.targetDurationSeconds : nil)
         var draft = rawDraft
 
         // Auto Movie steers the plan toward shots this profile actually renders
@@ -890,82 +906,57 @@ final class HybridProjectCoordinator {
         )
         let target = min(60, max(5, settings.targetDurationSeconds ?? 20))
         let desiredCount = min(12, max(1, Int(ceil(target / 5))))
-        guard project.shots.count == 1, desiredCount > 1, let source = project.shots.first else {
-            project.workflowMode = "hybrid"
-            // The Director planned the shots directly. Reconcile its continuity
-            // decisions against the scene state it produced alongside them, so a
-            // continuous scene inherits its look instead of regenerating a new
-            // person and set for every shot. Auto Movie only.
-            project.shots = ContinuityReconciler.reconcile(shots: project.shots)
-            return (project, violations, providerName)
-        }
+        if project.shots.count == 1, desiredCount > 1, let source = project.shots.first {
+            // Camera follows the beat rather than cycling a fixed list: the opening
+            // establishes, the middle moves with the subject, and the final beat
+            // sits closer on the resolving action.
+            let scales = AutoMovieBeatPlanner.shotScales(count: desiredCount)
+            let angles = AutoMovieBeatPlanner.cameraAngles(count: desiredCount)
+            let movements = AutoMovieBeatPlanner.cameraMovements(count: desiredCount)
+            var shots: [Shot] = []
+            var state = source.continuityBefore ?? ContinuitySnapshot()
+            for index in 0..<desiredCount {
+                var shot = source
+                shot.id = UUID()
+                shot.index = index
+                shot.title = AutoMovieBeatPlanner.title(index: index, count: desiredCount)
+                shot.summary = AutoMovieBeatPlanner.beatSummary(
+                    brief: source.summary, index: index, count: desiredCount
+                )
+                shot.camera.shotScale = scales[index]
+                shot.camera.angle = angles[index]
+                shot.camera.movement = movements[index]
+                shot.continuityBefore = state
+                shot.takes = []
+                shot.selectedTakeID = nil
+                shot.continuityMode = index == 0 ? .cut : .continueFromPrevious
+                shot.continuityImageRelativePath = nil
+                shot.continuitySourceTakeID = nil
+                shot.continuityBlockedReason = nil
+                shot.originalCameraScale = nil
+                shot.capabilityAdjustmentReason = nil
+                shots.append(shot)
 
-        // Camera follows the beat rather than cycling a fixed list: the opening
-        // establishes, the middle moves with the subject, and the final beat
-        // sits closer on the resolving action.
-        let scales = AutoMovieBeatPlanner.shotScales(count: desiredCount)
-        let angles = AutoMovieBeatPlanner.cameraAngles(count: desiredCount)
-        let movements = AutoMovieBeatPlanner.cameraMovements(count: desiredCount)
-        let duration = min(6, max(4, target / Double(desiredCount)))
-        var shots: [Shot] = []
-        var state = source.continuityBefore ?? ContinuitySnapshot()
-        for index in 0..<desiredCount {
-            var shot = source
-            shot.id = UUID()
-            shot.index = index
-            shot.title = AutoMovieBeatPlanner.title(index: index, count: desiredCount)
-            // Every beat must advance to a new visible state. Repeating the
-            // brief verbatim for each shot is what previously produced a movie
-            // of the same action over and over.
-            shot.summary = AutoMovieBeatPlanner.beatSummary(
-                brief: source.summary, index: index, count: desiredCount
-            )
-            shot.durationSeconds = duration
-            shot.camera.shotScale = scales[index]
-            shot.camera.angle = angles[index]
-            shot.camera.movement = movements[index]
-            shot.continuityBefore = state
-            shot.takes = []
-            shot.selectedTakeID = nil
-            // These beats are one continuous action split by duration, so each
-            // one genuinely continues the previous. The first still has nothing
-            // to inherit from.
-            shot.continuityMode = index == 0 ? .cut : .continueFromPrevious
-            shot.continuityImageRelativePath = nil
-            shot.continuitySourceTakeID = nil
-            shot.continuityBlockedReason = nil
-            // The beat ladder replaces whatever framing the source shot had, so
-            // any capability note from the unsplit draft no longer describes
-            // this shot. The ladder itself is already capability-bounded.
-            shot.originalCameraScale = nil
-            shot.capabilityAdjustmentReason = nil
-
-            let plan = OneShotPlan(
-                camera: "\(shot.camera.shotScale) shot, \(shot.camera.angle) angle, \(shot.camera.movement) camera",
-                action: shot.summary,
-                lighting: state.lighting,
-                dialogue: shot.audio.dialogue.map {
-                    OneShotPlan.DialogueLine(speaker: $0.speaker, text: $0.text, language: $0.language, romanization: $0.romanization)
-                },
-                audioCues: shot.audio.sfx,
-                durationIntentSeconds: duration
-            )
-            let context = ContinuityEngine.promptContext(for: state, bible: project.characterBible)
-            let compiled = PromptCompiler.compile(plan: plan)
-            shot.baseCompiledPrompt = context.isEmpty ? compiled : context + " " + compiled
-            shot.compiledPrompt = shot.baseCompiledPrompt ?? compiled
-            shots.append(shot)
-
-            if let next = try? ContinuityEngine.apply(changes: shot.explicitChanges, to: state) {
-                state = next
+                if let next = try? ContinuityEngine.apply(changes: shot.explicitChanges, to: state) {
+                    state = next
+                }
             }
+            project.shots = shots
         }
-        // Split beats are one continuous action by construction, but they still
-        // go through the same reconciliation so every Auto Movie path records a
-        // planned mode, an effective mode and a reason.
-        project.shots = ContinuityReconciler.reconcile(shots: shots)
+
+        // Provider output is advisory; this deterministic pass is the single
+        // source of truth for the complete-movie target shown in Plan Preview
+        // and later converted to GenerationRequests.
+        project.shots = AutoMovieDurationPlanner.normalize(
+            shots: project.shots,
+            targetDurationSeconds: target,
+            fps: settings.fps
+        )
+        project.shots = ContinuityReconciler.reconcile(shots: project.shots)
         project.workflowMode = "hybrid"
-        CharacterPromptPipeline.recompile(project: &project)
+        for index in project.shots.indices {
+            CharacterPromptPipeline.recompilePlan(project: &project, shotIndex: index)
+        }
         violations.append(contentsOf: ContinuityEngine.monotonyWarnings(shots: project.shots))
         return (project, violations, providerName)
     }

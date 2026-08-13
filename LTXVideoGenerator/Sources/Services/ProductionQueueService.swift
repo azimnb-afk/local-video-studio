@@ -127,6 +127,11 @@ final class ProductionQueueService: ObservableObject {
     func moveDown(jobID: UUID) { coordinator.moveDown(jobID: jobID); refresh() }
     func setPaused(_ paused: Bool) { coordinator.setPaused(paused); refresh() }
 
+    /// UI ordering is intentionally independent from execution ordering.
+    var activeDisplayJobs: [ProductionJob] {
+        ProductionQueueCoordinator.activeDisplayJobs(from: jobs)
+    }
+
     // MARK: - Execution
 
     /// Starts a job. Preflight runs here — at execution time, not at enqueue —

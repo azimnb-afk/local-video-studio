@@ -129,8 +129,11 @@ struct PromptInputView: View {
         voiceoverSource == .elevenLabs ? selectedElevenLabsVoice : selectedMLXVoice
     }
 
+    /// These buttons all enqueue production jobs — "Add to Queue" most
+    /// obviously so — which is why a generation already being in flight does
+    /// not disable them.
     private var generationActionsDisabled: Bool {
-        prompt.isEmpty || generationService.isProcessing || generationService.currentRequest != nil
+        !GenerationSubmissionPolicy.canSubmit(prompt: prompt)
     }
 
     private var selectedPreset: GenerationPreset {

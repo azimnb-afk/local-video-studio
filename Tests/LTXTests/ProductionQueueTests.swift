@@ -40,6 +40,151 @@ func runProductionQueueTests(_ t: TestKit) {
         func finishOne() { active = max(0, active - 1) }
     }
 
+    t.suite("Queue submission — a running generation never blocks submission") {
+        // 1. Idle queue + valid input → can submit.
+        t.check(GenerationSubmissionPolicy.canSubmit(prompt: "a calm lake"),
+                "1: valid One Shot input can be submitted")
+
+        // 2/3/4. The policy takes no busy input at all, which is the fix: there
+        // is no argument a caller could pass that would refuse a submission
+        // because something else is rendering. Auto Movie active, another One
+        // Shot active, or a non-empty queue are all the same call.
+        t.check(GenerationSubmissionPolicy.canSubmit(prompt: "a calm lake"),
+                "2/3/4: submission does not depend on what is currently rendering")
+
+        // 5. Invalid input stays invalid regardless.
+        t.check(!GenerationSubmissionPolicy.canSubmit(prompt: ""),
+                "5: empty prompt cannot be submitted")
+        t.check(!GenerationSubmissionPolicy.canSubmit(prompt: "   \n  "),
+                "5: whitespace-only prompt cannot be submitted")
+
+        // Legitimate blockers remain: this One Shot's own planning in flight,
+        // and an unusable starting image.
+        t.check(!GenerationSubmissionPolicy.canSubmit(prompt: "ok", isPreparing: true),
+                "planning in flight still blocks a second click")
+        t.check(!GenerationSubmissionPolicy.canSubmit(prompt: "ok", blockingError: "image missing"),
+                "an invalid starting image still blocks submission")
+        t.check(GenerationSubmissionPolicy.canSubmit(prompt: "ok", isPreparing: false, blockingError: nil),
+                "no blocker → submittable")
+    }
+
+    t.suite("Queue submission — One Shot queues behind an active Auto Movie") {
+        let coordinator = ProductionQueueCoordinator(store: makeStore("oneshot-behind"), restoreOnInit: false)
+        let spy = RunnerSpy()
+        coordinator.runner = { spy.run($0) }
+
+        // 6/7/8. Auto Movie is running; a One Shot submitted now waits.
+        let movie = coordinator.enqueue(job(.autoMovie, "Movie"))
+        t.checkEqual(coordinator.job(id: movie.id)?.state, .running, "Auto Movie is active")
+        let oneShot = coordinator.enqueue(job(.oneShot, "One Shot"))
+        t.checkEqual(coordinator.job(id: oneShot.id)?.state, .waiting, "6: One Shot is queued")
+        t.checkEqual(coordinator.job(id: movie.id)?.state, .running,
+                     "7: the running Auto Movie is not interrupted")
+        t.checkEqual(spy.started.count, 1, "8: the One Shot does not start early")
+        t.checkEqual(spy.concurrentPeak, 1, "only one heavy generation at a time")
+
+        // 9/10. It starts when the movie finishes, and completion advances again.
+        spy.finishOne()
+        coordinator.markCompleted(jobID: movie.id, outputPath: "/tmp/movie.mp4")
+        t.checkEqual(coordinator.job(id: oneShot.id)?.state, .running, "9: One Shot starts after the movie")
+        let second = coordinator.enqueue(job(.oneShot, "One Shot B"))
+        spy.finishOne()
+        coordinator.markCompleted(jobID: oneShot.id, outputPath: "/tmp/one.mp4")
+        t.checkEqual(coordinator.job(id: second.id)?.state, .running, "10: completion starts the next job")
+        t.checkEqual(spy.concurrentPeak, 1, "concurrency still one")
+    }
+
+    t.suite("Queue submission — One Shot active, another One Shot queued") {
+        // 18/19. The rule is about generation activity in general, not about
+        // Auto Movie specifically.
+        let coordinator = ProductionQueueCoordinator(store: makeStore("oneshot-oneshot"), restoreOnInit: false)
+        let spy = RunnerSpy()
+        coordinator.runner = { spy.run($0) }
+
+        let a = coordinator.enqueue(job(.oneShot, "A"))
+        let b = coordinator.enqueue(job(.oneShot, "B"))
+        let movie = coordinator.enqueue(job(.autoMovie, "Movie"))
+        t.checkEqual(coordinator.job(id: a.id)?.state, .running, "One Shot A runs")
+        t.checkEqual(coordinator.job(id: b.id)?.state, .waiting, "18: One Shot B queues behind it")
+        t.checkEqual(coordinator.job(id: movie.id)?.state, .waiting,
+                     "19: an Auto Movie can still be queued while a One Shot runs")
+
+        // 34. Order is the order they were queued — One Shot gets no priority.
+        spy.finishOne(); coordinator.markCompleted(jobID: a.id, outputPath: "/tmp/a.mp4")
+        t.checkEqual(spy.started.last, b.id, "34: FIFO — B before the later Auto Movie")
+        spy.finishOne(); coordinator.markCompleted(jobID: b.id, outputPath: "/tmp/b.mp4")
+        t.checkEqual(spy.started.last, movie.id, "34: the Auto Movie runs last")
+    }
+
+    t.suite("Queue submission — a queued One Shot renders what was queued") {
+        // 11-14. The job carries a fully-formed request, so editing the screen
+        // afterwards cannot reach into a waiting job.
+        let coordinator = ProductionQueueCoordinator(store: makeStore("snapshot-isolation"), restoreOnInit: false)
+        let spy = RunnerSpy()
+        coordinator.runner = { spy.run($0) }
+        coordinator.enqueue(job(.autoMovie, "blocker"))   // keeps the One Shots waiting
+
+        func oneShotJob(prompt: String, model: String, image: String?, seed: Int) -> ProductionJob {
+            var params = GenerationParameters.default
+            params.seed = seed
+            var snapshot = ProductionJobSnapshot()
+            snapshot.brief = prompt
+            snapshot.prompt = prompt
+            snapshot.seed = seed
+            snapshot.pendingRequests = [GenerationRequest(
+                prompt: prompt, sourceImagePath: image, modelId: model,
+                parameters: params, generationSource: "oneShot")]
+            return job(.oneShot, prompt, snapshot: snapshot)
+        }
+
+        let a = coordinator.enqueue(oneShotJob(
+            prompt: "prompt A", model: LTX2MLXModelCatalog.tenEros13DMDQ4.id,
+            image: "/tmp/a.png", seed: 111))
+        let b = coordinator.enqueue(oneShotJob(
+            prompt: "prompt B", model: LTXModelCatalog.defaultModelID,
+            image: "/tmp/b.png", seed: 222))
+
+        let queuedA = coordinator.job(id: a.id)!.snapshot.pendingRequests.first!
+        let queuedB = coordinator.job(id: b.id)!.snapshot.pendingRequests.first!
+
+        t.checkEqual(queuedA.prompt, "prompt A", "11: A keeps its own prompt")
+        t.checkEqual(queuedB.prompt, "prompt B", "11: B keeps its own prompt")
+        t.checkEqual(queuedA.parameters.seed, 111, "12: A keeps its own seed")
+        t.checkEqual(queuedB.parameters.seed, 222, "12: B keeps its own seed")
+        t.checkEqual(queuedA.sourceImagePath, "/tmp/a.png", "13: A keeps its own source image")
+        t.checkEqual(queuedB.sourceImagePath, "/tmp/b.png", "13: B keeps its own source image")
+        t.checkEqual(queuedA.modelId, LTX2MLXModelCatalog.tenEros13DMDQ4.id,
+                     "14: A stays on 10Eros even though a later job chose LTX-2.3")
+        t.checkEqual(queuedB.modelId, LTXModelCatalog.defaultModelID, "14: B stays on LTX-2.3")
+
+        // 15/16/17. Backend routing is derived from the frozen model ID, so a
+        // queued 10Eros job cannot become an LTX-2.3 render while it waits.
+        t.checkEqual(GenerationModelResolver.backend(for: queuedA.modelId), .ltx2MLX,
+                     "16: queued 10Eros routes to ltx-2-mlx")
+        t.checkEqual(GenerationModelResolver.backend(for: queuedB.modelId), .mlxVideoWithAudio,
+                     "15: queued LTX-2.3 routes to mlx-video-with-audio")
+        t.check(GenerationModelResolver.backend(for: queuedA.modelId)
+                    != GenerationModelResolver.backend(for: queuedB.modelId),
+                "17: the two queued jobs do not share a backend")
+    }
+
+    t.suite("Queue submission — a failed One Shot releases the queue") {
+        // 18/19/20 (failure block). A One Shot failure must not lock the queue
+        // or the submit button.
+        let coordinator = ProductionQueueCoordinator(store: makeStore("oneshot-failure"), restoreOnInit: false)
+        let spy = RunnerSpy()
+        coordinator.runner = { spy.run($0) }
+
+        let a = coordinator.enqueue(job(.oneShot, "A"))
+        let b = coordinator.enqueue(job(.oneShot, "B"))
+        spy.finishOne()
+        coordinator.markFailed(jobID: a.id, reason: "backend exited")
+        t.checkEqual(coordinator.job(id: a.id)?.state, .failed, "18: the failed One Shot is marked failed")
+        t.checkEqual(coordinator.job(id: b.id)?.state, .running, "19: the next job still runs")
+        t.check(GenerationSubmissionPolicy.canSubmit(prompt: "still fine"),
+                "20: submission is still possible after a failure")
+    }
+
     t.suite("Production queue — one job at a time") {
         // A/B/C. Enqueue several; only the first runs, in FIFO order.
         let coordinator = ProductionQueueCoordinator(store: makeStore("fifo"), restoreOnInit: false)

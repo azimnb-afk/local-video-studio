@@ -1,6 +1,28 @@
 import Foundation
 import Combine
 
+/// Whether a workflow may hand a new job to the production queue.
+///
+/// Deliberately independent of whether a generation is already running. The
+/// queue exists so that a new request can wait its turn, so "something is
+/// rendering" is a reason for the job to be queued rather than started — never
+/// a reason to refuse the submission. Every Generate button in the app submits
+/// a `ProductionJob`; none of them render directly.
+///
+/// Submission is gated only by whether the request itself is well-formed, plus
+/// any in-flight preparation for *this* submission (One Shot's Director
+/// planning), which would otherwise be re-entered by a second click.
+enum GenerationSubmissionPolicy {
+    static func canSubmit(
+        prompt: String,
+        isPreparing: Bool = false,
+        blockingError: String? = nil
+    ) -> Bool {
+        guard blockingError == nil, !isPreparing else { return false }
+        return !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
 /// Binds the global production queue to the app: owns the coordinator, starts
 /// each job through the mode it belongs to, and watches for the job finishing.
 ///

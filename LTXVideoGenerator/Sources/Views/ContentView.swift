@@ -323,12 +323,15 @@ private struct OneShotView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(
-                    brief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || isPlanning
-                        || generationService.isProcessing
-                        || startingImageError != nil
-                )
+                // A running generation does not block submission: this button
+                // enqueues a production job, and the queue is what decides when
+                // it runs. It stays disabled only while this One Shot's own
+                // planning is in flight, or when the input itself is unusable.
+                .disabled(!GenerationSubmissionPolicy.canSubmit(
+                    prompt: brief,
+                    isPreparing: isPlanning,
+                    blockingError: startingImageError
+                ))
                 if let status {
                     Text(status).font(.caption).foregroundStyle(.secondary)
                 }

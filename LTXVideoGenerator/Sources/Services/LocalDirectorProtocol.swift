@@ -91,15 +91,7 @@ enum DirectorPlanFormat {
 
     private static func formatSceneEvidence(_ evidence: OpeningReferenceAppearance?, characterBible: CharacterBible? = nil) -> String {
         guard let evidence else { return "" }
-        var visibleClothing = evidence.costumeSummary
-        
-        // If the Bible has an explicit costume that differs from the image, omit the image's clothing
-        // to avoid weakening the user's explicit CharacterBible constraint.
-        if let bible = characterBible,
-           let character = bible.characters.first,
-           character.defaultCostume != evidence.costumeSummary {
-            visibleClothing = ""
-        }
+        let visibleClothing = evidence.costumeSummary
         
         let fields = [
             ("Environment", evidence.sceneEnvironment),

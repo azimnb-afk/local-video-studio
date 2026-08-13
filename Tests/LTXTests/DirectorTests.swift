@@ -636,14 +636,37 @@ func runDirectorTests(_ t: TestKit) {
         t.check(textPrompt.contains("CURRENT OPENING SCENE EVIDENCE"), "Text Protocol prompt contains evidence header")
         t.check(textPrompt.contains("night train platform"), "Text Protocol prompt contains environment")
 
+        // Case A: No explicit CharacterBible constraint, Opening Reference has clothing
+        var appearanceWithClothing = appearance
+        appearanceWithClothing.clothingDescription = "red coat"
+        var bibleA = CharacterBible()
+        bibleA = OpeningReferenceSync.seedBible(from: appearanceWithClothing, existing: bibleA)
+
+        let jsonPromptA = DirectorPlanFormat.userPrompt(for: .structuredJSON, brief: "She runs.", openingSceneEvidence: appearanceWithClothing, characterBible: bibleA)
+        t.check(jsonPromptA.contains("Visible clothing: red coat"), "Case A: Director starting scene uses red coat")
+        let textPromptA = DirectorPlanFormat.userPrompt(for: .textProtocol, brief: "She runs.", openingSceneEvidence: appearanceWithClothing, characterBible: bibleA)
+        t.check(textPromptA.contains("Visible clothing: red coat"), "Case A: Text Protocol receives equivalent Visible clothing evidence")
+
+        // Case B: Explicit CharacterBible constraint overrides Opening Reference clothing
+        var explicitCharacter = BibleCharacter(name: "Character1")
+        explicitCharacter.defaultCostume = "She must always wear a black coat."
+        explicitCharacter.appearance.generalNotes = "User authored note" // Make it explicitly user-authored
+        var bibleB = CharacterBible()
+        bibleB.characters = [explicitCharacter]
+
+        let jsonPromptB = DirectorPlanFormat.userPrompt(for: .structuredJSON, brief: "She runs.", openingSceneEvidence: appearanceWithClothing, characterBible: bibleB)
+        t.check(!jsonPromptB.contains("red coat"), "Case B: Explicit black-coat instruction remains authoritative (red coat omitted from scene evidence)")
+        let sysPromptB = DirectorPlanFormat.systemPrompt(for: .structuredJSON, characterBible: bibleB)
+        t.check(sysPromptB.contains("She must always wear a black coat."), "Case B: System prompt retains explicit user constraint")
+
         // Test missing/failed scene analysis behavior
-        let emptyPrompt = DirectorPlanFormat.userPrompt(for: .structuredJSON, brief: "She runs.", openingSceneEvidence: nil)
+        let emptyPrompt = DirectorPlanFormat.userPrompt(for: .structuredJSON, brief: "She runs.", openingSceneEvidence: nil, characterBible: nil)
         t.check(!emptyPrompt.contains("CURRENT OPENING SCENE EVIDENCE"), "Nil evidence generates old behavior (no header)")
         t.checkEqual(emptyPrompt, "BRIEF: She runs.", "Nil evidence generates exactly old behavior")
 
         var emptyAppearance = OpeningReferenceAppearance()
         emptyAppearance.status = .analysed
-        let emptyAppearancePrompt = DirectorPlanFormat.userPrompt(for: .structuredJSON, brief: "She runs.", openingSceneEvidence: emptyAppearance)
+        let emptyAppearancePrompt = DirectorPlanFormat.userPrompt(for: .structuredJSON, brief: "She runs.", openingSceneEvidence: emptyAppearance, characterBible: nil)
         t.check(!emptyAppearancePrompt.contains("CURRENT OPENING SCENE EVIDENCE"), "Empty evidence fields generate old behavior (no header)")
         t.checkEqual(emptyAppearancePrompt, "BRIEF: She runs.", "Empty evidence fields generate exactly old behavior")
     }

@@ -48,8 +48,8 @@ enum DirectorPlanFormat {
         }
     }
 
-    static func userPrompt(for planProtocol: LocalDirectorProtocol, brief: String, openingSceneEvidence: OpeningReferenceAppearance? = nil) -> String {
-        let evidenceBlock = formatSceneEvidence(openingSceneEvidence)
+    static func userPrompt(for planProtocol: LocalDirectorProtocol, brief: String, openingSceneEvidence: OpeningReferenceAppearance? = nil, characterBible: CharacterBible? = nil) -> String {
+        let evidenceBlock = formatSceneEvidence(openingSceneEvidence, characterBible: characterBible)
         switch planProtocol {
         case .structuredJSON:
             return "\(evidenceBlock)BRIEF: \(brief)"
@@ -68,8 +68,9 @@ enum DirectorPlanFormat {
     static func repairPrompt(for planProtocol: LocalDirectorProtocol,
                              failure: String,
                              brief: String,
-                             openingSceneEvidence: OpeningReferenceAppearance? = nil) -> String {
-        let evidenceBlock = formatSceneEvidence(openingSceneEvidence)
+                             openingSceneEvidence: OpeningReferenceAppearance? = nil,
+                             characterBible: CharacterBible? = nil) -> String {
+        let evidenceBlock = formatSceneEvidence(openingSceneEvidence, characterBible: characterBible)
         switch planProtocol {
         case .structuredJSON:
             return """
@@ -88,12 +89,23 @@ enum DirectorPlanFormat {
         }
     }
 
-    private static func formatSceneEvidence(_ evidence: OpeningReferenceAppearance?) -> String {
+    private static func formatSceneEvidence(_ evidence: OpeningReferenceAppearance?, characterBible: CharacterBible? = nil) -> String {
         guard let evidence else { return "" }
+        var visibleClothing = evidence.costumeSummary
+        
+        // If the Bible has an explicit costume that differs from the image, omit the image's clothing
+        // to avoid weakening the user's explicit CharacterBible constraint.
+        if let bible = characterBible,
+           let character = bible.characters.first,
+           character.defaultCostume != evidence.costumeSummary {
+            visibleClothing = ""
+        }
+        
         let fields = [
             ("Environment", evidence.sceneEnvironment),
             ("Lighting", evidence.sceneLighting),
             ("Subject state", evidence.subjectState),
+            ("Visible clothing", visibleClothing),
             ("Visible key objects", evidence.keyObjects)
         ].filter { !$0.1.isEmpty }
 

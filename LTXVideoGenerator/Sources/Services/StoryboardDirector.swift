@@ -314,7 +314,7 @@ final class StoryboardDirector {
         openingSceneEvidence: OpeningReferenceAppearance? = nil,
         planProtocol: LocalDirectorProtocol = .structuredJSON
     ) async throws -> StoryboardDraft {
-        var prompt = DirectorPlanFormat.userPrompt(for: planProtocol, brief: brief, openingSceneEvidence: openingSceneEvidence)
+        var prompt = DirectorPlanFormat.userPrompt(for: planProtocol, brief: brief, openingSceneEvidence: openingSceneEvidence, characterBible: characterBible)
         var lastFailure = ""
         for attempt in 0...maxRepairAttempts {
             let response: String
@@ -337,7 +337,8 @@ final class StoryboardDirector {
                         for: planProtocol,
                         failure: error.localizedDescription,
                         brief: brief,
-                        openingSceneEvidence: openingSceneEvidence)
+                        openingSceneEvidence: openingSceneEvidence,
+                        characterBible: characterBible)
                     continue
                 }
                 record(.retryFailed, provider: provider.name, attempt: attempt,
@@ -374,7 +375,9 @@ final class StoryboardDirector {
                 break
             }
             prompt = DirectorPlanFormat.repairPrompt(
-                for: planProtocol, failure: lastFailure, brief: brief)
+                for: planProtocol, failure: lastFailure, brief: brief,
+                openingSceneEvidence: openingSceneEvidence,
+                characterBible: characterBible)
         }
         throw DirectorError.planValidationFailed([lastFailure])
     }

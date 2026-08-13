@@ -441,15 +441,17 @@ final class EnvironmentDirectorProvider: DirectorProvider {
     let name = "ollama"
     private let mode: DirectorMode
     private let environment: DirectorEnvironmentService
+    private let session: URLSession
     private var provider: OllamaDirectorProvider?
     private var selectedModel: String?
     private(set) var availabilityFailureReason: String?
 
     var modelIdentifier: String? { selectedModel }
 
-    init(mode: DirectorMode, environment: DirectorEnvironmentService = DirectorEnvironmentService()) {
+    init(mode: DirectorMode, environment: DirectorEnvironmentService = DirectorEnvironmentService(), session: URLSession = .shared) {
         self.mode = mode
         self.environment = environment
+        self.session = session
     }
 
     func isAvailable() async -> Bool {
@@ -459,13 +461,18 @@ final class EnvironmentDirectorProvider: DirectorProvider {
             return false
         }
         selectedModel = model
-        provider = OllamaDirectorProvider(model: model)
+        provider = OllamaDirectorProvider(model: model, session: session)
         return true
     }
 
     func complete(system: String, prompt: String) async throws -> String {
         guard let provider else { throw DirectorError.noProviderAvailable }
         return try await provider.complete(system: system, prompt: prompt)
+    }
+
+    func complete(system: String, prompt: String, expectsJSON: Bool) async throws -> String {
+        guard let provider else { throw DirectorError.noProviderAvailable }
+        return try await provider.complete(system: system, prompt: prompt, expectsJSON: expectsJSON)
     }
 
     func terminate() async {

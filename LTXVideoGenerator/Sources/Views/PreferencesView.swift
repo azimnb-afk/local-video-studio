@@ -21,7 +21,7 @@ struct PreferencesView: View {
     @AppStorage("outputDirectory") private var outputDirectory = ""
     @AppStorage("autoLoadModel") private var autoLoadModel = false
     @AppStorage("keepCompletedInQueue") private var keepCompletedInQueue = false
-    @AppStorage("elevenLabsApiKey") private var elevenLabsApiKey = ""
+    @State private var elevenLabsApiKey = KeychainCredentialStore.shared.elevenLabsApiKey
     @AppStorage("defaultAudioSource") private var defaultAudioSource = "elevenlabs"
     @AppStorage("enableGemmaPromptEnhancement") private var enableGemmaPromptEnhancement = false
     @AppStorage("saveAudioTrackSeparately") private var saveAudioTrackSeparately = false
@@ -469,6 +469,12 @@ struct PreferencesView: View {
                 Section("ElevenLabs API") {
                     SecureField("API Key", text: $elevenLabsApiKey)
                         .textFieldStyle(.roundedBorder)
+                        .onChange(of: elevenLabsApiKey) { _, newValue in
+                            KeychainCredentialStore.shared.setElevenLabsApiKey(newValue)
+                        }
+                        .onAppear {
+                            elevenLabsApiKey = KeychainCredentialStore.shared.elevenLabsApiKey
+                        }
                     
                     HStack {
                         if isTestingElevenLabs {

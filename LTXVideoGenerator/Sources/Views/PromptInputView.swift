@@ -22,7 +22,9 @@ struct PromptInputView: View {
     @FocusState private var isPromptFocused: Bool
     
     // Audio settings
-    @AppStorage("elevenLabsApiKey") private var elevenLabsApiKey = ""
+    private var elevenLabsApiKey: String {
+        KeychainCredentialStore.shared.elevenLabsApiKey
+    }
     @AppStorage("enableGemmaPromptEnhancement") private var enableGemmaPromptEnhancement = false
     @AppStorage(LTXModelCatalog.selectedModelIDKey) private var selectedModelID = LTXModelCatalog.defaultModelID
     @AppStorage(LTXTextEncoderCatalog.selectedTextEncoderIDKey) private var selectedTextEncoderID = LTXTextEncoderCatalog.defaultTextEncoderID

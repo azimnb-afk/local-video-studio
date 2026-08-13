@@ -30,6 +30,7 @@
 		AA000033 /* av_generator.py in Resources */ = {isa = PBXBuildFile; fileRef = AA000034; };
 		AA000031 /* enhance_prompt_preview.py in Resources */ = {isa = PBXBuildFile; fileRef = AA000032; };
 		AA00002B /* AudioService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00002C; };
+		AA0009A1 /* KeychainCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009A2; };
 		AA00002D /* AddAudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00002E; };
 		AA000035 /* CharacterProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000036; };
 		AA000190 /* MacOSSystemMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000191; };
@@ -139,6 +140,7 @@
 		AA000034 /* av_generator.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = av_generator.py; sourceTree = "<group>"; };
 		AA000032 /* enhance_prompt_preview.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = enhance_prompt_preview.py; sourceTree = "<group>"; };
 		AA00002C /* AudioService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioService.swift; sourceTree = "<group>"; };
+		AA0009A2 /* KeychainCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainCredentialStore.swift; sourceTree = "<group>"; };
 		AA00002E /* AddAudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAudioView.swift; sourceTree = "<group>"; };
 		AA000036 /* CharacterProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterProfile.swift; sourceTree = "<group>"; };
 		AA000291 /* ContinuityStrengthPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityStrengthPolicy.swift; sourceTree = "<group>"; };
@@ -316,6 +318,7 @@
 				AA000014 /* PresetManager.swift */,
 				AA000026 /* APIServer.swift */,
 				AA00002C /* AudioService.swift */,
+				AA0009A2 /* KeychainCredentialStore.swift */,
 				AA000291 /* ContinuityStrengthPolicy.swift */,
 				AA0002B7 /* ProductionQueueService.swift */,
 				AA0002B5 /* ProductionQueueCoordinator.swift */,
@@ -499,6 +502,7 @@
 				AA00001D /* PreferencesView.swift in Sources */,
 				AA000025 /* APIServer.swift in Sources */,
 				AA00002B /* AudioService.swift in Sources */,
+				AA0009A1 /* KeychainCredentialStore.swift in Sources */,
 				AA000290 /* ContinuityStrengthPolicy.swift in Sources */,
 				AA0002B8 /* ProductionQueuePanel.swift in Sources */,
 				AA0002B6 /* ProductionQueueService.swift in Sources */,

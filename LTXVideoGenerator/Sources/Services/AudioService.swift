@@ -438,7 +438,7 @@ class AudioService: ObservableObject {
     // MARK: - ElevenLabs
     
     var elevenLabsApiKey: String {
-        UserDefaults.standard.string(forKey: "elevenLabsApiKey") ?? ""
+        KeychainCredentialStore.shared.elevenLabsApiKey
     }
     
     var isElevenLabsConfigured: Bool {

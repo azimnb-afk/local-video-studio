@@ -16,7 +16,9 @@ struct AddAudioView: View {
     let onComplete: (GenerationResult) -> Void
     let onDismiss: () -> Void
     
-    @AppStorage("elevenLabsApiKey") private var elevenLabsApiKey = ""
+    private var elevenLabsApiKey: String {
+        KeychainCredentialStore.shared.elevenLabsApiKey
+    }
     @AppStorage("defaultAudioSource") private var defaultAudioSource = "mlx-audio"
     
     // Tab selection

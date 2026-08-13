@@ -37,6 +37,10 @@ LTX Video Generator for Mac — AutoMovie Edition `v0.9.0-preview.1` is the firs
 - **LTX-2.3 (Distilled Q4 & Unified)**: Powered by `mlx-video-with-audio` for fast on-device generation.
 - **10Eros v1.3 DMD Q4**: Isolated secondary backend via `ltx-2-mlx` with Adult Content Mode gating.
 
+### 🔒 Security & Privacy Hardening
+- **macOS Keychain Integration**: Optional external API credentials (such as ElevenLabs API keys) are now persisted securely in the macOS Keychain with transparent, automatic migration from legacy plaintext preferences.
+- **Zero Telemetry & 100% Local Inference**: Complete privacy guarantee for core video and audio generation.
+
 ---
 
 ## System Requirements
@@ -53,8 +57,7 @@ LTX Video Generator for Mac — AutoMovie Edition `v0.9.0-preview.1` is the firs
 1. **No-BGM Policy is Prompt-Based**: Unwanted background music is strongly suppressed via prompt engineering, but acoustic output cannot be 100% mathematically guaranteed by diffusion weights.
 2. **Motion Continuation**: Inter-shot continuity uses Last-Frame I2V still-image conditioning; physical temporal momentum is not an end-to-end continuous tensor state.
 3. **Identity Tracking**: Character consistency aids narrative grounding, but diffusion models do not guarantee biometric Face Lock.
-4. **Credential Storage**: Optional ElevenLabs API keys are stored in `UserDefaults` (plain plist) rather than macOS Keychain.
-5. **External Dependencies**: `ffmpeg` must be installed separately by the user for multi-shot Final Assembly.
+4. **External Dependencies**: `ffmpeg` must be installed separately by the user for multi-shot Final Assembly.
 
 ---
 

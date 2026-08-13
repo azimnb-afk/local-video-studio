@@ -10,7 +10,7 @@ This checklist defines the required verification steps before tagging or publish
 - [ ] **Deterministic Unit & Integration Tests**: `swift run LTXTests` passes with 0 failures.
 - [ ] **Canonical Xcode Build**: `xcodebuild -project LTXVideoGenerator/LTXVideoGenerator.xcodeproj -scheme LTXVideoGenerator -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO clean build` succeeds (`** BUILD SUCCEEDED **`).
 - [ ] **Secrets Audit**: Repository-wide scan for API keys, bearer tokens, private credentials (`sk-`, `ghp_`, `xi-api-key`). No embedded secrets found.
-- [ ] **Machine-Specific / Private Paths Audit**: No hardcoded developer paths (`/Users/azimnb`, `/private/tmp`, machine-specific absolute paths) in tracked source code or documentation.
+- [ ] **Machine-Specific / Private Paths Audit**: No hardcoded developer paths (`/path/to/home`, `/private/tmp`, machine-specific absolute paths) in tracked source code or documentation.
 - [ ] **License & Attribution Check**: Original MIT license header (`james-see/ltx-video-mac`) preserved. `THIRD_PARTY_NOTICES.md` and `MODEL_LICENSES.md` up to date.
 
 ---

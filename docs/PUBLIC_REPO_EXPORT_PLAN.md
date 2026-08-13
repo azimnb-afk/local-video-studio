@@ -73,7 +73,7 @@ EXPORT_DIR=$(mktemp -d)/ltx-video-mac-automovie
 mkdir -p "$EXPORT_DIR"
 
 # 2. Archive only tracked Git files from the release branch
-cd /Users/azimnb/ltx23appdev/ltx-video-mac
+cd <PATH_TO_DEV_REPO>
 git archive HEAD | tar -x -C "$EXPORT_DIR"
 
 # 3. Initialize fresh Git repository

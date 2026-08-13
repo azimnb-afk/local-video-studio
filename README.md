@@ -168,7 +168,6 @@ All generation requests are dispatched to a resilient background queue:
 - **No-BGM is Prompt-Based**: Negative prompting strongly suppresses BGM, but acoustic output is model-dependent and music suppression cannot be 100% mathematically guaranteed by the diffusion weights.
 - **Motion Tempo Continuity**: Motion tempo shapes prompt dynamics across shots, but true physical momentum continuation remains bounded by Last-Frame I2V conditioning.
 - **Identity Consistency vs Face Lock**: Character Bible grounding maintains costume and appearance consistency, but diffusion models do not provide deterministic biometric Face Lock.
-- **Credential Storage**: Optional ElevenLabs API keys are currently persisted in `UserDefaults` (plain plist) rather than macOS Keychain. Do not enter credentials on shared workstations.
 - **External Dependency**: `ffmpeg` is required for multi-shot assembly and must be installed separately by the user.
 - **Hardware Intensive**: Local generation fully utilizes GPU and unified memory. Close heavy applications during multi-shot rendering.
 
@@ -178,6 +177,7 @@ All generation requests are dispatched to a resilient background queue:
 
 - **100% Local Inference**: Video generation, text embedding, Local Director LLM, and final movie assembly execute completely on your Mac.
 - **Zero Telemetry**: No analytics, crash telemetry, or tracking pings are embedded in the codebase.
+- **Secure Credential Storage**: Optional ElevenLabs API keys are stored securely in macOS Keychain with automatic backward-compatible migration from legacy plaintext preferences.
 - **Optional Cloud APIs**: ElevenLabs voiceover and music are strictly opt-in and only invoked if you explicitly provide an API key.
 
 ---

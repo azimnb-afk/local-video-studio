@@ -190,7 +190,8 @@ final class StoryboardDirector {
     /// Brief → validated storyboard draft. Provider terminated before return.
     func draft(
         brief: String,
-        characterBible: CharacterBible = CharacterBible()
+        characterBible: CharacterBible = CharacterBible(),
+        openingSceneEvidence: OpeningReferenceAppearance? = nil
     ) async throws -> (draft: StoryboardDraft, providerName: String) {
         diagnostics = []
         lastProviderModel = nil
@@ -225,7 +226,8 @@ final class StoryboardDirector {
                 let draft: StoryboardDraft
                 if provider.isFallbackProvider {
                     draft = try await draftWithProvider(
-                        provider, brief: brief, characterBible: characterBible)
+                        provider, brief: brief, characterBible: characterBible,
+                        openingSceneEvidence: openingSceneEvidence)
                 } else {
                     // Capability negotiation: start from what this model was
                     // last seen to handle, and if that protocol fails in
@@ -243,6 +245,7 @@ final class StoryboardDirector {
                         do {
                             localDraft = try await draftWithProvider(
                                 provider, brief: brief, characterBible: characterBible,
+                                openingSceneEvidence: openingSceneEvidence,
                                 planProtocol: planProtocol)
                             lastProtocol = planProtocol
                             if !model.isEmpty {
@@ -295,10 +298,12 @@ final class StoryboardDirector {
         _ planProtocol: LocalDirectorProtocol,
         provider: DirectorProvider,
         brief: String,
-        characterBible: CharacterBible = CharacterBible()
+        characterBible: CharacterBible = CharacterBible(),
+        openingSceneEvidence: OpeningReferenceAppearance? = nil
     ) async throws -> StoryboardDraft {
         try await draftWithProvider(provider, brief: brief,
                                     characterBible: characterBible,
+                                    openingSceneEvidence: openingSceneEvidence,
                                     planProtocol: planProtocol)
     }
 
@@ -306,9 +311,10 @@ final class StoryboardDirector {
         _ provider: DirectorProvider,
         brief: String,
         characterBible: CharacterBible,
+        openingSceneEvidence: OpeningReferenceAppearance? = nil,
         planProtocol: LocalDirectorProtocol = .structuredJSON
     ) async throws -> StoryboardDraft {
-        var prompt = DirectorPlanFormat.userPrompt(for: planProtocol, brief: brief)
+        var prompt = DirectorPlanFormat.userPrompt(for: planProtocol, brief: brief, openingSceneEvidence: openingSceneEvidence)
         var lastFailure = ""
         for attempt in 0...maxRepairAttempts {
             let response: String
@@ -330,7 +336,8 @@ final class StoryboardDirector {
                     prompt = DirectorPlanFormat.repairPrompt(
                         for: planProtocol,
                         failure: error.localizedDescription,
-                        brief: brief)
+                        brief: brief,
+                        openingSceneEvidence: openingSceneEvidence)
                     continue
                 }
                 record(.retryFailed, provider: provider.name, attempt: attempt,
@@ -586,9 +593,10 @@ final class StoryboardDirector {
         brief: String,
         settings: ProjectSettings = ProjectSettings(),
         characterBible: CharacterBible = CharacterBible(),
+        openingSceneEvidence: OpeningReferenceAppearance? = nil,
         capabilityAwarePlanning: Bool = false
     ) async throws -> (project: FilmProject, violations: [ContinuityEngine.Violation], providerName: String) {
-        let (rawDraft, providerName) = try await self.draft(brief: brief, characterBible: characterBible)
+        let (rawDraft, providerName) = try await self.draft(brief: brief, characterBible: characterBible, openingSceneEvidence: openingSceneEvidence)
         var draft = rawDraft
 
         // Auto Movie steers the plan toward shots this profile actually renders
@@ -865,11 +873,13 @@ final class HybridProjectCoordinator {
         title: String,
         brief: String,
         settings: ProjectSettings,
-        characterBible: CharacterBible = CharacterBible()
+        characterBible: CharacterBible = CharacterBible(),
+        openingSceneEvidence: OpeningReferenceAppearance? = nil
     ) async throws -> (project: FilmProject, violations: [ContinuityEngine.Violation], providerName: String) {
         var (project, violations, providerName) = try await director.makeProject(
             projectID: projectID, title: title, brief: brief,
             settings: settings, characterBible: characterBible,
+            openingSceneEvidence: openingSceneEvidence,
             // Auto Movie only. The same pass runs for the local AI planner and
             // for the no-LLM template, so generation feasibility does not depend
             // on whether a local model happened to be available.

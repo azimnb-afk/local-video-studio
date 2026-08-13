@@ -41,6 +41,12 @@ struct OpeningReferenceAppearance: Codable, Equatable {
     var analysedAt: Date?
     var notes: String = ""
 
+    // MARK: - Scene Evidence
+    var sceneEnvironment: String = ""
+    var sceneLighting: String = ""
+    var subjectState: String = ""
+    var keyObjects: String = ""
+
     var isUsable: Bool { status == .analysed }
 
     /// The costume line a prompt would carry, built only from what was seen.

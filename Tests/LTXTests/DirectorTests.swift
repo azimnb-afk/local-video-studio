@@ -619,5 +619,33 @@ func runDirectorTests(_ t: TestKit) {
             let secondBody = receivedBodies[1]
             t.check((secondBody["format"] as? String) == "json", "Structured JSON / expectsJSON=true is forwarded correctly and DOES produce the JSON format request setting")
         }
+    t.suite("DirectorPlanFormat - Opening Scene Evidence Injection") {
+        var appearance = OpeningReferenceAppearance()
+        appearance.sceneEnvironment = "night train platform"
+        appearance.sceneLighting = "dim overhead lights"
+        appearance.subjectState = "standing still"
+        appearance.keyObjects = "blue suitcase"
+
+        let jsonPrompt = DirectorPlanFormat.userPrompt(for: .structuredJSON, brief: "She runs.", openingSceneEvidence: appearance)
+        t.check(jsonPrompt.contains("CURRENT OPENING SCENE EVIDENCE"), "JSON prompt contains evidence header")
+        t.check(jsonPrompt.contains("night train platform"), "JSON prompt contains environment")
+        t.check(jsonPrompt.contains("blue suitcase"), "JSON prompt contains key objects")
+        t.check(jsonPrompt.contains("BRIEF: She runs."), "JSON prompt preserves brief at the end")
+
+        let textPrompt = DirectorPlanFormat.userPrompt(for: .textProtocol, brief: "She runs.", openingSceneEvidence: appearance)
+        t.check(textPrompt.contains("CURRENT OPENING SCENE EVIDENCE"), "Text Protocol prompt contains evidence header")
+        t.check(textPrompt.contains("night train platform"), "Text Protocol prompt contains environment")
+
+        // Test missing/failed scene analysis behavior
+        let emptyPrompt = DirectorPlanFormat.userPrompt(for: .structuredJSON, brief: "She runs.", openingSceneEvidence: nil)
+        t.check(!emptyPrompt.contains("CURRENT OPENING SCENE EVIDENCE"), "Nil evidence generates old behavior (no header)")
+        t.checkEqual(emptyPrompt, "BRIEF: She runs.", "Nil evidence generates exactly old behavior")
+
+        var emptyAppearance = OpeningReferenceAppearance()
+        emptyAppearance.status = .analysed
+        let emptyAppearancePrompt = DirectorPlanFormat.userPrompt(for: .structuredJSON, brief: "She runs.", openingSceneEvidence: emptyAppearance)
+        t.check(!emptyAppearancePrompt.contains("CURRENT OPENING SCENE EVIDENCE"), "Empty evidence fields generate old behavior (no header)")
+        t.checkEqual(emptyAppearancePrompt, "BRIEF: She runs.", "Empty evidence fields generate exactly old behavior")
     }
+}
 }

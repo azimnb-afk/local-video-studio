@@ -48,10 +48,11 @@ enum DirectorPlanFormat {
         }
     }
 
-    static func userPrompt(for planProtocol: LocalDirectorProtocol, brief: String) -> String {
+    static func userPrompt(for planProtocol: LocalDirectorProtocol, brief: String, openingSceneEvidence: OpeningReferenceAppearance? = nil) -> String {
+        let evidenceBlock = formatSceneEvidence(openingSceneEvidence)
         switch planProtocol {
         case .structuredJSON:
-            return "BRIEF: \(brief)"
+            return "\(evidenceBlock)BRIEF: \(brief)"
         case .textProtocol:
             // Measured: models that ignore a format described in the system
             // prompt will still fill in a template presented in the user turn,
@@ -59,20 +60,22 @@ enum DirectorPlanFormat {
             return """
             \(textProtocolTemplate)
 
-            BRIEF: \(brief)
+            \(evidenceBlock)BRIEF: \(brief)
             """
         }
     }
 
     static func repairPrompt(for planProtocol: LocalDirectorProtocol,
                              failure: String,
-                             brief: String) -> String {
+                             brief: String,
+                             openingSceneEvidence: OpeningReferenceAppearance? = nil) -> String {
+        let evidenceBlock = formatSceneEvidence(openingSceneEvidence)
         switch planProtocol {
         case .structuredJSON:
             return """
             Your previous response was invalid (\(failure)). \
             Respond again with ONLY the JSON object described in the system prompt.
-            BRIEF: \(brief)
+            \(evidenceBlock)BRIEF: \(brief)
             """
         case .textProtocol:
             return """
@@ -80,9 +83,33 @@ enum DirectorPlanFormat {
 
             \(textProtocolTemplate)
 
-            BRIEF: \(brief)
+            \(evidenceBlock)BRIEF: \(brief)
             """
         }
+    }
+
+    private static func formatSceneEvidence(_ evidence: OpeningReferenceAppearance?) -> String {
+        guard let evidence else { return "" }
+        let fields = [
+            ("Environment", evidence.sceneEnvironment),
+            ("Lighting", evidence.sceneLighting),
+            ("Subject state", evidence.subjectState),
+            ("Visible key objects", evidence.keyObjects)
+        ].filter { !$0.1.isEmpty }
+
+        guard !fields.isEmpty else { return "" }
+
+        let lines = fields.map { "- \($0.0): \($0.1)" }.joined(separator: "\n")
+        return """
+        CURRENT OPENING SCENE EVIDENCE
+        This is the visual starting state of the movie.
+
+        \(lines)
+
+        Begin the plan consistently with this opening state.
+        Do not relocate or contradict the opening scene unless the user's brief explicitly requires a transition.
+
+        """
     }
 
     /// The literal template shown to the model. Fixed markers only: no nested

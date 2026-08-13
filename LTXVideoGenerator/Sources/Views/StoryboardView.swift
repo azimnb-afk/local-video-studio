@@ -230,11 +230,13 @@ struct StoryboardView: View {
                 var (project, violations, _) = mode == .hybrid
                     ? try await HybridProjectCoordinator().makeProject(
                         projectID: projectID, title: title, brief: brief,
-                        settings: settings, characterBible: planningBible
+                        settings: settings, characterBible: planningBible,
+                        openingSceneEvidence: openingAppearance
                     )
                     : try await StoryboardDirector().makeProject(
                         projectID: projectID, title: title, brief: brief,
-                        settings: settings, characterBible: planningBible
+                        settings: settings, characterBible: planningBible,
+                        openingSceneEvidence: openingAppearance
                     )
                 project.workflowMode = mode.workflowValue
                 if mode == .hybrid {

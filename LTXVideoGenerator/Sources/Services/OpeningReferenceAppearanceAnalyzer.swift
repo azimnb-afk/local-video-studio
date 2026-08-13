@@ -13,17 +13,18 @@ import Foundation
 enum OpeningReferenceAppearanceAnalyzer {
 
     static let systemPrompt = """
-    You describe only what is visibly true about the main person in a single \
-    film frame. You never guess. If something is not visible — a face turned \
-    away, footwear out of frame, hair hidden by a hood — you leave that field \
-    empty rather than inventing it. You do not describe the location, the \
-    lighting, the mood or the camera. You do not name the person, guess their \
-    age, ethnicity or personality. Answer with JSON only.
+    You describe what is visibly true in a single film frame. You never guess. \
+    If something is not visible — a face turned away, footwear out of frame, \
+    hair hidden by a hood — you leave that field empty rather than inventing it. \
+    Do not guess the person's age, ethnicity, or personality. \
+    Do not invent a hidden story, unseen emotions, cinematic intent, future action, \
+    or off-screen facts. Answer with JSON only.
     """
 
     static let userPrompt = """
-    Describe the appearance of the single main person in this frame.
+    Describe the visual contents of this frame.
 
+    Character Appearance:
     - hairDescription: colour and style, only if visible.
     - clothingDescription: the main garments and their colours.
     - outerwear: coat, cape, jacket or similar, if worn.
@@ -33,7 +34,13 @@ enum OpeningReferenceAppearanceAnalyzer {
     - faceVisible: true only if the face is actually legible.
     - subjectCount: how many people are visible in total.
 
-    Leave any field empty if it is not visible. Do not describe the background.
+    Scene Evidence:
+    - sceneEnvironment: the location and environment (e.g., "night train platform").
+    - sceneLighting: the lighting style and time of day if visible.
+    - subjectState: current physical action or posture of the subject.
+    - keyObjects: visible key objects in the scene (e.g., "blue suitcase").
+
+    Leave any field empty if it is not visible.
     """
 
     static let outputSchema: [String: Any] = {
@@ -41,6 +48,7 @@ enum OpeningReferenceAppearanceAnalyzer {
         let fields = [
             "hairDescription", "clothingDescription", "outerwear",
             "accessories", "silhouetteDescription", "distinctiveTraits",
+            "sceneEnvironment", "sceneLighting", "subjectState", "keyObjects"
         ]
         var properties: [String: Any] = Dictionary(
             uniqueKeysWithValues: fields.map { ($0, string) })
@@ -85,6 +93,10 @@ enum OpeningReferenceAppearanceAnalyzer {
         result.accessories = string("accessories")
         result.silhouetteDescription = string("silhouetteDescription")
         result.distinctiveTraits = string("distinctiveTraits")
+        result.sceneEnvironment = string("sceneEnvironment")
+        result.sceneLighting = string("sceneLighting")
+        result.subjectState = string("subjectState")
+        result.keyObjects = string("keyObjects")
         result.faceVisible = (json["faceVisible"] as? Bool) ?? false
         result.subjectCount = (json["subjectCount"] as? Int) ?? 0
 
@@ -101,6 +113,7 @@ enum OpeningReferenceAppearanceAnalyzer {
         let described = [
             result.hairDescription, result.clothingDescription, result.outerwear,
             result.accessories, result.silhouetteDescription, result.distinctiveTraits,
+            result.sceneEnvironment, result.sceneLighting, result.subjectState, result.keyObjects
         ].contains { !$0.isEmpty }
         result.status = described ? .analysed : .failed
         if !described { result.notes = "Nothing describable was returned." }

@@ -19,6 +19,11 @@ func runOpeningReferenceAppearanceTests(_ t: TestKit) {
         a.accessories = "brown leather belt with pouches"
         a.distinctiveTraits = "gold emblem on the collar"
         a.analysisModel = "test-vision"
+
+        a.sceneEnvironment = "night train platform"
+        a.sceneLighting = "dim overhead lights"
+        a.subjectState = "standing still"
+        a.keyObjects = "blue suitcase"
         return a
     }()
 
@@ -126,6 +131,8 @@ func runOpeningReferenceAppearanceTests(_ t: TestKit) {
         {"hairDescription":"brown ponytail","clothingDescription":"navy vest",
          "outerwear":"cream cape","accessories":"leather belt",
          "silhouetteDescription":"slim","distinctiveTraits":"gold emblem",
+         "sceneEnvironment":"night train platform","sceneLighting":"dim overhead lights",
+         "subjectState":"standing still","keyObjects":"blue suitcase",
          "faceVisible":true,"subjectCount":1}
         """
         let parsed = OpeningReferenceAppearanceAnalyzer.appearance(
@@ -134,6 +141,11 @@ func runOpeningReferenceAppearanceTests(_ t: TestKit) {
         t.checkEqual(parsed.costumeSummary, "navy vest, cream cape",
                      "costume summary joins clothing and outerwear")
         t.check(parsed.faceVisible, "face visibility is carried through")
+
+        t.checkEqual(parsed.sceneEnvironment, "night train platform", "sceneEnvironment is parsed")
+        t.checkEqual(parsed.sceneLighting, "dim overhead lights", "sceneLighting is parsed")
+        t.checkEqual(parsed.subjectState, "standing still", "subjectState is parsed")
+        t.checkEqual(parsed.keyObjects, "blue suitcase", "keyObjects is parsed")
 
         // Models like to wrap JSON in prose or fences.
         let fenced = "Here you go:\n```json\n" + good + "\n```"
@@ -150,7 +162,9 @@ func runOpeningReferenceAppearanceTests(_ t: TestKit) {
 
         let empty = """
         {"hairDescription":"","clothingDescription":"","outerwear":"","accessories":"",
-         "silhouetteDescription":"","distinctiveTraits":"","faceVisible":false,"subjectCount":1}
+         "silhouetteDescription":"","distinctiveTraits":"",
+         "sceneEnvironment":"","sceneLighting":"","subjectState":"","keyObjects":"",
+         "faceVisible":false,"subjectCount":1}
         """
         t.checkEqual(
             OpeningReferenceAppearanceAnalyzer.appearance(
@@ -160,6 +174,7 @@ func runOpeningReferenceAppearanceTests(_ t: TestKit) {
         let crowd = """
         {"hairDescription":"brown","clothingDescription":"coat","outerwear":"",
          "accessories":"","silhouetteDescription":"","distinctiveTraits":"",
+         "sceneEnvironment":"street","sceneLighting":"","subjectState":"","keyObjects":"",
          "faceVisible":true,"subjectCount":3}
         """
         let ambiguous = OpeningReferenceAppearanceAnalyzer.appearance(
@@ -240,5 +255,16 @@ func runOpeningReferenceAppearanceTests(_ t: TestKit) {
         t.checkEqual(OpeningReferenceSync.seedBible(from: nil, existing: CharacterBible())
                         .characters.count, 0,
                      "no analysis seeds nothing")
+    }
+
+    t.suite("Opening reference appearance — scene evidence is not merged into CharacterBible") {
+        let seeded = OpeningReferenceSync.seedBible(from: seenInImage, existing: CharacterBible())
+        t.checkEqual(seeded.characters.count, 1, "an empty Bible is seeded from the image")
+
+        // CharacterBible characters shouldn't contain the scene evidence (environment/lighting)
+        t.check(!seeded.characters[0].appearance.compactVisualSummary.contains("night train platform"),
+                "scene environment should not leak into character appearance")
+        t.check(!seeded.characters[0].appearance.compactVisualSummary.contains("dim overhead lights"),
+                "scene lighting should not leak into character appearance")
     }
 }

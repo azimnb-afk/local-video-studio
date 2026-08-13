@@ -14,22 +14,33 @@ enum PerShotAudioPolicy: Equatable {
 
     static let directorInstruction = """
     PER-SHOT AUDIO POLICY
-    Do not plan background music, a musical score, a soundtrack, or an underscore for any individual shot.
-    Keep natural scene audio: spoken dialogue and voices, environmental ambience, footsteps, foley, and scene-appropriate sound effects.
+    Do not plan background music, a soundtrack, a musical score, instrumental music, melodic accompaniment, a music bed, or an underscore for any individual shot.
+    Audio must contain only diegetic production sound: spoken dialogue and human vocalization, environmental ambience, room tone, footsteps, foley, mechanical or environmental sounds, and scene-appropriate sound effects.
     If the brief requests music, defer that request to the separate global Final Audio layer; do not place it in a shot's audioCues.
     """
 
-    private static let generationGuard = "Audio policy: no background music or musical score. Keep synchronized natural production sound: spoken dialogue, environmental ambience, footsteps, foley and scene-appropriate sound effects."
+    /// One renderer-facing policy shared by every Director workflow and both
+    /// generation backends. Keep this as one compact block: repeating negative
+    /// instructions can make prompt adherence worse rather than better.
+    static let generationGuard = "Audio policy: No music. No background music. No soundtrack. No musical score. No instrumental music. No melodic accompaniment. Audio contains only diegetic production sound: spoken dialogue, human vocalization, environmental ambience, room tone, footsteps, foley, mechanical and environmental sounds, and scene-specific sound effects."
+
+    private static let legacyGenerationGuard = "Audio policy: no background music or musical score. Keep synchronized natural production sound: spoken dialogue, environmental ambience, footsteps, foley and scene-appropriate sound effects."
+
+    private static let explicitMusicTerms = [
+        "background music", "bgm", "musical score", "cinematic score",
+        "background score", "soundtrack", "underscore", "music bed",
+        "orchestral music", "instrumental music", "melodic accompaniment",
+        "musical accompaniment"
+    ]
 
     func filteredAudioCues(_ cues: [String]) -> [String] {
         guard self == .naturalProductionSoundNoMusic else { return cues }
         return cues.filter { cue in
             let normalized = cue.lowercased()
-            let nonDiegeticMusicTerms = [
-                "background music", "bgm", "musical score", "cinematic score",
-                "soundtrack", "underscore", "music bed", "orchestral music"
-            ]
-            return !nonDiegeticMusicTerms.contains { normalized.contains($0) }
+            let containsMusicWord = normalized.range(
+                of: #"\bmusic\b"#, options: .regularExpression) != nil
+            return !containsMusicWord
+                && !Self.explicitMusicTerms.contains { normalized.contains($0) }
         }
     }
 
@@ -45,21 +56,36 @@ enum PerShotAudioPolicy: Equatable {
             options: .regularExpression)
         let sentences = sentenceSeparated.components(separatedBy: .newlines)
         return sentences.filter { sentence in
-            filteredAudioCues([sentence]).count == 1
+            let normalized = sentence.lowercased()
+            return !Self.explicitMusicTerms.contains { normalized.contains($0) }
         }.joined(separator: " ")
     }
 
     func applyingPromptGuard(to prompt: String) -> String {
         guard self == .naturalProductionSoundNoMusic else { return prompt }
-        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.lowercased().contains("no background music") else { return trimmed }
-        return trimmed.isEmpty ? Self.generationGuard : trimmed + " " + Self.generationGuard
+        var base = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Upgrade the previous weaker guard and make repeated compilation or
+        // queue preflight idempotent. This does not treat a user's incidental
+        // phrase "no background music" as proof that the product policy was
+        // already applied.
+        for knownGuard in [Self.generationGuard, Self.legacyGenerationGuard] {
+            base = base.replacingOccurrences(
+                of: knownGuard, with: "", options: [.caseInsensitive])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        // Legacy projects and an LLM enhancer may carry a complete explicit
+        // music direction. Remove only those complete sentences; visual words
+        // such as "cinematic lighting" remain untouched.
+        base = filteredAction(base).trimmingCharacters(in: .whitespacesAndNewlines)
+        return base.isEmpty ? Self.generationGuard : base + " " + Self.generationGuard
     }
 
     /// Prompt enhancement may rewrite the canonical prompt. Preserve an
     /// already-selected product policy without imposing it on Direct Generate.
     static func preservingPolicy(from canonicalPrompt: String, in candidatePrompt: String) -> String {
-        let selected: PerShotAudioPolicy = canonicalPrompt.lowercased().contains("no background music")
+        let normalized = canonicalPrompt.lowercased()
+        let selected: PerShotAudioPolicy = normalized.contains("audio policy:")
+            && normalized.contains("no background music")
             ? .naturalProductionSoundNoMusic
             : .unspecified
         return selected.applyingPromptGuard(to: candidatePrompt)

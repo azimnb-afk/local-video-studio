@@ -56,6 +56,35 @@ final class MockDirectorEnvironmentClient: DirectorEnvironmentClient {
     }
 }
 
+final class MockURLProtocol: URLProtocol {
+    static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        return true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        return request
+    }
+
+    override func startLoading() {
+        guard let handler = MockURLProtocol.requestHandler else {
+            fatalError("Handler is unavailable.")
+        }
+
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
 func runDirectorTests(_ t: TestKit) {
     let validPlanJSON = """
     {"camera":"slow dolly-in, medium close-up","action":"A woman lifts a cup of tea and smiles.","acting":"soft, warm expression","motion":"gentle, natural","lighting":"golden hour side light","dialogue":[{"speaker":"Mika","text":"おはよう"}],"audioCues":["porcelain clink"],"durationIntentSeconds":5}
@@ -519,5 +548,76 @@ func runDirectorTests(_ t: TestKit) {
         t.checkEqual(DirectorEnvironmentService.friendlyFallbackReason("localAIServerUnavailable"),
                      "Local AI was unavailable.",
                      "genuine unavailability wording is unchanged")
+    }
+
+    t.suite("EnvironmentDirectorProvider expectsJSON forwarding") {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        var receivedBodies: [[String: Any]] = []
+        MockURLProtocol.requestHandler = { request in
+            var bodyData = request.httpBody
+            if bodyData == nil, let stream = request.httpBodyStream {
+                stream.open()
+                let bufferSize = 1024
+                let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+                var data = Data()
+                while stream.hasBytesAvailable {
+                    let read = stream.read(buffer, maxLength: bufferSize)
+                    if read > 0 { data.append(buffer, count: read) }
+                    else { break }
+                }
+                buffer.deallocate()
+                stream.close()
+                bodyData = data
+            }
+
+            if let data = bodyData, let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                // Ignore api/tags requests which don't have bodies we care about
+                if request.url?.path.contains("api/generate") == true {
+                    receivedBodies.append(body)
+                }
+            }
+
+            let json = "{\"response\": \"{}\"}"
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, json.data(using: .utf8)!)
+        }
+
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        defaults.set(DirectorMode.localAI.rawValue, forKey: DirectorMode.userDefaultsKey)
+        defaults.set("mock-model", forKey: DirectorEnvironmentService.modelUserDefaultsKey)
+
+        let client = MockDirectorEnvironmentClient(models: ["mock-model"])
+        let env = DirectorEnvironmentService(userDefaults: defaults, client: client)
+        let provider = EnvironmentDirectorProvider(mode: .localAI, environment: env, session: session)
+
+        var done = false
+        Task {
+            let available = await provider.isAvailable()
+            print("TEST: isAvailable = \(available)")
+            if !available {
+                print("TEST: fallback reason = \(provider.availabilityFailureReason ?? "nil")")
+            }
+
+            do {
+                _ = try await provider.complete(system: "s", prompt: "p", expectsJSON: false)
+                _ = try await provider.complete(system: "s", prompt: "p", expectsJSON: true)
+            } catch {
+                print("TEST ERROR: \(error)")
+            }
+            done = true
+        }
+        while !done { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
+
+        t.checkEqual(receivedBodies.count, 2, "two requests were intercepted")
+        if receivedBodies.count == 2 {
+            let firstBody = receivedBodies[0]
+            t.check(firstBody["format"] == nil, "Text Protocol / expectsJSON=false is forwarded through EnvironmentDirectorProvider to OllamaDirectorProvider, and the resulting Ollama request does NOT contain format: json")
+
+            let secondBody = receivedBodies[1]
+            t.check((secondBody["format"] as? String) == "json", "Structured JSON / expectsJSON=true is forwarded correctly and DOES produce the JSON format request setting")
+        }
     }
 }

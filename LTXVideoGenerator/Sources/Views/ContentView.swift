@@ -164,7 +164,8 @@ struct ContentView: View {
                 prompt: $prompt,
                 negativePrompt: $negativePrompt,
                 voiceoverText: $voiceoverText,
-                parameters: $parameters
+                parameters: $parameters,
+                onSubmissionQueued: { selectedTab = .history }
             )
         case .oneShot:
             OneShotView(parameters: $parameters)
@@ -692,6 +693,7 @@ struct GenerateView: View {
     @Binding var negativePrompt: String
     @Binding var voiceoverText: String
     @Binding var parameters: GenerationParameters
+    var onSubmissionQueued: () -> Void = {}
     @AppStorage("generationPreset") private var presetRaw = GenerationPreset.standard.rawValue
     
     var body: some View {
@@ -722,7 +724,8 @@ struct GenerateView: View {
                     prompt: $prompt,
                     negativePrompt: $negativePrompt,
                     voiceoverText: $voiceoverText,
-                    parameters: $parameters
+                    parameters: $parameters,
+                    onPrimarySubmissionQueued: onSubmissionQueued
                 )
                 TipsView()
                     .padding()

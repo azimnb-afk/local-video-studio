@@ -2,7 +2,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct PromptInputView: View {
-    @EnvironmentObject var generationService: GenerationService
     @EnvironmentObject var presetManager: PresetManager
     @EnvironmentObject var characterProfileManager: CharacterProfileManager
     
@@ -10,6 +9,7 @@ struct PromptInputView: View {
     @Binding var negativePrompt: String
     @Binding var voiceoverText: String
     @Binding var parameters: GenerationParameters
+    var onPrimarySubmissionQueued: () -> Void = {}
     
     @State private var showNegativePrompt = false
     @State private var showVoiceover = false
@@ -17,7 +17,8 @@ struct PromptInputView: View {
     @State private var showImageToVideo = false
     @AppStorage("sourceImagePath") private var storedImagePath = ""
     @State private var sourceImageThumbnail: NSImage?
-    @State private var showCompletedIndicator = false
+    @State private var isSubmitting = false
+    @State private var submissionError: String?
     @FocusState private var isPromptFocused: Bool
     
     // Audio settings
@@ -656,71 +657,37 @@ struct PromptInputView: View {
 
             // Quick actions
             HStack(spacing: 12) {
-                // Generate button - changes appearance based on state
-                if showCompletedIndicator {
-                    // Completion state - green button
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark.circle.fill")
-                        Text("Complete!")
+                // The view owns submission only. A different job rendering in
+                // the background never replaces this button with a full-run
+                // spinner or prevents another immutable job being queued.
+                Button {
+                    if DependencyHealthManager.shared.canStartGeneration {
+                        requestSingleGeneration(dismissAfterSubmission: true)
+                    } else {
+                        DependencyHealthManager.shared.showSetupWizard = true
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background(.green)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                } else if generationService.currentRequest != nil {
-                    // Processing state - shows spinner (when there's an active generation)
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(.white)
-                        Text("Generating...")
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background(Color.accentColor.opacity(0.7))
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                } else {
-                    // Normal state - generate button
-                    Button {
-                        if DependencyHealthManager.shared.canStartGeneration {
-                            requestSingleGeneration()
-                        } else {
-                            DependencyHealthManager.shared.showSetupWizard = true
+                } label: {
+                    if isSubmitting {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("Submitting…")
                         }
-                    } label: {
-                        if DependencyHealthManager.shared.canStartGeneration {
+                        .frame(maxWidth: .infinity)
+                    } else if DependencyHealthManager.shared.canStartGeneration {
                             Label("Generate", systemImage: "play.fill")
                                 .frame(maxWidth: .infinity)
-                        } else {
-                            Label("Setup Required", systemImage: "exclamationmark.triangle.fill")
-                                .frame(maxWidth: .infinity)
-                        }
+                    } else {
+                        Label("Setup Required", systemImage: "exclamationmark.triangle.fill")
+                            .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(generationActionsDisabled && DependencyHealthManager.shared.canStartGeneration)
                 }
-                
-                // Track completion - only when currentRequest goes away (actual generation done)
-                Color.clear
-                    .frame(width: 0, height: 0)
-                    .onChange(of: generationService.currentRequest) { oldRequest, newRequest in
-                        // Generation completed when we had a request and now we don't
-                        if oldRequest != nil && newRequest == nil && generationService.error == nil {
-                            showCompletedIndicator = true
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                                withAnimation {
-                                    showCompletedIndicator = false
-                                }
-                            }
-                        }
-                    }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(isSubmitting || (generationActionsDisabled && DependencyHealthManager.shared.canStartGeneration))
                 
                 // Add to queue button
                 Button {
-                    requestSingleGeneration()
+                    requestSingleGeneration(dismissAfterSubmission: false)
                 } label: {
                     Label("Add to Queue", systemImage: "plus.circle")
                 }
@@ -755,6 +722,12 @@ struct PromptInputView: View {
                 .disabled(generationActionsDisabled)
             }
 
+            if let submissionError {
+                Label(submissionError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
             if !qualityOverridesParameters && !disableAudio && parameters.fps != 24 {
                 HStack(spacing: 6) {
                     Image(systemName: "info.circle.fill")
@@ -765,18 +738,6 @@ struct PromptInputView: View {
                 }
             }
             
-            // Status
-            if generationService.isProcessing {
-                HStack(spacing: 12) {
-                    ProgressView(value: generationService.progress)
-                        .progressViewStyle(.linear)
-                    
-                    Text(generationService.statusMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
         }
         .padding()
         .sheet(isPresented: $showEnhancedPreview) {
@@ -860,18 +821,19 @@ struct PromptInputView: View {
         await MainActor.run { isPreviewing = false }
     }
     
-    private func generateVideo() {
-        // Goes through the global queue so it can never render alongside a
-        // movie that is already running. An idle queue starts it immediately,
-        // so "Generate" still feels immediate.
+    private func generateVideo(dismissAfterSubmission: Bool) {
+        submissionError = nil
+        isSubmitting = true
+        defer { isSubmitting = false }
         let request = makeGenerationRequest(parameters: parameters)
-        var snapshot = ProductionJobSnapshot()
-        snapshot.prompt = request.prompt
-        snapshot.pendingRequests = [request]
-        snapshot.batchCount = 1
-        snapshot.seed = request.parameters.seed
-        ProductionQueueService.shared.enqueue(ProductionJob(
-            kind: .generate, title: shortTitle(request.prompt), snapshot: snapshot))
+        do {
+            let job = try DirectGenerationSubmission.makeJob(
+                request: request, title: shortTitle(request.prompt))
+            ProductionQueueService.shared.enqueue(job)
+            if dismissAfterSubmission { onPrimarySubmissionQueued() }
+        } catch {
+            submissionError = error.localizedDescription
+        }
     }
 
     /// A compact label for the queue row; the full prompt lives in the request.
@@ -952,17 +914,17 @@ struct PromptInputView: View {
         showMusic = musicEnabled
     }
 
-    private func requestSingleGeneration() {
+    private func requestSingleGeneration(dismissAfterSubmission: Bool) {
         if !DependencyHealthManager.shared.canStartGeneration {
             DependencyHealthManager.shared.showSetupWizard = true
             return
         }
         if isHighMemoryRisk {
-            pendingQueueAction = .single
+            pendingQueueAction = .single(dismissAfterSubmission: dismissAfterSubmission)
             showMemoryRiskAlert = true
             return
         }
-        generateVideo()
+        generateVideo(dismissAfterSubmission: dismissAfterSubmission)
     }
     
     private func generateBatch(count: Int) {
@@ -1010,8 +972,8 @@ struct PromptInputView: View {
         guard let action = pendingQueueAction else { return }
         pendingQueueAction = nil
         switch action {
-        case .single:
-            generateVideo()
+        case .single(let dismissAfterSubmission):
+            generateVideo(dismissAfterSubmission: dismissAfterSubmission)
         case .batch(let count):
             generateBatch(count: count)
         }
@@ -1069,7 +1031,7 @@ struct PromptInputView: View {
 }
 
 private enum PendingQueueAction {
-    case single
+    case single(dismissAfterSubmission: Bool)
     case batch(Int)
 }
 
@@ -1168,7 +1130,6 @@ private struct EnhancedPreviewSheet: View {
         voiceoverText: .constant(""),
         parameters: .constant(.default)
     )
-    .environmentObject(GenerationService(historyManager: HistoryManager()))
     .environmentObject(PresetManager())
     .environmentObject(CharacterProfileManager())
     .frame(width: 500)

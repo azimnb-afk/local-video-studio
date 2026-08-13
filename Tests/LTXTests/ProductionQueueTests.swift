@@ -68,6 +68,147 @@ func runProductionQueueTests(_ t: TestKit) {
                 "no blocker → submittable")
     }
 
+    t.suite("Direct Generate — submit-and-dismiss queue boundary") {
+        let imageURL = tmpRoot.appendingPathComponent("direct-generate-source.png")
+        try? Data([0x89, 0x50, 0x4E, 0x47]).write(to: imageURL)
+
+        func request(
+            prompt: String = "Prompt A",
+            model: String = LTXModelCatalog.defaultModelID,
+            seed: Int = 1,
+            image: String? = nil
+        ) -> GenerationRequest {
+            var parameters = GenerationParameters.default
+            parameters.seed = seed
+            return GenerationRequest(
+                prompt: prompt,
+                negativePrompt: "no artifacts",
+                voiceoverText: "narration",
+                sourceImagePath: image,
+                musicEnabled: true,
+                musicGenre: "cinematicUplifting",
+                disableAudio: false,
+                modelId: model,
+                textEncoderId: "gemma3_12b_4bit",
+                parameters: parameters,
+                qualityMode: QualityMode.advanced.rawValue,
+                preset: GenerationPreset.custom.rawValue,
+                targetDurationSeconds: 5,
+                generationSource: "generate"
+            )
+        }
+
+        // A/C. The submission boundary creates one fully formed immutable job.
+        var mutablePrompt = "Prompt A"
+        var mutableModel = LTXModelCatalog.defaultModelID
+        var mutableSeed = 1
+        let submitted = try? DirectGenerationSubmission.makeJob(request: request(
+            prompt: mutablePrompt, model: mutableModel, seed: mutableSeed,
+            image: imageURL.path))
+        mutablePrompt = "Prompt B"
+        mutableModel = LTX2MLXModelCatalog.tenEros13DMDQ4.id
+        mutableSeed = 2
+
+        t.checkEqual(submitted?.kind, .generate,
+                     "A: Direct Generate produces the existing Generate job kind")
+        t.checkEqual(submitted?.snapshot.pendingRequests.count, 1,
+                     "A: one click freezes exactly one request")
+        let frozen = submitted?.snapshot.pendingRequests.first
+        t.checkEqual(frozen?.prompt, "Prompt A", "C: later prompt edits cannot change Job A")
+        t.checkEqual(frozen?.modelId, LTXModelCatalog.defaultModelID,
+                     "C: later model edits cannot change Job A")
+        t.checkEqual(frozen?.parameters.seed, 1, "C: later seed edits cannot change Job A")
+        t.checkEqual(frozen?.negativePrompt, "no artifacts", "snapshot keeps negative prompt")
+        t.checkEqual(frozen?.textEncoderId, "gemma3_12b_4bit", "snapshot keeps text encoder")
+        t.checkEqual(frozen?.preset, GenerationPreset.custom.rawValue, "snapshot keeps preset")
+        t.checkEqual(frozen?.targetDurationSeconds, 5, "snapshot keeps target duration")
+        t.checkEqual(submitted?.snapshot.settings, frozen?.parameters,
+                     "snapshot metadata and executable request use the same settings")
+
+        // B/E. Rendering activity is deliberately not an input to submission,
+        // and ending the view's local lifetime cannot cancel queue-owned work.
+        let coordinator = ProductionQueueCoordinator(
+            store: makeStore("direct-submit-lifetime"), restoreOnInit: false)
+        let spy = RunnerSpy()
+        coordinator.runner = { spy.run($0) }
+        let running = coordinator.enqueue(job(.autoMovie, "Already rendering"))
+        let queued = coordinator.enqueue(submitted!)
+        t.check(GenerationSubmissionPolicy.canSubmit(prompt: "Prompt A"),
+                "B: a global render in flight does not disable Direct Generate")
+        t.checkEqual(coordinator.job(id: running.id)?.state, .running,
+                     "B: existing render remains the owner of the active slot")
+        t.checkEqual(coordinator.job(id: queued.id)?.state, .waiting,
+                     "E: submitted job remains queued after submission UI ends")
+
+        // F. Local validation fails before any job can be enqueued.
+        do {
+            _ = try DirectGenerationSubmission.makeJob(request: request(prompt: "  \n "))
+            t.check(false, "F: whitespace prompt should fail validation")
+        } catch let error as DirectGenerationSubmission.SubmissionError {
+            t.checkEqual(error, .emptyPrompt, "F: empty prompt has a concise local error")
+        } catch {
+            t.check(false, "F: unexpected validation error \(error)")
+        }
+        do {
+            _ = try DirectGenerationSubmission.makeJob(request: request(
+                image: tmpRoot.appendingPathComponent("missing.png").path))
+            t.check(false, "I: missing source image should fail before enqueue")
+        } catch let error as DirectGenerationSubmission.SubmissionError {
+            if case .sourceImageUnavailable = error {
+                t.check(true, "I: missing source image is distinguished")
+            } else {
+                t.check(false, "I: wrong source validation error")
+            }
+        } catch {
+            t.check(false, "I: unexpected source validation error \(error)")
+        }
+        t.check(FileManager.default.isReadableFile(atPath: imageURL.path),
+                "I: ending submission does not remove a queued I2V source image")
+
+        // J. Model/backend provenance stays attached to each request.
+        let ltx = try? DirectGenerationSubmission.makeJob(request: request(
+            prompt: "LTX", model: LTXModelCatalog.defaultModelID, seed: 10))
+        let eros = try? DirectGenerationSubmission.makeJob(request: request(
+            prompt: "10Eros", model: LTX2MLXModelCatalog.tenEros13DMDQ4.id, seed: 20))
+        t.checkEqual(GenerationModelResolver.backend(
+            for: ltx?.snapshot.pendingRequests.first?.modelId), .mlxVideoWithAudio,
+            "J: queued LTX request remains on mlx-video-with-audio")
+        t.checkEqual(GenerationModelResolver.backend(
+            for: eros?.snapshot.pendingRequests.first?.modelId), .ltx2MLX,
+            "J: queued 10Eros request remains on ltx-2-mlx")
+
+        // K. The new fully populated snapshot uses the existing Codable model.
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        let roundTrip = submitted.flatMap { try? encoder.encode($0) }
+            .flatMap { try? decoder.decode(ProductionJob.self, from: $0) }
+        t.checkEqual(roundTrip?.snapshot, submitted?.snapshot,
+                     "K: Direct Generate snapshot survives persistence")
+
+        // G/H. Direct jobs use the already accepted terminal projection:
+        // successful and failed records both leave the active list, while the
+        // persisted record keeps output/failure provenance.
+        let terminal = ProductionQueueCoordinator(
+            store: makeStore("direct-terminal"), restoreOnInit: false)
+        let terminalSpy = RunnerSpy()
+        terminal.runner = { terminalSpy.run($0) }
+        let success = terminal.enqueue(submitted!)
+        terminalSpy.finishOne()
+        terminal.markCompleted(jobID: success.id, outputPath: "/tmp/direct.mp4")
+        t.check(!terminal.activeDisplayJobs.contains { $0.id == success.id },
+                "G: completed Direct Generate leaves the active list")
+        t.checkEqual(terminal.job(id: success.id)?.outputPath, "/tmp/direct.mp4",
+                     "G: completed output provenance remains persisted")
+        let failed = terminal.enqueue(try! DirectGenerationSubmission.makeJob(
+            request: request(prompt: "Fails later")))
+        terminalSpy.finishOne()
+        terminal.markFailed(jobID: failed.id, reason: "backend failed")
+        t.check(!terminal.activeDisplayJobs.contains { $0.id == failed.id },
+                "H: failed Direct Generate follows terminal active-list semantics")
+        t.checkEqual(terminal.job(id: failed.id)?.failureReason, "backend failed",
+                     "H: post-enqueue failure remains on the persisted job")
+    }
+
     t.suite("Queue submission — One Shot queues behind an active Auto Movie") {
         let coordinator = ProductionQueueCoordinator(store: makeStore("oneshot-behind"), restoreOnInit: false)
         let spy = RunnerSpy()

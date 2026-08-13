@@ -23,6 +23,80 @@ enum GenerationSubmissionPolicy {
     }
 }
 
+/// Builds the immutable queue boundary for the direct Generate workflow.
+///
+/// The Generate view owns only validation and submission. Once this returns a
+/// job, the Production Queue owns its complete render lifetime. The fully
+/// formed request is stored verbatim so later edits to prompt, model, seed or
+/// source image selection cannot change a waiting job.
+enum DirectGenerationSubmission {
+    enum SubmissionError: LocalizedError, Equatable {
+        case emptyPrompt
+        case sourceImageUnavailable(String)
+        case unsupportedModel(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .emptyPrompt:
+                return "Enter a prompt before generating."
+            case .sourceImageUnavailable:
+                return "The selected starting image is missing or unreadable. Choose it again."
+            case .unsupportedModel(let message):
+                return message
+            }
+        }
+    }
+
+    static func makeJob(
+        request: GenerationRequest,
+        title: String? = nil,
+        fileManager: FileManager = .default
+    ) throws -> ProductionJob {
+        guard GenerationSubmissionPolicy.canSubmit(prompt: request.prompt) else {
+            throw SubmissionError.emptyPrompt
+        }
+        if let path = request.sourceImagePath?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !path.isEmpty,
+           !fileManager.isReadableFile(atPath: path) {
+            throw SubmissionError.sourceImageUnavailable(path)
+        }
+        if case .unsupported(let reason) = GenerationModelResolver.resolve(modelID: request.modelId) {
+            throw SubmissionError.unsupportedModel(reason.userMessage)
+        }
+
+        // This is the concrete submission-time snapshot shown in preflight and
+        // handed to the renderer. GenerationService may still apply its normal
+        // execution-time memory fallback; that behavior is intentionally
+        // unchanged.
+        let frozenRequest = FeatureFlags.isEnabled(.autoQualityV1)
+            ? GenerationSettingsResolver.resolveForPreflight(request: request).request
+            : request
+        var snapshot = ProductionJobSnapshot()
+        snapshot.prompt = frozenRequest.prompt
+        snapshot.settings = frozenRequest.parameters
+        snapshot.modelID = frozenRequest.modelId
+        snapshot.textEncoderID = frozenRequest.textEncoderId
+        snapshot.preset = frozenRequest.preset
+        snapshot.qualityMode = frozenRequest.qualityMode
+        snapshot.audioEnabled = !frozenRequest.disableAudio
+        snapshot.targetDurationSeconds = frozenRequest.targetDurationSeconds
+        snapshot.seed = frozenRequest.parameters.seed
+        snapshot.batchCount = 1
+        snapshot.pendingRequests = [frozenRequest]
+
+        return ProductionJob(
+            kind: .generate,
+            title: title ?? shortTitle(frozenRequest.prompt),
+            snapshot: snapshot
+        )
+    }
+
+    private static func shortTitle(_ prompt: String) -> String {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.count > 60 ? String(trimmed.prefix(60)) + "…" : trimmed
+    }
+}
+
 /// Binds the global production queue to the app: owns the coordinator, starts
 /// each job through the mode it belongs to, and watches for the job finishing.
 ///
@@ -146,6 +220,10 @@ final class ProductionQueueService: ObservableObject {
         case .generate, .oneShot:
             let requests = job.snapshot.pendingRequests
             guard !requests.isEmpty else { return .failed("Nothing to render for this job") }
+            // A previous terminal job's global error must not be attributed to
+            // this immutable job. Any new backend failure is then owned and
+            // persisted by this job when the renderer drains.
+            generationService.clearError()
             isAwaitingCompletion = true
             coordinator.updateProgress(
                 jobID: job.id, current: 0, total: requests.count,
@@ -202,9 +280,15 @@ final class ProductionQueueService: ObservableObject {
         switch job.kind {
         case .generate, .oneShot:
             // Every request was enqueued together, so an empty renderer really
-            // does mean this job is done.
+            // does mean this job is terminal. Preserve backend failure as a
+            // failed ProductionJob instead of reporting a missing video as a
+            // successful queue completion.
             isAwaitingCompletion = false
-            coordinator.markCompleted(jobID: job.id)
+            if let error = generationService.error {
+                coordinator.markFailed(jobID: job.id, reason: error.localizedDescription)
+            } else {
+                coordinator.markCompleted(jobID: job.id)
+            }
 
         case .storyboard, .autoMovie:
             guard let projectID = job.snapshot.projectID,

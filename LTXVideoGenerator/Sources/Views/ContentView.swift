@@ -10,13 +10,24 @@ struct ContentView: View {
     @AppStorage(SessionSettings.promptKey) private var prompt = ""
     @AppStorage(SessionSettings.negativePromptKey) private var negativePrompt = ""
     @AppStorage(SessionSettings.voiceoverTextKey) private var voiceoverText = ""
-    @AppStorage(SessionSettings.selectedTabKey) private var selectedTab: Tab = .generate
+    /// Runtime navigation belongs to SwiftUI state. UserDefaults supplies only
+    /// the initial route and persistence; binding selection directly through
+    /// `@AppStorage` lets a `-session.selectedTab ...` launch argument (the
+    /// highest-priority NSArgumentDomain) overwrite every sidebar click for the
+    /// lifetime of the process.
+    @State private var navigation: SidebarNavigationState
 
     // GenerationParameters is a struct, so we persist it as JSON via UserDefaults
     // and bridge through a `@State` binding the children already expect.
     @State private var parameters: GenerationParameters = SessionSettings.loadParameters()
     @AppStorage("generationPreset") private var generationPresetRaw = GenerationPreset.standard.rawValue
     @State private var showError = false
+
+    init() {
+        _navigation = State(initialValue: SidebarNavigationState(
+            persistedRawValue: UserDefaults.standard.string(forKey: SessionSettings.selectedTabKey)
+        ))
+    }
 
     enum Tab: String, CaseIterable {
         case generate = "Generate"
@@ -101,6 +112,9 @@ struct ContentView: View {
             SessionSettings.saveParameters(newValue)
             generationPresetRaw = GenerationPreset.custom.rawValue
         }
+        .onChange(of: navigation.selection) { _, destination in
+            UserDefaults.standard.set(destination.rawValue, forKey: SessionSettings.selectedTabKey)
+        }
     }
     
     @ObservedObject private var productionQueue = ProductionQueueService.shared
@@ -146,10 +160,10 @@ struct ContentView: View {
                     title: tab.rawValue,
                     subtitle: tab.subtitle,
                     icon: tab.icon,
-                    isSelected: selectedTab == tab,
+                    isSelected: navigation.selection == tab,
                     badge: tab == .generate ? generationService.queue.count : nil
                 ) {
-                    selectedTab = tab
+                    navigation.select(tab)
                 }
             }
         }
@@ -158,14 +172,14 @@ struct ContentView: View {
     
     @ViewBuilder
     private var detailContent: some View {
-        switch selectedTab {
+        switch navigation.selection {
         case .generate:
             GenerateView(
                 prompt: $prompt,
                 negativePrompt: $negativePrompt,
                 voiceoverText: $voiceoverText,
                 parameters: $parameters,
-                onSubmissionQueued: { selectedTab = .history }
+                onSubmissionQueued: { navigation.didQueueDirectGeneration() }
             )
         case .oneShot:
             OneShotView(parameters: $parameters)
@@ -176,6 +190,26 @@ struct ContentView: View {
         case .history:
             HistoryView()
         }
+    }
+}
+
+/// Small value state for sidebar routing. Queue/render activity is
+/// intentionally absent: background production never gates navigation.
+struct SidebarNavigationState: Equatable {
+    private(set) var selection: ContentView.Tab
+
+    init(persistedRawValue: String?) {
+        selection = ContentView.Tab(rawValue: persistedRawValue ?? "") ?? .generate
+    }
+
+    mutating func select(_ destination: ContentView.Tab) {
+        selection = destination
+    }
+
+    /// Auto-navigation after a successful Direct Generate enqueue is a single
+    /// mutation, not a persistent policy. The next user selection always wins.
+    mutating func didQueueDirectGeneration() {
+        selection = .history
     }
 }
 

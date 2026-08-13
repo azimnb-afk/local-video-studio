@@ -37,12 +37,12 @@ The Gemma Terms of Use permit commercial use, but require passing the same terms
 
 ## Lab / derived models (not part of the default install)
 
-The app's model registry also defines two additional "10Eros" MLX video-model repositories under `MLXBits`. They are **not** part of the default, official catalog: they are hidden unless a disabled-by-default feature flag is turned on *and* an explicit, off-by-default "Adult Content Mode" preference is enabled by the user. This project does not promote, recommend, or claim compatibility for these models — the app's own registry marks their runtime compatibility as `unverified`.
+The app's model registry also defines two additional "10Eros" MLX video-model repositories under `MLXBits`. They are **not** part of the default, official catalog: they are hidden unless a disabled-by-default feature flag is turned on *and* an explicit, off-by-default "Adult Content Mode" preference is enabled by the user. This project does not promote, recommend, or claim compatibility for these models — the v1.2 Q8 repository's runtime compatibility remains unverified. The v1.3 DMD Q4 repository is the one variant this project has actually exercised, and only on the separate `ltx-2-mlx` backend — see [docs/generation-backends.md](docs/generation-backends.md).
 
 | Model | Repository | Declared license | Notes |
 |:---|:---|:---|:---|
 | 10Eros v1.2 MLX Q8 | `MLXBits/ltx-2.3-10eros-v1.2-mlx-q8` | Hugging Face license tag: `ltx-2-license`. The repository is marked "Not-For-All-Audiences" by Hugging Face's own content classification. **Needs external verification** — read the model card and the referenced license directly before enabling this path. | Gated behind Adult Content Mode + a disabled-by-default feature flag; app registry marks compatibility as unverified |
-| 10Eros v1.3 DMD Q4 | `MLXBits/ltx-2.3-10eros-v1.3-dmd-mlx-q4` | Same as above | Same gating and caveats as above |
+| 10Eros v1.3 DMD Q4 | `MLXBits/ltx-2.3-10eros-v1.3-dmd-mlx-q4` | Model card declares `license: other`, `license_name: ltx-2-license`, linking to `Lightricks/LTX-2.3`'s `LICENSE.txt`; tagged "not-for-all-audiences". Its stated base model is `TenStrip/LTX2.3-10Eros`. **Needs external verification** — the license chain runs through a third-party finetune of an upstream licensed model, and nobody on this project has resolved whether that chain is valid | Runs on the `ltx-2-mlx` backend, not the default one. Same gating as above (Adult Content Mode + disabled-by-default feature flag). Weights are never downloaded implicitly — the ~23 GB download is an explicit user action |
 
 This project takes no position on the content or licensing of these two repositories beyond what is stated above; they are documented here only because the app's source code references them, in the interest of not hiding anything from an auditor of this repository.
 

@@ -41,9 +41,15 @@ enum GenerationModelResolver {
         }
     }
 
+    /// A model plus the runtime that will actually execute it.
+    struct RunnableModel: Equatable {
+        let model: LTXModel
+        let backend: GenerationBackendKind
+    }
+
     enum Resolution: Equatable {
-        /// A model the installed MLX backend is known to run.
-        case runnable(LTXModel)
+        /// A model an installed backend is known to run.
+        case runnable(RunnableModel)
         case unsupported(UnsupportedReason)
     }
 
@@ -53,10 +59,14 @@ enum GenerationModelResolver {
         guard let modelID, !modelID.isEmpty else {
             // No selection at all keeps the historical default, which is what
             // every project written before model selection existed expects.
-            return .runnable(LTXModelCatalog.defaultModel)
+            return .runnable(RunnableModel(model: LTXModelCatalog.defaultModel,
+                                           backend: .mlxVideoWithAudio))
         }
         if let runnable = LTXModelCatalog.model(id: modelID) {
-            return .runnable(runnable)
+            return .runnable(RunnableModel(model: runnable, backend: .mlxVideoWithAudio))
+        }
+        if let runnable = LTX2MLXModelCatalog.model(id: modelID) {
+            return .runnable(RunnableModel(model: runnable, backend: .ltx2MLX))
         }
         if let descriptor = registry.descriptor(id: modelID) {
             return .unsupported(.notRunnableOnInstalledBackend(
@@ -73,5 +83,16 @@ enum GenerationModelResolver {
     static func isRunnable(modelID: String?, registry: ModelRegistry = .shared) -> Bool {
         if case .runnable = resolve(modelID: modelID, registry: registry) { return true }
         return false
+    }
+
+    /// The runtime a model routes to, or nil when it cannot be generated with.
+    /// Never guesses: an unrunnable model has no backend rather than the
+    /// default one, which is what keeps a failed 10Eros request from being
+    /// quietly served by the LTX-2.3 backend.
+    static func backend(for modelID: String?, registry: ModelRegistry = .shared) -> GenerationBackendKind? {
+        if case .runnable(let runnable) = resolve(modelID: modelID, registry: registry) {
+            return runnable.backend
+        }
+        return nil
     }
 }

@@ -679,5 +679,6 @@ runDependencyHealthTests(t)
 runHuggingFaceCacheCheckerTests(t)
 runFinalAudioTests(t)
 runTextEncoderDownloadTests(t)
+runLTX2MLXBackendTests(t)
 
 t.finish()

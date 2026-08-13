@@ -201,9 +201,12 @@ final class ModelRegistry {
     /// Compatibility-lab (derived) models. verified=false until the Phase 2
     /// verification gate passes at runtime on this backend. Never auto-downloaded.
     private func seedLabModels() {
+        // Shared by both 10Eros variants, so the URL must be the license both
+        // model cards actually point at — not one variant's repo page, which
+        // would show the wrong source next to the other variant.
         let tenErosLicense = ModelLicenseMetadata(
-            name: "ltx-2-license (per MLXBits metadata) — verify before production",
-            url: "https://huggingface.co/MLXBits/ltx-2.3-10eros-v1.2-mlx-q8",
+            name: "ltx-2-license (declared by the MLXBits model cards) — verify before production",
+            url: "https://huggingface.co/Lightricks/LTX-2.3/blob/main/LICENSE.txt",
             requiresAcknowledgement: true
         )
         descriptors["10eros_v12_q8"] = ModelDescriptor(
@@ -223,7 +226,7 @@ final class ModelRegistry {
                 backend: "mlx-video-with-audio",
                 minimumBackendVersion: nil,
                 verified: false,
-                verificationNotes: "Measured against mlx-video-with-audio 0.1.36: the transformer ships as transformer-distilled.safetensors while the loader resolves transformer.safetensors, and the weights carry 576 gated-attention tensors the installed LTX model does not define plus a different quantization group size (32 vs 64) that split_model.json does not declare. Not runnable on this backend."
+                verificationNotes: "Not runnable on mlx-video-with-audio 0.1.36 (transformer filename, gated-attention tensors and quantization group size all differ from what that loader expects). This variant has not been exercised on the ltx-2-mlx backend, so it stays unverified."
             ),
             policy: PolicyMetadata(
                 contentClassification: .adultVerified,
@@ -233,9 +236,9 @@ final class ModelRegistry {
         )
         descriptors["10eros_v13_dmd_q4"] = ModelDescriptor(
             id: "10eros_v13_dmd_q4",
-            displayName: "10Eros v1.3 DMD MLX Q4 (Lab — unverified)",
+            displayName: "10Eros v1.3 DMD MLX Q4",
             repository: "MLXBits/ltx-2.3-10eros-v1.3-dmd-mlx-q4",
-            revision: nil,
+            revision: "818bb3e4086e8f0cef32268e1724de2d031ebbf7",
             localPath: nil,
             quantization: "q4",
             precision: nil,
@@ -245,10 +248,12 @@ final class ModelRegistry {
             architecture: ArchitectureDescriptor(modelFamily: "LTX", modelVersion: "2.3", modelType: "unified-av"),
             capabilities: CapabilitySet(textToVideo: true, imageToVideo: true, synchronizedAudio: true),
             runtime: RuntimeCompatibility(
-                backend: "mlx-video-with-audio",
-                minimumBackendVersion: nil,
+                backend: "ltx-2-mlx",
+                minimumBackendVersion: "0.14.19",
+                // Never set true here: RuntimeCompatibility.verified is promoted
+                // from recorded Compatibility Lab check results at runtime.
                 verified: false,
-                verificationNotes: "Measured against mlx-video-with-audio 0.1.36: the transformer ships as transformer-distilled.safetensors while the loader resolves transformer.safetensors, and the weights carry 576 gated-attention tensors the installed LTX model does not define plus a different quantization group size (32 vs 64) that split_model.json does not declare. Not runnable on this backend."
+                verificationNotes: "Runs on ltx-2-mlx 0.14.19 (Apple M4 Pro, 48 GB): transformer-distilled.safetensors loaded, distilled two-stage pipeline, 512x256x73 @ 24fps with a synchronized audio track. Not runnable on mlx-video-with-audio 0.1.36 — that loader resolves transformer.safetensors, lacks the gated-attention tensors this model carries, and defaults the quantization group size to 64 where this model uses 32."
             ),
             policy: PolicyMetadata(
                 contentClassification: .adultVerified,

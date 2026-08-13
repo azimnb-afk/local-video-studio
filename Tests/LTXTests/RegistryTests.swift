@@ -15,7 +15,18 @@ func runRegistryTests(_ t: TestKit) {
             t.check(registry.descriptor(id: legacy.id)?.runtime.verified == true, "official \(legacy.id) verified")
         }
         t.check(registry.descriptor(id: "10eros_v12_q8")?.runtime.verified == false, "10eros v1.2 lab model unverified")
-        t.check(registry.descriptor(id: "10eros_v13_dmd_q4")?.runtime.verified == false, "10eros v1.3 lab model unverified")
+        // Derived models ship unverified: RuntimeCompatibility.verified is
+        // promoted from recorded Compatibility Lab results at runtime, never
+        // asserted statically. The descriptor must still name the backend it
+        // was measured against, and pin the revision it was measured on.
+        t.check(registry.descriptor(id: "10eros_v13_dmd_q4")?.runtime.verified == false,
+                "10eros v1.3 ships unverified; the lab promotes it")
+        t.check(registry.descriptor(id: "10eros_v13_dmd_q4")?.revision != nil,
+                "10eros v1.3 pins the revision it was measured on")
+        t.checkEqual(registry.descriptor(id: "10eros_v13_dmd_q4")?.runtime.backend, "ltx-2-mlx",
+                     "10eros v1.3 verified against ltx-2-mlx")
+        t.checkEqual(registry.descriptor(id: "10eros_v12_q8")?.runtime.backend, "mlx-video-with-audio",
+                     "10eros v1.2 was only ever measured against the original backend")
         t.check(registry.descriptor(id: "10eros_v12_q8")?.policy.contentClassification == .adultVerified, "10eros classified adultVerified")
     }
 
@@ -59,76 +70,83 @@ func runRegistryTests(_ t: TestKit) {
         }
     }
 
-    t.suite("Generation model resolution / no silent fallback") {
+    t.suite("Generation model resolution / backend routing") {
         let registry = ModelRegistry(userDefaults: defaults)
 
-        // Official models resolve to themselves.
+        // 1. Official models resolve to themselves on the original backend.
         for official in LTXModelCatalog.all {
             switch GenerationModelResolver.resolve(modelID: official.id, registry: registry) {
-            case .runnable(let model):
-                t.checkEqual(model.id, official.id, "official \(official.id) resolves to itself")
+            case .runnable(let runnable):
+                t.checkEqual(runnable.model.id, official.id, "official \(official.id) resolves to itself")
+                t.checkEqual(runnable.backend, .mlxVideoWithAudio,
+                             "official \(official.id) stays on mlx-video-with-audio")
             case .unsupported:
                 t.check(false, "official \(official.id) must be runnable")
             }
         }
 
-        // No selection keeps the historical default for pre-selection projects.
-        switch GenerationModelResolver.resolve(modelID: nil, registry: registry) {
-        case .runnable(let model):
-            t.checkEqual(model.id, LTXModelCatalog.defaultModel.id, "nil model ID → default")
+        // 2. 10Eros resolves to itself on the ltx-2-mlx backend.
+        switch GenerationModelResolver.resolve(modelID: "10eros_v13_dmd_q4", registry: registry) {
+        case .runnable(let runnable):
+            t.checkEqual(runnable.model.id, "10eros_v13_dmd_q4", "10Eros resolves to itself")
+            t.checkEqual(runnable.model.repo, "MLXBits/ltx-2.3-10eros-v1.3-dmd-mlx-q4", "10Eros repo")
+            t.checkEqual(runnable.backend, .ltx2MLX, "10Eros routes to ltx-2-mlx")
         case .unsupported:
-            t.check(false, "nil model ID must stay runnable")
-        }
-        t.check(GenerationModelResolver.isRunnable(modelID: "", registry: registry),
-                "empty model ID → default, still runnable")
-
-        // The regression this boundary exists for: a model the pickers can
-        // offer, that the backend cannot run, must NOT resolve to a different
-        // checkpoint. Before the fix these returned LTX-2.3 Distilled Q4.
-        for labID in ["10eros_v12_q8", "10eros_v13_dmd_q4"] {
-            t.check(registry.descriptor(id: labID) != nil, "\(labID) is a registered model")
-            switch GenerationModelResolver.resolve(modelID: labID, registry: registry) {
-            case .runnable(let model):
-                t.check(false, "\(labID) must not silently resolve to \(model.id)")
-            case .unsupported(let reason):
-                guard case .notRunnableOnInstalledBackend(_, _, let detail) = reason else {
-                    t.check(false, "\(labID) should report a backend reason"); break
-                }
-                t.check(!detail.isEmpty, "\(labID) carries a concrete reason")
-                t.check(reason.userMessage.contains("cannot be generated"),
-                        "\(labID) message states it cannot generate")
-            }
-            t.check(!GenerationModelResolver.isRunnable(modelID: labID, registry: registry),
-                    "\(labID) is not runnable")
+            t.check(false, "10Eros must be runnable")
         }
 
-        // A completely unknown ID also fails loudly rather than substituting.
+        // 3. Unknown model fails loudly.
         switch GenerationModelResolver.resolve(modelID: "no_such_model", registry: registry) {
-        case .runnable(let model):
-            t.check(false, "unknown ID must not resolve to \(model.id)")
+        case .runnable(let runnable):
+            t.check(false, "unknown ID must not resolve to \(runnable.model.id)")
         case .unsupported(let reason):
             t.checkEqual(reason, .unknownModel(modelID: "no_such_model"), "unknown ID reported as unknown")
         }
+        t.checkEqual(GenerationModelResolver.backend(for: "no_such_model", registry: registry), nil,
+                     "unknown ID has no backend — never the default one")
 
-        // Gating is independent of runnability: a model being hidden must not
-        // change how a stored selection resolves.
-        FeatureFlags.disableAll(userDefaults: defaults)
-        t.check(!GenerationModelResolver.isRunnable(modelID: "10eros_v13_dmd_q4", registry: registry),
-                "not runnable with flags off")
-        FeatureFlags.set(.derivedModelsV1, enabled: true, userDefaults: defaults)
-        FeatureFlags.set(.adultModelsV1, enabled: true, userDefaults: defaults)
-        t.check(!GenerationModelResolver.isRunnable(modelID: "10eros_v13_dmd_q4", registry: registry),
-                "still not runnable with flags on — visibility is not capability")
-        FeatureFlags.disableAll(userDefaults: defaults)
+        // 4. Registered but unrunnable model fails with its recorded reason.
+        switch GenerationModelResolver.resolve(modelID: "10eros_v12_q8", registry: registry) {
+        case .runnable(let runnable):
+            t.check(false, "unrunnable lab model must not resolve to \(runnable.model.id)")
+        case .unsupported(let reason):
+            guard case .notRunnableOnInstalledBackend(_, _, let detail) = reason else {
+                t.check(false, "should report a backend reason"); break
+            }
+            t.check(!detail.isEmpty, "unrunnable model carries a concrete reason")
+        }
+        t.checkEqual(GenerationModelResolver.backend(for: "10eros_v12_q8", registry: registry), nil,
+                     "unrunnable model has no backend")
 
-        // Every model the pickers can offer must resolve to itself or fail
-        // loudly. This is the invariant that broke: it guards future additions.
+        // 5. nil / legacy selection keeps the existing LTX-2.3 default.
+        for legacy in [nil, ""] as [String?] {
+            switch GenerationModelResolver.resolve(modelID: legacy, registry: registry) {
+            case .runnable(let runnable):
+                t.checkEqual(runnable.model.id, LTXModelCatalog.defaultModel.id, "legacy selection → default")
+                t.checkEqual(runnable.backend, .mlxVideoWithAudio, "legacy selection → original backend")
+            case .unsupported:
+                t.check(false, "legacy selection must stay runnable")
+            }
+        }
+
+        // 6. 10Eros never resolves to an LTX-2.3 checkpoint. This is the
+        // invariant the earlier silent-fallback bug violated.
+        for id in ["10eros_v13_dmd_q4", "10eros_v12_q8"] {
+            if case .runnable(let runnable) = GenerationModelResolver.resolve(modelID: id, registry: registry) {
+                t.check(!LTXModelCatalog.all.contains { $0.id == runnable.model.id },
+                        "\(id) must never resolve to an official LTX model")
+                t.check(runnable.backend != .mlxVideoWithAudio,
+                        "\(id) must never route to the LTX-2.3 backend")
+            }
+        }
+
+        // Every offered model resolves to itself or fails loudly.
         FeatureFlags.set(.derivedModelsV1, enabled: true, userDefaults: defaults)
         FeatureFlags.set(.adultModelsV1, enabled: true, userDefaults: defaults)
         for offered in registry.selectableModels(adultMode: true) {
             switch GenerationModelResolver.resolve(modelID: offered.id, registry: registry) {
-            case .runnable(let model):
-                t.checkEqual(model.id, offered.id, "offered \(offered.id) resolves to itself")
+            case .runnable(let runnable):
+                t.checkEqual(runnable.model.id, offered.id, "offered \(offered.id) resolves to itself")
             case .unsupported(let reason):
                 t.check(!reason.userMessage.isEmpty, "offered \(offered.id) explains why not")
             }

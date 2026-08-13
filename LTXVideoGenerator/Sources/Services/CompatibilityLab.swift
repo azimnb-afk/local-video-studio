@@ -125,3 +125,26 @@ final class CompatibilityLab {
         try? data.write(to: storeURL, options: .atomic)
     }
 }
+
+extension CompatibilityLab {
+    /// Records the user's explicit acceptance of a model's declared license.
+    ///
+    /// `licenseVerified` is the one gate check that is not a runtime
+    /// measurement: whether a license permits a given use is a decision for
+    /// whoever runs the app, not something this code can determine. Every other
+    /// check is recorded from an observed result; this one is recorded from an
+    /// explicit human action, and the note keeps what was accepted.
+    func recordLicenseAcknowledgement(for descriptor: ModelDescriptor) {
+        let license = descriptor.license
+        let source = license.url ?? "no URL declared"
+        record(.licenseVerified, .passed,
+               note: "Accepted by the user in Preferences: \"\(license.name)\" (\(source)). "
+                   + "Recorded as an acknowledgement, not as an independent legal determination.",
+               for: descriptor.id)
+    }
+
+    /// True when the user has accepted this model's license.
+    func hasLicenseAcknowledgement(for modelID: String) -> Bool {
+        report(for: modelID).checks[VerificationCheck.licenseVerified.rawValue]?.state == .passed
+    }
+}

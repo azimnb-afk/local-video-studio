@@ -102,6 +102,8 @@
 		AA00030A /* TextProtocolPlanParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00030B; };
 		AA00030C /* LocalDirectorCompatibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00030D; };
 		AA00030E /* GenerationModelResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00030F; };
+		AA000312 /* LTX2MLXBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000313; };
+		AA000310 /* GenerationBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000311; };
 		AA000304 /* FinalAudioMixer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000305; };
 		AA00022A /* FilmProjectStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00022B; };
 		AA00022C /* TakeGenerationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00022D; };
@@ -206,6 +208,8 @@
 		AA00030B /* TextProtocolPlanParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextProtocolPlanParser.swift; sourceTree = "<group>"; };
 		AA00030D /* LocalDirectorCompatibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDirectorCompatibility.swift; sourceTree = "<group>"; };
 		AA00030F /* GenerationModelResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationModelResolver.swift; sourceTree = "<group>"; };
+		AA000313 /* LTX2MLXBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LTX2MLXBackend.swift; sourceTree = "<group>"; };
+		AA000311 /* GenerationBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationBackend.swift; sourceTree = "<group>"; };
 		AA000305 /* FinalAudioMixer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalAudioMixer.swift; sourceTree = "<group>"; };
 		AA00022B /* FilmProjectStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmProjectStore.swift; sourceTree = "<group>"; };
 		AA00022D /* TakeGenerationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TakeGenerationCoordinator.swift; sourceTree = "<group>"; };
@@ -354,6 +358,8 @@
 				AA00030B /* TextProtocolPlanParser.swift */,
 				AA00030D /* LocalDirectorCompatibility.swift */,
 				AA00030F /* GenerationModelResolver.swift */,
+				AA000313 /* LTX2MLXBackend.swift */,
+				AA000311 /* GenerationBackend.swift */,
 				AA000305 /* FinalAudioMixer.swift */,
 				AA00022B /* FilmProjectStore.swift */,
 				AA000243 /* CharacterSheetAnalysis.swift */,
@@ -558,6 +564,8 @@
 				AA00030A /* TextProtocolPlanParser.swift in Sources */,
 				AA00030C /* LocalDirectorCompatibility.swift in Sources */,
 				AA00030E /* GenerationModelResolver.swift in Sources */,
+				AA000312 /* LTX2MLXBackend.swift in Sources */,
+				AA000310 /* GenerationBackend.swift in Sources */,
 				AA000304 /* FinalAudioMixer.swift in Sources */,
 				AA00022A /* FilmProjectStore.swift in Sources */,
 				AA000242 /* CharacterSheetAnalysis.swift in Sources */,

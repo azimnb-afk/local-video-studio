@@ -219,11 +219,25 @@ class LTXBridge {
         // with a different checkpoint than the user chose is worse than not
         // generating at all.
         let selectedModel: LTXModel
+        let selectedBackend: GenerationBackendKind
         switch GenerationModelResolver.resolve(modelID: request.modelId) {
-        case .runnable(let model):
-            selectedModel = model
+        case .runnable(let runnable):
+            selectedModel = runnable.model
+            selectedBackend = runnable.backend
         case .unsupported(let reason):
             throw LTXError.modelLoadFailed(reason.userMessage)
+        }
+        // Models packaged for the pure-MLX LTX-2 port run there. A failure in
+        // that backend propagates as a 10Eros failure — it must never fall
+        // through to the LTX-2.3 backend, which would return a video from a
+        // checkpoint the user did not ask for.
+        if selectedBackend == .ltx2MLX {
+            return try await LTX2MLXBackend().generate(
+                request: request,
+                model: selectedModel,
+                outputPath: outputPath,
+                progressHandler: progressHandler
+            )
         }
         let modelRepo = selectedModel.repo
         let selectedTextEncoder = LTXTextEncoderCatalog.resolvedTextEncoder(id: request.textEncoderId)

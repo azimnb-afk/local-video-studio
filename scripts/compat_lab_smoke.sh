@@ -6,6 +6,12 @@
 #
 # Usage:
 #   ./scripts/compat_lab_smoke.sh <model-repo> [t2v|i2v|audio]
+#
+# Backend: models packaged for ltx-2-mlx (10Eros) are run through that CLI
+# instead of mlx_video.generate_av. Set LTX2MLX_BIN to its executable. The
+# backend is chosen by the model repo, the same way the app routes it —
+# a smoke test that exercised a different runtime than production would
+# verify nothing.
 # Example:
 #   ./scripts/compat_lab_smoke.sh MLXBits/ltx-2.3-10eros-v1.2-mlx-q8 t2v
 #
@@ -39,9 +45,31 @@ case "$MODE" in
 esac
 [ "$MODE" = "audio" ] || ARGS+=(--no-audio)
 
-echo "=== compat lab: $REPO ($MODE) ===" | tee "$LOG"
+# Route by model, mirroring GenerationModelResolver.
+case "$REPO" in
+  *10eros*) BACKEND=ltx2mlx ;;
+  *)        BACKEND=mlxvideo ;;
+esac
+
+if [ "$BACKEND" = ltx2mlx ]; then
+  LTX2MLX_BIN="${LTX2MLX_BIN:?ltx-2-mlx executable required for this model (set LTX2MLX_BIN)}"
+  # Resolve the local snapshot: this CLI takes a directory, and offline mode
+  # means a cache miss must fail rather than pull tens of GB.
+  SNAP=$(ls -d "$HOME/.cache/huggingface/hub/models--${REPO//\//--}/snapshots/"*/ 2>/dev/null | head -1)
+  [ -n "$SNAP" ] || { echo "no local snapshot for $REPO" | tee -a "$LOG"; exit 1; }
+  ARGS=(generate --model "$SNAP" --prompt "A person walks through a doorway into a sunlit room, natural motion, cinematic."
+    --height 320 --width 512 --frames 25 --frame-rate 24 --seed 42 --distilled --output "$OUT")
+  [ "$MODE" != i2v ] || ARGS+=(--image "$IMG")
+fi
+
+echo "=== compat lab: $REPO ($MODE) via $BACKEND ===" | tee "$LOG"
 START=$(date +%s)
-if HF_HUB_OFFLINE=1 /usr/bin/time -l "$PYTHON" -m mlx_video.generate_av "${ARGS[@]}" >>"$LOG" 2>&1; then
+if [ "$BACKEND" = ltx2mlx ]; then
+  RUNNER=("$LTX2MLX_BIN")
+else
+  RUNNER=("$PYTHON" -m mlx_video.generate_av)
+fi
+if HF_HUB_OFFLINE=1 /usr/bin/time -l "${RUNNER[@]}" "${ARGS[@]}" >>"$LOG" 2>&1; then
   STATUS=passed
 else
   STATUS=failed

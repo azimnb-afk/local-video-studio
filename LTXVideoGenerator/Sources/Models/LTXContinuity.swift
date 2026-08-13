@@ -202,6 +202,10 @@ struct GenerationRuntimeDiagnostics: Codable, Equatable {
     var actualFrameCount: Int?
 
     var backendResult: GenerationBackendResultStatus
+    /// Which local runtime produced this take. Optional so takes written
+    /// before a second backend existed still decode; absent means the
+    /// original mlx-video-with-audio path.
+    var backendKind: String?
     var backendExitCode: Int?
     var failureStage: GenerationFailureStage?
     /// Bounded, single-line diagnostic suitable for project JSON. Full runner

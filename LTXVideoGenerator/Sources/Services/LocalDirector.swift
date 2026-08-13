@@ -177,6 +177,7 @@ final class LocalDirector {
             voiceoverSource: base.voiceoverSource,
             voiceoverVoice: base.voiceoverVoice,
             sourceImagePath: base.sourceImagePath,
+            presetResolutionOrientation: base.presetResolutionOrientation,
             musicEnabled: base.musicEnabled,
             musicGenre: base.musicGenre,
             disableAudio: base.disableAudio,

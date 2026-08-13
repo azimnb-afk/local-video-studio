@@ -1,4 +1,56 @@
 import Foundation
+import ImageIO
+
+/// The orientation of the image as a user sees it. `.none` is a concrete
+/// absence/unreadable result, distinct from an un-resolved request (`nil`).
+enum SourceImageOrientation: String, Codable, Equatable {
+    case portrait
+    case landscape
+    case square
+    case none
+
+    var displayName: String? {
+        switch self {
+        case .portrait: return "Portrait"
+        case .landscape: return "Landscape"
+        case .square: return "Square"
+        case .none: return nil
+        }
+    }
+}
+
+/// Lightweight ImageIO metadata inspection shared by every preset workflow.
+/// EXIF orientations 5...8 exchange the encoded axes, so a 4032x3024 JPEG
+/// displayed as portrait is classified as portrait without modifying it.
+enum SourceImageOrientationResolver {
+    static func resolve(path: String?) -> SourceImageOrientation {
+        guard let path = path?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else { return .none }
+        return resolve(url: URL(fileURLWithPath: path))
+    }
+
+    static func resolve(url: URL) -> SourceImageOrientation {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+                as? [CFString: Any],
+              let encodedWidth = number(properties[kCGImagePropertyPixelWidth]),
+              let encodedHeight = number(properties[kCGImagePropertyPixelHeight]),
+              encodedWidth > 0, encodedHeight > 0 else {
+            return .none
+        }
+        let exifOrientation = number(properties[kCGImagePropertyOrientation]) ?? 1
+        let exchangesAxes = (5...8).contains(exifOrientation)
+        let visualWidth = exchangesAxes ? encodedHeight : encodedWidth
+        let visualHeight = exchangesAxes ? encodedWidth : encodedHeight
+        if visualWidth == visualHeight { return .square }
+        return visualWidth > visualHeight ? .landscape : .portrait
+    }
+
+    private static func number(_ value: Any?) -> Int? {
+        if let value = value as? NSNumber { return value.intValue }
+        return value as? Int
+    }
+}
 
 /// Resolves a generation request to a concrete quality profile using
 /// hardware prior + current memory state + model capability + history,
@@ -213,11 +265,25 @@ enum GenerationSettingsResolver {
             snapshot: snapshot,
             audioRequested: !request.disableAudio
         )
+        let orientation = request.presetResolutionOrientation
+            ?? SourceImageOrientationResolver.resolve(path: request.sourceImagePath)
+        let oriented = applying(
+            profile: resolution.profile,
+            to: request,
+            orientation: orientation
+        )
+        let orientationReason: String
+        if orientation == .portrait,
+           resolution.profile.width != resolution.profile.height {
+            orientationReason = "; preset resolution oriented to portrait source"
+        } else {
+            orientationReason = ""
+        }
         return ResolvedGenerationSettings(
-            request: applying(profile: resolution.profile, to: request),
+            request: oriented,
             profile: resolution.profile,
             attemptLadder: resolution.attemptLadder,
-            reason: resolution.reason
+            reason: resolution.reason + orientationReason
         )
     }
 
@@ -225,7 +291,31 @@ enum GenerationSettingsResolver {
     /// intent then constrains frames using the profile FPS. Custom requests do
     /// not call this method and retain their manual frame count.
     static func applying(profile: QualityProfile, to request: GenerationRequest) -> GenerationRequest {
+        let orientation = request.presetResolutionOrientation
+            ?? SourceImageOrientationResolver.resolve(path: request.sourceImagePath)
+        return applying(profile: profile, to: request, orientation: orientation)
+    }
+
+    private static func applying(
+        profile: QualityProfile,
+        to request: GenerationRequest,
+        orientation: SourceImageOrientation
+    ) -> GenerationRequest {
         var parameters = profile.applied(to: request.parameters)
+        let longSide = max(profile.width, profile.height)
+        let shortSide = min(profile.width, profile.height)
+        if profile.width != profile.height {
+            switch orientation {
+            case .portrait:
+                parameters.width = shortSide
+                parameters.height = longSide
+            case .landscape:
+                parameters.width = longSide
+                parameters.height = shortSide
+            case .square, .none:
+                break
+            }
+        }
         if let target = request.targetDurationSeconds {
             parameters.numFrames = PromptCompiler.frameCount(forSeconds: target, fps: profile.fps)
         }
@@ -237,6 +327,7 @@ enum GenerationSettingsResolver {
             voiceoverSource: request.voiceoverSource,
             voiceoverVoice: request.voiceoverVoice,
             sourceImagePath: request.sourceImagePath,
+            presetResolutionOrientation: orientation,
             musicEnabled: request.musicEnabled,
             musicGenre: request.musicGenre,
             disableAudio: request.disableAudio || !profile.audioEnabled,

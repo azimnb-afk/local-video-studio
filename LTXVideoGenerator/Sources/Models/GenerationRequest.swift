@@ -178,6 +178,10 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
     let voiceoverSource: String  // "elevenlabs" or "mlx-audio"
     let voiceoverVoice: String   // Voice ID for TTS
     let sourceImagePath: String?  // For image-to-video mode
+    /// Visual orientation used only to orient a preset-derived resolution.
+    /// `nil` means an un-resolved request; queue preflight freezes a concrete
+    /// value (including `.none`) so a waiting job cannot change later.
+    let presetResolutionOrientation: SourceImageOrientation?
     let musicEnabled: Bool       // Whether to generate background music
     let musicGenre: String?      // Music genre raw value
     let disableAudio: Bool       // Skip audio in unified AV model
@@ -226,6 +230,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         voiceoverSource: String = "mlx-audio",
         voiceoverVoice: String = "af_heart",
         sourceImagePath: String? = nil,
+        presetResolutionOrientation: SourceImageOrientation? = nil,
         musicEnabled: Bool = false,
         musicGenre: String? = nil,
         disableAudio: Bool = false,
@@ -254,6 +259,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         self.voiceoverSource = voiceoverSource
         self.voiceoverVoice = voiceoverVoice
         self.sourceImagePath = sourceImagePath
+        self.presetResolutionOrientation = presetResolutionOrientation
         self.musicEnabled = musicEnabled
         self.musicGenre = musicGenre
         self.disableAudio = disableAudio
@@ -284,6 +290,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         case voiceoverSource
         case voiceoverVoice
         case sourceImagePath
+        case presetResolutionOrientation
         case musicEnabled
         case musicGenre
         case disableAudio
@@ -315,6 +322,8 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         voiceoverSource = try container.decode(String.self, forKey: .voiceoverSource)
         voiceoverVoice = try container.decode(String.self, forKey: .voiceoverVoice)
         sourceImagePath = try container.decodeIfPresent(String.self, forKey: .sourceImagePath)
+        presetResolutionOrientation = try container.decodeIfPresent(
+            SourceImageOrientation.self, forKey: .presetResolutionOrientation)
         musicEnabled = try container.decode(Bool.self, forKey: .musicEnabled)
         musicGenre = try container.decodeIfPresent(String.self, forKey: .musicGenre)
         disableAudio = try container.decode(Bool.self, forKey: .disableAudio)

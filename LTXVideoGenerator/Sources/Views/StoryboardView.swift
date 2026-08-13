@@ -815,10 +815,10 @@ private struct ProjectSettingsEditor: View {
                         Stepper("Frames: \(project.settings.numFrames ?? 121)", value: optionalIntBinding(\.numFrames, default: 121), in: 25...241, step: 8)
                         Stepper("Steps: \(project.settings.numInferenceSteps ?? 30)", value: optionalIntBinding(\.numInferenceSteps, default: 30), in: 10...100, step: 5)
                     }
-                    Text(resolutionSummary)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
                 }
+                Text(resolutionSummary)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
             }
             .padding(.top, 8)
         }
@@ -826,11 +826,33 @@ private struct ProjectSettingsEditor: View {
     }
 
     private var resolutionSummary: String {
-        let width = project.settings.width
-        let height = project.settings.height
-        let effectiveWidth = (width / 64) * 64
-        let effectiveHeight = (height / 64) * 64
-        return "Requested \(width)×\(height) → Effective \(effectiveWidth)×\(effectiveHeight) → Actual shown per completed Take"
+        let settings = project.settings
+        if settings.resolvedPreset == .custom {
+            let effectiveWidth = (settings.width / 64) * 64
+            let effectiveHeight = (settings.height / 64) * 64
+            return "Requested \(settings.width)×\(settings.height) → Effective \(effectiveWidth)×\(effectiveHeight) → Actual shown per completed Take"
+        }
+        var parameters = GenerationParameters.default
+        parameters.width = settings.width
+        parameters.height = settings.height
+        parameters.fps = settings.fps
+        parameters.numInferenceSteps = settings.resolvedInferenceSteps
+        let orientation = FilmProjectResolutionOrientationResolver.resolve(
+            project: project, store: store)
+        let request = GenerationRequest(
+            prompt: "Project resolution preflight",
+            presetResolutionOrientation: orientation,
+            disableAudio: !settings.resolvedAudioEnabled,
+            modelId: settings.modelID,
+            textEncoderId: settings.textEncoderID,
+            parameters: parameters,
+            qualityMode: settings.qualityMode,
+            preset: settings.resolvedPreset.rawValue,
+            generationSource: project.workflowMode == "hybrid" ? "hybrid" : "storyboard"
+        )
+        let resolved = GenerationSettingsResolver.resolveForPreflight(request: request).request
+        let orientationLabel = orientation.displayName.map { " · \($0)" } ?? ""
+        return "Effective \(resolved.parameters.width)×\(resolved.parameters.height)\(orientationLabel) → Actual shown per completed Take"
     }
 
     private func save(_ change: (inout ProjectSettings) -> Void) {

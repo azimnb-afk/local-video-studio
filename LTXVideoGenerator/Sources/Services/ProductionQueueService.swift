@@ -166,7 +166,10 @@ final class ProductionQueueService: ObservableObject {
 
     @discardableResult
     func enqueue(_ job: ProductionJob) -> ProductionJob {
-        let queued = coordinator.enqueue(job)
+        let frozen = FeatureFlags.isEnabled(.autoQualityV1)
+            ? Self.freezingPresetResolution(in: job)
+            : job
+        let queued = coordinator.enqueue(frozen)
         refresh()
         return queued
     }
@@ -175,9 +178,35 @@ final class ProductionQueueService: ObservableObject {
     /// single render slot — a running job is never preempted.
     @discardableResult
     func enqueueNext(_ job: ProductionJob) -> ProductionJob {
-        let queued = coordinator.enqueueNext(job)
+        let frozen = FeatureFlags.isEnabled(.autoQualityV1)
+            ? Self.freezingPresetResolution(in: job)
+            : job
+        let queued = coordinator.enqueueNext(frozen)
         refresh()
         return queued
+    }
+
+    /// Resolves preset-derived requests before persistence. In particular this
+    /// freezes source orientation, so replacing an image while a job waits can
+    /// neither rotate its target canvas nor cause a portrait/landscape ping-pong.
+    nonisolated static func freezingPresetResolution(in job: ProductionJob) -> ProductionJob {
+        guard !job.snapshot.pendingRequests.isEmpty else { return job }
+        var frozenJob = job
+        let requests = job.snapshot.pendingRequests.map {
+            GenerationSettingsResolver.resolveForPreflight(request: $0).request
+        }
+        frozenJob.snapshot.pendingRequests = requests
+        if let first = requests.first {
+            frozenJob.snapshot.settings = first.parameters
+            frozenJob.snapshot.modelID = first.modelId
+            frozenJob.snapshot.textEncoderID = first.textEncoderId
+            frozenJob.snapshot.preset = first.preset
+            frozenJob.snapshot.qualityMode = first.qualityMode
+            frozenJob.snapshot.audioEnabled = !first.disableAudio
+            frozenJob.snapshot.targetDurationSeconds = first.targetDurationSeconds
+            frozenJob.snapshot.seed = first.parameters.seed
+        }
+        return frozenJob
     }
 
     // MARK: - User actions

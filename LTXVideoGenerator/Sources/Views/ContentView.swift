@@ -307,6 +307,28 @@ private struct OneShotView: View {
 
     private var preset: GenerationPreset { GenerationPreset(rawValue: presetRaw) ?? .standard }
 
+    private var resolutionSummary: String {
+        guard preset != .custom else {
+            return "Custom: \(parameters.width)×\(parameters.height), \(parameters.numFrames) frames, \(parameters.fps) fps, \(parameters.numInferenceSteps) steps"
+        }
+        let request = GenerationRequest(
+            prompt: brief,
+            sourceImagePath: storedStartingImagePath.isEmpty ? nil : storedStartingImagePath,
+            disableAudio: !audioEnabled,
+            modelId: modelID,
+            textEncoderId: textEncoderID,
+            parameters: parameters,
+            qualityMode: preset.qualityMode.rawValue,
+            preset: preset.rawValue,
+            targetDurationSeconds: targetDuration,
+            generationSource: "oneShot"
+        )
+        let resolved = GenerationSettingsResolver.resolveForPreflight(request: request).request
+        let orientation = resolved.presetResolutionOrientation?.displayName
+            .map { " · \($0)" } ?? ""
+        return "\(preset.summary) · Effective \(resolved.parameters.width)×\(resolved.parameters.height)\(orientation)"
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -338,7 +360,7 @@ private struct OneShotView: View {
                 }
                 if preset == .custom {
                     HStack {
-                        Text("Custom: \(parameters.width)×\(parameters.height), \(parameters.numFrames) frames, \(parameters.fps) fps, \(parameters.numInferenceSteps) steps")
+                        Text(resolutionSummary)
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
                         Text("Edit these values in Generate → Custom.")
@@ -346,7 +368,7 @@ private struct OneShotView: View {
                             .foregroundStyle(.tertiary)
                     }
                 } else {
-                    Text(preset.summary)
+                    Text(resolutionSummary)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

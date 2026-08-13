@@ -1,5 +1,35 @@
 import Foundation
 
+/// Establishes one preset orientation for an entire film project. Auto Movie
+/// is led by its Opening Reference. A manual Storyboard has no opening field,
+/// so its first explicit Starting Image is the deterministic project anchor.
+/// Character anchors and generated continuity frames intentionally do not
+/// change the canvas orientation.
+enum FilmProjectResolutionOrientationResolver {
+    static func resolve(
+        project: FilmProject,
+        store: FilmProjectStore
+    ) -> SourceImageOrientation {
+        if project.workflowMode == AutoMovieRunCoordinator.autoMovieWorkflowMode,
+           case .success(let url)? = CharacterAnchorResolver.resolveOpeningReference(
+               project: project, store: store
+           ) {
+            return SourceImageOrientationResolver.resolve(url: url)
+        }
+
+        for shot in project.shots.sorted(by: { $0.index < $1.index }) {
+            guard let assetID = shot.startingImageReferenceAssetID,
+                  let (_, asset) = project.findReferenceAsset(id: assetID),
+                  let relativePath = asset.projectRelativePath,
+                  let url = store.managedCharacterAssetURL(
+                      projectID: project.id, relativePath: relativePath
+                  ) else { continue }
+            return SourceImageOrientationResolver.resolve(url: url)
+        }
+        return .none
+    }
+}
+
 /// Builds and tracks take generations for a shot. 1–20 takes per shot, each a
 /// different seed, ALWAYS sequential: requests go through the single-flight
 /// GenerationService queue — this type never runs generations itself.
@@ -92,6 +122,8 @@ final class TakeGenerationCoordinator {
 
         let shot = project.shots[shotIndex]
         let settings = project.settings
+        let projectResolutionOrientation = FilmProjectResolutionOrientationResolver.resolve(
+            project: project, store: store)
         let targetDuration = settings.resolvedPreset == .custom ? nil : shot.durationSeconds
         let generationSource = project.workflowMode == "hybrid" ? "hybrid" : "storyboard"
 
@@ -244,6 +276,7 @@ final class TakeGenerationCoordinator {
             let request = GenerationRequest(
                 prompt: shot.compiledPrompt,
                 sourceImagePath: sourceImagePath,
+                presetResolutionOrientation: projectResolutionOrientation,
                 disableAudio: !settings.resolvedAudioEnabled,
                 modelId: settings.modelID,
                 textEncoderId: settings.textEncoderID,

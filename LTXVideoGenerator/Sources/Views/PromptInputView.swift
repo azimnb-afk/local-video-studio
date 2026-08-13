@@ -650,7 +650,7 @@ struct PromptInputView: View {
                         Text(resolutionSummary)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            .help("The backend floors dimensions to multiples of 64. Actual output resolution is read from the finished MP4 and shown in the Video Archive.")
+                            .help("Preset resolution follows a Starting Image's visual orientation, then the backend floors dimensions to multiples of 64. Custom dimensions are never reoriented. Actual output resolution is read from the finished MP4 and shown in the Video Archive.")
                     }
                 }
             }

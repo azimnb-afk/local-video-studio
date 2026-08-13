@@ -179,8 +179,41 @@ func runRegistryTests(_ t: TestKit) {
         let adapters = AdapterRegistry()
         let official = registry.descriptor(id: LTXModelCatalog.defaultModelID)!
         t.check(adapters.adapter(for: official) is OfficialMLXAudioAdapter, "official model → OfficialMLXAudioAdapter")
-        let lab = registry.descriptor(id: "10eros_v12_q8")!
-        t.check(adapters.adapter(for: lab) is DerivedModelAdapter, "lab model → DerivedModelAdapter")
+        // mlx-video-with-audio-backed lab model (unverified; the loader that
+        // ships in this app has no code path that runs it).
+        let mlxVideoLab = registry.descriptor(id: "10eros_v12_q8")!
+        t.check(adapters.adapter(for: mlxVideoLab) is DerivedModelAdapter, "mlx-video-with-audio lab model → DerivedModelAdapter")
+        // ltx-2-mlx-backed lab model (10Eros v1.3). This is the case that broke
+        // in production: every model's backend must resolve to SOME adapter,
+        // not just the one the registry happens to already cover.
+        let ltx2mlxLab = registry.descriptor(id: "10eros_v13_dmd_q4")!
+        t.check(adapters.adapter(for: ltx2mlxLab) is LTX2MLXAdapter, "ltx-2-mlx lab model → LTX2MLXAdapter")
+
+        // Invariant that generalizes the regression: every model the registry
+        // will actually offer for selection must resolve to an adapter.
+        FeatureFlags.set(.derivedModelsV1, enabled: true, userDefaults: defaults)
+        FeatureFlags.set(.adultModelsV1, enabled: true, userDefaults: defaults)
+        for offered in registry.selectableModels(adultMode: true) {
+            t.check(adapters.adapter(for: offered) != nil, "offered model \(offered.id) resolves to an adapter")
+        }
+        FeatureFlags.disableAll(userDefaults: defaults)
+    }
+
+    t.suite("LTX2MLXAdapter gating") {
+        let adapter = LTX2MLXAdapter()
+        var descriptor = ModelDescriptor(
+            id: "10eros_v13_dmd_q4", displayName: "x", repository: "MLXBits/x", revision: "abc",
+            localPath: nil, quantization: "q4", precision: nil, estimatedModelSizeGB: 1,
+            recommendedUnifiedMemoryGB: 1, minimumUnifiedMemoryGB: 1,
+            architecture: ArchitectureDescriptor(modelFamily: "LTX", modelVersion: "2.3", modelType: "unified-av"),
+            capabilities: CapabilitySet(textToVideo: true, imageToVideo: true, synchronizedAudio: true),
+            runtime: RuntimeCompatibility(backend: "ltx-2-mlx", minimumBackendVersion: nil, verified: false, verificationNotes: nil),
+            policy: PolicyMetadata(contentClassification: .adultVerified, classificationEvidence: nil),
+            license: ModelLicenseMetadata(name: "x", url: nil, requiresAcknowledgement: true)
+        )
+        t.check(adapter.supports(model: descriptor), "LTX2MLXAdapter supports an ltx-2-mlx-backed derived model")
+        descriptor.isOfficial = true
+        t.check(!adapter.supports(model: descriptor), "LTX2MLXAdapter refuses official models even on this backend")
     }
 
     t.suite("Codable migration") {

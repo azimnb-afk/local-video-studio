@@ -120,6 +120,13 @@ struct ModelInstallRecord: Codable, Equatable {
     var checksumVerified: Bool
 }
 
+// MARK: - Custom Model Source Mode
+
+public enum CustomModelSourceMode: String, Codable, CaseIterable {
+    case huggingFace = "huggingFace"
+    case local = "local"
+}
+
 // MARK: - Registry
 
 /// Registry of known models. Official models mirror LTXModelCatalog;
@@ -130,6 +137,7 @@ final class ModelRegistry {
     public static let customModelID = "custom_ltx2_mlx"
     public static let customRepositoryUserDefaultsKey = "customLTX2MLXRepository"
     public static let customLocalPathUserDefaultsKey = "customLTX2MLXLocalPath"
+    public static let customSourceModeUserDefaultsKey = "customLTX2MLXSourceMode"
 
     private(set) var descriptors: [String: ModelDescriptor] = [:]
     private let userDefaults: UserDefaults

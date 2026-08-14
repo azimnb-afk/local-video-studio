@@ -224,4 +224,20 @@ func runRegistryTests(_ t: TestKit) {
         FeatureFlags.set(.modelRegistryV1, enabled: true, userDefaults: fresh)
         t.check(FeatureFlags.isEnabled(.modelRegistryV1, userDefaults: fresh), "flag can be re-enabled")
     }
+
+    t.suite("Custom Model seed configuration") {
+        let customSuite = "LTXTests.customSeed.\(UUID().uuidString)"
+        let customDefaults = UserDefaults(suiteName: customSuite)!
+        defer { customDefaults.removePersistentDomain(forName: customSuite) }
+
+        customDefaults.set("org/remote-custom-model", forKey: ModelRegistry.customRepositoryUserDefaultsKey)
+        customDefaults.set("/local/path/to/custom-model", forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+        customDefaults.set(CustomModelSourceMode.local.rawValue, forKey: ModelRegistry.customSourceModeUserDefaultsKey)
+
+        let customRegistry = ModelRegistry(userDefaults: customDefaults)
+        let desc = customRegistry.descriptor(id: ModelRegistry.customModelID)
+        t.check(desc != nil, "custom descriptor present")
+        t.checkEqual(desc?.repository, "org/remote-custom-model", "custom descriptor seeds configured repository")
+        t.checkEqual(desc?.localPath, "/local/path/to/custom-model", "custom descriptor seeds configured local path")
+    }
 }

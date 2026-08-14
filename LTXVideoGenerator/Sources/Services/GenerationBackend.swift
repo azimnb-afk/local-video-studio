@@ -127,6 +127,41 @@ enum LTX2MLXRuntime {
 
     // MARK: Model
 
+    static func customModelSourceMode(userDefaults: UserDefaults = .standard) -> CustomModelSourceMode {
+        let raw = userDefaults.string(forKey: ModelRegistry.customSourceModeUserDefaultsKey) ?? ""
+        return CustomModelSourceMode(rawValue: raw) ?? .huggingFace
+    }
+
+    static func localModelPath(userDefaults: UserDefaults = .standard) -> String? {
+        guard let path = userDefaults.string(forKey: ModelRegistry.customLocalPathUserDefaultsKey),
+              !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        return path
+    }
+
+    /// Resolves whether a given directory path contains the required ltx-2-mlx model components,
+    /// checking both the direct folder and any nested `snapshots/` folder.
+    static func localModelDirectory(at path: String, fileManager: FileManager = .default) -> String? {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return nil
+        }
+        let url = URL(fileURLWithPath: path)
+        if hasRequiredComponents(in: url, fileManager: fileManager) {
+            return url.path
+        }
+        let snapshotsDir = url.appendingPathComponent("snapshots")
+        if let entries = try? fileManager.contentsOfDirectory(atPath: snapshotsDir.path) {
+            for entry in entries.sorted() {
+                let snap = snapshotsDir.appendingPathComponent(entry)
+                if hasRequiredComponents(in: snap, fileManager: fileManager) {
+                    return snap.path
+                }
+            }
+        }
+        return nil
+    }
+
     /// Resolves the cached snapshot directory for a repo, which is what
     /// `ltx-2-mlx --model` expects — it takes a directory, not a repo ID, when
     /// the weights are already local.
@@ -152,7 +187,7 @@ enum LTX2MLXRuntime {
         return nil
     }
 
-    private static func hasRequiredComponents(in directory: URL, fileManager: FileManager) -> Bool {
+    static func hasRequiredComponents(in directory: URL, fileManager: FileManager = .default) -> Bool {
         for component in LTX2MLXModelCatalog.requiredComponents {
             let file = directory.appendingPathComponent(component)
             // Follows the cache's symlinks into blobs/, and a zero-byte or
@@ -164,27 +199,52 @@ enum LTX2MLXRuntime {
     }
 
     static func modelReadiness(
-        repository: String,
+        repository: String? = nil,
+        userDefaults: UserDefaults = .standard,
         hubDirectory: URL? = nil,
         fileManager: FileManager = .default
     ) -> ComponentReadiness {
-        guard let directory = cachedModelDirectory(
-            repository: repository, hubDirectory: hubDirectory, fileManager: fileManager
-        ) else {
-            return .missing("The \(repository) weights are not downloaded yet.")
+        let mode = customModelSourceMode(userDefaults: userDefaults)
+        switch mode {
+        case .local:
+            guard let path = localModelPath(userDefaults: userDefaults) else {
+                return .missing("No local model directory selected. Choose a local model in Preferences.")
+            }
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory) else {
+                return .missing("The selected local model path does not exist at \(path).")
+            }
+            guard isDirectory.boolValue else {
+                return .missing("The selected local model path is a file, but a model directory is required.")
+            }
+            guard let resolved = localModelDirectory(at: path, fileManager: fileManager) else {
+                return .missing("The directory at \(path) does not appear to contain a complete ltx-2-mlx model (missing required .safetensors components).")
+            }
+            return .ready(resolved)
+
+        case .huggingFace:
+            let repo = repository
+                ?? userDefaults.string(forKey: ModelRegistry.customRepositoryUserDefaultsKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? ""
+            let effectiveRepo = repo.isEmpty ? "user-supplied/custom-model" : repo
+            guard let directory = cachedModelDirectory(
+                repository: effectiveRepo, hubDirectory: hubDirectory, fileManager: fileManager
+            ) else {
+                return .missing("The \(effectiveRepo) weights are not downloaded yet.")
+            }
+            return .ready(directory)
         }
-        return .ready(directory)
     }
 
     static func readiness(
-        repository: String,
+        repository: String? = nil,
         userDefaults: UserDefaults = .standard,
         hubDirectory: URL? = nil,
         fileManager: FileManager = .default
     ) -> Readiness {
         Readiness(
             runtime: runtimeReadiness(userDefaults: userDefaults, fileManager: fileManager),
-            model: modelReadiness(repository: repository, hubDirectory: hubDirectory, fileManager: fileManager)
+            model: modelReadiness(repository: repository, userDefaults: userDefaults, hubDirectory: hubDirectory, fileManager: fileManager)
         )
     }
 }
@@ -217,7 +277,10 @@ final class CustomModelDownloadCoordinator: ObservableObject {
     }
 
     /// Only ever called from an explicit user action.
-    func startDownload(repository: String) async {
+    func startDownload(repository: String, userDefaults: UserDefaults = .standard) async {
+        guard LTX2MLXRuntime.customModelSourceMode(userDefaults: userDefaults) == .huggingFace else {
+            return
+        }
         guard !repository.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         if case .downloading = state { return }
         if isCached(repository) {
@@ -239,10 +302,10 @@ final class CustomModelDownloadCoordinator: ObservableObject {
         }
     }
 
-    func retry(repository: String) async {
+    func retry(repository: String, userDefaults: UserDefaults = .standard) async {
         guard case .failed = state else { return }
         state = .idle
-        await startDownload(repository: repository)
+        await startDownload(repository: repository, userDefaults: userDefaults)
     }
 }
 

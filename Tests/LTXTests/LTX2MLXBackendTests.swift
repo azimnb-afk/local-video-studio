@@ -70,6 +70,91 @@ func runLTX2MLXBackendTests(_ t: TestKit) {
                 "nonexistent runtime path is not ready")
     }
 
+    t.suite("Custom LTX-2 MLX local model path resolution & source mode persistence") {
+        let executable = makeExecutable()
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+
+        // Helper to build a standalone local model directory with required safetensors
+        func makeLocalModelDir(complete: Bool) -> URL {
+            let modelDir = tempDir.appendingPathComponent("local-model-\(UUID().uuidString)")
+            try? FileManager.default.createDirectory(at: modelDir, withIntermediateDirectories: true)
+            let components = complete
+                ? CustomLTX2MLXModelCatalog.requiredComponents
+                : Array(CustomLTX2MLXModelCatalog.requiredComponents.dropLast())
+            for name in components {
+                try? Data("local-weights".utf8).write(to: modelDir.appendingPathComponent(name))
+            }
+            return modelDir
+        }
+
+        let validLocalDir = makeLocalModelDir(complete: true)
+        let incompleteLocalDir = makeLocalModelDir(complete: false)
+        let defaults = UserDefaults(suiteName: "ltx2mlx-local-\(UUID().uuidString)")!
+        defaults.set(executable, forKey: LTX2MLXRuntime.executablePathKey)
+
+        // 1. Default source mode is huggingFace
+        t.checkEqual(LTX2MLXRuntime.customModelSourceMode(userDefaults: defaults), .huggingFace,
+                     "default custom model source mode is huggingFace")
+
+        // 2. Local mode with valid directory resolves directly to local path without download
+        defaults.set(CustomModelSourceMode.local.rawValue, forKey: ModelRegistry.customSourceModeUserDefaultsKey)
+        defaults.set(validLocalDir.path, forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+        t.checkEqual(LTX2MLXRuntime.customModelSourceMode(userDefaults: defaults), .local,
+                     "source mode persists as local")
+        t.checkEqual(LTX2MLXRuntime.localModelPath(userDefaults: defaults), validLocalDir.path,
+                     "local model path persists")
+
+        var readiness = LTX2MLXRuntime.readiness(userDefaults: defaults)
+        t.check(readiness.canGenerate, "local mode with valid model directory can generate")
+        t.check(readiness.model.isReady, "local model reported ready")
+        t.checkEqual(readiness.model.detail, validLocalDir.path, "local model resolves to direct local path")
+
+        // 3. Local mode with incomplete directory reports actionable missing error
+        defaults.set(incompleteLocalDir.path, forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+        readiness = LTX2MLXRuntime.readiness(userDefaults: defaults)
+        t.check(!readiness.canGenerate, "incomplete local directory cannot generate")
+        t.check(!readiness.model.isReady, "incomplete local model reported not ready")
+        t.check(readiness.model.detail.contains("missing required .safetensors components"),
+                "incomplete local model detail is actionable")
+
+        // 4. Local mode with nonexistent path reports not found
+        defaults.set("/path/does/not/exist/model", forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+        readiness = LTX2MLXRuntime.readiness(userDefaults: defaults)
+        t.check(!readiness.canGenerate, "nonexistent local directory cannot generate")
+        t.check(!readiness.model.isReady, "nonexistent local path reported not ready")
+        t.check(readiness.model.detail.contains("does not exist"), "nonexistent local model detail explains missing path")
+
+        // 5. Local mode with empty path reports no directory selected
+        defaults.removeObject(forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+        readiness = LTX2MLXRuntime.readiness(userDefaults: defaults)
+        t.check(!readiness.canGenerate, "empty local path cannot generate")
+        t.check(readiness.model.detail.contains("No local model directory selected"),
+                "empty local path detail instructs user to choose in Preferences")
+
+        // 6. Switching source modes preserves inactive stored values
+        defaults.set("my-org/my-custom-model", forKey: ModelRegistry.customRepositoryUserDefaultsKey)
+        defaults.set(validLocalDir.path, forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+
+        defaults.set(CustomModelSourceMode.huggingFace.rawValue, forKey: ModelRegistry.customSourceModeUserDefaultsKey)
+        t.checkEqual(defaults.string(forKey: ModelRegistry.customLocalPathUserDefaultsKey), validLocalDir.path,
+                     "switching to HF mode preserves stored local path")
+
+        defaults.set(CustomModelSourceMode.local.rawValue, forKey: ModelRegistry.customSourceModeUserDefaultsKey)
+        t.checkEqual(defaults.string(forKey: ModelRegistry.customRepositoryUserDefaultsKey), "my-org/my-custom-model",
+                     "switching to local mode preserves stored HF repository ID")
+
+        // 7. Local mode does NOT trigger model download
+        let coordinator = CustomModelDownloadCoordinator.shared
+        Task { @MainActor in
+            await coordinator.startDownload(repository: "dummy/repo", userDefaults: defaults)
+            t.checkEqual(coordinator.state, .idle, "local mode download coordinator remains idle without network action")
+        }
+
+        // 8. Runtime path remains completely independent from model path
+        t.checkEqual(LTX2MLXRuntime.executablePath(userDefaults: defaults), executable,
+                     "runtime executable path is independent from local model path")
+    }
+
     t.suite("Custom model gating") {
         let defaults = UserDefaults(suiteName: "ltx2mlx-gate-\(UUID().uuidString)")!
         let registry = ModelRegistry(userDefaults: defaults)

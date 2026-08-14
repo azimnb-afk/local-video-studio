@@ -208,7 +208,7 @@ struct StoryboardView: View {
         planningHandle = handle
         statusMessage = "Preparing Local Director…"
 
-        Task { @MainActor in
+        let planningTask = Task { @MainActor in
             let timerTask = Task { @MainActor in
                 while !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -362,6 +362,7 @@ struct StoryboardView: View {
                 }
             }
         }
+        handle.registerTask(planningTask)
     }
 }
 

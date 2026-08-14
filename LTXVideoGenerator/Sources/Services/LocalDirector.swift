@@ -116,7 +116,7 @@ final class LocalDirector {
             }
             let response: String
             do {
-                response = try await provider.complete(system: Self.directorSystemPrompt, prompt: prompt)
+                response = try await provider.complete(system: Self.directorSystemPrompt, prompt: prompt, expectsJSON: true, handle: handle)
             } catch {
                 if error is CancellationError || (error as? DirectorError) == .cancelled || (error as? URLError)?.code == .cancelled || handle?.isCancelled == true || Task.isCancelled {
                     throw DirectorError.cancelled

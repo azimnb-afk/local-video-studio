@@ -390,7 +390,8 @@ final class StoryboardDirector {
                 response = try await provider.complete(
                     system: DirectorPlanFormat.systemPrompt(for: planProtocol, characterBible: characterBible),
                     prompt: prompt,
-                    expectsJSON: planProtocol == .structuredJSON
+                    expectsJSON: planProtocol == .structuredJSON,
+                    handle: handle
                 )
             } catch {
                 if Self.isCancellationError(error) || handle?.isCancelled == true || Task.isCancelled {

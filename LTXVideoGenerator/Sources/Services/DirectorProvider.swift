@@ -20,6 +20,8 @@ protocol DirectorProvider {
     /// is true: constraining a plain-text protocol to JSON makes it impossible
     /// for the model to answer in that protocol at all.
     func complete(system: String, prompt: String, expectsJSON: Bool) async throws -> String
+    /// Cancellation-aware completion that hooks active URLSessionDataTask to handle.
+    func complete(system: String, prompt: String, expectsJSON: Bool, handle: DirectorPlanningHandle?) async throws -> String
     /// Unload/terminate the underlying model so LTX gets the memory back.
     func terminate() async
 }
@@ -28,6 +30,10 @@ extension DirectorProvider {
     /// Providers that do not distinguish response formats answer both the same.
     func complete(system: String, prompt: String, expectsJSON: Bool) async throws -> String {
         try await complete(system: system, prompt: prompt)
+    }
+
+    func complete(system: String, prompt: String, expectsJSON: Bool, handle: DirectorPlanningHandle?) async throws -> String {
+        try await complete(system: system, prompt: prompt, expectsJSON: expectsJSON)
     }
 
     var modelIdentifier: String? { nil }
@@ -395,6 +401,13 @@ final class OllamaDirectorProvider: DirectorProvider {
     }
 
     func complete(system: String, prompt: String, expectsJSON: Bool) async throws -> String {
+        try await complete(system: system, prompt: prompt, expectsJSON: expectsJSON, handle: nil)
+    }
+
+    func complete(system: String, prompt: String, expectsJSON: Bool, handle: DirectorPlanningHandle?) async throws -> String {
+        if handle?.isCancelled == true || Task.isCancelled {
+            throw DirectorError.cancelled
+        }
         var request = URLRequest(url: baseURL.appendingPathComponent("api/generate"))
         request.httpMethod = "POST"
         request.timeoutInterval = 300
@@ -420,11 +433,35 @@ final class OllamaDirectorProvider: DirectorProvider {
             body["format"] = "json"
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw DirectorError.providerFailed("Ollama HTTP error")
+
+        return try await withCheckedThrowingContinuation { continuation in
+            if handle?.isCancelled == true || Task.isCancelled {
+                continuation.resume(throwing: DirectorError.cancelled)
+                return
+            }
+            let task = session.dataTask(with: request) { data, response, error in
+                if let error = error {
+                    if (error as? URLError)?.code == .cancelled || handle?.isCancelled == true || Task.isCancelled {
+                        continuation.resume(throwing: DirectorError.cancelled)
+                    } else {
+                        continuation.resume(throwing: error)
+                    }
+                    return
+                }
+                guard let http = response as? HTTPURLResponse, http.statusCode == 200, let data = data else {
+                    continuation.resume(throwing: DirectorError.providerFailed("Ollama HTTP error"))
+                    return
+                }
+                do {
+                    let text = try Self.completionText(from: data)
+                    continuation.resume(returning: text)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+            handle?.registerURLSessionTask(task)
+            task.resume()
         }
-        return try Self.completionText(from: data)
     }
 
     /// Extracts structured content from Ollama's outer response envelope.
@@ -493,6 +530,11 @@ final class EnvironmentDirectorProvider: DirectorProvider {
     func complete(system: String, prompt: String, expectsJSON: Bool) async throws -> String {
         guard let provider else { throw DirectorError.noProviderAvailable }
         return try await provider.complete(system: system, prompt: prompt, expectsJSON: expectsJSON)
+    }
+
+    func complete(system: String, prompt: String, expectsJSON: Bool, handle: DirectorPlanningHandle?) async throws -> String {
+        guard let provider else { throw DirectorError.noProviderAvailable }
+        return try await provider.complete(system: system, prompt: prompt, expectsJSON: expectsJSON, handle: handle)
     }
 
     func terminate() async {

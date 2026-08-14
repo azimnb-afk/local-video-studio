@@ -916,5 +916,6 @@ runKeychainCredentialStoreTests(t)
 runAutoMovieDirectorFallbackTests(t)
 runQueueCancellationTests(t)
 runDirectorPlanningCancellationTests(t)
+runRealDirectorPlanningCancellationAcceptanceProbe(t)
 
 t.finish()

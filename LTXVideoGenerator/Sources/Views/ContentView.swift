@@ -326,7 +326,8 @@ private struct OneShotView: View {
         let resolved = GenerationSettingsResolver.resolveForPreflight(request: request).request
         let orientation = resolved.presetResolutionOrientation?.displayName
             .map { " · \($0)" } ?? ""
-        return "\(preset.summary) · Effective \(resolved.parameters.width)×\(resolved.parameters.height)\(orientation)"
+        let durationFormatted = String(format: "%.1fs", Double(resolved.parameters.numFrames) / Double(resolved.parameters.fps))
+        return "\(preset.displayName) · Effective \(resolved.parameters.width)×\(resolved.parameters.height)\(orientation) · \(resolved.parameters.numInferenceSteps) steps · \(durationFormatted)"
     }
 
     var body: some View {

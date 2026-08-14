@@ -857,7 +857,7 @@ private struct ProjectSettingsEditor: View {
         )
         let resolved = GenerationSettingsResolver.resolveForPreflight(request: request).request
         let orientationLabel = orientation.displayName.map { " · \($0)" } ?? ""
-        return "Effective \(resolved.parameters.width)×\(resolved.parameters.height)\(orientationLabel) → Actual shown per completed Take"
+        return "\(settings.resolvedPreset.displayName) · Effective \(resolved.parameters.width)×\(resolved.parameters.height)\(orientationLabel) · \(resolved.parameters.numInferenceSteps) steps → Actual shown per completed Take"
     }
 
     private func save(_ change: (inout ProjectSettings) -> Void) {

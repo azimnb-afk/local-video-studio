@@ -227,6 +227,47 @@ func runAutoQualityTests(_ t: TestKit) {
             t.checkEqual(high.request.parameters.seed, seed, "High seed preserved")
             t.check(!quick.request.disableAudio && !standard.request.disableAudio && !high.request.disableAudio,
                     "audio is explicit in all resolved requests")
+
+            // Explicit 3-second duration with High Quality: maintains 30 steps but constrains frames to ~3s (73 frames)
+            var p3s = GenerationParameters.default
+            let high3sReq = GenerationRequest(
+                prompt: "short intense burst",
+                modelId: LTXModelCatalog.defaultModelID,
+                parameters: p3s,
+                qualityMode: GenerationPreset.highQuality.qualityMode.rawValue,
+                preset: GenerationPreset.highQuality.rawValue,
+                targetDurationSeconds: 3.0,
+                generationSource: "oneShot"
+            )
+            let high3sResolved = try GenerationSettingsResolver.resolve(request: high3sReq, engine: engine, snapshot: snap)
+            t.checkEqual(high3sResolved.request.parameters.numInferenceSteps, 30, "High Quality retains 30 steps when 3s requested")
+            t.checkEqual(high3sResolved.request.parameters.numFrames, 73, "3s target duration constrains High Quality to 73 frames")
+
+            // Default duration (targetDurationSeconds == nil): standard uses 73 frames, high uses 121 frames
+            let standardNoTargetReq = GenerationRequest(
+                prompt: "default standard",
+                modelId: LTXModelCatalog.defaultModelID,
+                parameters: p3s,
+                qualityMode: GenerationPreset.standard.qualityMode.rawValue,
+                preset: GenerationPreset.standard.rawValue,
+                targetDurationSeconds: nil,
+                generationSource: "generate"
+            )
+            let highNoTargetReq = GenerationRequest(
+                prompt: "default high",
+                modelId: LTXModelCatalog.defaultModelID,
+                parameters: p3s,
+                qualityMode: GenerationPreset.highQuality.qualityMode.rawValue,
+                preset: GenerationPreset.highQuality.rawValue,
+                targetDurationSeconds: nil,
+                generationSource: "generate"
+            )
+            let stdNoTargetRes = try GenerationSettingsResolver.resolve(request: standardNoTargetReq, engine: engine, snapshot: snap)
+            let highNoTargetRes = try GenerationSettingsResolver.resolve(request: highNoTargetReq, engine: engine, snapshot: snap)
+            t.checkEqual(stdNoTargetRes.request.parameters.numFrames, 73, "Standard default frames is 73 (~3s)")
+            t.checkEqual(stdNoTargetRes.request.parameters.numInferenceSteps, 25, "Standard default steps is 25")
+            t.checkEqual(highNoTargetRes.request.parameters.numFrames, 121, "High Quality default frames is 121 (~5s)")
+            t.checkEqual(highNoTargetRes.request.parameters.numInferenceSteps, 30, "High Quality default steps is 30")
         } catch { t.check(false, "request comparison threw \(error)") }
 
         // Every producer may carry stale Custom parameters, but the shared

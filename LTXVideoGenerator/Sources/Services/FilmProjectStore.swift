@@ -25,10 +25,7 @@ final class FilmProjectStore {
         if let projectsDirectory {
             self.projectsDirectory = projectsDirectory
         } else {
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            self.projectsDirectory = appSupport
-                .appendingPathComponent("LTXVideoGenerator", isDirectory: true)
-                .appendingPathComponent("Projects", isDirectory: true)
+            self.projectsDirectory = AppStorageDirectory.projectsDirectory
         }
         try? FileManager.default.createDirectory(at: self.projectsDirectory, withIntermediateDirectories: true)
         loadAll()

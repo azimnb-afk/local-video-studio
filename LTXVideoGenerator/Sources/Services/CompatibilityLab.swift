@@ -74,9 +74,7 @@ final class CompatibilityLab {
         if let storeURL {
             self.storeURL = storeURL
         } else {
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            let dir = appSupport.appendingPathComponent("LTXVideoGenerator", isDirectory: true)
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let dir = AppStorageDirectory.root
             self.storeURL = dir.appendingPathComponent("compat_lab.json")
         }
         load()

@@ -4,7 +4,7 @@ import Foundation
 /// backend can actually run.
 ///
 /// Before this existed, `ModelRegistry` (which owns policy, licensing and
-/// content gating, and lists derived models such as 10Eros) and
+/// model definitions) and
 /// `LTXModelCatalog` (which owns the repositories the MLX backend is known to
 /// run) were consulted independently: four model pickers offered
 /// `ModelRegistry.selectableModels()`, while `LTXBridge` resolved the chosen
@@ -87,7 +87,7 @@ enum GenerationModelResolver {
 
     /// The runtime a model routes to, or nil when it cannot be generated with.
     /// Never guesses: an unrunnable model has no backend rather than the
-    /// default one, which is what keeps a failed 10Eros request from being
+    /// default one, which is what keeps a failed custom model request from being
     /// quietly served by the LTX-2.3 backend.
     static func backend(for modelID: String?, registry: ModelRegistry = .shared) -> GenerationBackendKind? {
         if case .runnable(let runnable) = resolve(modelID: modelID, registry: registry) {

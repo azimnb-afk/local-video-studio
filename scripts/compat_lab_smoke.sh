@@ -7,16 +7,13 @@
 # Usage:
 #   ./scripts/compat_lab_smoke.sh <model-repo> [t2v|i2v|audio]
 #
-# Backend: models packaged for ltx-2-mlx (10Eros) are run through that CLI
-# instead of mlx_video.generate_av. Set LTX2MLX_BIN to its executable. The
-# backend is chosen by the model repo, the same way the app routes it —
-# a smoke test that exercised a different runtime than production would
-# verify nothing.
+# Backend: models packaged for ltx-2-mlx are run through that CLI
+# instead of mlx_video.generate_av. Set LTX2MLX_BIN to its executable.
 # Example:
-#   ./scripts/compat_lab_smoke.sh MLXBits/ltx-2.3-10eros-v1.2-mlx-q8 t2v
+#   LTX_BACKEND=ltx2mlx ./scripts/compat_lab_smoke.sh user/custom-model t2v
 #
 # Record outcomes in the app's Compatibility Lab documentation
-# and Application Support/LTXVideoGenerator/compat_lab.json via the app).
+# and Application Support/LocalVideoStudio/compat_lab.json via the app).
 set -euo pipefail
 
 REPO="${1:?model repo required}"
@@ -45,11 +42,8 @@ case "$MODE" in
 esac
 [ "$MODE" = "audio" ] || ARGS+=(--no-audio)
 
-# Route by model, mirroring GenerationModelResolver.
-case "$REPO" in
-  *10eros*) BACKEND=ltx2mlx ;;
-  *)        BACKEND=mlxvideo ;;
-esac
+# Route by model or explicit override
+BACKEND="${LTX_BACKEND:-mlxvideo}"
 
 if [ "$BACKEND" = ltx2mlx ]; then
   LTX2MLX_BIN="${LTX2MLX_BIN:?ltx-2-mlx executable required for this model (set LTX2MLX_BIN)}"

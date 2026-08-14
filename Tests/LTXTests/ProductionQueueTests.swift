@@ -106,7 +106,7 @@ func runProductionQueueTests(_ t: TestKit) {
             prompt: mutablePrompt, model: mutableModel, seed: mutableSeed,
             image: imageURL.path))
         mutablePrompt = "Prompt B"
-        mutableModel = LTX2MLXModelCatalog.tenEros13DMDQ4.id
+        mutableModel = CustomLTX2MLXModelCatalog.customModelID
         mutableSeed = 2
 
         t.checkEqual(submitted?.kind, .generate,
@@ -169,7 +169,7 @@ func runProductionQueueTests(_ t: TestKit) {
         let ltx = try? DirectGenerationSubmission.makeJob(request: request(
             prompt: "LTX", model: LTXModelCatalog.defaultModelID, seed: 10))
         let eros = try? DirectGenerationSubmission.makeJob(request: request(
-            prompt: "10Eros", model: LTX2MLXModelCatalog.tenEros13DMDQ4.id, seed: 20))
+            prompt: "Custom", model: CustomLTX2MLXModelCatalog.customModelID, seed: 20))
         t.checkEqual(GenerationModelResolver.backend(
             for: ltx?.snapshot.pendingRequests.first?.modelId), .mlxVideoWithAudio,
             "J: queued LTX request remains on mlx-video-with-audio")
@@ -279,7 +279,7 @@ func runProductionQueueTests(_ t: TestKit) {
         }
 
         let a = coordinator.enqueue(oneShotJob(
-            prompt: "prompt A", model: LTX2MLXModelCatalog.tenEros13DMDQ4.id,
+            prompt: "prompt A", model: CustomLTX2MLXModelCatalog.customModelID,
             image: "/tmp/a.png", seed: 111))
         let b = coordinator.enqueue(oneShotJob(
             prompt: "prompt B", model: LTXModelCatalog.defaultModelID,
@@ -294,8 +294,8 @@ func runProductionQueueTests(_ t: TestKit) {
         t.checkEqual(queuedB.parameters.seed, 222, "12: B keeps its own seed")
         t.checkEqual(queuedA.sourceImagePath, "/tmp/a.png", "13: A keeps its own source image")
         t.checkEqual(queuedB.sourceImagePath, "/tmp/b.png", "13: B keeps its own source image")
-        t.checkEqual(queuedA.modelId, LTX2MLXModelCatalog.tenEros13DMDQ4.id,
-                     "14: A stays on 10Eros even though a later job chose LTX-2.3")
+        t.checkEqual(queuedA.modelId, CustomLTX2MLXModelCatalog.customModelID,
+                     "14: A stays on custom model even though a later job chose LTX-2.3")
         t.checkEqual(queuedB.modelId, LTXModelCatalog.defaultModelID, "14: B stays on LTX-2.3")
 
         // 15/16/17. Backend routing is derived from the frozen model ID, so a

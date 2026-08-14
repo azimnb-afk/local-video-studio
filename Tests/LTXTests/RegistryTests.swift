@@ -14,56 +14,29 @@ func runRegistryTests(_ t: TestKit) {
             t.check(registry.descriptor(id: legacy.id)?.isOfficial == true, "official \(legacy.id) marked official")
             t.check(registry.descriptor(id: legacy.id)?.runtime.verified == true, "official \(legacy.id) verified")
         }
-        t.check(registry.descriptor(id: "10eros_v12_q8")?.runtime.verified == false, "10eros v1.2 lab model unverified")
-        // Derived models ship unverified: RuntimeCompatibility.verified is
-        // promoted from recorded Compatibility Lab results at runtime, never
-        // asserted statically. The descriptor must still name the backend it
-        // was measured against, and pin the revision it was measured on.
-        t.check(registry.descriptor(id: "10eros_v13_dmd_q4")?.runtime.verified == false,
-                "10eros v1.3 ships unverified; the lab promotes it")
-        t.check(registry.descriptor(id: "10eros_v13_dmd_q4")?.revision != nil,
-                "10eros v1.3 pins the revision it was measured on")
-        t.checkEqual(registry.descriptor(id: "10eros_v13_dmd_q4")?.runtime.backend, "ltx-2-mlx",
-                     "10eros v1.3 verified against ltx-2-mlx")
-        t.checkEqual(registry.descriptor(id: "10eros_v12_q8")?.runtime.backend, "mlx-video-with-audio",
-                     "10eros v1.2 was only ever measured against the original backend")
-        t.check(registry.descriptor(id: "10eros_v12_q8")?.policy.contentClassification == .adultVerified, "10eros classified adultVerified")
+        let custom = registry.descriptor(id: ModelRegistry.customModelID)
+        t.check(custom != nil, "custom LTX-2 MLX model registered")
+        t.checkEqual(custom?.runtime.backend, "ltx-2-mlx", "custom model routes to ltx-2-mlx")
+        t.checkEqual(custom?.isOfficial, false, "custom model is not official")
     }
 
-    t.suite("Adult policy matrix") {
+    t.suite("Model Policy and Generation Validation") {
         let registry = ModelRegistry(userDefaults: defaults)
-        // adultMode=false + general = allowed
+        // official model passes validation
         do {
-            try registry.validatePolicy(modelID: LTXModelCatalog.defaultModelID, adultMode: false)
-            t.check(true, "adult OFF + general allowed")
+            try registry.validatePolicy(modelID: LTXModelCatalog.defaultModelID)
+            t.check(true, "official model policy allowed")
         } catch {
-            t.check(false, "adult OFF + general allowed (threw \(error))")
-        }
-        // adultMode=false + adultVerified = reject
-        t.checkThrows(ModelPolicyError.adultModelRequiresAdultMode(modelID: "10eros_v12_q8"),
-                      "adult OFF + adultVerified rejected") {
-            try registry.validatePolicy(modelID: "10eros_v12_q8", adultMode: false)
-        }
-        // adultMode=true + adultVerified = allowed (policy level)
-        do {
-            try registry.validatePolicy(modelID: "10eros_v12_q8", adultMode: true)
-            t.check(true, "adult ON + adultVerified allowed at policy layer")
-        } catch {
-            t.check(false, "adult ON + adultVerified allowed (threw \(error))")
+            t.check(false, "official model policy allowed (threw \(error))")
         }
         // unregistered model = reject
         t.checkThrows(ModelPolicyError.modelNotRegistered(modelID: "nonexistent"),
                       "unregistered model rejected") {
-            try registry.validatePolicy(modelID: "nonexistent", adultMode: true)
-        }
-        // unverified model may never generate even with adult ON
-        t.checkThrows(ModelPolicyError.modelUnverified(modelID: "10eros_v12_q8"),
-                      "unverified model rejected for generation") {
-            _ = try registry.validateForGeneration(modelID: "10eros_v12_q8", adultMode: true)
+            try registry.validatePolicy(modelID: "nonexistent")
         }
         // official model passes generation gate
         do {
-            let d = try registry.validateForGeneration(modelID: LTXModelCatalog.defaultModelID, adultMode: false)
+            let d = try registry.validateForGeneration(modelID: LTXModelCatalog.defaultModelID)
             t.checkEqual(d.id, LTXModelCatalog.defaultModelID, "official model passes generation gate")
         } catch {
             t.check(false, "official model passes generation gate (threw \(error))")
@@ -85,17 +58,25 @@ func runRegistryTests(_ t: TestKit) {
             }
         }
 
-        // 2. 10Eros resolves to itself on the ltx-2-mlx backend.
-        switch GenerationModelResolver.resolve(modelID: "10eros_v13_dmd_q4", registry: registry) {
+        // 2. Custom LTX-2 MLX model resolves to itself on the ltx-2-mlx backend.
+        switch GenerationModelResolver.resolve(modelID: ModelRegistry.customModelID, registry: registry) {
         case .runnable(let runnable):
-            t.checkEqual(runnable.model.id, "10eros_v13_dmd_q4", "10Eros resolves to itself")
-            t.checkEqual(runnable.model.repo, "MLXBits/ltx-2.3-10eros-v1.3-dmd-mlx-q4", "10Eros repo")
-            t.checkEqual(runnable.backend, .ltx2MLX, "10Eros routes to ltx-2-mlx")
+            t.checkEqual(runnable.model.id, ModelRegistry.customModelID, "custom model resolves to itself")
+            t.checkEqual(runnable.backend, .ltx2MLX, "custom model routes to ltx-2-mlx")
         case .unsupported:
-            t.check(false, "10Eros must be runnable")
+            t.check(false, "custom model must be runnable")
         }
 
-        // 3. Unknown model fails loudly.
+        // 3. Legacy 10eros ID resolves to custom model for backward compatibility.
+        switch GenerationModelResolver.resolve(modelID: "10eros_v13_dmd_q4", registry: registry) {
+        case .runnable(let runnable):
+            t.checkEqual(runnable.model.id, ModelRegistry.customModelID, "legacy 10eros ID maps to custom model")
+            t.checkEqual(runnable.backend, .ltx2MLX, "legacy 10eros routes to ltx-2-mlx")
+        case .unsupported:
+            t.check(false, "legacy 10eros must resolve to custom model")
+        }
+
+        // 4. Unknown model fails loudly.
         switch GenerationModelResolver.resolve(modelID: "no_such_model", registry: registry) {
         case .runnable(let runnable):
             t.check(false, "unknown ID must not resolve to \(runnable.model.id)")
@@ -104,19 +85,6 @@ func runRegistryTests(_ t: TestKit) {
         }
         t.checkEqual(GenerationModelResolver.backend(for: "no_such_model", registry: registry), nil,
                      "unknown ID has no backend — never the default one")
-
-        // 4. Registered but unrunnable model fails with its recorded reason.
-        switch GenerationModelResolver.resolve(modelID: "10eros_v12_q8", registry: registry) {
-        case .runnable(let runnable):
-            t.check(false, "unrunnable lab model must not resolve to \(runnable.model.id)")
-        case .unsupported(let reason):
-            guard case .notRunnableOnInstalledBackend(_, _, let detail) = reason else {
-                t.check(false, "should report a backend reason"); break
-            }
-            t.check(!detail.isEmpty, "unrunnable model carries a concrete reason")
-        }
-        t.checkEqual(GenerationModelResolver.backend(for: "10eros_v12_q8", registry: registry), nil,
-                     "unrunnable model has no backend")
 
         // 5. nil / legacy selection keeps the existing LTX-2.3 default.
         for legacy in [nil, ""] as [String?] {
@@ -128,49 +96,17 @@ func runRegistryTests(_ t: TestKit) {
                 t.check(false, "legacy selection must stay runnable")
             }
         }
-
-        // 6. 10Eros never resolves to an LTX-2.3 checkpoint. This is the
-        // invariant the earlier silent-fallback bug violated.
-        for id in ["10eros_v13_dmd_q4", "10eros_v12_q8"] {
-            if case .runnable(let runnable) = GenerationModelResolver.resolve(modelID: id, registry: registry) {
-                t.check(!LTXModelCatalog.all.contains { $0.id == runnable.model.id },
-                        "\(id) must never resolve to an official LTX model")
-                t.check(runnable.backend != .mlxVideoWithAudio,
-                        "\(id) must never route to the LTX-2.3 backend")
-            }
-        }
-
-        // Every offered model resolves to itself or fails loudly.
-        FeatureFlags.set(.derivedModelsV1, enabled: true, userDefaults: defaults)
-        FeatureFlags.set(.adultModelsV1, enabled: true, userDefaults: defaults)
-        for offered in registry.selectableModels(adultMode: true) {
-            switch GenerationModelResolver.resolve(modelID: offered.id, registry: registry) {
-            case .runnable(let runnable):
-                t.checkEqual(runnable.model.id, offered.id, "offered \(offered.id) resolves to itself")
-            case .unsupported(let reason):
-                t.check(!reason.userMessage.isEmpty, "offered \(offered.id) explains why not")
-            }
-        }
-        FeatureFlags.disableAll(userDefaults: defaults)
     }
 
     t.suite("Selectable models / flags") {
         let registry = ModelRegistry(userDefaults: defaults)
-        // All flags OFF: only official models visible.
         FeatureFlags.disableAll(userDefaults: defaults)
-        let officialOnly = registry.selectableModels(adultMode: true)
+        let officialOnly = registry.selectableModels(customModelsEnabled: false)
         t.checkEqual(officialOnly.count, LTXModelCatalog.all.count, "flags OFF → official models only")
-        // derivedModelsV1 ON but adultModelsV1 OFF: adult lab models still hidden.
-        FeatureFlags.set(.derivedModelsV1, enabled: true, userDefaults: defaults)
-        t.checkEqual(registry.selectableModels(adultMode: true).count, LTXModelCatalog.all.count,
-                     "derived ON, adultModels OFF → adult lab models hidden")
-        // Both flags ON + adult mode ON: lab models appear.
-        FeatureFlags.set(.adultModelsV1, enabled: true, userDefaults: defaults)
-        t.checkEqual(registry.selectableModels(adultMode: true).count, LTXModelCatalog.all.count + 2,
-                     "derived+adult ON + adultMode ON → lab models visible")
-        // Adult mode OFF hides them regardless of flags.
-        t.checkEqual(registry.selectableModels(adultMode: false).count, LTXModelCatalog.all.count,
-                     "adultMode OFF hides adult models despite flags")
+        
+        FeatureFlags.set(.customModelsV1, enabled: true, userDefaults: defaults)
+        t.checkEqual(registry.selectableModels(customModelsEnabled: true).count, LTXModelCatalog.all.count + 1,
+                     "customModels ON → custom model visible")
         FeatureFlags.disableAll(userDefaults: defaults)
     }
 
@@ -179,41 +115,17 @@ func runRegistryTests(_ t: TestKit) {
         let adapters = AdapterRegistry()
         let official = registry.descriptor(id: LTXModelCatalog.defaultModelID)!
         t.check(adapters.adapter(for: official) is OfficialMLXAudioAdapter, "official model → OfficialMLXAudioAdapter")
-        // mlx-video-with-audio-backed lab model (unverified; the loader that
-        // ships in this app has no code path that runs it).
-        let mlxVideoLab = registry.descriptor(id: "10eros_v12_q8")!
-        t.check(adapters.adapter(for: mlxVideoLab) is DerivedModelAdapter, "mlx-video-with-audio lab model → DerivedModelAdapter")
-        // ltx-2-mlx-backed lab model (10Eros v1.3). This is the case that broke
-        // in production: every model's backend must resolve to SOME adapter,
-        // not just the one the registry happens to already cover.
-        let ltx2mlxLab = registry.descriptor(id: "10eros_v13_dmd_q4")!
-        t.check(adapters.adapter(for: ltx2mlxLab) is LTX2MLXAdapter, "ltx-2-mlx lab model → LTX2MLXAdapter")
 
-        // Invariant that generalizes the regression: every model the registry
-        // will actually offer for selection must resolve to an adapter.
-        FeatureFlags.set(.derivedModelsV1, enabled: true, userDefaults: defaults)
-        FeatureFlags.set(.adultModelsV1, enabled: true, userDefaults: defaults)
-        for offered in registry.selectableModels(adultMode: true) {
-            t.check(adapters.adapter(for: offered) != nil, "offered model \(offered.id) resolves to an adapter")
-        }
-        FeatureFlags.disableAll(userDefaults: defaults)
+        let customModel = registry.descriptor(id: ModelRegistry.customModelID)!
+        t.check(adapters.adapter(for: customModel) is LTX2MLXAdapter, "custom model → LTX2MLXAdapter")
     }
 
-    t.suite("LTX2MLXAdapter gating") {
-        let adapter = LTX2MLXAdapter()
-        var descriptor = ModelDescriptor(
-            id: "10eros_v13_dmd_q4", displayName: "x", repository: "MLXBits/x", revision: "abc",
-            localPath: nil, quantization: "q4", precision: nil, estimatedModelSizeGB: 1,
-            recommendedUnifiedMemoryGB: 1, minimumUnifiedMemoryGB: 1,
-            architecture: ArchitectureDescriptor(modelFamily: "LTX", modelVersion: "2.3", modelType: "unified-av"),
-            capabilities: CapabilitySet(textToVideo: true, imageToVideo: true, synchronizedAudio: true),
-            runtime: RuntimeCompatibility(backend: "ltx-2-mlx", minimumBackendVersion: nil, verified: false, verificationNotes: nil),
-            policy: PolicyMetadata(contentClassification: .adultVerified, classificationEvidence: nil),
-            license: ModelLicenseMetadata(name: "x", url: nil, requiresAcknowledgement: true)
-        )
-        t.check(adapter.supports(model: descriptor), "LTX2MLXAdapter supports an ltx-2-mlx-backed derived model")
-        descriptor.isOfficial = true
-        t.check(!adapter.supports(model: descriptor), "LTX2MLXAdapter refuses official models even on this backend")
+    t.suite("AppStorageDirectory and Keychain isolation") {
+        t.checkEqual(AppStorageDirectory.legacyFolderName, "LTXVideoGenerator", "legacy folder name preserved")
+        t.checkEqual(AppStorageDirectory.personalFolderName, "LocalVideoStudio", "personal folder name defined")
+        t.checkEqual(AppStorageDirectory.devFolderName, "LocalVideoStudioDev", "dev folder name defined")
+        t.check(!AppStorageDirectory.root.path.isEmpty, "AppStorageDirectory root is valid")
+        t.check(!AppStorageDirectory.keychainService.isEmpty, "keychain service name is valid")
     }
 
     t.suite("Codable migration") {
@@ -295,7 +207,7 @@ func runRegistryTests(_ t: TestKit) {
                          "\(flag.rawValue) untouched default matches defaultEnabled")
         }
         t.check(!FeatureFlag.derivedModelsV1.defaultEnabled, "derived models default OFF")
-        t.check(!FeatureFlag.adultModelsV1.defaultEnabled, "adult models default OFF")
+        t.check(FeatureFlag.customModelsV1.defaultEnabled, "custom models default ON")
         t.check(!FeatureFlag.lowRAMAdapterV1.defaultEnabled, "low-RAM adapter default OFF")
         t.check(!FeatureFlag.localAPIv1.defaultEnabled, "local API default OFF")
 

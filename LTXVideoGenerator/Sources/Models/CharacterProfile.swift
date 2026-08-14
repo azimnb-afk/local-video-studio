@@ -72,11 +72,8 @@ class CharacterProfileManager: ObservableObject {
     private let profilesFile: URL
 
     nonisolated init() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let appDir = appSupport.appendingPathComponent("LTXVideoGenerator", isDirectory: true)
+        let appDir = AppStorageDirectory.root
         profilesFile = appDir.appendingPathComponent("character_profiles.json")
-
-        try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
     }
 
     func loadInitialData() {

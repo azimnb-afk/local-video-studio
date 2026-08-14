@@ -27,7 +27,7 @@ This checklist defines the required verification steps before tagging or publish
   - [ ] CUT vs CONTINUE transitions execute correctly (Last-Frame I2V conditioning).
 - [ ] **Backend Routing**:
   - [ ] LTX-2.3 routes to `mlx-video-with-audio`.
-  - [ ] 10Eros v1.3 DMD Q4 routes strictly to `ltx-2-mlx` (Adult Mode enabled).
+  - [ ] Custom LTX-2 MLX models route strictly to `ltx-2-mlx`.
   - [ ] No cross-backend silent substitution.
 - [ ] **Aspect Ratio Presets**: Portrait source image auto-configures portrait resolution (e.g. 512x768).
 - [ ] **Production Queue Navigation**: Sidebar navigation remains responsive while queue jobs execute.

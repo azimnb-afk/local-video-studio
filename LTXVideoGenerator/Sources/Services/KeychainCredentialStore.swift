@@ -66,10 +66,14 @@ public final class KeychainStorageBackend: CredentialStorageProtocol, @unchecked
 public final class KeychainCredentialStore: ObservableObject, @unchecked Sendable {
     public static let shared = KeychainCredentialStore()
 
-    public static let serviceName = "com.example.ltxvideogenerator.credentials"
+    public static var defaultServiceName: String {
+        AppStorageDirectory.keychainService
+    }
+    public static let legacyServiceName = "com.example.ltxvideogenerator.credentials"
     public static let elevenLabsAccountName = "elevenLabsApiKey"
     public static let legacyElevenLabsUserDefaultsKey = "elevenLabsApiKey"
 
+    public let serviceName: String
     private let storage: CredentialStorageProtocol
     private let userDefaults: UserDefaults
     private let lock = NSLock()
@@ -79,10 +83,12 @@ public final class KeychainCredentialStore: ObservableObject, @unchecked Sendabl
 
     public init(
         storage: CredentialStorageProtocol = KeychainStorageBackend.shared,
-        userDefaults: UserDefaults = .standard
+        userDefaults: UserDefaults = .standard,
+        serviceName: String? = nil
     ) {
         self.storage = storage
         self.userDefaults = userDefaults
+        self.serviceName = serviceName ?? Self.defaultServiceName
         self.cachedElevenLabsKey = loadAndMigrateElevenLabsApiKey()
         self.publishedElevenLabsKey = self.cachedElevenLabsKey
     }
@@ -104,9 +110,9 @@ public final class KeychainCredentialStore: ObservableObject, @unchecked Sendabl
         lock.lock()
         cachedElevenLabsKey = trimmed
         if trimmed.isEmpty {
-            _ = storage.delete(service: Self.serviceName, account: Self.elevenLabsAccountName)
+            _ = storage.delete(service: serviceName, account: Self.elevenLabsAccountName)
         } else {
-            _ = storage.write(trimmed, service: Self.serviceName, account: Self.elevenLabsAccountName)
+            _ = storage.write(trimmed, service: serviceName, account: Self.elevenLabsAccountName)
         }
         // Ensure legacy plaintext UserDefaults is always cleared once set
         userDefaults.removeObject(forKey: Self.legacyElevenLabsUserDefaultsKey)
@@ -121,27 +127,34 @@ public final class KeychainCredentialStore: ObservableObject, @unchecked Sendabl
         }
     }
 
-    /// Performs idempotent migration from UserDefaults to Keychain.
+    /// Performs idempotent migration from UserDefaults or legacy Keychain to profile Keychain.
     @discardableResult
     public func loadAndMigrateElevenLabsApiKey() -> String {
-        // 1. Check Keychain
-        if let secret = storage.read(service: Self.serviceName, account: Self.elevenLabsAccountName), !secret.isEmpty {
-            // Keychain already has it. Clean up legacy UserDefaults if still present.
+        // 1. Check current profile Keychain
+        if let secret = storage.read(service: serviceName, account: Self.elevenLabsAccountName), !secret.isEmpty {
             if userDefaults.string(forKey: Self.legacyElevenLabsUserDefaultsKey) != nil {
                 userDefaults.removeObject(forKey: Self.legacyElevenLabsUserDefaultsKey)
             }
             return secret
         }
 
-        // 2. Check legacy UserDefaults
+        // 2. Check legacy Keychain if this is a personal/migrating store
+        if serviceName != Self.legacyServiceName,
+           let legacyKeychainSecret = storage.read(service: Self.legacyServiceName, account: Self.elevenLabsAccountName),
+           !legacyKeychainSecret.isEmpty {
+            _ = storage.write(legacyKeychainSecret, service: serviceName, account: Self.elevenLabsAccountName)
+            if userDefaults.string(forKey: Self.legacyElevenLabsUserDefaultsKey) != nil {
+                userDefaults.removeObject(forKey: Self.legacyElevenLabsUserDefaultsKey)
+            }
+            return legacyKeychainSecret
+        }
+
+        // 3. Check legacy UserDefaults
         if let legacySecret = userDefaults.string(forKey: Self.legacyElevenLabsUserDefaultsKey), !legacySecret.isEmpty {
-            // 3. Write to Keychain
-            if storage.write(legacySecret, service: Self.serviceName, account: Self.elevenLabsAccountName) {
-                // 4. Confirm write, then remove from UserDefaults
+            if storage.write(legacySecret, service: serviceName, account: Self.elevenLabsAccountName) {
                 userDefaults.removeObject(forKey: Self.legacyElevenLabsUserDefaultsKey)
                 return legacySecret
             } else {
-                // Write failed, keep legacy value for safety
                 return legacySecret
             }
         }

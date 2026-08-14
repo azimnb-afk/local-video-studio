@@ -53,7 +53,7 @@ func runKeychainCredentialStoreTests(_ t: TestKit) {
         store.elevenLabsApiKey = "sk-test-api-key-12345"
         t.checkEqual(store.elevenLabsApiKey, "sk-test-api-key-12345", "Key was saved and read back")
         t.checkEqual(
-            mockStorage.read(service: KeychainCredentialStore.serviceName, account: KeychainCredentialStore.elevenLabsAccountName),
+            mockStorage.read(service: store.serviceName, account: KeychainCredentialStore.elevenLabsAccountName),
             "sk-test-api-key-12345",
             "Stored in mock Keychain storage"
         )
@@ -63,7 +63,7 @@ func runKeychainCredentialStoreTests(_ t: TestKit) {
         store.elevenLabsApiKey = "sk-replaced-key-67890"
         t.checkEqual(store.elevenLabsApiKey, "sk-replaced-key-67890", "Key was replaced")
         t.checkEqual(
-            mockStorage.read(service: KeychainCredentialStore.serviceName, account: KeychainCredentialStore.elevenLabsAccountName),
+            mockStorage.read(service: store.serviceName, account: KeychainCredentialStore.elevenLabsAccountName),
             "sk-replaced-key-67890",
             "Updated in Keychain storage"
         )
@@ -72,7 +72,7 @@ func runKeychainCredentialStoreTests(_ t: TestKit) {
         store.elevenLabsApiKey = ""
         t.checkEqual(store.elevenLabsApiKey, "", "Key is cleared")
         t.check(
-            mockStorage.read(service: KeychainCredentialStore.serviceName, account: KeychainCredentialStore.elevenLabsAccountName) == nil,
+            mockStorage.read(service: store.serviceName, account: KeychainCredentialStore.elevenLabsAccountName) == nil,
             "Removed from Keychain storage"
         )
 
@@ -83,7 +83,7 @@ func runKeychainCredentialStoreTests(_ t: TestKit) {
 
         t.checkEqual(migratedStore.elevenLabsApiKey, "legacy-secret-999", "Migrated legacy secret into store")
         t.checkEqual(
-            freshStorage.read(service: KeychainCredentialStore.serviceName, account: KeychainCredentialStore.elevenLabsAccountName),
+            freshStorage.read(service: migratedStore.serviceName, account: KeychainCredentialStore.elevenLabsAccountName),
             "legacy-secret-999",
             "Written to Keychain storage during migration"
         )
@@ -111,7 +111,7 @@ func runKeychainCredentialStoreTests(_ t: TestKit) {
 
         // Test 7: Existing Keychain value wins over stale UserDefaults
         let conflictStorage = MockCredentialStorage()
-        _ = conflictStorage.write("keychain-authority", service: KeychainCredentialStore.serviceName, account: KeychainCredentialStore.elevenLabsAccountName)
+        _ = conflictStorage.write("keychain-authority", service: KeychainCredentialStore.defaultServiceName, account: KeychainCredentialStore.elevenLabsAccountName)
         testDefaults.set("stale-defaults-value", forKey: KeychainCredentialStore.legacyElevenLabsUserDefaultsKey)
 
         let resolvedStore = KeychainCredentialStore(storage: conflictStorage, userDefaults: testDefaults)

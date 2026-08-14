@@ -1,6 +1,6 @@
 # v0.9.0-preview.1 — First Public Preview
 
-LTX Video Generator for Mac — AutoMovie Edition `v0.9.0-preview.1` is the first public preview release candidate. It delivers an on-device AI filmmaking studio for Apple Silicon Macs, combining LTX-2.3 and 10Eros video diffusion with automated shot planning, character continuity, and production queue management.
+Local Video Studio for Mac — AutoMovie Edition `v0.9.0-preview.1` is the first public preview release candidate. It delivers an on-device AI filmmaking studio for Apple Silicon Macs, combining LTX-2.3 and custom MLX video diffusion with automated shot planning, character continuity, and production queue management.
 
 ---
 
@@ -35,10 +35,10 @@ LTX Video Generator for Mac — AutoMovie Edition `v0.9.0-preview.1` is the firs
 
 ### ⚡ Supported Generation Backends
 - **LTX-2.3 (Distilled Q4 & Unified)**: Powered by `mlx-video-with-audio` for fast on-device generation.
-- **10Eros v1.3 DMD Q4**: Isolated secondary backend via `ltx-2-mlx` with Adult Content Mode gating.
+- **Custom LTX-2 MLX Models**: Secondary isolated backend via `ltx-2-mlx` allowing users to configure compatible fine-tuned models.
 
 ### 🔒 Security & Privacy Hardening
-- **macOS Keychain Integration**: Optional external API credentials (such as ElevenLabs API keys) are now persisted securely in the macOS Keychain with transparent, automatic migration from legacy plaintext preferences.
+- **macOS Keychain Integration**: Optional external API credentials (such as ElevenLabs API keys) are stored securely in macOS Keychain with isolated namespaces for Personal and Dev apps.
 - **Zero Telemetry & 100% Local Inference**: Complete privacy guarantee for core video and audio generation.
 
 ---

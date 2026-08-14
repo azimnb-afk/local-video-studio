@@ -36,10 +36,6 @@ enum ManifestValidator {
             if model.policy.contentClassification == .unknown {
                 issues.append(Issue(severity: .error, message: "Content classification unknown."))
             }
-            if model.policy.contentClassification == .adultVerified,
-               (model.policy.classificationEvidence ?? "").isEmpty {
-                issues.append(Issue(severity: .error, message: "Adult classification lacks evidence."))
-            }
         }
         if model.runtime.backend != "mlx-video-with-audio" {
             issues.append(Issue(severity: .warning, message: "Backend '\(model.runtime.backend)' is not the official backend; requires its own adapter."))

@@ -3,17 +3,15 @@ import Combine
 
 /// Which local runtime actually performs inference for a model.
 ///
-/// Two runtimes exist because the two model families are packaged for two
-/// different loaders, not because the app wants a plugin system. LTX-2.3 ships
-/// weights `mlx-video-with-audio` understands; 10Eros ships weights packaged
-/// for `ltx-2-mlx` (its model card says so, and its transformer carries gated
-/// attention and a group-size-32 quantization the other loader cannot read).
+/// Two runtimes exist because models may be packaged for different loaders.
+/// LTX-2.3 ships weights `mlx-video-with-audio` understands; certain custom/fine-tuned
+/// weights are packaged for `ltx-2-mlx`.
 ///
 /// A new case is only justified by a runtime that is actually implemented.
 enum GenerationBackendKind: String, Codable, Equatable, CaseIterable {
     /// The original backend. Runs LTX-2.3 and remains the default.
     case mlxVideoWithAudio
-    /// Pure-MLX LTX-2 port (github.com/dgrauet/ltx-2-mlx). Runs 10Eros.
+    /// Pure-MLX LTX-2 port (github.com/dgrauet/ltx-2-mlx). Runs custom MLX models.
     case ltx2MLX
 
     var displayName: String {
@@ -25,36 +23,33 @@ enum GenerationBackendKind: String, Codable, Equatable, CaseIterable {
 }
 
 /// Models that run on the `ltx-2-mlx` backend.
-///
-/// Deliberately separate from `LTXModelCatalog`: that catalog is also the
-/// ungated model picker in Preferences, and 10Eros must only ever appear
-/// through `ModelRegistry`'s adult-content gate. Keeping the tables apart is
-/// what stops a sensitive model from leaking into a general-purpose list.
-enum LTX2MLXModelCatalog {
-    /// The one 10Eros variant verified against this backend. Its ID matches the
-    /// `ModelRegistry` descriptor so policy, licensing and gating line up.
-    static let tenEros13DMDQ4 = LTXModel(
-        id: "10eros_v13_dmd_q4",
-        repo: "MLXBits/ltx-2.3-10eros-v1.3-dmd-mlx-q4",
-        displayName: "10Eros v1.3 DMD (MLX int4)",
-        downloadSize: "~23GB",
-        // The package ships audio_vae + vocoder, so the pipeline produces a
-        // synchronized audio track like the LTX-2.3 unified models do.
-        supportsBuiltInAudio: true,
-        qualityWarning: "Quantized int4: smaller footprint with some loss of fine detail versus int8.",
-        recommendedStepsLower: 8,
-        recommendedStepsUpper: 30,
-        tips: "Distilled (DMD) — the distillation is baked into the transformer, so few steps are expected."
-    )
+enum CustomLTX2MLXModelCatalog {
+    public static let customModelID = "custom_ltx2_mlx"
 
-    static let all: [LTXModel] = [tenEros13DMDQ4]
-
-    static func model(id: String) -> LTXModel? {
-        all.first { $0.id == id }
+    public static func customModel(userDefaults: UserDefaults = .standard) -> LTXModel {
+        let repo = userDefaults.string(forKey: ModelRegistry.customRepositoryUserDefaultsKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let effectiveRepo = repo.isEmpty ? "user-supplied/custom-model" : repo
+        return LTXModel(
+            id: customModelID,
+            repo: effectiveRepo,
+            displayName: "Custom LTX-2 MLX Model",
+            downloadSize: "~23GB",
+            supportsBuiltInAudio: true,
+            qualityWarning: "User-configured model running on ltx-2-mlx.",
+            recommendedStepsLower: 8,
+            recommendedStepsUpper: 30,
+            tips: "Runs on the ltx-2-mlx backend."
+        )
     }
 
-    /// Component files the runtime resolves inside the model directory. Used to
-    /// tell a complete download from a directory an interrupted one left behind.
+    static func model(id: String, userDefaults: UserDefaults = .standard) -> LTXModel? {
+        if id == customModelID || id.hasPrefix("10eros") {
+            return customModel(userDefaults: userDefaults)
+        }
+        return nil
+    }
+
+    /// Component files the runtime resolves inside the model directory.
     static let requiredComponents = [
         "transformer-distilled.safetensors",
         "connector.safetensors",
@@ -62,6 +57,9 @@ enum LTX2MLXModelCatalog {
         "vae_encoder.safetensors",
     ]
 }
+
+// Backward-compatibility alias
+typealias LTX2MLXModelCatalog = CustomLTX2MLXModelCatalog
 
 /// Where the `ltx-2-mlx` runtime and its model live, and whether each is ready.
 ///
@@ -191,16 +189,10 @@ enum LTX2MLXRuntime {
     }
 }
 
-/// Explicit download flow for the 10Eros weights.
-///
-/// Reuses the existing Hugging Face downloader rather than adding a second
-/// download engine — that service is already repository-generic. The state
-/// machine mirrors the Text Encoder flow (Missing → Download → Downloading →
-/// Ready → Retry) and, critically, never starts on its own: turning on Adult
-/// Content Mode must not trigger a 23 GB transfer.
+/// Explicit download flow for user-configured custom model weights.
 @MainActor
-final class TenErosModelDownloadCoordinator: ObservableObject {
-    static let shared = TenErosModelDownloadCoordinator()
+final class CustomModelDownloadCoordinator: ObservableObject {
+    static let shared = CustomModelDownloadCoordinator()
 
     enum State: Equatable {
         case idle
@@ -225,7 +217,8 @@ final class TenErosModelDownloadCoordinator: ObservableObject {
     }
 
     /// Only ever called from an explicit user action.
-    func startDownload(repository: String = LTX2MLXModelCatalog.tenEros13DMDQ4.repo) async {
+    func startDownload(repository: String) async {
+        guard !repository.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         if case .downloading = state { return }
         if isCached(repository) {
             state = .succeeded
@@ -235,8 +228,6 @@ final class TenErosModelDownloadCoordinator: ObservableObject {
         let result = await downloader.download(repository: repository) { [weak self] progress, message in
             Task { @MainActor in
                 guard let self, case .downloading = self.state else { return }
-                // A nil progress stays nil: the underlying tool not reporting a
-                // percentage is not a reason to invent one.
                 self.state = .downloading(progress: progress, message: message)
             }
         }
@@ -248,9 +239,12 @@ final class TenErosModelDownloadCoordinator: ObservableObject {
         }
     }
 
-    func retry(repository: String = LTX2MLXModelCatalog.tenEros13DMDQ4.repo) async {
+    func retry(repository: String) async {
         guard case .failed = state else { return }
         state = .idle
         await startDownload(repository: repository)
     }
 }
+
+// Backward-compatibility alias
+typealias TenErosModelDownloadCoordinator = CustomModelDownloadCoordinator

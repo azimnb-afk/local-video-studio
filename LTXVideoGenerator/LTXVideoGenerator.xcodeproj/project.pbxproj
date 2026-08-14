@@ -31,6 +31,7 @@
 		AA000031 /* enhance_prompt_preview.py in Resources */ = {isa = PBXBuildFile; fileRef = AA000032; };
 		AA00002B /* AudioService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00002C; };
 		AA0009A1 /* KeychainCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009A2; };
+		AA0009B1 /* AppStorageDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009B2; };
 		AA00002D /* AddAudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00002E; };
 		AA000035 /* CharacterProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000036; };
 		AA000190 /* MacOSSystemMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000191; };
@@ -141,6 +142,7 @@
 		AA000032 /* enhance_prompt_preview.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = enhance_prompt_preview.py; sourceTree = "<group>"; };
 		AA00002C /* AudioService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioService.swift; sourceTree = "<group>"; };
 		AA0009A2 /* KeychainCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainCredentialStore.swift; sourceTree = "<group>"; };
+		AA0009B2 /* AppStorageDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStorageDirectory.swift; sourceTree = "<group>"; };
 		AA00002E /* AddAudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAudioView.swift; sourceTree = "<group>"; };
 		AA000036 /* CharacterProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterProfile.swift; sourceTree = "<group>"; };
 		AA000291 /* ContinuityStrengthPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityStrengthPolicy.swift; sourceTree = "<group>"; };
@@ -319,6 +321,7 @@
 				AA000026 /* APIServer.swift */,
 				AA00002C /* AudioService.swift */,
 				AA0009A2 /* KeychainCredentialStore.swift */,
+				AA0009B2 /* AppStorageDirectory.swift */,
 				AA000291 /* ContinuityStrengthPolicy.swift */,
 				AA0002B7 /* ProductionQueueService.swift */,
 				AA0002B5 /* ProductionQueueCoordinator.swift */,
@@ -503,6 +506,7 @@
 				AA000025 /* APIServer.swift in Sources */,
 				AA00002B /* AudioService.swift in Sources */,
 				AA0009A1 /* KeychainCredentialStore.swift in Sources */,
+				AA0009B1 /* AppStorageDirectory.swift in Sources */,
 				AA000290 /* ContinuityStrengthPolicy.swift in Sources */,
 				AA0002B8 /* ProductionQueuePanel.swift in Sources */,
 				AA0002B6 /* ProductionQueueService.swift in Sources */,
@@ -717,7 +721,7 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "LTX Video Generator";
+				INFOPLIST_KEY_CFBundleDisplayName = "Local Video Studio";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -725,7 +729,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 0.9.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.ltxvideogenerator;
+				PRODUCT_BUNDLE_IDENTIFIER = com.localvideostudio.personal;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -744,7 +748,7 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "LTX Video Generator";
+				INFOPLIST_KEY_CFBundleDisplayName = "Local Video Studio";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -752,7 +756,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 0.9.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.ltxvideogenerator;
+				PRODUCT_BUNDLE_IDENTIFIER = com.localvideostudio.personal;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;

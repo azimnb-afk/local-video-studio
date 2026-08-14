@@ -201,8 +201,7 @@ final class LocalAPIServer: ObservableObject {
             let registry = ModelRegistry.shared
             let model = try APIv1.resolveModel(
                 payload: payload,
-                registry: registry,
-                appAdultModeEnabled: registry.adultModeEnabled
+                registry: registry
             )
             let requests = APIv1.makeRequests(
                 payload: payload,
@@ -307,7 +306,7 @@ final class LocalAPIServer: ObservableObject {
                 ],
             ]
         }
-        return APIv1.HTTPReply(status: 200, body: ["models": models, "adultMode": registry.adultModeEnabled])
+        return APIv1.HTTPReply(status: 200, body: ["models": models])
     }
 
     private func handleSystem() -> APIv1.HTTPReply {

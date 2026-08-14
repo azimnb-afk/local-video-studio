@@ -127,13 +127,13 @@ func runPerShotAudioPolicyTests(_ t: TestKit) {
                 "I: LTX-2.3 receives the guarded canonical request prompt")
         t.check(!ltxRequest.disableAudio, "I: LTX-2.3 request keeps audio enabled")
 
-        let tenErosRequest = GenerationRequest(
+        let customRequest = GenerationRequest(
             prompt: compiled,
             disableAudio: false,
-            modelId: LTX2MLXModelCatalog.tenEros13DMDQ4.id)
+            modelId: CustomLTX2MLXModelCatalog.customModelID)
         let arguments = LTX2MLXBackend.arguments(
-            request: tenErosRequest,
-            modelDirectory: "/models/10eros",
+            request: customRequest,
+            modelDirectory: "/models/custom",
             outputPath: "/tmp/out.mp4",
             seed: 7,
             width: 512,
@@ -143,8 +143,8 @@ func runPerShotAudioPolicyTests(_ t: TestKit) {
             arguments.indices.contains(index + 1) ? arguments[index + 1] : nil
         }
         t.check(backendPrompt?.lowercased().contains("no background music") == true,
-                "J: 10Eros receives the same guarded request prompt")
-        t.check(!tenErosRequest.disableAudio, "J: 10Eros policy does not request no-audio")
+                "J: custom backend receives the same guarded request prompt")
+        t.check(!customRequest.disableAudio, "J: custom backend policy does not request no-audio")
     }
 
     t.suite("Auto Movie project integration") {
@@ -190,7 +190,7 @@ func runPerShotAudioPolicyTests(_ t: TestKit) {
         let store = FilmProjectStore(projectsDirectory: root)
         var project = FilmProject(title: "Legacy prompt")
         project.workflowMode = AutoMovieRunCoordinator.autoMovieWorkflowMode
-        project.settings.modelID = LTX2MLXModelCatalog.tenEros13DMDQ4.id
+        project.settings.modelID = CustomLTX2MLXModelCatalog.customModelID
         var shot = Shot(index: 0, title: "Legacy Shot")
         shot.compiledPrompt = "Cinematic station lighting. An orchestral soundtrack swells. A woman says: \"It's here.\""
         project.shots = [shot]
@@ -217,11 +217,11 @@ func runPerShotAudioPolicyTests(_ t: TestKit) {
                     "Take boundary policy keeps dialogue, ambience and SFX generation enabled")
 
             let args = LTX2MLXBackend.arguments(
-                request: request, modelDirectory: "/models/10eros",
+                request: request, modelDirectory: "/models/custom",
                 outputPath: "/tmp/out.mp4", seed: 17, width: 512, height: 320)
             let promptIndex = try XCTUnwrapAudioPolicy(args.firstIndex(of: "--prompt"))
             t.checkEqual(args[promptIndex + 1], request.prompt,
-                         "10Eros receives the frozen canonical prompt without substitution")
+                         "custom backend receives the frozen canonical prompt without substitution")
         } catch {
             t.check(false, "Take freeze policy test threw \(error)")
         }

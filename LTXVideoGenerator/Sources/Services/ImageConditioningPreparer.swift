@@ -124,12 +124,7 @@ final class ImageConditioningPreparer {
         if let cacheDirectory {
             self.cacheDirectory = cacheDirectory
         } else {
-            let appSupport = fileManager.urls(
-                for: .applicationSupportDirectory, in: .userDomainMask
-            ).first!
-            self.cacheDirectory = appSupport
-                .appendingPathComponent("LTXVideoGenerator", isDirectory: true)
-                .appendingPathComponent("ConditioningCache", isDirectory: true)
+            self.cacheDirectory = AppStorageDirectory.cacheDirectory
         }
     }
 

@@ -7,7 +7,7 @@ import Foundation
 /// the process model that already works is reused rather than replaced.
 ///
 /// This backend never falls back to `mlx-video-with-audio`. If it cannot run,
-/// the generation fails as a 10Eros failure, because returning a video from a
+/// the generation fails on this backend, because returning a video from a
 /// different checkpoint would misrepresent what the user asked for.
 struct LTX2MLXBackend {
     private let userDefaults: UserDefaults
@@ -63,7 +63,7 @@ struct LTX2MLXBackend {
         // sampler's meaning rather than honor the request.
         notes.append(
             "Steps: requested \(request.parameters.numInferenceSteps); "
-            + "10Eros uses the distilled pipeline's own 8/4-step schedule."
+            + "the model uses the distilled pipeline's own 8/4-step schedule."
         )
         if request.parameters.guidanceScale > 1.0 {
             notes.append(
@@ -114,7 +114,7 @@ struct LTX2MLXBackend {
             request: request, modelDirectory: modelDirectory, outputPath: outputPath,
             seed: seed, width: width, height: height
         )
-        progressHandler(0.05, "Starting 10Eros on \(GenerationBackendKind.ltx2MLX.displayName)…")
+        progressHandler(0.05, "Starting generation on \(GenerationBackendKind.ltx2MLX.displayName)…")
 
         try await run(executable: executable, arguments: args, progressHandler: progressHandler)
 
@@ -126,7 +126,7 @@ struct LTX2MLXBackend {
                 "\(GenerationBackendKind.ltx2MLX.displayName) reported success but wrote no video to \(outputPath)."
             )
         }
-        progressHandler(1.0, "10Eros generation complete.")
+        progressHandler(1.0, "Generation complete.")
         return (outputPath, seed, nil)
     }
 

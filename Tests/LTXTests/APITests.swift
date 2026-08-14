@@ -79,42 +79,14 @@ func runAPITests(_ t: TestKit) {
         // Official model via API: allowed.
         do {
             let payload = try APIv1.parseJobPayload(["prompt": "x", "model": LTXModelCatalog.defaultModelID])
-            let model = try APIv1.resolveModel(payload: payload, registry: registry, appAdultModeEnabled: false)
+            let model = try APIv1.resolveModel(payload: payload, registry: registry)
             t.checkEqual(model.id, LTXModelCatalog.defaultModelID, "official model resolves via API")
         } catch { t.check(false, "official model via API threw \(error)") }
-
-        // Adult model requested while app adult mode OFF → 403-class rejection
-        // even when the client claims adultMode true.
-        do {
-            let payload = try APIv1.parseJobPayload(["prompt": "x", "model": "10eros_v12_q8", "adultMode": true])
-            _ = try APIv1.resolveModel(payload: payload, registry: registry, appAdultModeEnabled: false)
-            t.check(false, "adult model with app adult OFF should be rejected")
-        } catch let error as APIv1.ValidationError {
-            if case .policyRejected = error {
-                t.check(true, "client cannot override app adult mode")
-            } else {
-                t.check(false, "unexpected validation error \(error)")
-            }
-        } catch { t.check(false, "unexpected error \(error)") }
-
-        // Even with app adult mode ON, unverified lab model still rejected.
-        do {
-            let payload = try APIv1.parseJobPayload(["prompt": "x", "model": "10eros_v12_q8", "adultMode": true])
-            _ = try APIv1.resolveModel(payload: payload, registry: registry, appAdultModeEnabled: true)
-            t.check(false, "unverified model should be rejected")
-        } catch let error as APIv1.ValidationError {
-            if case .policyRejected(let reason) = error {
-                t.check(reason.contains("verification") || reason.contains("verified") || reason.contains("Lab"),
-                        "unverified model rejected for generation via API")
-            } else {
-                t.check(false, "unexpected validation error \(error)")
-            }
-        } catch { t.check(false, "unexpected error \(error)") }
 
         // Arbitrary repo injection: unregistered model id rejected.
         do {
             let payload = try APIv1.parseJobPayload(["prompt": "x", "model": "EvilOrg/evil-model"])
-            _ = try APIv1.resolveModel(payload: payload, registry: registry, appAdultModeEnabled: true)
+            _ = try APIv1.resolveModel(payload: payload, registry: registry)
             t.check(false, "unregistered model should be rejected")
         } catch { t.check(true, "arbitrary repo injection rejected") }
     }

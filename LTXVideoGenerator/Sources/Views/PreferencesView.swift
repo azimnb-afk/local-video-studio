@@ -293,15 +293,10 @@ struct PreferencesView: View {
                         }
                     }
 
-                    // 10Eros runs on a second local runtime. Its readiness is
-                    // shown only when the sensitive-model gate is already open,
-                    // and runtime/model are reported separately because they
-                    // fail independently and have different remedies.
-                    if adultContentModeEnabled,
-                       FeatureFlags.isEnabled(.adultModelsV1),
-                       FeatureFlags.isEnabled(.derivedModelsV1) {
+                    // Custom LTX-2 MLX models run on a second local runtime.
+                    if FeatureFlags.isEnabled(.customModelsV1) {
                         Divider()
-                        TenErosRuntimeSection(executablePath: $ltx2mlxExecutablePath)
+                        CustomLTX2MLXRuntimeSection(executablePath: $ltx2mlxExecutablePath)
                     }
 
                     Picker("Text Encoder", selection: $selectedTextEncoderID) {
@@ -649,8 +644,7 @@ struct PreferencesView: View {
     
     private func openOutputDirectory() {
         let path = outputDirectory.isEmpty
-            ? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("LTXVideoGenerator/Videos").path
+            ? AppStorageDirectory.videosDirectory.path
             : outputDirectory
         
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
@@ -1206,20 +1200,17 @@ struct DetectedPathsView: View {
 }
 #endif
 
-/// Readiness for the second generation backend (`ltx-2-mlx`, which runs 10Eros).
+/// Readiness for the second generation backend (`ltx-2-mlx`).
 ///
-/// Runtime and model get their own rows on purpose: "10Eros: Not ready" would
-/// not tell the user whether to install a runtime or download 23 GB. Neither
-/// row ever starts a download on its own — enabling the sensitive-model
-/// feature must not cause a multi-gigabyte transfer.
-struct TenErosRuntimeSection: View {
+/// Runtime and model get their own rows on purpose: "Not ready" must
+/// distinguish between missing runtime executable and missing weights. Neither
+/// row ever starts a download on its own.
+struct CustomLTX2MLXRuntimeSection: View {
     @Binding var executablePath: String
-    @StateObject private var downloads = TenErosModelDownloadCoordinator.shared
-    /// Redraws the section after an acknowledgement, which is recorded in the
-    /// lab store rather than in view state.
-    @State private var licenseAcknowledgementCount = 0
+    @StateObject private var downloads = CustomModelDownloadCoordinator.shared
+    @AppStorage(ModelRegistry.customRepositoryUserDefaultsKey) private var customRepo = ""
 
-    private var model: LTXModel { LTX2MLXModelCatalog.tenEros13DMDQ4 }
+    private var model: LTXModel { CustomLTX2MLXModelCatalog.customModel() }
 
     private var readiness: LTX2MLXRuntime.Readiness {
         LTX2MLXRuntime.readiness(repository: model.repo)
@@ -1244,25 +1235,25 @@ struct TenErosRuntimeSection: View {
             }
 
             statusRow(
-                title: "Model",
+                title: "Custom Model Repo",
                 isReady: state.model.isReady,
-                readyDetail: "Ready",
+                readyDetail: "Ready: \(model.repo)",
                 missingDetail: modelStatusDetail
             )
-            if !state.model.isReady {
+            HStack {
+                TextField("Hugging Face repository (e.g. organization/model-name)", text: $customRepo)
+                    .textFieldStyle(.roundedBorder)
+            }
+            if !state.model.isReady && !model.repo.isEmpty && !model.repo.contains("user-supplied") {
                 modelDownloadControl
             }
             BilingualSettingDescription(
-                english: "Download with: hf download \(model.repo). Cached in ~/.cache/huggingface/. "
-                    + "Enabling Adult Content Mode never downloads it for you.",
+                english: "Download with: hf download \(model.repo). Cached in ~/.cache/huggingface/.",
                 japanese: "ダウンロード方法: hf download \(model.repo)。~/.cache/huggingface/に保存されます。"
-                    + "Adult Content Modeを有効にしても自動ではダウンロードされません。"
             )
 
-            licenseRow
-
             if !state.canGenerate {
-                Text("Generation with \(model.displayName) needs both the runtime and the model.")
+                Text("Generation with \(model.displayName) needs both the runtime and model weights.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1270,53 +1261,19 @@ struct TenErosRuntimeSection: View {
         .padding(.vertical, 4)
     }
 
-    /// Reflects the explicit download state machine, never a guess: a nil
-    /// percentage from the downloader stays "Downloading…" rather than
-    /// becoming an invented number.
     private var modelStatusDetail: String {
         switch downloads.state {
         case .idle:
-            return "Missing — \(model.downloadSize) download required"
+            return "Missing — download required for \(model.repo)"
         case .downloading(let progress, let message):
             if let progress {
                 return "Downloading… \(Int(progress * 100))% — \(message)"
             }
             return "Downloading… \(message)"
         case .succeeded:
-            return "Downloaded — restart generation to use it"
+            return "Downloaded"
         case .failed(let reason):
             return "Download failed — \(reason)"
-        }
-    }
-
-    /// The license gate. Every other Compatibility Lab check is a measured
-    /// runtime result; this one asks the person running the app, because
-    /// whether a license permits their use is not something the app can decide.
-    @ViewBuilder
-    private var licenseRow: some View {
-        let descriptor = ModelRegistry.shared.descriptor(id: model.id)
-        let acknowledged = CompatibilityLab.shared.hasLicenseAcknowledgement(for: model.id)
-        VStack(alignment: .leading, spacing: 4) {
-            statusRow(
-                title: "License",
-                isReady: acknowledged,
-                readyDetail: "Accepted: \(descriptor?.license.name ?? "declared license")",
-                missingDetail: "Not accepted — \(descriptor?.license.name ?? "declared license")"
-            )
-            if let url = descriptor?.license.url {
-                Text(url).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
-            }
-            if !acknowledged, let descriptor {
-                Text("This model is a third-party finetune of an upstream licensed model. "
-                     + "This project has not adjudicated that chain — review it yourself before generating.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Button("I have reviewed and accept this license") {
-                    CompatibilityLab.shared.recordLicenseAcknowledgement(for: descriptor)
-                    ModelRegistry.shared.refreshVerification(from: .shared)
-                    licenseAcknowledgementCount += 1
-                }
-            }
         }
     }
 
@@ -1325,13 +1282,13 @@ struct TenErosRuntimeSection: View {
         switch downloads.state {
         case .idle, .succeeded:
             Button("Download Model (\(model.downloadSize))") {
-                Task { await downloads.startDownload() }
+                Task { await downloads.startDownload(repository: model.repo) }
             }
         case .downloading:
             ProgressView().controlSize(.small)
         case .failed:
             Button("Retry Download") {
-                Task { await downloads.retry() }
+                Task { await downloads.retry(repository: model.repo) }
             }
         }
     }
@@ -1361,3 +1318,6 @@ struct TenErosRuntimeSection: View {
         }
     }
 }
+
+// Backward-compatibility alias
+typealias TenErosRuntimeSection = CustomLTX2MLXRuntimeSection

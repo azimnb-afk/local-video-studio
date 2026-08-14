@@ -70,7 +70,7 @@ final class DerivedModelAdapter: VideoGenerationAdapter {
     }
 }
 
-/// Derived models packaged for the ltx-2-mlx backend (10Eros). Enforces the
+/// Derived models packaged for the ltx-2-mlx backend. Enforces the
 /// same verification and pinned-revision gate as DerivedModelAdapter — being
 /// on a different backend doesn't relax that requirement.
 final class LTX2MLXAdapter: VideoGenerationAdapter {

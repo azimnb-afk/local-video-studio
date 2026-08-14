@@ -18,10 +18,7 @@ final class ProductionQueueStore {
         if let fileURL {
             self.fileURL = fileURL
         } else {
-            let appDir = FileManager.default
-                .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("LTXVideoGenerator", isDirectory: true)
-            try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
+            let appDir = AppStorageDirectory.root
             self.fileURL = appDir.appendingPathComponent("production_queue.json")
         }
     }

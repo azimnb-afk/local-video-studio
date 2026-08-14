@@ -75,11 +75,8 @@ final class LocalDirector {
         self.providers = providers ?? [OllamaDirectorProvider(), TemplateDirectorProvider()]
     }
 
-    /// Debug artifacts (raw LLM responses) for troubleshooting.
     private static var debugLogURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("LTXVideoGenerator", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dir = AppStorageDirectory.root
         return dir.appendingPathComponent("director_debug.log")
     }
 

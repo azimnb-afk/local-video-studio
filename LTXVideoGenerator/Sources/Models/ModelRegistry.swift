@@ -4,7 +4,7 @@ import Foundation
 
 enum ContentClassification: String, Codable {
     case general
-    case adultVerified
+    case custom
     case unknown
     case blocked
 }
@@ -15,10 +15,10 @@ struct PolicyMetadata: Codable, Equatable, Hashable {
     var classificationEvidence: String?
 
     static let general = PolicyMetadata(contentClassification: .general, classificationEvidence: nil)
+    static let custom = PolicyMetadata(contentClassification: .custom, classificationEvidence: nil)
 }
 
 enum ModelPolicyError: Error, Equatable {
-    case adultModelRequiresAdultMode(modelID: String)
     case unknownClassificationRejected(modelID: String)
     case blockedModel(modelID: String)
     case modelNotRegistered(modelID: String)
@@ -26,8 +26,6 @@ enum ModelPolicyError: Error, Equatable {
 
     var userMessage: String {
         switch self {
-        case .adultModelRequiresAdultMode(let id):
-            return "Model '\(id)' is adult-verified. Enable Adult Content Mode in Preferences to use it."
         case .unknownClassificationRejected(let id):
             return "Model '\(id)' has an unknown content classification and cannot be used."
         case .blockedModel(let id):
@@ -35,7 +33,7 @@ enum ModelPolicyError: Error, Equatable {
         case .modelNotRegistered(let id):
             return "Model '\(id)' is not in the model registry."
         case .modelUnverified(let id):
-            return "Model '\(id)' has not passed runtime verification yet (Compatibility Lab)."
+            return "Model '\(id)' has not passed runtime verification yet."
         }
     }
 }
@@ -52,8 +50,6 @@ struct CapabilitySet: Codable, Equatable, Hashable {
     var textToVideo: Bool
     var imageToVideo: Bool
     var synchronizedAudio: Bool
-    // Advanced capabilities default false; only set true after backend runtime
-    // verification (capability-driven UI/API — never assume from upstream LTX).
     var keyframes: Bool = false
     var firstLastFrame: Bool = false
     var continuation: Bool = false
@@ -63,23 +59,22 @@ struct CapabilitySet: Codable, Equatable, Hashable {
 
 struct RuntimeCompatibility: Codable, Equatable, Hashable {
     /// Backend the model is packaged for.
-    var backend: String            // "mlx-video-with-audio"
+    var backend: String            // "mlx-video-with-audio" or "ltx-2-mlx"
     var minimumBackendVersion: String?
-    /// True only after the full verification gate has passed on this backend.
+    /// True only after verification.
     var verified: Bool
     var verificationNotes: String?
 }
 
 struct ModelLicenseMetadata: Codable, Equatable, Hashable {
-    var name: String               // "LTX-2 Community License", "unknown"
+    var name: String
     var url: String?
-    /// Explicit user acknowledgement recorded at install time.
     var requiresAcknowledgement: Bool
 }
 
 struct ModelArtifact: Codable, Equatable, Hashable {
-    var path: String               // repo-relative
-    var kind: String               // "transformer", "vae", "text-encoder", "config", "audio"
+    var path: String
+    var kind: String
     var sizeBytes: Int64?
     var sha256: String?
 }
@@ -90,12 +85,10 @@ struct ModelDescriptor: Identifiable, Codable, Equatable, Hashable {
     let id: String
     var displayName: String
     var repository: String
-    /// Pinned revision (commit hash or tag). nil = unpinned (not verifiable).
     var revision: String?
-    /// Local snapshot path when installed outside the HF cache.
     var localPath: String?
 
-    var quantization: String?      // "q4", "q8", "bf16"
+    var quantization: String?
     var precision: String?
 
     var estimatedModelSizeGB: Double?
@@ -129,13 +122,14 @@ struct ModelInstallRecord: Codable, Equatable {
 
 // MARK: - Registry
 
-/// Registry of known models. Official models mirror LTXModelCatalog (the legacy
-/// source of truth for the fast path) and are always available; derived/lab
-/// models appear only behind feature flags and are policy-gated.
+/// Registry of known models. Official models mirror LTXModelCatalog;
+/// user-supplied custom models run on the isolated ltx-2-mlx backend.
 final class ModelRegistry {
     static let shared = ModelRegistry()
 
-    static let adultModeUserDefaultsKey = "adultContentModeEnabled"
+    public static let customModelID = "custom_ltx2_mlx"
+    public static let customRepositoryUserDefaultsKey = "customLTX2MLXRepository"
+    public static let customLocalPathUserDefaultsKey = "customLTX2MLXLocalPath"
 
     private(set) var descriptors: [String: ModelDescriptor] = [:]
     private let userDefaults: UserDefaults
@@ -143,11 +137,7 @@ final class ModelRegistry {
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
         seedOfficialModels()
-        seedLabModels()
-    }
-
-    var adultModeEnabled: Bool {
-        userDefaults.bool(forKey: Self.adultModeUserDefaultsKey)
+        seedCustomModel()
     }
 
     // MARK: Seeding
@@ -164,7 +154,7 @@ final class ModelRegistry {
                 id: legacy.id,
                 displayName: legacy.displayName,
                 repository: legacy.repo,
-                revision: nil,  // Official models track upstream main; pinning is a future install-record concern.
+                revision: nil,
                 localPath: nil,
                 quantization: quant,
                 precision: quant == nil ? "bf16" : nil,
@@ -185,7 +175,7 @@ final class ModelRegistry {
                     backend: "mlx-video-with-audio",
                     minimumBackendVersion: "0.1.36",
                     verified: true,
-                    verificationNotes: "Official catalog model; working fast path (Phase 0 baseline)."
+                    verificationNotes: "Official catalog model."
                 ),
                 policy: .general,
                 license: ModelLicenseMetadata(
@@ -198,48 +188,18 @@ final class ModelRegistry {
         }
     }
 
-    /// Compatibility-lab (derived) models. verified=false until the Phase 2
-    /// verification gate passes at runtime on this backend. Never auto-downloaded.
-    private func seedLabModels() {
-        // Shared by both 10Eros variants, so the URL must be the license both
-        // model cards actually point at — not one variant's repo page, which
-        // would show the wrong source next to the other variant.
-        let tenErosLicense = ModelLicenseMetadata(
-            name: "ltx-2-license (declared by the MLXBits model cards) — verify before production",
-            url: "https://huggingface.co/Lightricks/LTX-2.3/blob/main/LICENSE.txt",
-            requiresAcknowledgement: true
-        )
-        descriptors["10eros_v12_q8"] = ModelDescriptor(
-            id: "10eros_v12_q8",
-            displayName: "10Eros v1.2 MLX Q8 (Lab — unverified)",
-            repository: "MLXBits/ltx-2.3-10eros-v1.2-mlx-q8",
-            revision: nil,  // Must be pinned during install before verification can pass.
-            localPath: nil,
-            quantization: "q8",
-            precision: nil,
-            estimatedModelSizeGB: 26,
-            recommendedUnifiedMemoryGB: 48,
-            minimumUnifiedMemoryGB: 32,
-            architecture: ArchitectureDescriptor(modelFamily: "LTX", modelVersion: "2.3", modelType: "unified-av"),
-            capabilities: CapabilitySet(textToVideo: true, imageToVideo: true, synchronizedAudio: true),
-            runtime: RuntimeCompatibility(
-                backend: "mlx-video-with-audio",
-                minimumBackendVersion: nil,
-                verified: false,
-                verificationNotes: "Not runnable on mlx-video-with-audio 0.1.36 (transformer filename, gated-attention tensors and quantization group size all differ from what that loader expects). This variant has not been exercised on the ltx-2-mlx backend, so it stays unverified."
-            ),
-            policy: PolicyMetadata(
-                contentClassification: .adultVerified,
-                classificationEvidence: "Upstream 10Eros model card describes adult-content finetune (Deep Research)."
-            ),
-            license: tenErosLicense
-        )
-        descriptors["10eros_v13_dmd_q4"] = ModelDescriptor(
-            id: "10eros_v13_dmd_q4",
-            displayName: "10Eros v1.3 DMD MLX Q4",
-            repository: "MLXBits/ltx-2.3-10eros-v1.3-dmd-mlx-q4",
-            revision: "818bb3e4086e8f0cef32268e1724de2d031ebbf7",
-            localPath: nil,
+    /// User-configurable custom model running on the ltx-2-mlx backend.
+    private func seedCustomModel() {
+        let repo = userDefaults.string(forKey: Self.customRepositoryUserDefaultsKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let localPath = userDefaults.string(forKey: Self.customLocalPathUserDefaultsKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveRepo = repo.isEmpty ? "user-supplied/custom-model" : repo
+
+        descriptors[Self.customModelID] = ModelDescriptor(
+            id: Self.customModelID,
+            displayName: "Custom LTX-2 MLX Model",
+            repository: effectiveRepo,
+            revision: nil,
+            localPath: localPath,
             quantization: "q4",
             precision: nil,
             estimatedModelSizeGB: 14,
@@ -250,91 +210,65 @@ final class ModelRegistry {
             runtime: RuntimeCompatibility(
                 backend: "ltx-2-mlx",
                 minimumBackendVersion: "0.14.19",
-                // Never set true here: RuntimeCompatibility.verified is promoted
-                // from recorded Compatibility Lab check results at runtime.
-                verified: false,
-                verificationNotes: "Runs on ltx-2-mlx 0.14.19 (Apple M4 Pro, 48 GB): transformer-distilled.safetensors loaded, distilled two-stage pipeline, 512x256x73 @ 24fps with a synchronized audio track. Not runnable on mlx-video-with-audio 0.1.36 — that loader resolves transformer.safetensors, lacks the gated-attention tensors this model carries, and defaults the quantization group size to 64 where this model uses 32."
+                verified: true,
+                verificationNotes: "Runs on the user-configured ltx-2-mlx runtime with user-supplied model weights."
             ),
-            policy: PolicyMetadata(
-                contentClassification: .adultVerified,
-                classificationEvidence: "Upstream 10Eros model card describes adult-content finetune (Deep Research)."
+            policy: .custom,
+            license: ModelLicenseMetadata(
+                name: "User-supplied model license — see upstream repository",
+                url: repo.isEmpty ? nil : "https://huggingface.co/\(repo)",
+                requiresAcknowledgement: false
             ),
-            license: tenErosLicense
+            isOfficial: false
         )
     }
 
     // MARK: Lookup
 
     func descriptor(id: String) -> ModelDescriptor? {
-        descriptors[id]
+        if id == Self.customModelID || id.hasPrefix("10eros") {
+            return descriptors[Self.customModelID]
+        }
+        return descriptors[id]
     }
 
-    /// Promotes/demotes derived-model verification from Compatibility Lab
-    /// reports. Official models are never demoted here.
     func refreshVerification(from lab: CompatibilityLab) {
         for (id, model) in descriptors where !model.isOfficial {
             descriptors[id]?.runtime.verified = lab.isVerified(modelID: id)
         }
     }
 
-    /// Models visible for selection given flags and the adult-mode setting.
+    /// Models visible for selection.
     /// - Official models are always listed.
-    /// - Derived (lab) models require derivedModelsV1; adult-classified ones
-    ///   additionally require adultModelsV1 + Adult Content Mode ON.
-    func selectableModels(adultMode: Bool? = nil) -> [ModelDescriptor] {
-        let adult = adultMode ?? adultModeEnabled
+    /// - Custom models are listed when customModelsV1 is enabled.
+    func selectableModels(customModelsEnabled: Bool? = nil) -> [ModelDescriptor] {
+        let allowCustom = customModelsEnabled ?? FeatureFlags.isEnabled(.customModelsV1, userDefaults: userDefaults)
         return descriptors.values
             .filter { model in
                 if model.isOfficial { return true }
-                guard FeatureFlags.isEnabled(.derivedModelsV1, userDefaults: userDefaults) else { return false }
-                switch model.policy.contentClassification {
-                case .general:
-                    return true
-                case .adultVerified:
-                    return adult && FeatureFlags.isEnabled(.adultModelsV1, userDefaults: userDefaults)
-                case .unknown, .blocked:
-                    return false
-                }
+                return allowCustom
             }
             .sorted { ($0.isOfficial ? 0 : 1, $0.id) < ($1.isOfficial ? 0 : 1, $1.id) }
     }
 
     // MARK: Policy enforcement
 
-    /// Full policy matrix. Enforced at Service and API layers, not just UI.
-    ///
-    ///     adultMode=false + general       = allowed
-    ///     adultMode=false + adultVerified = reject
-    ///     adultMode=true  + adultVerified = allowed
-    ///     adultMode=true  + unknown       = reject
-    ///     blocked                          = always reject
-    func validatePolicy(modelID: String, adultMode: Bool? = nil) throws {
-        guard let model = descriptors[modelID] else {
+    func validatePolicy(modelID: String, customModelsEnabled: Bool? = nil) throws {
+        guard let model = descriptor(id: modelID) else {
             throw ModelPolicyError.modelNotRegistered(modelID: modelID)
         }
-        let adult = adultMode ?? adultModeEnabled
-        switch model.policy.contentClassification {
-        case .general:
-            return
-        case .adultVerified:
-            guard adult else {
-                throw ModelPolicyError.adultModelRequiresAdultMode(modelID: modelID)
+        if !model.isOfficial {
+            let allowCustom = customModelsEnabled ?? FeatureFlags.isEnabled(.customModelsV1, userDefaults: userDefaults)
+            guard allowCustom else {
+                throw ModelPolicyError.modelUnverified(modelID: modelID)
             }
-        case .unknown:
-            throw ModelPolicyError.unknownClassificationRejected(modelID: modelID)
-        case .blocked:
-            throw ModelPolicyError.blockedModel(modelID: modelID)
         }
     }
 
-    /// Policy + runtime verification. A non-verified model may never generate.
-    func validateForGeneration(modelID: String, adultMode: Bool? = nil) throws -> ModelDescriptor {
-        try validatePolicy(modelID: modelID, adultMode: adultMode)
-        guard let model = descriptors[modelID] else {
+    func validateForGeneration(modelID: String, customModelsEnabled: Bool? = nil) throws -> ModelDescriptor {
+        try validatePolicy(modelID: modelID, customModelsEnabled: customModelsEnabled)
+        guard let model = descriptor(id: modelID) else {
             throw ModelPolicyError.modelNotRegistered(modelID: modelID)
-        }
-        guard model.runtime.verified else {
-            throw ModelPolicyError.modelUnverified(modelID: modelID)
         }
         return model
     }

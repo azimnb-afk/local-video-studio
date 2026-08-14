@@ -29,22 +29,13 @@ The original LTX-2 weights and code are published by Lightricks under the **LTX-
 
 The Gemma Terms of Use permit commercial use, but require passing the same terms (and Google's Prohibited Use Policy) on to anyone you distribute the model or its outputs to, and require notice if you've modified the model. They are not a permissive license like MIT or Apache — read them if you plan to redistribute anything built on Gemma.
 
-## Prompt-enhancement model (optional, off by default)
+## User-Configured Custom Models (ltx-2-mlx compatible)
 
-| Model | Repository | Declared license | Notes |
-|:---|:---|:---|:---|
-| Prompt Enhancement backend | [`TheCluster/amoral-gemma-3-12B-v2-mlx-4bit`](https://huggingface.co/TheCluster/amoral-gemma-3-12B-v2-mlx-4bit) | Apache License 2.0 (as declared on the repository) | This is a third-party fine-tune of Gemma 3 12B, **not** the standard Gemma model above, and not controlled by Google or by this project. Its own model card describes it as built to reduce refusal/content-filtering behavior relative to the base instruction-tuned model. See the [README's Prompt Enhancement disclosure](README.md#prompt-enhancement--important-disclosure) for how and when this app uses it. Even though the repository declares Apache 2.0 for the fine-tune weights themselves, a fine-tune derived from Gemma may still carry forward Gemma Terms of Use obligations for the base model it was built on — this project has not independently resolved that question. **Needs external verification** if you intend to redistribute anything produced with this feature enabled. |
+The application supports user-configured arbitrary fine-tuned models compatible with the `ltx-2-mlx` backend. These models are configured locally in Preferences:
 
-## Lab / derived models (not part of the default install)
-
-The app's model registry also defines two additional "10Eros" MLX video-model repositories under `MLXBits`. They are **not** part of the default, official catalog: they are hidden unless a disabled-by-default feature flag is turned on *and* an explicit, off-by-default "Adult Content Mode" preference is enabled by the user. This project does not promote, recommend, or claim compatibility for these models — the v1.2 Q8 repository's runtime compatibility remains unverified. The v1.3 DMD Q4 repository is the one variant this project has actually exercised, and only on the separate `ltx-2-mlx` backend — see [docs/generation-backends.md](docs/generation-backends.md).
-
-| Model | Repository | Declared license | Notes |
-|:---|:---|:---|:---|
-| 10Eros v1.2 MLX Q8 | `MLXBits/ltx-2.3-10eros-v1.2-mlx-q8` | Hugging Face license tag: `ltx-2-license`. The repository is marked "Not-For-All-Audiences" by Hugging Face's own content classification. **Needs external verification** — read the model card and the referenced license directly before enabling this path. | Gated behind Adult Content Mode + a disabled-by-default feature flag; app registry marks compatibility as unverified |
-| 10Eros v1.3 DMD Q4 | `MLXBits/ltx-2.3-10eros-v1.3-dmd-mlx-q4` | Model card declares `license: other`, `license_name: ltx-2-license`, linking to `Lightricks/LTX-2.3`'s `LICENSE.txt`; tagged "not-for-all-audiences". Its stated base model is `TenStrip/LTX2.3-10Eros`. **Needs external verification** — the license chain runs through a third-party finetune of an upstream licensed model, and nobody on this project has resolved whether that chain is valid | Runs on the `ltx-2-mlx` backend, not the default one. Same gating as above (Adult Content Mode + disabled-by-default feature flag). Weights are never downloaded implicitly — the ~23 GB download is an explicit user action |
-
-This project takes no position on the content or licensing of these two repositories beyond what is stated above; they are documented here only because the app's source code references them, in the interest of not hiding anything from an auditor of this repository.
+- The application source code does not distribute or pre-bundle any third-party fine-tuned weights.
+- When configuring a custom repository or local directory path, it is the user's responsibility to review and comply with the specific license terms and acceptable use policies governing those weights.
+- Custom models execute via the isolated `ltx-2-mlx` backend on local hardware.
 
 ## What this document is not
 

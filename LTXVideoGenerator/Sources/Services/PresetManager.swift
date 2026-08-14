@@ -9,11 +9,8 @@ class PresetManager: ObservableObject {
     private let presetsFile: URL
     
     nonisolated init() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let appDir = appSupport.appendingPathComponent("LTXVideoGenerator", isDirectory: true)
+        let appDir = AppStorageDirectory.root
         presetsFile = appDir.appendingPathComponent("presets.json")
-        
-        try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
     }
     
     func loadInitialData() {

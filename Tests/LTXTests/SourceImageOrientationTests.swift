@@ -261,16 +261,16 @@ func runSourceImageOrientationTests(_ t: TestKit) {
 
         let official = try resolve(request(
             source: portrait, modelID: LTXModelCatalog.defaultModelID))
-        let tenEros = try resolve(request(
-            source: portrait, modelID: "10eros_v13_dmd_q4"))
-        t.checkEqual(official.parameters.width, tenEros.parameters.width,
-                     "O/P: LTX-2.3 and 10Eros receive identical portrait width")
-        t.checkEqual(official.parameters.height, tenEros.parameters.height,
-                     "O/P: LTX-2.3 and 10Eros receive identical portrait height")
+        let custom = try resolve(request(
+            source: portrait, modelID: ModelRegistry.customModelID))
+        t.checkEqual(official.parameters.width, custom.parameters.width,
+                     "O/P: LTX-2.3 and Custom MLX model receive identical portrait width")
+        t.checkEqual(official.parameters.height, custom.parameters.height,
+                     "O/P: LTX-2.3 and Custom MLX model receive identical portrait height")
         t.checkEqual(GenerationModelResolver.backend(for: official.modelId), .mlxVideoWithAudio,
                      "O: official backend routing is unchanged")
-        t.checkEqual(GenerationModelResolver.backend(for: tenEros.modelId), .ltx2MLX,
-                     "P: 10Eros backend routing is unchanged")
+        t.checkEqual(GenerationModelResolver.backend(for: custom.modelId), .ltx2MLX,
+                     "P: Custom MLX model routes to ltx2MLX")
     }
 }
 

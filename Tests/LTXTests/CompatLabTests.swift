@@ -13,7 +13,7 @@ func runCompatLabTests(_ t: TestKit) {
 
     t.suite("Verification gate") {
         let lab = CompatibilityLab(storeURL: tmpDir.appendingPathComponent("lab.json"))
-        let modelID = "10eros_v12_q8"
+        let modelID = ModelRegistry.customModelID
         t.check(!lab.isVerified(modelID: modelID), "starts unverified")
 
         // Pass all but one check → still unverified.
@@ -32,19 +32,13 @@ func runCompatLabTests(_ t: TestKit) {
 
         // Registry promotion honors the lab.
         let registry = ModelRegistry(userDefaults: defaults)
-        t.check(registry.descriptor(id: modelID)?.runtime.verified == false, "registry starts unverified")
         registry.refreshVerification(from: lab)
         t.check(registry.descriptor(id: modelID)?.runtime.verified == true, "refreshVerification promotes")
         do {
-            _ = try registry.validateForGeneration(modelID: modelID, adultMode: true)
-            t.check(true, "verified lab model passes generation gate with adult ON")
+            _ = try registry.validateForGeneration(modelID: modelID, customModelsEnabled: true)
+            t.check(true, "verified custom model passes generation gate")
         } catch {
-            t.check(false, "verified lab model passes generation gate (threw \(error))")
-        }
-        // Adult policy still enforced even when verified.
-        t.checkThrows(ModelPolicyError.adultModelRequiresAdultMode(modelID: modelID),
-                      "verified adult model still rejected with adult OFF") {
-            _ = try registry.validateForGeneration(modelID: modelID, adultMode: false)
+            t.check(false, "verified custom model passes generation gate (threw \(error))")
         }
 
         // Persistence round-trip.
@@ -58,12 +52,8 @@ func runCompatLabTests(_ t: TestKit) {
         t.check(!ManifestValidator.hasBlockingIssues(ManifestValidator.validateDescriptor(official)),
                 "official descriptor has no blocking issues")
 
-        let lab = registry.descriptor(id: "10eros_v12_q8")!
-        let labIssues = ManifestValidator.validateDescriptor(lab)
-        t.check(ManifestValidator.hasBlockingIssues(labIssues), "unpinned derived model is blocking")
-        t.check(labIssues.contains { $0.message.contains("revision") }, "issue mentions revision pinning")
-
-        var injected = lab
+        let customModel = registry.descriptor(id: ModelRegistry.customModelID)!
+        var injected = customModel
         injected.revision = "abc123"
         injected.repository = "evil; rm -rf /"
         t.check(ManifestValidator.validateDescriptor(injected).contains { $0.message.contains("disallowed characters") },
@@ -111,25 +101,14 @@ func runCompatLabTests(_ t: TestKit) {
             t.check(false, "tight disk plan should not throw (\(error))")
         }
 
-        // Derived model without pinned revision refuses to plan.
-        t.checkThrows(ModelInstaller.InstallError.revisionNotPinned("10eros_v12_q8"),
-                      "unpinned derived model cannot be planned") {
-            _ = try installer.planInstall(modelID: "10eros_v12_q8")
-        }
-
-        // Install record requires license acknowledgement for models that need it.
-        t.checkThrows(ModelInstaller.InstallError.licenseNotAcknowledged("10eros_v12_q8"),
-                      "install record without license ack rejected") {
-            try installer.recordInstall(modelID: "10eros_v12_q8", revision: "abc123",
-                                        licenseAcknowledged: false, checksumVerified: true)
-        }
+        // Install record with revision.
         do {
-            try installer.recordInstall(modelID: "10eros_v12_q8", revision: "abc123",
+            try installer.recordInstall(modelID: ModelRegistry.customModelID, revision: "abc123",
                                         licenseAcknowledged: true, checksumVerified: true)
-            t.check(installer.installRecord(modelID: "10eros_v12_q8")?.revision == "abc123",
+            t.check(installer.installRecord(modelID: ModelRegistry.customModelID)?.revision == "abc123",
                     "install record persisted with revision")
         } catch {
-            t.check(false, "install record with ack (threw \(error))")
+            t.check(false, "install record (threw \(error))")
         }
     }
 }

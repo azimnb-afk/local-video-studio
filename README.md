@@ -1,4 +1,4 @@
-# LTX Video Generator for Mac — AutoMovie Edition
+# Local Video Studio for Mac — AutoMovie Edition
 
 [![macOS](https://img.shields.io/badge/macOS-14.0+-blue.svg)](https://www.apple.com/macos/)
 [![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-M1%2FM2%2FM3%2FM4-orange.svg)](https://support.apple.com/en-us/HT211814)
@@ -6,15 +6,15 @@
 [![Release](https://img.shields.io/badge/Release-v0.9.0--preview.1-purple.svg)](RELEASE_NOTES_v0.9.0-preview.1.md)
 
 Apple Silicon Macで、画像1枚＋短い指示からローカルAI動画を生成。
-LTX-2.3 / 10Eros、Auto Movie、Local AI Director対応。
+LTX-2.3、Custom MLX Models、Auto Movie、Local AI Director対応。
 
-> **Software license vs. model license**: The MIT license in this repository covers the Swift and Python application source code only. It does **not** cover the LTX-2.3 / 10Eros model weights, Gemma text encoder weights, or other third-party models downloaded from Hugging Face. See [MODEL_LICENSES.md](MODEL_LICENSES.md) and [Licensing](#licensing).
+> **Software license vs. model license**: The MIT license in this repository covers the Swift and Python application source code only. It does **not** cover model weights, Gemma text encoder weights, or other third-party models downloaded from Hugging Face. See [MODEL_LICENSES.md](MODEL_LICENSES.md) and [Licensing](#licensing).
 
 ---
 
 ## What It Does
 
-LTX Video Generator for Mac is a native macOS desktop studio for on-device AI video generation powered by Apple Silicon (MLX). It transforms single reference images and concise text prompts into multi-shot cinematic sequences with synchronized audio, persistent character continuity, and automated shot direction.
+Local Video Studio for Mac is a native macOS desktop studio for on-device AI video generation powered by Apple Silicon (MLX). It transforms single reference images and concise text prompts into multi-shot cinematic sequences with synchronized audio, persistent character continuity, and automated shot direction.
 
 Generation runs **locally on your Mac** via Apple Silicon unified memory—no remote server GPU subscription required.
 
@@ -37,6 +37,7 @@ Generation runs **locally on your Mac** via Apple Silicon unified memory—no re
   - **Final Audio Layer**: Global BGM and Ambience track mixing via local `ffmpeg`.
 - **Production Queue**: Asynchronous background generation queue with take management, cancellation, and retry capabilities.
 - **Video Archive & History**: Centralized library to inspect, play back, export, and manage generated takes and project assemblies.
+- **Custom LTX-2 MLX Support**: Configure arbitrary compatible fine-tuned models locally via the secondary `ltx-2-mlx` backend without code modification.
 
 ---
 
@@ -47,9 +48,9 @@ Generation runs **locally on your Mac** via Apple Silicon unified memory—no re
 | **LTX-2.3 Distilled Q4** (Default) | LTX-2.3 AV | `mlx-video-with-audio` | Supported (Official) | 32 GB+ Unified Memory |
 | **LTX-2 Unified** | LTX-2 AV | `mlx-video-with-audio` | Supported (Official) | 48–64 GB Unified Memory |
 | **LTX-2.3 Unified** | LTX-2.3 AV | `mlx-video-with-audio` | Supported (Beta) | 48–64 GB Unified Memory |
-| **10Eros v1.3 DMD Q4** | LTX-2.3 Derived | `ltx-2-mlx` | Supported (Adult Mode Gated) | 24–32 GB Unified Memory |
+| **Custom LTX-2 MLX Model** | LTX-2 Derived | `ltx-2-mlx` | Supported (User-Configurable) | 24–32 GB Unified Memory |
 
-*Note: 10Eros models require enabling Adult Content Mode in Preferences and are executed strictly via the isolated `ltx-2-mlx` backend.*
+*Note: Custom LTX-2 MLX models can be configured in Preferences > Models & Features and run via the isolated `ltx-2-mlx` backend.*
 
 ---
 
@@ -69,12 +70,18 @@ Generation runs **locally on your Mac** via Apple Silicon unified memory—no re
 ## Quick Start
 
 ### 1. Build and Launch
-Clone and open the Xcode project, or build from terminal:
+
+#### Option A: Install Personal App (Recommended for daily use)
 ```bash
-cd LTXVideoGenerator
-xcodebuild -project LTXVideoGenerator.xcodeproj -scheme LTXVideoGenerator -configuration Debug CODE_SIGNING_ALLOWED=NO build
-open ~/Library/Developer/Xcode/DerivedData/LTXVideoGenerator-*/Build/Products/Debug/LTXVideoGenerator.app
+./scripts/install-personal-app.sh --open
 ```
+Installs the Release application to `~/Applications/Local Video Studio.app` with isolated state (`com.localvideostudio.personal`).
+
+#### Option B: Build Development App
+```bash
+./scripts/build-dev-app.sh --open
+```
+Builds the Debug application with isolated development state (`com.localvideostudio.dev`).
 
 ### 2. Set Up Python & Dependencies
 1. Open **Preferences** (⌘,) in the app.
@@ -177,7 +184,7 @@ All generation requests are dispatched to a resilient background queue:
 
 - **100% Local Inference**: Video generation, text embedding, Local Director LLM, and final movie assembly execute completely on your Mac.
 - **Zero Telemetry**: No analytics, crash telemetry, or tracking pings are embedded in the codebase.
-- **Secure Credential Storage**: Optional ElevenLabs API keys are stored securely in macOS Keychain with automatic backward-compatible migration from legacy plaintext preferences.
+- **Secure Credential Storage**: Optional ElevenLabs API keys are stored securely in macOS Keychain with isolated namespaces for Personal and Dev apps.
 - **Optional Cloud APIs**: ElevenLabs voiceover and music are strictly opt-in and only invoked if you explicitly provide an API key.
 
 ---
@@ -186,15 +193,6 @@ All generation requests are dispatched to a resilient background queue:
 
 - **Current Version**: `v0.9.0-preview.1` (Public Preview Release Candidate)
 - **Status**: Feature Frozen for Preview Hardening.
-
----
-
-## Roadmap
-
-- **LTX-2.5 Architecture Evaluation**: Exploration of upgraded transformer and text-encoder backends.
-- **MiniMax H3 Research**: Experimental high-fidelity generation investigation.
-- **Keychain Credential Migration**: Hardened secure storage for optional API keys.
-- **Advanced Motion State Coupling**: Deeper temporal momentum continuation across cut boundaries.
 
 ---
 

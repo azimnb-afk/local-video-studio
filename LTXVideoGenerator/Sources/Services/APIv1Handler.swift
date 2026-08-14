@@ -26,10 +26,7 @@ enum APIv1 {
         private(set) var token: String
 
         init(directory: URL? = nil) {
-            let dir = directory ?? FileManager.default
-                .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("LTXVideoGenerator", isDirectory: true)
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let dir = directory ?? AppStorageDirectory.root
             url = dir.appendingPathComponent("api_token")
             if let existing = try? String(contentsOf: url, encoding: .utf8),
                !existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -66,10 +63,8 @@ enum APIv1 {
         let directory: URL
 
         init(directory: URL? = nil) {
-            self.directory = directory ?? FileManager.default
-                .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("LTXVideoGenerator", isDirectory: true)
-                .appendingPathComponent("APIAssets", isDirectory: true)
+            let dir = directory ?? AppStorageDirectory.root.appendingPathComponent("APIAssets", isDirectory: true)
+            self.directory = dir
             try? FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
         }
 
@@ -158,15 +153,11 @@ enum APIv1 {
         )
     }
 
-    /// Resolves + policy-checks the model for a job. Adult policy is enforced
-    /// with the app's setting: a client cannot enable adult mode via API when
-    /// the app has it off.
+    /// Resolves + policy-checks the model for a job.
     static func resolveModel(
         payload: JobPayload,
-        registry: ModelRegistry,
-        appAdultModeEnabled: Bool
+        registry: ModelRegistry = .shared
     ) throws -> ModelDescriptor {
-        let effectiveAdultMode = payload.adultMode && appAdultModeEnabled
         let modelID: String
         if let requested = payload.modelID, requested != "auto" {
             modelID = requested
@@ -174,7 +165,7 @@ enum APIv1 {
             modelID = LTXModelCatalog.selectedModel().id
         }
         do {
-            return try registry.validateForGeneration(modelID: modelID, adultMode: effectiveAdultMode)
+            return try registry.validateForGeneration(modelID: modelID)
         } catch let error as ModelPolicyError {
             throw ValidationError.policyRejected(error.userMessage)
         }

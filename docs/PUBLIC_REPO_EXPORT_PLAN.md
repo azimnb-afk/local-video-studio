@@ -92,7 +92,7 @@ git commit -m "feat: initial public preview v0.9.0-preview.1
 
 LTX Video Generator for Mac — AutoMovie Edition
 - Apple Silicon native AI video generation via MLX
-- LTX-2.3 & 10Eros video diffusion
+- LTX-2.3 & Custom MLX video diffusion
 - Auto Movie & Local AI Director integration
 - Storyboard, shot continuity, and production queue"
 

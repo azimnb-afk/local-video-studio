@@ -10,7 +10,7 @@ import Foundation
 enum FeatureFlag: String, CaseIterable {
     case modelRegistryV1
     case derivedModelsV1
-    case adultModelsV1
+    case customModelsV1
     case autoQualityV1
     case lowRAMAdapterV1
     case directorV1
@@ -26,9 +26,9 @@ enum FeatureFlag: String, CaseIterable {
     var defaultEnabled: Bool {
         switch self {
         case .modelRegistryV1, .autoQualityV1, .directorV1, .filmProjectV1, .storyboardV1,
-             .adaptiveIdentityRefresh:
+             .adaptiveIdentityRefresh, .customModelsV1:
             return true
-        case .derivedModelsV1, .adultModelsV1, .lowRAMAdapterV1, .localAPIv1:
+        case .derivedModelsV1, .lowRAMAdapterV1, .localAPIv1:
             return false
         }
     }

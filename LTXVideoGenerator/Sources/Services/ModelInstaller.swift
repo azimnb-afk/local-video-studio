@@ -34,9 +34,7 @@ final class ModelInstaller {
         if let recordsURL {
             self.recordsURL = recordsURL
         } else {
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            let dir = appSupport.appendingPathComponent("LTXVideoGenerator", isDirectory: true)
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let dir = AppStorageDirectory.root
             self.recordsURL = dir.appendingPathComponent("model_installs.json")
         }
         load()

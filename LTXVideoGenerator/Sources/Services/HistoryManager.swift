@@ -12,10 +12,9 @@ class HistoryManager: ObservableObject {
     private let historyFile: URL
     
     nonisolated init() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let appDir = appSupport.appendingPathComponent("LTXVideoGenerator", isDirectory: true)
+        let appDir = AppStorageDirectory.root
         
-        videosDirectory = appDir.appendingPathComponent("Videos", isDirectory: true)
+        videosDirectory = AppStorageDirectory.videosDirectory
         thumbnailsDirectory = appDir.appendingPathComponent("Thumbnails", isDirectory: true)
         historyFile = appDir.appendingPathComponent("history.json")
         

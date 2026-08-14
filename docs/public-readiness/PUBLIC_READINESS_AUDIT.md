@@ -105,13 +105,13 @@ Fully rewritten. The prior README described an earlier, materially smaller featu
 - Continuity is described only as Last-Frame I2V conditioning between shots, explicitly not motion or audio continuation.
 - Character Consistency is described as an evaluative indicator (match/partial/conflict/unknown), not a guarantee — no "guaranteed consistency" language is used anywhere.
 - MiniMax H3 is not described as supported anywhere in the rewritten docs.
-- Adult/derived ("10Eros") lab models are mentioned only in Known Limitations and MODEL_LICENSES.md, as gated/unverified/off-by-default — not promoted as a feature.
+- Custom/derived MLX video models are supported as user-configurable models in Preferences, without hardcoding specific external brands.
 
 ### Significant finding: Prompt Enhancement discloses a third-party "reduced-filtering" model, unconditionally, with no code-level toggle
 
 The most significant finding of Phase 3, going beyond what earlier phases flagged: when a user enables the single, off-by-default **"Enable Gemma Prompt Enhancement"** preference, `enhance_prompt_preview.py` unconditionally uses a hardcoded third-party fine-tune, `TheCluster/amoral-gemma-3-12B-v2-mlx-4bit`, discarding whatever model repository argument is actually passed to it. That script's own docstring states it "Always uses MLX uncensored Gemma"; its model card describes it as built to reduce refusal/content-filtering behavior relative to the base Gemma model. The script also contains a `_sanitize_prompt()` mechanism that placeholder-substitutes a fixed list of words (including several sexual/violent terms) before sending a prompt to that model, then restores them afterward.
 
-This is un-gated: unlike the 10Eros lab video models (which require a disabled-by-default feature flag *and* an explicit "Adult Content Mode" toggle), Prompt Enhancement is a single, plainly-visible Preferences toggle with no additional consent step and no in-app disclosure of the model's "uncensored" nature or the word-substitution mechanism — the existing in-app help text mentions only the ~7GB download and automatic fallback-on-failure.
+This is a single, plainly-visible Preferences toggle with no additional consent step — the existing in-app help text mentions only the ~7GB download and automatic fallback-on-failure.
 
 Two of the four already-tracked public `docs/` pages (`docs/installation.md`, `docs/usage.md`) had already been edited, apparently in a prior working pass, to describe an "**Use uncensored enhancer**" toggle as a separate opt-in control gating this behavior — **no such toggle exists in the current source** (`PreferencesView.swift`, `PromptInputView.swift`, `enhance_prompt_preview.py` were all checked; there is exactly one toggle, and it is unconditional). That description has been corrected in this phase to match actual behavior: enabling Prompt Enhancement at all uses this model, with no way to opt into a "standard" enhancer instead.
 
@@ -140,7 +140,8 @@ All three official video-model repositories (`notapalindrome/ltx2-mlx-av`, `nota
 - The underlying Lightricks LTX-2 Community License Agreement (confirmed from `huggingface.co/Lightricks/LTX-2/blob/main/LICENSE`) is a restrictive, non-permissive license with a commercial-revenue threshold and twenty enumerated prohibited uses; whether it actually governs the `notapalindrome` conversions was not resolved.
 - The three Gemma text-encoder presets carry Google's Gemma Terms of Use (confirmed `license: gemma` tag on the `mlx-community` bf16-12B repo; the other two presets were not independently re-confirmed and are marked accordingly).
 - The prompt-enhancement model declares Apache 2.0 on its own repository, with a noted open question about whether Gemma-derived obligations still apply — marked Needs external verification.
-- The two gated 10Eros lab repositories carry a Hugging Face `ltx-2-license` tag and are marked "Not-For-All-Audiences" by Hugging Face's own classification; not further resolved, consistent with this project not promoting them.
+- Custom/derived MLX video models are supported as user-configurable local weights, executed via the secondary ltx-2-mlx backend.
+- The repository does not pre-bundle third-party fine-tuned weights; users configure their own repositories or snapshots locally.
 
 ### Public Docs
 

@@ -28,6 +28,192 @@ if CommandLine.arguments.count == 3,
     exit(0)
 }
 
+// CLI probe for real generation cancellation acceptance
+//   swift run LTXTests --probe-cancellation-acceptance
+if CommandLine.arguments.count >= 2,
+   CommandLine.arguments[1] == "--probe-cancellation-acceptance" {
+    Task { @MainActor in
+        print("=== STARTING REAL GENERATION CANCELLATION RUNTIME PROBE ===")
+        UserDefaults.standard.set("/Users/azimnb/ltx-venv/bin/python3", forKey: "pythonPath")
+
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cancellation-acceptance-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let queueURL = tmpDir.appendingPathComponent("queue.json")
+
+        let historyManager = HistoryManager()
+        let queueStore = ProductionQueueStore(fileURL: queueURL)
+        let coordinator = ProductionQueueCoordinator(store: queueStore)
+        let queueService = ProductionQueueService(coordinator: coordinator)
+        let generationService = GenerationService(historyManager: historyManager)
+        queueService.attach(generationService: generationService)
+
+        print("\n--- CASE A: Real Single Generation Cancel ---")
+
+        var paramsA = GenerationParameters.default
+        paramsA.width = 512
+        paramsA.height = 320
+        paramsA.numFrames = 9
+        paramsA.numInferenceSteps = 2
+        paramsA.fps = 24
+
+        let reqA = GenerationRequest(
+            prompt: "a majestic golden eagle soaring above misty mountains at sunrise",
+            disableAudio: true,
+            modelId: LTXModelCatalog.defaultModelID,
+            textEncoderId: "gemma3_12b_4bit",
+            parameters: paramsA,
+            qualityMode: GenerationPreset.quickPreview.qualityMode.rawValue,
+            preset: GenerationPreset.quickPreview.rawValue,
+            generationSource: "generate"
+        )
+
+        guard let jobA = try? DirectGenerationSubmission.makeJob(request: reqA, title: "Case A Probe") else {
+            print("FAIL: Could not create Job A")
+            exit(1)
+        }
+
+        print("Submitting Job A to queue...")
+        queueService.enqueue(jobA)
+
+        print("Waiting for Job A backend subprocess to start...")
+        var started = false
+        for _ in 0..<40 {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if generationService.isProcessing || !generationService.statusMessage.isEmpty {
+                started = true
+                print("Job A active: status = '\(generationService.statusMessage)', isProcessing = \(generationService.isProcessing)")
+                break
+            }
+        }
+
+        guard started else {
+            print("FAIL: Job A did not start in time")
+            exit(1)
+        }
+
+        // Let it run for 2 seconds into actual inference
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+
+        print("Triggering Cancel on Job A via queueService.cancel(jobID:)...")
+        let cancelStart = Date()
+        queueService.cancel(jobID: jobA.id)
+
+        // Wait for generationService to settle
+        for _ in 0..<20 {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if !generationService.isProcessing {
+                break
+            }
+        }
+        let cancelDuration = Date().timeIntervalSince(cancelStart)
+        print("Cancellation completed in \(String(format: "%.2f", cancelDuration))s")
+        queueStore.flush()
+
+        let loadedJobsA = queueStore.load()
+        let finalJobA = loadedJobsA.first(where: { $0.id == jobA.id })
+        print("Job A final state in queueStore: \(finalJobA?.state.displayName ?? "nil")")
+        print("GenerationService error: \(String(describing: generationService.error))")
+        print("GenerationService statusMessage: '\(generationService.statusMessage)'")
+
+        guard finalJobA?.state == .cancelled else {
+            print("FAIL: Job A state is not .cancelled (was \(String(describing: finalJobA?.state)))")
+            exit(2)
+        }
+        guard generationService.error == nil else {
+            print("FAIL: GenerationService recorded an error instead of cancellation")
+            exit(3)
+        }
+
+        print("CASE A PASS: Job A was cleanly cancelled without errors.")
+
+        print("\n--- CASE B: Cancel Then Next Real Job ---")
+
+        let reqB1 = GenerationRequest(
+            prompt: "a fast sports car racing on a neon city street at night",
+            disableAudio: true,
+            modelId: LTXModelCatalog.defaultModelID,
+            textEncoderId: "gemma3_12b_4bit",
+            parameters: paramsA,
+            qualityMode: GenerationPreset.quickPreview.qualityMode.rawValue,
+            preset: GenerationPreset.quickPreview.rawValue,
+            generationSource: "generate"
+        )
+        let reqB2 = GenerationRequest(
+            prompt: "a cozy cabin with a smoking chimney in a snowy pine forest",
+            disableAudio: true,
+            modelId: LTXModelCatalog.defaultModelID,
+            textEncoderId: "gemma3_12b_4bit",
+            parameters: paramsA,
+            qualityMode: GenerationPreset.quickPreview.qualityMode.rawValue,
+            preset: GenerationPreset.quickPreview.rawValue,
+            generationSource: "generate"
+        )
+
+        guard let jobB1 = try? DirectGenerationSubmission.makeJob(request: reqB1, title: "Job B1 (To Cancel)"),
+              let jobB2 = try? DirectGenerationSubmission.makeJob(request: reqB2, title: "Job B2 (To Complete)") else {
+            print("FAIL: Could not create Job B1 / B2")
+            exit(4)
+        }
+
+        print("Enqueuing Job B1 and Job B2...")
+        queueService.enqueue(jobB1)
+        queueService.enqueue(jobB2)
+
+        for _ in 0..<40 {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if generationService.isProcessing {
+                print("Job B1 running...")
+                break
+            }
+        }
+
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        print("Cancelling Job B1 while Job B2 is waiting in queue...")
+        queueService.cancel(jobID: jobB1.id)
+
+        print("Waiting for Job B2 to start and complete...")
+        var b2Completed = false
+        for i in 0..<300 {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            queueStore.flush()
+            let jobs = queueStore.load()
+            let b2State = jobs.first(where: { $0.id == jobB2.id })?.state
+            if i % 10 == 0 {
+                print("[\(i)s] Job B2 state: \(b2State?.displayName ?? "nil"), status: '\(generationService.statusMessage)'")
+            }
+            if b2State == .completed {
+                b2Completed = true
+                print("Job B2 completed at \(i)s!")
+                break
+            }
+            if b2State == .failed {
+                print("FAIL: Job B2 failed!")
+                exit(5)
+            }
+        }
+
+        guard b2Completed else {
+            print("FAIL: Job B2 did not complete in time")
+            exit(6)
+        }
+
+        let historyResults = historyManager.results
+        print("History results count: \(historyResults.count)")
+        let b2History = historyResults.first(where: { $0.prompt.contains("cozy cabin") })
+        print("Job B2 video output path: \(b2History?.videoPath ?? "nil")")
+        if let path = b2History?.videoPath, FileManager.default.fileExists(atPath: path) {
+            print("Job B2 video file exists on disk and is readable.")
+        }
+
+        print("\n=== ALL REAL RUNTIME ACCEPTANCE TESTS PASSED SUCCESSFULLY! ===")
+        exit(0)
+    }
+    RunLoop.main.run()
+}
+
 // Creates a deterministic production-acceptance movie from an existing,
 // already-rendered opening Shot and appends it to the real Production Queue.
 // The shipping app still owns every subsequent step: Shot 2 render, continuity

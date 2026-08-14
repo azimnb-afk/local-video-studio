@@ -687,6 +687,7 @@ runLTX2MLXBackendTests(t)
 runActiveModelDisplayResolverTests(t)
 runOneShotPromptNormalizationTests(t)
 runBasicDirectorStrictEnglishTests(t)
+runEnhancedPromptHardeningTests(t)
 runKeychainCredentialStoreTests(t)
 
 t.finish()

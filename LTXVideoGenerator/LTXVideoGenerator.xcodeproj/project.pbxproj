@@ -119,6 +119,7 @@
 		AA000314 /* ActiveModelDisplayResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000315; };
 		AA000316 /* RenderLanguageValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000317; };
 		AA000318 /* RenderTextNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000319; };
+		AA00031A /* PromptSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00031B; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -233,6 +234,7 @@
 		AA000315 /* ActiveModelDisplayResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveModelDisplayResolver.swift; sourceTree = "<group>"; };
 		AA000317 /* RenderLanguageValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderLanguageValidator.swift; sourceTree = "<group>"; };
 		AA000319 /* RenderTextNormalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderTextNormalizer.swift; sourceTree = "<group>"; };
+		AA00031B /* PromptSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptSanitizer.swift; sourceTree = "<group>"; };
 		AA000030 /* LTXVideoGenerator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LTXVideoGenerator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -386,6 +388,7 @@
 				AA000315 /* ActiveModelDisplayResolver.swift */,
 				AA000317 /* RenderLanguageValidator.swift */,
 				AA000319 /* RenderTextNormalizer.swift */,
+				AA00031B /* PromptSanitizer.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -599,6 +602,7 @@
 				AA000314 /* ActiveModelDisplayResolver.swift in Sources */,
 				AA000316 /* RenderLanguageValidator.swift in Sources */,
 				AA000318 /* RenderTextNormalizer.swift in Sources */,
+				AA00031A /* PromptSanitizer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

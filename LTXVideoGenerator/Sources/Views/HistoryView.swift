@@ -365,7 +365,7 @@ struct HistoryDetailView: View {
                             .textSelection(.enabled)
                     }
                     
-                    if let enhanced = result.enhancedPrompt {
+                    if let enhanced = result.enhancedPrompt, !PromptSanitizer.sanitize(enhanced).isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 4) {
                                 Image(systemName: "sparkles")
@@ -374,7 +374,7 @@ struct HistoryDetailView: View {
                                     .font(.caption)
                             }
                             .foregroundStyle(.purple)
-                            Text(enhanced)
+                            Text(PromptSanitizer.sanitize(enhanced))
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                                 .textSelection(.enabled)

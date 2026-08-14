@@ -271,21 +271,26 @@ class LTXBridge {
         if enableGemmaPromptEnhancement {
             progressHandler(0.06, "Enhancing prompt...")
             do {
-                if let enhanced = try await previewEnhancedPrompt(
+                if let rawEnhanced = try await previewEnhancedPrompt(
                     prompt: request.prompt,
                     modelRepo: modelRepo,
                     temperature: request.gemmaTopP,
                     sourceImagePath: request.sourceImagePath,
                     progressHandler: { status in
-                    progressHandler(0.06, status)
+                        progressHandler(0.06, status)
                     }
-                ), !enhanced.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    generationPrompt = PerShotAudioPolicy.preservingPolicy(
-                        from: request.prompt,
-                        in: enhanced
-                    )
-                    preEnhancedPrompt = generationPrompt
-                    progressHandler(0.07, "Prompt enhanced with Gemma")
+                ) {
+                    let sanitized = PromptSanitizer.sanitize(rawEnhanced)
+                    if PromptSanitizer.isValidEnhancedPrompt(sanitized) {
+                        generationPrompt = PerShotAudioPolicy.preservingPolicy(
+                            from: request.prompt,
+                            in: sanitized
+                        )
+                        preEnhancedPrompt = generationPrompt
+                        progressHandler(0.07, "Prompt enhanced with Gemma")
+                    } else {
+                        progressHandler(0.07, "Prompt enhancement returned empty text; using original prompt")
+                    }
                 } else {
                     progressHandler(0.07, "Prompt enhancement returned empty text; using original prompt")
                 }
@@ -898,8 +903,11 @@ except Exception as e:
         let output = try await runPythonScript(executable: python, arguments: args, timeout: 300)
         if let data = output.data(using: .utf8),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            if let enhanced = json["enhanced_prompt"] as? String, !enhanced.isEmpty {
-                return enhanced
+            if let enhanced = json["enhanced_prompt"] as? String {
+                let sanitized = PromptSanitizer.sanitize(enhanced)
+                if PromptSanitizer.isValidEnhancedPrompt(sanitized) {
+                    return sanitized
+                }
             }
             if let err = json["error"] as? String {
                 throw LTXError.generationFailed(err)

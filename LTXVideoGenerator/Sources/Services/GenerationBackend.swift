@@ -227,14 +227,26 @@ enum LTX2MLXRuntime {
 
     static func modelReadiness(
         repository: String? = nil,
+        localPath: String? = nil,
+        sourceMode: CustomModelSourceMode? = nil,
         userDefaults: UserDefaults = .standard,
         hubDirectory: URL? = nil,
         fileManager: FileManager = .default
     ) -> ComponentReadiness {
-        let mode = customModelSourceMode(userDefaults: userDefaults)
+        let mode = sourceMode ?? (localPath != nil ? .local : customModelSourceMode(userDefaults: userDefaults))
         switch mode {
         case .local:
-            guard let path = localModelPath(userDefaults: userDefaults) else {
+            let path: String?
+            if let localPath = localPath {
+                path = localPath.isEmpty ? nil : localPath
+            } else if sourceMode != nil {
+                // If sourceMode was explicitly frozen on the request without a valid localPath,
+                // do NOT fallback to live mutable preferences.
+                path = nil
+            } else {
+                path = self.localModelPath(userDefaults: userDefaults)
+            }
+            guard let path = path else {
                 return .missing("No local model directory selected. Choose a local model in Preferences.")
             }
             var isDirectory: ObjCBool = false
@@ -265,13 +277,22 @@ enum LTX2MLXRuntime {
 
     static func readiness(
         repository: String? = nil,
+        localPath: String? = nil,
+        sourceMode: CustomModelSourceMode? = nil,
         userDefaults: UserDefaults = .standard,
         hubDirectory: URL? = nil,
         fileManager: FileManager = .default
     ) -> Readiness {
         Readiness(
             runtime: runtimeReadiness(userDefaults: userDefaults, fileManager: fileManager),
-            model: modelReadiness(repository: repository, userDefaults: userDefaults, hubDirectory: hubDirectory, fileManager: fileManager)
+            model: modelReadiness(
+                repository: repository,
+                localPath: localPath,
+                sourceMode: sourceMode,
+                userDefaults: userDefaults,
+                hubDirectory: hubDirectory,
+                fileManager: fileManager
+            )
         )
     }
 }

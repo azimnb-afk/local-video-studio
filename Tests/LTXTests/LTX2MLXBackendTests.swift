@@ -411,4 +411,113 @@ func runLTX2MLXBackendTests(_ t: TestKit) {
         t.check(dedupParts.contains("/usr/local/bin"), "PATH contains /usr/local/bin")
         t.check(dedupParts.contains("/usr/bin"), "PATH contains /usr/bin")
     }
+
+    t.suite("Custom Local Model Snapshot Propagation & Queue Immutability") {
+        let defaults = UserDefaults(suiteName: "ltx2mlx-prop-\(UUID().uuidString)")!
+        FeatureFlags.set(.customModelsV1, enabled: true, userDefaults: defaults)
+        let registry = ModelRegistry(userDefaults: defaults)
+        let tempDir = FileManager.default.temporaryDirectory
+
+        // Setup mock local model A
+        let localDirA = tempDir.appendingPathComponent("model-a-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: localDirA, withIntermediateDirectories: true)
+        for name in ["transformer.safetensors", "connector.safetensors", "vae_decoder.safetensors", "vae_encoder.safetensors"] {
+            try? Data("weights-a".utf8).write(to: localDirA.appendingPathComponent(name))
+        }
+
+        // Setup mock local model B
+        let localDirB = tempDir.appendingPathComponent("model-b-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: localDirB, withIntermediateDirectories: true)
+        for name in ["transformer.safetensors", "connector.safetensors", "vae_decoder.safetensors", "vae_encoder.safetensors"] {
+            try? Data("weights-b".utf8).write(to: localDirB.appendingPathComponent(name))
+        }
+
+        // Configure defaults to local mode pointing to model A
+        defaults.set(CustomModelSourceMode.local.rawValue, forKey: ModelRegistry.customSourceModeUserDefaultsKey)
+        defaults.set(localDirA.path, forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+
+        // 1. One Shot / Direct Generate freezes local snapshot path at request creation time
+        let requestOneShot = GenerationRequest(
+            prompt: "a majestic mountain",
+            modelId: ModelRegistry.customModelID,
+            generationSource: "oneShot",
+            userDefaults: defaults
+        )
+        t.checkEqual(requestOneShot.customModelSourceMode, "local", "One Shot request source mode is frozen as local")
+        t.checkEqual(requestOneShot.customModelLocalPath, localDirA.path, "One Shot request freezes local snapshot path A")
+
+        // 2. Validate descriptor for frozen request passes without "no pinned revision or local snapshot" error
+        let descriptor = try? registry.validateForGeneration(request: requestOneShot)
+        t.check(descriptor != nil, "validateForGeneration succeeds for request with frozen local path")
+        t.checkEqual(descriptor?.localPath, localDirA.path, "descriptor has frozen local path")
+
+        let issues = ManifestValidator.validateDescriptor(descriptor!)
+        t.check(!ManifestValidator.hasBlockingIssues(issues), "ManifestValidator passes descriptor with local path")
+
+        // 3. Adapter check succeeds (does NOT throw "has no pinned revision or local snapshot")
+        let adapter = LTX2MLXAdapter()
+        t.check(adapter.supports(model: descriptor!), "LTX2MLXAdapter supports custom model descriptor")
+
+        // 4. Queue Immutability: Change preferences to model B, original request must still use model A
+        defaults.set(localDirB.path, forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+        let descAfterPrefChange = registry.descriptor(for: requestOneShot)
+        t.checkEqual(descAfterPrefChange?.localPath, localDirA.path, "Queued request descriptor retains original model A after preferences change to B")
+
+        // Backend readiness for frozen request uses model A
+        let readinessA = LTX2MLXRuntime.readiness(
+            repository: customModel.repo,
+            localPath: requestOneShot.customModelLocalPath,
+            sourceMode: .local,
+            userDefaults: defaults
+        )
+        t.check(readinessA.model.isReady, "Backend readiness succeeds with frozen path A")
+        if case .ready(let dir) = readinessA.model {
+            t.checkEqual(dir, localDirA.path, "Backend resolves exact frozen path A, not current preferences path B")
+        }
+
+        // 5. Source Mode Immutability: Switch preferences to HF mode, queued local request remains local
+        defaults.set(CustomModelSourceMode.huggingFace.rawValue, forKey: ModelRegistry.customSourceModeUserDefaultsKey)
+        t.checkEqual(requestOneShot.customModelSourceMode, "local", "Request maintains local mode after preferences switched to HF")
+        let readinessStayedLocal = LTX2MLXRuntime.readiness(
+            repository: customModel.repo,
+            localPath: requestOneShot.customModelLocalPath,
+            sourceMode: requestOneShot.customModelSourceMode.flatMap { CustomModelSourceMode(rawValue: $0) },
+            userDefaults: defaults
+        )
+        t.check(readinessStayedLocal.model.isReady, "Readiness of frozen local request succeeds in local mode even when preferences is HF")
+
+        // 6. Other workflows propagate local path
+        for source in ["generate", "storyboard", "hybrid", "autoMovie", "regenerate"] {
+            let req = GenerationRequest(
+                prompt: "scene",
+                modelId: ModelRegistry.customModelID,
+                generationSource: source,
+                customModelLocalPath: localDirA.path,
+                customModelSourceMode: "local",
+                userDefaults: defaults
+            )
+            t.checkEqual(req.customModelLocalPath, localDirA.path, "\(source) propagates frozen local path")
+            let desc = registry.descriptor(for: req)
+            t.checkEqual(desc?.localPath, localDirA.path, "\(source) descriptor reflects frozen local path")
+        }
+
+        // 7. Missing local path is rejected
+        let missingDefaults = UserDefaults(suiteName: "ltx2mlx-missing-\(UUID().uuidString)")!
+        missingDefaults.set(CustomModelSourceMode.local.rawValue, forKey: ModelRegistry.customSourceModeUserDefaultsKey)
+        let missingPathReq = GenerationRequest(
+            prompt: "scene",
+            modelId: ModelRegistry.customModelID,
+            generationSource: "generate",
+            userDefaults: missingDefaults
+        )
+        t.checkEqual(missingPathReq.customModelLocalPath, nil, "Unconfigured local path resolves to nil")
+        let missingReadiness = LTX2MLXRuntime.readiness(
+            repository: customModel.repo,
+            localPath: missingPathReq.customModelLocalPath,
+            sourceMode: .local,
+            userDefaults: missingDefaults
+        )
+        t.check(!missingReadiness.model.isReady, "Missing local path is rejected by readiness")
+        FeatureFlags.disableAll(userDefaults: defaults)
+    }
 }

@@ -1,5 +1,68 @@
 import Foundation
 
+/// Thread-safe controller tracking active subprocess instances for graceful cancellation.
+///
+/// Ensures that cancellation targets only the exact Process instance launched by the
+/// application, preventing accidental signals to unrelated processes or PIDs.
+/// Serves as the shared cancellation foundation across LTXBridge, LTX2MLXBackend,
+/// and future long-running workers (including Director Planning).
+final class ProcessCancellationTracker: @unchecked Sendable {
+
+    static let shared = ProcessCancellationTracker()
+
+    private let lock = NSLock()
+    private var process: Process?
+    private var _isCancelled = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _isCancelled
+    }
+
+    var hasActiveProcess: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return process?.isRunning == true
+    }
+
+    func register(_ process: Process) {
+        lock.lock()
+        self.process = process
+        self._isCancelled = false
+        lock.unlock()
+    }
+
+    func unregister(_ process: Process) {
+        lock.lock()
+        if self.process === process {
+            self.process = nil
+        }
+        lock.unlock()
+    }
+
+    /// Gracefully terminates the registered process using SIGTERM.
+    /// Returns true if a running process was found and signaled.
+    @discardableResult
+    func cancel() -> Bool {
+        lock.lock()
+        _isCancelled = true
+        let proc = self.process
+        lock.unlock()
+
+        guard let proc, proc.isRunning else { return false }
+        proc.terminate()
+        return true
+    }
+
+    func reset() {
+        lock.lock()
+        process = nil
+        _isCancelled = false
+        lock.unlock()
+    }
+}
+
 /// Boundary between model descriptors and generation backends.
 /// The official fast path stays inside OfficialMLXAudioAdapter, which is a thin
 /// wrapper over the existing LTXBridge — the bridge itself is unchanged.
@@ -12,6 +75,12 @@ protocol VideoGenerationAdapter {
         outputPath: String,
         progressHandler: @escaping (Double, String) -> Void
     ) async throws -> (videoPath: String, seed: Int, enhancedPrompt: String?)
+
+    func cancelActiveGeneration()
+}
+
+extension VideoGenerationAdapter {
+    func cancelActiveGeneration() {}
 }
 
 /// Official catalog models → existing LTXBridge (protected fast path).
@@ -33,6 +102,10 @@ final class OfficialMLXAudioAdapter: VideoGenerationAdapter {
             outputPath: outputPath,
             progressHandler: progressHandler
         )
+    }
+
+    func cancelActiveGeneration() {
+        bridge.cancelActiveGeneration()
     }
 }
 
@@ -67,6 +140,10 @@ final class DerivedModelAdapter: VideoGenerationAdapter {
             outputPath: outputPath,
             progressHandler: progressHandler
         )
+    }
+
+    func cancelActiveGeneration() {
+        bridge.cancelActiveGeneration()
     }
 }
 
@@ -104,6 +181,10 @@ final class LTX2MLXAdapter: VideoGenerationAdapter {
             progressHandler: progressHandler
         )
     }
+
+    func cancelActiveGeneration() {
+        backend.cancelActiveGeneration()
+    }
 }
 
 /// Picks the adapter for a descriptor. Order matters: first match wins.
@@ -122,5 +203,11 @@ final class AdapterRegistry {
 
     func adapter(for model: ModelDescriptor) -> VideoGenerationAdapter? {
         adapters.first { $0.supports(model: model) }
+    }
+
+    func cancelActiveGeneration() {
+        for adapter in adapters {
+            adapter.cancelActiveGeneration()
+        }
     }
 }

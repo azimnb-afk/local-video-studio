@@ -165,6 +165,12 @@ struct LTX2MLXBackend {
         return env
     }
 
+    private let processTracker = ProcessCancellationTracker()
+
+    func cancelActiveGeneration() {
+        processTracker.cancel()
+    }
+
     private func run(
         executable: String,
         arguments: [String],
@@ -203,10 +209,14 @@ struct LTX2MLXBackend {
                 text.components(separatedBy: "\n").forEach(note)
             }
 
-            process.terminationHandler = { finished in
+            process.terminationHandler = { [weak processTracker] finished in
                 outPipe.fileHandleForReading.readabilityHandler = nil
                 errPipe.fileHandleForReading.readabilityHandler = nil
-                if finished.terminationStatus == 0 {
+                let wasCancelled = processTracker?.isCancelled == true
+                processTracker?.unregister(finished)
+                if wasCancelled {
+                    continuation.resume(throwing: LTXError.cancelled)
+                } else if finished.terminationStatus == 0 {
                     continuation.resume()
                 } else {
                     lock.lock()
@@ -221,6 +231,7 @@ struct LTX2MLXBackend {
 
             do {
                 try process.run()
+                processTracker.register(process)
             } catch {
                 continuation.resume(throwing: LTXError.generationFailed(
                     "Could not start \(GenerationBackendKind.ltx2MLX.displayName) at \(executable): "

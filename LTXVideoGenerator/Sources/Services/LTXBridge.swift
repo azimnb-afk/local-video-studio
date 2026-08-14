@@ -23,34 +23,6 @@ enum LTXError: LocalizedError, Equatable {
     }
 }
 
-private final class ActiveGenerationProcessController: @unchecked Sendable {
-    private let lock = NSLock()
-    private var process: Process?
-
-    func set(_ process: Process) {
-        lock.lock()
-        self.process = process
-        lock.unlock()
-    }
-
-    func clear(_ process: Process) {
-        lock.lock()
-        if self.process === process {
-            self.process = nil
-        }
-        lock.unlock()
-    }
-
-    func cancel() {
-        lock.lock()
-        let process = self.process
-        lock.unlock()
-        if process?.isRunning == true {
-            process?.terminate()
-        }
-    }
-}
-
 // Use subprocess to run MLX-based generation
 class LTXBridge {
     static let shared = LTXBridge()
@@ -107,7 +79,7 @@ class LTXBridge {
     private(set) var isModelLoaded = false
     private var pythonHome: String?
     private var pythonExecutable: String?
-    private let activeGenerationProcess = ActiveGenerationProcessController()
+    private let activeGenerationProcess = ProcessCancellationTracker()
     
     private init() {
         setupPythonPaths()
@@ -1030,12 +1002,17 @@ except Exception as e:
                     try? startLog.write(toFile: logFile, atomically: false, encoding: .utf8)
                     
                     try process.run()
-                    processController.set(process)
-                    defer { processController.clear(process) }
+                    processController.register(process)
+                    defer { processController.unregister(process) }
                     process.waitUntilExit()
                     
                     stderrPipe.fileHandleForReading.readabilityHandler = nil
                     
+                    if processController.isCancelled {
+                        continuation.resume(throwing: LTXError.cancelled)
+                        return
+                    }
+
                     let outputData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
                     let output = String(data: outputData, encoding: .utf8) ?? ""
                     

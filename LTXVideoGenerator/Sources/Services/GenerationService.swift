@@ -67,6 +67,7 @@ class GenerationService: ObservableObject {
     
     func cancelCurrent() {
         bridge.cancelActiveGeneration()
+        AdapterRegistry.shared.cancelActiveGeneration()
         processingTask?.cancel()
         if var request = currentRequest {
             request.status = .cancelled
@@ -74,7 +75,7 @@ class GenerationService: ObservableObject {
         }
         isProcessing = false
         progress = 0
-        statusMessage = ""
+        statusMessage = "Generation cancelled"
     }
     
     func moveUp(_ request: GenerationRequest) {
@@ -504,6 +505,13 @@ class GenerationService: ObservableObject {
                 outputPath: outputPath
             )
         } catch is CancellationError {
+            recordCancellation(
+                request: request,
+                at: index,
+                effectiveParameters: effectiveParametersForDiagnostics,
+                outputPath: outputPath
+            )
+        } catch let err as LTXError where err == .cancelled {
             recordCancellation(
                 request: request,
                 at: index,

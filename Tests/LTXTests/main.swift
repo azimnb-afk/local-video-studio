@@ -717,5 +717,6 @@ runBasicDirectorStrictEnglishTests(t)
 runEnhancedPromptHardeningTests(t)
 runKeychainCredentialStoreTests(t)
 runAutoMovieDirectorFallbackTests(t)
+runQueueCancellationTests(t)
 
 t.finish()

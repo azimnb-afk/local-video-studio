@@ -1,0 +1,810 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AA000001 /* LTXVideoGeneratorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002; };
+		AA000003 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000004; };
+		AA000005 /* PythonEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000006; };
+		AA000007 /* GenerationRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000008; };
+		AA000009 /* GenerationResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000A; };
+		AA00000B /* Preset.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000C; };
+		AA00000D /* LTXBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000E; };
+		AA00000F /* GenerationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000010; };
+		AA000011 /* HistoryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000012; };
+		AA000013 /* PresetManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000014; };
+		AA000015 /* PromptInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000016; };
+		AA000017 /* ParametersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000018; };
+		AA000019 /* QueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00001A; };
+		AA00001B /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00001C; };
+		AA00001D /* PreferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00001E; };
+		AA000021 /* PythonKit in Frameworks */ = {isa = PBXBuildFile; productRef = AA000022; };
+		AA000023 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA000024; };
+		AA000025 /* APIServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000026; };
+		AA000027 /* prompts in Resources */ = {isa = PBXBuildFile; fileRef = AA000028; };
+		AA000029 /* audio_generator.py in Resources */ = {isa = PBXBuildFile; fileRef = AA00002A; };
+		AA000033 /* av_generator.py in Resources */ = {isa = PBXBuildFile; fileRef = AA000034; };
+		AA000031 /* enhance_prompt_preview.py in Resources */ = {isa = PBXBuildFile; fileRef = AA000032; };
+		AA00002B /* AudioService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00002C; };
+		AA0009A1 /* KeychainCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009A2; };
+		AA0009B1 /* AppStorageDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009B2; };
+		AA00002D /* AddAudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00002E; };
+		AA000035 /* CharacterProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000036; };
+		AA000190 /* MacOSSystemMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000191; };
+		AA000192 /* LTXGenerationLogSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000193; };
+		AA000194 /* GenerationFailureRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000195; };
+		AA000290 /* ContinuityStrengthPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000291; };
+		AA0002B8 /* ProductionQueuePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002B9; };
+		AA0002B6 /* ProductionQueueService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002B7; };
+		AA0002B4 /* ProductionQueueCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002B5; };
+		AA0002B2 /* ProductionQueueStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002B3; };
+		AA0002B0 /* ProductionJob.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002B1; };
+		AA0002E4 /* AutoMoviePlanPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002E5; };
+		AA0002E6 /* AutoMoviePlanPreviewSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002E7; };
+		AA0002E8 /* CharacterOpeningConsistencySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002E9; };
+		AA0002E2 /* LTXContinuity.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002E3; };
+		AA0002E0 /* CharacterOpeningConsistency.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002E1; };
+		AA0002D0 /* IdentitySourceAssessment.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002D1; };
+		AA0002D2 /* IdentityRefreshPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002D3; };
+		AA0002D4 /* IdentitySourceAssessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002D5; };
+		AA0002D6 /* IdentityAnchorGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002D7; };
+		AA0002D8 /* IdentityRefreshService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002D9; };
+		AA0002C0 /* OpeningReferenceAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002C1; };
+		AA0002C2 /* OpeningReferenceAppearanceAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002C3; };
+		AA0002C4 /* OpeningReferenceAppearanceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002C5; };
+		AA0002C6 /* OpeningReferenceSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002C7; };
+		AA0002C8 /* ContinuationPromptPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002C9; };
+		AA0002A6 /* OpeningReferencePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002A7; };
+		AA0002A4 /* OpeningReferenceSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002A5; };
+		AA0002A2 /* OpeningReferencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002A3; };
+		AA0002A0 /* OpeningReferenceImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002A1; };
+		AA000306 /* FinalAudioSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000307; };
+		AA00029C /* CharacterAnchorSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00029D; };
+		AA00029A /* CharacterAnchorPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00029B; };
+		AA000298 /* CharacterAnchorResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000299; };
+		AA000296 /* CharacterAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000297; };
+		AA000294 /* CapabilityAwareShotPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000295; };
+		AA000292 /* ShotScaleLadder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000293; };
+		AA000280 /* ContinuityReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000281; };
+		AA000270 /* AutoMovieBeatPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000271; };
+		AA000260 /* ContinuityFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000261; };
+		AA000262 /* AutoMovieRunCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000263; };
+		AA000240 /* StoryboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000241; };
+		AA000242 /* CharacterSheetAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000243; };
+		AA000244 /* CharacterReferenceExtraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000245; };
+		AA000300 /* ImageConditioningPreparer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000301; };
+		AA000246 /* CharacterReferenceExtractionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000247; };
+		AA000200 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000201; };
+		AA000202 /* ModelRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000203; };
+		AA000204 /* QualityProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000205; };
+		AA000206 /* OneShotPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000207; };
+		AA000208 /* FilmProject.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000209; };
+		AA00020A /* VideoGenerationAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00020B; };
+		AA00020C /* CompatibilityLab.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00020D; };
+		AA00020E /* ManifestValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00020F; };
+		AA000210 /* ModelInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000211; };
+		AA000302 /* TextEncoderDownloadService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000303; };
+		AA000212 /* MemoryMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000213; };
+		AA000214 /* HardwareProfiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000215; };
+		AA000216 /* HistoricalSuccessStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000217; };
+		AA000218 /* AutoQualityEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000219; };
+		AA00021A /* MediaProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00021B; };
+		AA00021C /* LowRAMMLXAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00021D; };
+		AA00021E /* DirectorProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00021F; };
+		AA000220 /* PromptCompiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000221; };
+		AA000222 /* LocalDirector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000223; };
+		AA000224 /* ContinuityEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000225; };
+		AA000226 /* StoryboardDirector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000227; };
+		AA000228 /* FinalAssemblyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000229; };
+		AA000308 /* LocalDirectorProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000309; };
+		AA00030A /* TextProtocolPlanParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00030B; };
+		AA00030C /* LocalDirectorCompatibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00030D; };
+		AA00030E /* GenerationModelResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00030F; };
+		AA000312 /* LTX2MLXBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000313; };
+		AA000310 /* GenerationBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000311; };
+		AA000304 /* FinalAudioMixer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000305; };
+		AA00022A /* FilmProjectStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00022B; };
+		AA00022C /* TakeGenerationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00022D; };
+		AA00022E /* APIv1Handler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00022F; };
+		AA000230 /* LocalAPIServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000231; };
+		AA000232 /* ModelsAndFeaturesPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000233; };
+		AA000250 /* DefaultCheckers.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000251; };
+		AA000252 /* DependencyHealthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000253; };
+		AA000254 /* FFmpegDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000255; };
+		AA000256 /* SetupWizardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000257; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		AA000002 /* LTXVideoGeneratorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LTXVideoGeneratorApp.swift; sourceTree = "<group>"; };
+		AA000004 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		AA000006 /* PythonEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonEnvironment.swift; sourceTree = "<group>"; };
+		AA000008 /* GenerationRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationRequest.swift; sourceTree = "<group>"; };
+		AA00000A /* GenerationResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationResult.swift; sourceTree = "<group>"; };
+		AA00000C /* Preset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Preset.swift; sourceTree = "<group>"; };
+		AA00000E /* LTXBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LTXBridge.swift; sourceTree = "<group>"; };
+		AA000010 /* GenerationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationService.swift; sourceTree = "<group>"; };
+		AA000012 /* HistoryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryManager.swift; sourceTree = "<group>"; };
+		AA000014 /* PresetManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetManager.swift; sourceTree = "<group>"; };
+		AA000016 /* PromptInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptInputView.swift; sourceTree = "<group>"; };
+		AA000018 /* ParametersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParametersView.swift; sourceTree = "<group>"; };
+		AA00001A /* QueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueView.swift; sourceTree = "<group>"; };
+		AA00001C /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
+		AA00001E /* PreferencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesView.swift; sourceTree = "<group>"; };
+		AA000024 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AA000026 /* APIServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIServer.swift; sourceTree = "<group>"; };
+		AA000028 /* prompts */ = {isa = PBXFileReference; lastKnownFileType = folder; path = prompts; sourceTree = "<group>"; };
+		AA00002A /* audio_generator.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = audio_generator.py; sourceTree = "<group>"; };
+		AA000034 /* av_generator.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = av_generator.py; sourceTree = "<group>"; };
+		AA000032 /* enhance_prompt_preview.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = enhance_prompt_preview.py; sourceTree = "<group>"; };
+		AA00002C /* AudioService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioService.swift; sourceTree = "<group>"; };
+		AA0009A2 /* KeychainCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainCredentialStore.swift; sourceTree = "<group>"; };
+		AA0009B2 /* AppStorageDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStorageDirectory.swift; sourceTree = "<group>"; };
+		AA00002E /* AddAudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAudioView.swift; sourceTree = "<group>"; };
+		AA000036 /* CharacterProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterProfile.swift; sourceTree = "<group>"; };
+		AA000291 /* ContinuityStrengthPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityStrengthPolicy.swift; sourceTree = "<group>"; };
+		AA0002B9 /* ProductionQueuePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionQueuePanel.swift; sourceTree = "<group>"; };
+		AA0002B7 /* ProductionQueueService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionQueueService.swift; sourceTree = "<group>"; };
+		AA0002B5 /* ProductionQueueCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionQueueCoordinator.swift; sourceTree = "<group>"; };
+		AA0002B3 /* ProductionQueueStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionQueueStore.swift; sourceTree = "<group>"; };
+		AA0002B1 /* ProductionJob.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionJob.swift; sourceTree = "<group>"; };
+		AA0002E5 /* AutoMoviePlanPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoMoviePlanPreview.swift; sourceTree = "<group>"; };
+		AA0002E7 /* AutoMoviePlanPreviewSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoMoviePlanPreviewSection.swift; sourceTree = "<group>"; };
+		AA0002E9 /* CharacterOpeningConsistencySection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterOpeningConsistencySection.swift; sourceTree = "<group>"; };
+		AA0002E3 /* LTXContinuity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LTXContinuity.swift; sourceTree = "<group>"; };
+		AA0002E1 /* CharacterOpeningConsistency.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterOpeningConsistency.swift; sourceTree = "<group>"; };
+		AA0002D1 /* IdentitySourceAssessment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentitySourceAssessment.swift; sourceTree = "<group>"; };
+		AA0002D3 /* IdentityRefreshPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentityRefreshPolicy.swift; sourceTree = "<group>"; };
+		AA0002D5 /* IdentitySourceAssessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentitySourceAssessor.swift; sourceTree = "<group>"; };
+		AA0002D7 /* IdentityAnchorGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentityAnchorGenerator.swift; sourceTree = "<group>"; };
+		AA0002D9 /* IdentityRefreshService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentityRefreshService.swift; sourceTree = "<group>"; };
+		AA0002C1 /* OpeningReferenceAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferenceAppearance.swift; sourceTree = "<group>"; };
+		AA0002C3 /* OpeningReferenceAppearanceAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferenceAppearanceAnalyzer.swift; sourceTree = "<group>"; };
+		AA0002C5 /* OpeningReferenceAppearanceSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferenceAppearanceSession.swift; sourceTree = "<group>"; };
+		AA0002C7 /* OpeningReferenceSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferenceSync.swift; sourceTree = "<group>"; };
+		AA0002C9 /* ContinuationPromptPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuationPromptPolicy.swift; sourceTree = "<group>"; };
+		AA0002A7 /* OpeningReferencePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferencePicker.swift; sourceTree = "<group>"; };
+		AA0002A5 /* OpeningReferenceSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferenceSection.swift; sourceTree = "<group>"; };
+		AA0002A3 /* OpeningReferencePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferencePolicy.swift; sourceTree = "<group>"; };
+		AA0002A1 /* OpeningReferenceImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningReferenceImage.swift; sourceTree = "<group>"; };
+		AA000307 /* FinalAudioSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalAudioSettings.swift; sourceTree = "<group>"; };
+		AA00029D /* CharacterAnchorSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterAnchorSection.swift; sourceTree = "<group>"; };
+		AA00029B /* CharacterAnchorPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterAnchorPolicy.swift; sourceTree = "<group>"; };
+		AA000299 /* CharacterAnchorResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterAnchorResolver.swift; sourceTree = "<group>"; };
+		AA000297 /* CharacterAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterAnchor.swift; sourceTree = "<group>"; };
+		AA000295 /* CapabilityAwareShotPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CapabilityAwareShotPlanner.swift; sourceTree = "<group>"; };
+		AA000293 /* ShotScaleLadder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotScaleLadder.swift; sourceTree = "<group>"; };
+		AA000281 /* ContinuityReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityReconciler.swift; sourceTree = "<group>"; };
+		AA000271 /* AutoMovieBeatPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoMovieBeatPlanner.swift; sourceTree = "<group>"; };
+		AA000261 /* ContinuityFrameExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityFrameExtractor.swift; sourceTree = "<group>"; };
+		AA000263 /* AutoMovieRunCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoMovieRunCoordinator.swift; sourceTree = "<group>"; };
+		AA000241 /* StoryboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryboardView.swift; sourceTree = "<group>"; };
+		AA000243 /* CharacterSheetAnalysis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterSheetAnalysis.swift; sourceTree = "<group>"; };
+		AA000245 /* CharacterReferenceExtraction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterReferenceExtraction.swift; sourceTree = "<group>"; };
+		AA000301 /* ImageConditioningPreparer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageConditioningPreparer.swift; sourceTree = "<group>"; };
+		AA000247 /* CharacterReferenceExtractionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterReferenceExtractionView.swift; sourceTree = "<group>"; };
+		AA000201 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlags.swift; sourceTree = "<group>"; };
+		AA000203 /* ModelRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelRegistry.swift; sourceTree = "<group>"; };
+		AA000205 /* QualityProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QualityProfile.swift; sourceTree = "<group>"; };
+		AA000207 /* OneShotPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneShotPlan.swift; sourceTree = "<group>"; };
+		AA000209 /* FilmProject.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmProject.swift; sourceTree = "<group>"; };
+		AA00020B /* VideoGenerationAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoGenerationAdapter.swift; sourceTree = "<group>"; };
+		AA00020D /* CompatibilityLab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompatibilityLab.swift; sourceTree = "<group>"; };
+		AA00020F /* ManifestValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManifestValidator.swift; sourceTree = "<group>"; };
+		AA000211 /* ModelInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelInstaller.swift; sourceTree = "<group>"; };
+		AA000303 /* TextEncoderDownloadService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextEncoderDownloadService.swift; sourceTree = "<group>"; };
+		AA000213 /* MemoryMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryMonitor.swift; sourceTree = "<group>"; };
+		AA000215 /* HardwareProfiler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardwareProfiler.swift; sourceTree = "<group>"; };
+		AA000217 /* HistoricalSuccessStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoricalSuccessStore.swift; sourceTree = "<group>"; };
+		AA000219 /* AutoQualityEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoQualityEngine.swift; sourceTree = "<group>"; };
+		AA00021B /* MediaProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaProbe.swift; sourceTree = "<group>"; };
+		AA00021D /* LowRAMMLXAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LowRAMMLXAdapter.swift; sourceTree = "<group>"; };
+		AA00021F /* DirectorProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectorProvider.swift; sourceTree = "<group>"; };
+		AA000221 /* PromptCompiler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptCompiler.swift; sourceTree = "<group>"; };
+		AA000223 /* LocalDirector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDirector.swift; sourceTree = "<group>"; };
+		AA000225 /* ContinuityEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityEngine.swift; sourceTree = "<group>"; };
+		AA000227 /* StoryboardDirector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryboardDirector.swift; sourceTree = "<group>"; };
+		AA000229 /* FinalAssemblyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalAssemblyService.swift; sourceTree = "<group>"; };
+		AA000309 /* LocalDirectorProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDirectorProtocol.swift; sourceTree = "<group>"; };
+		AA00030B /* TextProtocolPlanParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextProtocolPlanParser.swift; sourceTree = "<group>"; };
+		AA00030D /* LocalDirectorCompatibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDirectorCompatibility.swift; sourceTree = "<group>"; };
+		AA00030F /* GenerationModelResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationModelResolver.swift; sourceTree = "<group>"; };
+		AA000313 /* LTX2MLXBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LTX2MLXBackend.swift; sourceTree = "<group>"; };
+		AA000311 /* GenerationBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationBackend.swift; sourceTree = "<group>"; };
+		AA000305 /* FinalAudioMixer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalAudioMixer.swift; sourceTree = "<group>"; };
+		AA00022B /* FilmProjectStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmProjectStore.swift; sourceTree = "<group>"; };
+		AA00022D /* TakeGenerationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TakeGenerationCoordinator.swift; sourceTree = "<group>"; };
+		AA00022F /* APIv1Handler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIv1Handler.swift; sourceTree = "<group>"; };
+		AA000231 /* LocalAPIServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAPIServer.swift; sourceTree = "<group>"; };
+		AA000233 /* ModelsAndFeaturesPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelsAndFeaturesPreferences.swift; sourceTree = "<group>"; };
+		AA000251 /* DefaultCheckers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dependencies/DefaultCheckers.swift; sourceTree = "<group>"; };
+		AA000253 /* DependencyHealthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dependencies/DependencyHealthManager.swift; sourceTree = "<group>"; };
+		AA000255 /* FFmpegDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dependencies/FFmpegDetector.swift; sourceTree = "<group>"; };
+		AA000257 /* SetupWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupWizardView.swift; sourceTree = "<group>"; };
+		AA000191 /* MacOSSystemMemory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacOSSystemMemory.swift; sourceTree = "<group>"; };
+		AA000193 /* LTXGenerationLogSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LTXGenerationLogSummary.swift; sourceTree = "<group>"; };
+		AA000195 /* GenerationFailureRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationFailureRecovery.swift; sourceTree = "<group>"; };
+		AA000030 /* LTXVideoGenerator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LTXVideoGenerator.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AA000040 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA000021 /* PythonKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		AA000050 = {
+			isa = PBXGroup;
+			children = (
+				AA000051 /* Sources */,
+				AA000052 /* Resources */,
+				AA000024 /* Assets.xcassets */,
+				AA000053 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AA000051 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				AA000002 /* LTXVideoGeneratorApp.swift */,
+				AA000006 /* PythonEnvironment.swift */,
+				AA000054 /* Models */,
+				AA000055 /* Services */,
+				AA000056 /* Views */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		AA000052 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				AA00002A /* audio_generator.py */,
+				AA000034 /* av_generator.py */,
+				AA000032 /* enhance_prompt_preview.py */,
+				AA000028 /* prompts */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		AA000053 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AA000030 /* LTXVideoGenerator.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		AA000054 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				AA000008 /* GenerationRequest.swift */,
+				AA00000A /* GenerationResult.swift */,
+				AA00000C /* Preset.swift */,
+				AA000036 /* CharacterProfile.swift */,
+				AA000201 /* FeatureFlags.swift */,
+				AA000203 /* ModelRegistry.swift */,
+				AA000205 /* QualityProfile.swift */,
+				AA000207 /* OneShotPlan.swift */,
+				AA000209 /* FilmProject.swift */,
+				AA0002B1 /* ProductionJob.swift */,
+				AA0002E5 /* AutoMoviePlanPreview.swift */,
+				AA0002E3 /* LTXContinuity.swift */,
+				AA0002E1 /* CharacterOpeningConsistency.swift */,
+				AA0002D1 /* IdentitySourceAssessment.swift */,
+				AA0002C1 /* OpeningReferenceAppearance.swift */,
+				AA0002A1 /* OpeningReferenceImage.swift */,
+				AA000307 /* FinalAudioSettings.swift */,
+				AA000297 /* CharacterAnchor.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		AA000055 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				AA00000E /* LTXBridge.swift */,
+				AA000191 /* MacOSSystemMemory.swift */,
+				AA000193 /* LTXGenerationLogSummary.swift */,
+				AA000195 /* GenerationFailureRecovery.swift */,
+				AA000010 /* GenerationService.swift */,
+				AA000012 /* HistoryManager.swift */,
+				AA000014 /* PresetManager.swift */,
+				AA000026 /* APIServer.swift */,
+				AA00002C /* AudioService.swift */,
+				AA0009A2 /* KeychainCredentialStore.swift */,
+				AA0009B2 /* AppStorageDirectory.swift */,
+				AA000291 /* ContinuityStrengthPolicy.swift */,
+				AA0002B7 /* ProductionQueueService.swift */,
+				AA0002B5 /* ProductionQueueCoordinator.swift */,
+				AA0002B3 /* ProductionQueueStore.swift */,
+				AA0002D3 /* IdentityRefreshPolicy.swift */,
+				AA0002D5 /* IdentitySourceAssessor.swift */,
+				AA0002D7 /* IdentityAnchorGenerator.swift */,
+				AA0002D9 /* IdentityRefreshService.swift */,
+				AA0002C3 /* OpeningReferenceAppearanceAnalyzer.swift */,
+				AA0002C5 /* OpeningReferenceAppearanceSession.swift */,
+				AA0002C7 /* OpeningReferenceSync.swift */,
+				AA0002C9 /* ContinuationPromptPolicy.swift */,
+				AA0002A3 /* OpeningReferencePolicy.swift */,
+				AA00029B /* CharacterAnchorPolicy.swift */,
+				AA000299 /* CharacterAnchorResolver.swift */,
+				AA000295 /* CapabilityAwareShotPlanner.swift */,
+				AA000293 /* ShotScaleLadder.swift */,
+				AA000281 /* ContinuityReconciler.swift */,
+				AA000271 /* AutoMovieBeatPlanner.swift */,
+				AA000261 /* ContinuityFrameExtractor.swift */,
+				AA000263 /* AutoMovieRunCoordinator.swift */,
+				AA00020B /* VideoGenerationAdapter.swift */,
+				AA00020D /* CompatibilityLab.swift */,
+				AA00020F /* ManifestValidator.swift */,
+				AA000211 /* ModelInstaller.swift */,
+				AA000303 /* TextEncoderDownloadService.swift */,
+				AA000213 /* MemoryMonitor.swift */,
+				AA000215 /* HardwareProfiler.swift */,
+				AA000217 /* HistoricalSuccessStore.swift */,
+				AA000219 /* AutoQualityEngine.swift */,
+				AA00021B /* MediaProbe.swift */,
+				AA00021D /* LowRAMMLXAdapter.swift */,
+				AA00021F /* DirectorProvider.swift */,
+				AA000221 /* PromptCompiler.swift */,
+				AA000223 /* LocalDirector.swift */,
+				AA000225 /* ContinuityEngine.swift */,
+				AA000227 /* StoryboardDirector.swift */,
+				AA000229 /* FinalAssemblyService.swift */,
+				AA000309 /* LocalDirectorProtocol.swift */,
+				AA00030B /* TextProtocolPlanParser.swift */,
+				AA00030D /* LocalDirectorCompatibility.swift */,
+				AA00030F /* GenerationModelResolver.swift */,
+				AA000313 /* LTX2MLXBackend.swift */,
+				AA000311 /* GenerationBackend.swift */,
+				AA000305 /* FinalAudioMixer.swift */,
+				AA00022B /* FilmProjectStore.swift */,
+				AA000243 /* CharacterSheetAnalysis.swift */,
+				AA000245 /* CharacterReferenceExtraction.swift */,
+				AA000301 /* ImageConditioningPreparer.swift */,
+				AA00022D /* TakeGenerationCoordinator.swift */,
+				AA00022F /* APIv1Handler.swift */,
+				AA000231 /* LocalAPIServer.swift */,
+				AA000251 /* DefaultCheckers.swift */,
+				AA000253 /* DependencyHealthManager.swift */,
+				AA000255 /* FFmpegDetector.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		AA000056 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				AA000004 /* ContentView.swift */,
+				AA0002B9 /* ProductionQueuePanel.swift */,
+				AA0002E7 /* AutoMoviePlanPreviewSection.swift */,
+				AA0002E9 /* CharacterOpeningConsistencySection.swift */,
+				AA0002A7 /* OpeningReferencePicker.swift */,
+				AA0002A5 /* OpeningReferenceSection.swift */,
+				AA00029D /* CharacterAnchorSection.swift */,
+				AA000016 /* PromptInputView.swift */,
+				AA000018 /* ParametersView.swift */,
+				AA00001A /* QueueView.swift */,
+				AA00001C /* HistoryView.swift */,
+				AA00001E /* PreferencesView.swift */,
+				AA00002E /* AddAudioView.swift */,
+				AA000241 /* StoryboardView.swift */,
+				AA000247 /* CharacterReferenceExtractionView.swift */,
+				AA000233 /* ModelsAndFeaturesPreferences.swift */,
+				AA000257 /* SetupWizardView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AA000060 /* LTXVideoGenerator */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA000070;
+			buildPhases = (
+				AA000061 /* Sources */,
+				AA000040 /* Frameworks */,
+				AA000062 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = LTXVideoGenerator;
+			packageProductDependencies = (
+				AA000022 /* PythonKit */,
+			);
+			productName = LTXVideoGenerator;
+			productReference = AA000030 /* LTXVideoGenerator.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AA000080 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					AA000060 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = AA000081;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = AA000050;
+			packageReferences = (
+				AA000090 /* XCRemoteSwiftPackageReference "PythonKit" */,
+			);
+			productRefGroup = AA000053 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AA000060 /* LTXVideoGenerator */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AA000062 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA000023 /* Assets.xcassets in Resources */,
+				AA000029 /* audio_generator.py in Resources */,
+				AA000033 /* av_generator.py in Resources */,
+				AA000031 /* enhance_prompt_preview.py in Resources */,
+				AA000027 /* prompts in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AA000061 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA000001 /* LTXVideoGeneratorApp.swift in Sources */,
+				AA000003 /* ContentView.swift in Sources */,
+				AA000005 /* PythonEnvironment.swift in Sources */,
+				AA000007 /* GenerationRequest.swift in Sources */,
+				AA000009 /* GenerationResult.swift in Sources */,
+				AA00000B /* Preset.swift in Sources */,
+				AA000035 /* CharacterProfile.swift in Sources */,
+				AA00000D /* LTXBridge.swift in Sources */,
+				AA000190 /* MacOSSystemMemory.swift in Sources */,
+				AA000192 /* LTXGenerationLogSummary.swift in Sources */,
+				AA000194 /* GenerationFailureRecovery.swift in Sources */,
+				AA00000F /* GenerationService.swift in Sources */,
+				AA000011 /* HistoryManager.swift in Sources */,
+				AA000013 /* PresetManager.swift in Sources */,
+				AA000015 /* PromptInputView.swift in Sources */,
+				AA000017 /* ParametersView.swift in Sources */,
+				AA000019 /* QueueView.swift in Sources */,
+				AA00001B /* HistoryView.swift in Sources */,
+				AA00001D /* PreferencesView.swift in Sources */,
+				AA000025 /* APIServer.swift in Sources */,
+				AA00002B /* AudioService.swift in Sources */,
+				AA0009A1 /* KeychainCredentialStore.swift in Sources */,
+				AA0009B1 /* AppStorageDirectory.swift in Sources */,
+				AA000290 /* ContinuityStrengthPolicy.swift in Sources */,
+				AA0002B8 /* ProductionQueuePanel.swift in Sources */,
+				AA0002B6 /* ProductionQueueService.swift in Sources */,
+				AA0002B4 /* ProductionQueueCoordinator.swift in Sources */,
+				AA0002B2 /* ProductionQueueStore.swift in Sources */,
+				AA0002B0 /* ProductionJob.swift in Sources */,
+				AA0002E4 /* AutoMoviePlanPreview.swift in Sources */,
+				AA0002E6 /* AutoMoviePlanPreviewSection.swift in Sources */,
+				AA0002E8 /* CharacterOpeningConsistencySection.swift in Sources */,
+				AA0002E2 /* LTXContinuity.swift in Sources */,
+				AA0002E0 /* CharacterOpeningConsistency.swift in Sources */,
+				AA0002D0 /* IdentitySourceAssessment.swift in Sources */,
+				AA0002D2 /* IdentityRefreshPolicy.swift in Sources */,
+				AA0002D4 /* IdentitySourceAssessor.swift in Sources */,
+				AA0002D6 /* IdentityAnchorGenerator.swift in Sources */,
+				AA0002D8 /* IdentityRefreshService.swift in Sources */,
+				AA0002C0 /* OpeningReferenceAppearance.swift in Sources */,
+				AA0002C2 /* OpeningReferenceAppearanceAnalyzer.swift in Sources */,
+				AA0002C4 /* OpeningReferenceAppearanceSession.swift in Sources */,
+				AA0002C6 /* OpeningReferenceSync.swift in Sources */,
+				AA0002C8 /* ContinuationPromptPolicy.swift in Sources */,
+				AA0002A6 /* OpeningReferencePicker.swift in Sources */,
+				AA0002A4 /* OpeningReferenceSection.swift in Sources */,
+				AA0002A2 /* OpeningReferencePolicy.swift in Sources */,
+				AA0002A0 /* OpeningReferenceImage.swift in Sources */,
+				AA000306 /* FinalAudioSettings.swift in Sources */,
+				AA00029C /* CharacterAnchorSection.swift in Sources */,
+				AA00029A /* CharacterAnchorPolicy.swift in Sources */,
+				AA000298 /* CharacterAnchorResolver.swift in Sources */,
+				AA000296 /* CharacterAnchor.swift in Sources */,
+				AA000294 /* CapabilityAwareShotPlanner.swift in Sources */,
+				AA000292 /* ShotScaleLadder.swift in Sources */,
+				AA000280 /* ContinuityReconciler.swift in Sources */,
+				AA000270 /* AutoMovieBeatPlanner.swift in Sources */,
+				AA000260 /* ContinuityFrameExtractor.swift in Sources */,
+				AA000262 /* AutoMovieRunCoordinator.swift in Sources */,
+				AA00002D /* AddAudioView.swift in Sources */,
+				AA000240 /* StoryboardView.swift in Sources */,
+				AA000246 /* CharacterReferenceExtractionView.swift in Sources */,
+				AA000200 /* FeatureFlags.swift in Sources */,
+				AA000202 /* ModelRegistry.swift in Sources */,
+				AA000204 /* QualityProfile.swift in Sources */,
+				AA000206 /* OneShotPlan.swift in Sources */,
+				AA000208 /* FilmProject.swift in Sources */,
+				AA00020A /* VideoGenerationAdapter.swift in Sources */,
+				AA00020C /* CompatibilityLab.swift in Sources */,
+				AA00020E /* ManifestValidator.swift in Sources */,
+				AA000210 /* ModelInstaller.swift in Sources */,
+				AA000302 /* TextEncoderDownloadService.swift in Sources */,
+				AA000212 /* MemoryMonitor.swift in Sources */,
+				AA000214 /* HardwareProfiler.swift in Sources */,
+				AA000216 /* HistoricalSuccessStore.swift in Sources */,
+				AA000218 /* AutoQualityEngine.swift in Sources */,
+				AA00021A /* MediaProbe.swift in Sources */,
+				AA00021C /* LowRAMMLXAdapter.swift in Sources */,
+				AA00021E /* DirectorProvider.swift in Sources */,
+				AA000220 /* PromptCompiler.swift in Sources */,
+				AA000222 /* LocalDirector.swift in Sources */,
+				AA000224 /* ContinuityEngine.swift in Sources */,
+				AA000226 /* StoryboardDirector.swift in Sources */,
+				AA000228 /* FinalAssemblyService.swift in Sources */,
+				AA000308 /* LocalDirectorProtocol.swift in Sources */,
+				AA00030A /* TextProtocolPlanParser.swift in Sources */,
+				AA00030C /* LocalDirectorCompatibility.swift in Sources */,
+				AA00030E /* GenerationModelResolver.swift in Sources */,
+				AA000312 /* LTX2MLXBackend.swift in Sources */,
+				AA000310 /* GenerationBackend.swift in Sources */,
+				AA000304 /* FinalAudioMixer.swift in Sources */,
+				AA00022A /* FilmProjectStore.swift in Sources */,
+				AA000242 /* CharacterSheetAnalysis.swift in Sources */,
+				AA000244 /* CharacterReferenceExtraction.swift in Sources */,
+				AA000300 /* ImageConditioningPreparer.swift in Sources */,
+				AA00022C /* TakeGenerationCoordinator.swift in Sources */,
+				AA00022E /* APIv1Handler.swift in Sources */,
+				AA000230 /* LocalAPIServer.swift in Sources */,
+				AA000232 /* ModelsAndFeaturesPreferences.swift in Sources */,
+				AA000250 /* DefaultCheckers.swift in Sources */,
+				AA000252 /* DependencyHealthManager.swift in Sources */,
+				AA000254 /* FFmpegDetector.swift in Sources */,
+				AA000256 /* SetupWizardView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		AA000100 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		AA000101 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		AA000102 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = LTXVideoGenerator.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 9;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Local Video Studio";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.9.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.localvideostudio.personal;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		AA000103 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = LTXVideoGenerator.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 9;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Local Video Studio";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.9.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.localvideostudio.personal;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AA000070 /* Build configuration list for PBXNativeTarget "LTXVideoGenerator" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA000102 /* Debug */,
+				AA000103 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA000081 /* Build configuration list for PBXProject "LTXVideoGenerator" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA000100 /* Debug */,
+				AA000101 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		AA000090 /* XCRemoteSwiftPackageReference "PythonKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/pvieito/PythonKit.git";
+				requirement = {
+					kind = revision;
+					revision = 1ac25ddddca845ba0184911de9c00e1508948cf8;
+				};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AA000022 /* PythonKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA000090 /* XCRemoteSwiftPackageReference "PythonKit" */;
+			productName = PythonKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = AA000080 /* Project object */;
+}

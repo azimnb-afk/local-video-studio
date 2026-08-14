@@ -1,0 +1,90 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+# Commit the shared Xcode package resolution for reproducible source builds.
+# Per-user SwiftPM state remains ignored by .swiftpm/ and xcuserdata/ rules.
+
+# CocoaPods
+Pods/
+Podfile.lock
+
+# Carthage
+Carthage/Build/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Distribution
+dist/
+*.dmg
+*.zip
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+.eggs/
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+.vscode/
+.cursor/
+
+# Logs
+*.log
+/tmp/
+
+# Secrets (never commit)
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.mobileprovision
+*.provisionprofile
+*.keychain
+*.keychain-db
+secrets/
+
+# Local model weights and generated media (keep intentionally curated assets explicit)
+*.safetensors
+*.gguf
+*.npz
+*.mp4
+*.mov
+*.mkv
+!Tests/LTXTests/Fixtures/*.mp4
+*.xcarchive
+*.app
+dist/
+AppIcon.aseprite
+AppIcon_128.png
+AppIcon.icns
+AppIcon.iconset/

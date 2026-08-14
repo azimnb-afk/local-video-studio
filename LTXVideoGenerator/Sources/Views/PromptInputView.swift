@@ -1,0 +1,1139 @@
+import SwiftUI
+import UniformTypeIdentifiers
+
+struct PromptInputView: View {
+    @EnvironmentObject var presetManager: PresetManager
+    @EnvironmentObject var characterProfileManager: CharacterProfileManager
+    
+    @Binding var prompt: String
+    @Binding var negativePrompt: String
+    @Binding var voiceoverText: String
+    @Binding var parameters: GenerationParameters
+    var onPrimarySubmissionQueued: () -> Void = {}
+    
+    @State private var showNegativePrompt = false
+    @State private var showVoiceover = false
+    @State private var showMusic = false
+    @State private var showImageToVideo = false
+    @AppStorage("sourceImagePath") private var storedImagePath = ""
+    @State private var sourceImageThumbnail: NSImage?
+    @State private var isSubmitting = false
+    @State private var submissionError: String?
+    @FocusState private var isPromptFocused: Bool
+    
+    // Audio settings
+    private var elevenLabsApiKey: String {
+        KeychainCredentialStore.shared.elevenLabsApiKey
+    }
+    @AppStorage("enableGemmaPromptEnhancement") private var enableGemmaPromptEnhancement = false
+    @AppStorage(LTXModelCatalog.selectedModelIDKey) private var selectedModelID = LTXModelCatalog.defaultModelID
+    @AppStorage(LTXTextEncoderCatalog.selectedTextEncoderIDKey) private var selectedTextEncoderID = LTXTextEncoderCatalog.defaultTextEncoderID
+
+    // Issue #51: persist these between launches and across tab switches.
+    @AppStorage(SessionSettings.voiceoverSourceKey) private var voiceoverSource: AudioSource = .mlxAudio
+    @AppStorage(SessionSettings.elevenLabsVoiceKey) private var selectedElevenLabsVoice: String = "21m00Tcm4TlvDq8ikWAM"
+    @AppStorage(SessionSettings.mlxVoiceKey) private var selectedMLXVoice: String = "af_heart"
+
+    // Music settings (persisted)
+    @AppStorage(SessionSettings.musicEnabledKey) private var musicEnabled = false
+    @AppStorage(SessionSettings.musicGenreKey) private var selectedMusicGenre: MusicGenre = .cinematicUplifting
+    // Shared user-facing preset. QualityMode is derived centrally and remains
+    // an internal execution detail.
+    @AppStorage("generationPreset") private var presetRaw = GenerationPreset.standard.rawValue
+    @AppStorage(FeatureFlag.autoQualityV1.userDefaultsKey) private var autoQualityEnabled = FeatureFlag.autoQualityV1.defaultEnabled
+    @AppStorage(FeatureFlag.modelRegistryV1.userDefaultsKey) private var modelRegistryEnabled = FeatureFlag.modelRegistryV1.defaultEnabled
+
+    // Audio disable for unified model — persisted (issue #51 explicitly called
+    // this out: "Generate Audio is forced to true on launch").
+    @AppStorage(SessionSettings.disableAudioKey) private var disableAudio = false
+
+    // Gemma prompt enhancement (persisted)
+    @State private var showPromptEnhancement = false
+    @AppStorage(SessionSettings.gemmaRepetitionPenaltyKey) private var gemmaRepetitionPenalty: Double = 1.2
+    @AppStorage(SessionSettings.gemmaTopPKey) private var gemmaTopP: Double = 0.9
+    @State private var showEnhancedPreview = false
+    @State private var enhancedPreview: String?
+    @State private var isPreviewing = false
+    @State private var previewError: String?
+    @State private var previewStatusMessage = ""
+    @State private var showMemoryRiskAlert = false
+    @State private var dismissedHeavyEncoderComboHint = false
+    @State private var pendingQueueAction: PendingQueueAction?
+    @State private var showSaveCharacterProfile = false
+    @State private var newCharacterProfileName = ""
+
+    private var sourceImagePath: String? {
+        storedImagePath.isEmpty ? nil : storedImagePath
+    }
+
+    private var selectedModel: LTXModel {
+        LTXModelCatalog.resolvedModel(id: selectedModelID)
+    }
+
+    /// This is the same resolution used for the queue. It intentionally does
+    /// not mutate the user's Custom fields: selecting a preset is sufficient
+    /// to make its effective profile visible to preflight UI.
+    private var preflightSettings: ResolvedGenerationSettings {
+        guard autoQualityEnabled else {
+            return ResolvedGenerationSettings(
+                request: makeGenerationRequest(parameters: parameters),
+                profile: nil,
+                attemptLadder: [],
+                reason: "Auto Quality disabled"
+            )
+        }
+        return GenerationSettingsResolver.resolveForPreflight(
+            request: makeGenerationRequest(parameters: parameters)
+        )
+    }
+
+    private var effectiveParametersForPreflight: GenerationParameters {
+        preflightSettings.request.parameters
+    }
+
+    private var estimatedMemoryGB: Int {
+        effectiveParametersForPreflight.estimatedVRAM
+    }
+
+    private var machineMemoryGB: Int {
+        Int(ProcessInfo.processInfo.physicalMemory / 1_000_000_000)
+    }
+
+    private var warningThresholdGB: Int {
+        // Keep a sensible floor for smaller machines, but scale up for high-memory Macs.
+        max(36, Int(Double(machineMemoryGB) * 0.7))
+    }
+
+    private var isHighMemoryRisk: Bool {
+        let effective = effectiveParametersForPreflight
+        return estimatedMemoryGB >= warningThresholdGB
+            || (effective.width * effective.height >= 768 * 512 && effective.numFrames >= 97 && machineMemoryGB <= 64)
+    }
+
+    private var memoryRiskGuidance: String {
+        let tilingHint = effectiveParametersForPreflight.vaeTilingMode == "aggressive"
+            ? ""
+            : " Switch tiling to aggressive for lower peak memory."
+        return "This request may hit Metal memory limits (estimated ~\(estimatedMemoryGB)GB on a ~\(machineMemoryGB)GB machine). Recommended retry settings: 512x320 resolution, 25/33/49 frames, 24 FPS.\(tilingHint)"
+    }
+
+    /// Non-blocking preflight: very large bf16 stacks on small unified-memory Macs (#53).
+    private var heavyEncoderCombinationWarning: String? {
+        let physGB = Int(MacOSSystemMemory.physicalMemoryBytes / 1_073_741_824)
+        let avail = MacOSSystemMemory.approximateAvailableMemoryGBFormatted()
+        let model = selectedModel
+        let isLargeBf16Unified = model.id == "ltx2_unified" || model.id == "ltx23_unified"
+        let is12bBf16Encoder = selectedTextEncoderID == "gemma3_12b_bf16"
+        guard isLargeBf16Unified, is12bBf16Encoder, physGB < 32 else { return nil }
+        return "This pairing (large unified LTX bf16 model + Gemma 12B bf16 text encoder) often needs on the order of 50 GB unified memory during TEXT_ENCODER. Your Mac has about \(physGB) GB physical memory (~\(avail) GB available, approximate). Prefer Gemma 4B bf16 or 4-bit (Preferences → General → Text Encoder), enable aggressive VAE tiling, or fewer pixels/frames. You can still generate."
+    }
+
+    private var selectedVoiceId: String {
+        voiceoverSource == .elevenLabs ? selectedElevenLabsVoice : selectedMLXVoice
+    }
+
+    /// These buttons all enqueue production jobs — "Add to Queue" most
+    /// obviously so — which is why a generation already being in flight does
+    /// not disable them.
+    private var generationActionsDisabled: Bool {
+        !GenerationSubmissionPolicy.canSubmit(prompt: prompt)
+    }
+
+    private var selectedPreset: GenerationPreset {
+        GenerationPreset(rawValue: presetRaw) ?? .standard
+    }
+
+    private var qualityModeRaw: String { selectedPreset.qualityMode.rawValue }
+
+    /// Non-nil when the 64-px floor will change the requested dimensions.
+    private var effectiveResolutionNote: String? {
+        let effective = effectiveParametersForPreflight
+        let effWidth = (effective.width / 64) * 64
+        let effHeight = (effective.height / 64) * 64
+        guard effWidth != effective.width || effHeight != effective.height else { return nil }
+        return "Requested \(effective.width)×\(effective.height) → Effective \(effWidth)×\(effHeight)"
+    }
+
+    private var qualityOverridesParameters: Bool {
+        autoQualityEnabled && selectedPreset != .custom
+    }
+
+    private var resolutionSummary: String {
+        if let profile = preflightSettings.profile {
+            let effective = effectiveParametersForPreflight
+            return "\(selectedPreset.displayName) → \(profile.id): \(effective.width)×\(effective.height), \(effective.numFrames) frames, \(effective.numInferenceSteps) steps"
+        }
+        if qualityOverridesParameters {
+            return "\(selectedPreset.displayName) selects an adaptive profile; effective settings are recorded"
+        }
+        return effectiveResolutionNote ?? ""
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Main prompt
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Prompt", systemImage: "text.bubble.fill")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+                
+                TextEditor(text: $prompt)
+                    .font(.body)
+                    .frame(minHeight: 80, maxHeight: 120)
+                    .scrollContentBackground(.hidden)
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(isPromptFocused ? Color.accentColor : Color.clear, lineWidth: 2)
+                    )
+                    .focused($isPromptFocused)
+            }
+
+            // Character consistency profiles
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 12) {
+                    if characterProfileManager.profiles.isEmpty {
+                        Text("Save a character profile to reuse the same visual prompt, source image, voice, music, model, and generation settings.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        HStack {
+                            Picker("", selection: $characterProfileManager.selectedProfile) {
+                                ForEach(characterProfileManager.profiles) { profile in
+                                    Text(profile.name).tag(profile as CharacterProfile?)
+                                }
+                            }
+                            .labelsHidden()
+
+                            Button("Apply") {
+                                if let profile = characterProfileManager.selectedProfile {
+                                    applyCharacterProfile(profile)
+                                }
+                            }
+                            .disabled(characterProfileManager.selectedProfile == nil)
+
+                            if let profile = characterProfileManager.selectedProfile {
+                                Button(role: .destructive) {
+                                    characterProfileManager.deleteProfile(profile)
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Delete character profile")
+                            }
+                        }
+                    }
+
+                    Button {
+                        showSaveCharacterProfile = true
+                    } label: {
+                        Label("Save Current Character Profile", systemImage: "person.crop.square")
+                    }
+                    .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    Text("Profiles do not train LoRAs or clone voices; they bundle the consistent visual and audio settings already supported by the app.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.top, 8)
+            } label: {
+                Label("Character Profile", systemImage: "person.crop.rectangle.stack")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            
+            // Gemma Prompt Enhancement
+            DisclosureGroup(isExpanded: $showPromptEnhancement) {
+                VStack(alignment: .leading, spacing: 12) {
+                    if !enableGemmaPromptEnhancement {
+                        Text("Turn on in Settings to use prompt rewriting.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    ParameterSlider(
+                        title: "Repetition Penalty",
+                        value: $gemmaRepetitionPenalty,
+                        range: 1.0...2.0,
+                        step: 0.05,
+                        icon: "arrow.triangle.2.circlepath",
+                        format: "%.2f"
+                    )
+                    .disabled(!enableGemmaPromptEnhancement)
+                    
+                    ParameterSlider(
+                        title: "Top-P",
+                        value: $gemmaTopP,
+                        range: 0.0...1.0,
+                        step: 0.05,
+                        icon: "chart.bar.fill",
+                        format: "%.2f"
+                    )
+                    .disabled(!enableGemmaPromptEnhancement)
+                    
+                    if enableGemmaPromptEnhancement {
+                        Text("Controls prompt rewriting. Higher repetition penalty reduces repeated phrases. Lower top-p makes output more focused.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button {
+                                Task { await runPreview() }
+                            } label: {
+                                if isPreviewing {
+                                    ProgressView()
+                                        .scaleEffect(0.7)
+                                    Text("Enhancing...")
+                                } else {
+                                    Label("Preview enhanced prompt", systemImage: "eye")
+                                }
+                            }
+                            .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty || isPreviewing)
+                        if isPreviewing, !previewStatusMessage.isEmpty {
+                            Text(previewStatusMessage)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(.top, 8)
+                .opacity(enableGemmaPromptEnhancement ? 1 : 0.6)
+            } label: {
+                Label("Prompt Enhancement", systemImage: "sparkles")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            
+            // Image-to-Video section
+            DisclosureGroup(isExpanded: $showImageToVideo) {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let imagePath = sourceImagePath, let thumbnail = sourceImageThumbnail {
+                        // Show selected image
+                        HStack(spacing: 12) {
+                            Image(nsImage: thumbnail)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 80, height: 80)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(Color.accentColor, lineWidth: 2)
+                                )
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(URL(fileURLWithPath: imagePath).lastPathComponent)
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .lineLimit(1)
+                                
+                                Text("\(Int(thumbnail.size.width))x\(Int(thumbnail.size.height))")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                
+                                Button(role: .destructive) {
+                                    clearSourceImage()
+                                } label: {
+                                    Label("Remove", systemImage: "xmark.circle.fill")
+                                        .font(.caption)
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.red)
+                            }
+                            
+                            Spacer()
+                        }
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color(nsColor: .controlBackgroundColor))
+                        )
+                    } else {
+                        // Show picker button
+                        Button {
+                            selectSourceImage()
+                        } label: {
+                            HStack {
+                                Image(systemName: "photo.badge.plus")
+                                Text("Select Source Image...")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    
+                    Text("Select an image to use as the first frame. Your prompt should describe the motion/action.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    
+                    if sourceImagePath != nil {
+                        Divider()
+                        
+                        ParameterSlider(
+                            title: "Image Strength",
+                            value: $parameters.imageStrength,
+                            range: 0.0...1.0,
+                            step: 0.05,
+                            icon: "photo.fill",
+                            format: "%.2f"
+                        )
+                        
+                        Text("How strongly the source image influences generation. 1.0 = exact first frame, lower = more creative freedom.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.top, 8)
+            } label: {
+                HStack {
+                    Label("Image to Video", systemImage: "photo.on.rectangle.angled")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    
+                    if sourceImagePath != nil {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.caption)
+                    }
+                }
+            }
+            
+            // Negative prompt toggle
+            DisclosureGroup(isExpanded: $showNegativePrompt) {
+                TextEditor(text: $negativePrompt)
+                    .font(.body)
+                    .frame(height: 60)
+                    .scrollContentBackground(.hidden)
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                    )
+            } label: {
+                Label("Negative Prompt", systemImage: "minus.circle")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            
+            // Audio included banner for unified model
+            if selectedModel.supportsBuiltInAudio {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: disableAudio ? "waveform.badge.minus" : "waveform.badge.checkmark")
+                        .foregroundColor(disableAudio ? .secondary : .green)
+                        .font(.title3)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle("Generate Audio", isOn: Binding(
+                            get: { !disableAudio },
+                            set: { disableAudio = !$0 }
+                        ))
+                        .font(.caption.bold())
+                        
+                        Text(disableAudio
+                            ? "Audio generation is disabled. Video will be silent (faster)."
+                            : "Synchronized audio will be generated automatically.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(disableAudio ? Color.secondary.opacity(0.05) : Color.green.opacity(0.1))
+                .cornerRadius(8)
+            }
+            
+            // Voiceover narration toggle
+            DisclosureGroup(isExpanded: $showVoiceover) {
+                VStack(alignment: .leading, spacing: 12) {
+                    // Source selection
+                    HStack {
+                        Text("Source:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        
+                        Picker("", selection: $voiceoverSource) {
+                            ForEach(AudioSource.allCases) { source in
+                                Text(source.displayName).tag(source)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 280)
+                    }
+                    
+                    // ElevenLabs API key warning
+                    if voiceoverSource == .elevenLabs && elevenLabsApiKey.isEmpty {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .font(.caption)
+                            Text("ElevenLabs API key required. Set in Preferences > Audio.")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                        .padding(8)
+                        .background(Color.orange.opacity(0.1))
+                        .cornerRadius(6)
+                    }
+                    
+                    // Voice selection
+                    HStack {
+                        Text("Voice:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        
+                        if voiceoverSource == .elevenLabs {
+                            Picker("", selection: $selectedElevenLabsVoice) {
+                                ForEach(ElevenLabsVoice.defaultVoices) { voice in
+                                    Text(voice.displayName).tag(voice.voice_id)
+                                }
+                            }
+                            .frame(maxWidth: 220)
+                        } else {
+                            Picker("", selection: $selectedMLXVoice) {
+                                ForEach(MLXAudioVoice.defaultVoices) { voice in
+                                    Text(voice.name).tag(voice.id)
+                                }
+                            }
+                            .frame(maxWidth: 220)
+                        }
+                        
+                        Spacer()
+                    }
+                    
+                    // Narration text
+                    TextEditor(text: $voiceoverText)
+                        .font(.body)
+                        .frame(height: 80)
+                        .scrollContentBackground(.hidden)
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(nsColor: .controlBackgroundColor))
+                        )
+                    
+                    HStack {
+                        Text("Optional narration text. Add audio later from History view.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        
+                        Spacer()
+                        
+                        if voiceoverSource == .elevenLabs {
+                            Image(systemName: "questionmark.circle")
+                                .foregroundStyle(.blue)
+                                .font(.caption)
+                                .help(ElevenLabsFormattingHelp.tips)
+                        }
+                    }
+                }
+            } label: {
+                HStack {
+                    Label("Voiceover / Narration", systemImage: "waveform")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    
+                    if !voiceoverText.isEmpty {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.caption)
+                    }
+                }
+            }
+            
+            // Background Music toggle
+            DisclosureGroup(isExpanded: $showMusic) {
+                VStack(alignment: .leading, spacing: 12) {
+                    // Enable toggle
+                    Toggle("Generate background music", isOn: $musicEnabled)
+                        .font(.subheadline)
+                    
+                    if musicEnabled {
+                        // ElevenLabs API key warning
+                        if elevenLabsApiKey.isEmpty {
+                            HStack(spacing: 6) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                    .font(.caption)
+                                Text("ElevenLabs API key required for music. Set in Preferences > Audio.")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
+                            .padding(8)
+                            .background(Color.orange.opacity(0.1))
+                            .cornerRadius(6)
+                        }
+                        
+                        // Genre selection with categories
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Genre:")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            
+                            Picker("", selection: $selectedMusicGenre) {
+                                ForEach(MusicGenre.groupedByCategory, id: \.category) { group in
+                                    Section(header: Text(group.category)) {
+                                        ForEach(group.genres) { genre in
+                                            Text(genre.displayName).tag(genre)
+                                        }
+                                    }
+                                }
+                            }
+                            .frame(maxWidth: 300)
+                        }
+                        
+                        Text("Music will be generated using ElevenLabs Music API and mixed with your video.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } label: {
+                HStack {
+                    Label("Background Music", systemImage: "music.note")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    
+                    if musicEnabled {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.caption)
+                    }
+                }
+            }
+            
+            if let heavyHint = heavyEncoderCombinationWarning, !dismissedHeavyEncoderComboHint {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(heavyHint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    Button("Dismiss") {
+                        dismissedHeavyEncoderComboHint = true
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.orange.opacity(0.08))
+                )
+            }
+
+            // Model + Quality row (model registry / auto quality features)
+            if modelRegistryEnabled || autoQualityEnabled {
+                HStack(spacing: 16) {
+                    if modelRegistryEnabled {
+                        Picker("Model", selection: $selectedModelID) {
+                            ForEach(ModelRegistry.shared.selectableModels()) { model in
+                                Text(model.displayName).tag(model.id)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .help("Select active generation model from the registry.")
+                    }
+                    if autoQualityEnabled {
+                        Picker("Preset", selection: $presetRaw) {
+                            ForEach(GenerationPreset.allCases) { preset in
+                                Text(preset.displayName).tag(preset.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .help(selectedPreset.summary)
+                    }
+                    Spacer()
+                    // Requested vs effective resolution (64-px alignment is never silent).
+                    if effectiveResolutionNote != nil || qualityOverridesParameters {
+                        Text(resolutionSummary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .help("Preset resolution follows a Starting Image's visual orientation, then the backend floors dimensions to multiples of 64. Custom dimensions are never reoriented. Actual output resolution is read from the finished MP4 and shown in the Video Archive.")
+                    }
+                }
+            }
+
+            // Quick actions
+            HStack(spacing: 12) {
+                // The view owns submission only. A different job rendering in
+                // the background never replaces this button with a full-run
+                // spinner or prevents another immutable job being queued.
+                Button {
+                    if DependencyHealthManager.shared.canStartGeneration {
+                        requestSingleGeneration(dismissAfterSubmission: true)
+                    } else {
+                        DependencyHealthManager.shared.showSetupWizard = true
+                    }
+                } label: {
+                    if isSubmitting {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("Submitting…")
+                        }
+                        .frame(maxWidth: .infinity)
+                    } else if DependencyHealthManager.shared.canStartGeneration {
+                            Label("Generate", systemImage: "play.fill")
+                                .frame(maxWidth: .infinity)
+                    } else {
+                        Label("Setup Required", systemImage: "exclamationmark.triangle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(isSubmitting || (generationActionsDisabled && DependencyHealthManager.shared.canStartGeneration))
+                
+                // Add to queue button
+                Button {
+                    requestSingleGeneration(dismissAfterSubmission: false)
+                } label: {
+                    Label("Add to Queue", systemImage: "plus.circle")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(generationActionsDisabled)
+                
+                // Batch button
+                Menu {
+                    Button("Generate 3 variations") {
+                        requestBatchGeneration(count: 3)
+                    }
+                    Button("Generate 5 variations") {
+                        requestBatchGeneration(count: 5)
+                    }
+                    Button("Generate 10 variations") {
+                        requestBatchGeneration(count: 10)
+                    }
+                    Button("Generate 20 variations") {
+                        requestBatchGeneration(count: 20)
+                    }
+                    Divider()
+                    Button("Generate with random seeds...") {
+                        // Could show a dialog for count
+                        requestBatchGeneration(count: 3)
+                    }
+                } label: {
+                    Image(systemName: "square.stack.3d.up")
+                }
+                .menuStyle(.borderlessButton)
+                .frame(width: 44)
+                .disabled(generationActionsDisabled)
+            }
+
+            if let submissionError {
+                Label(submissionError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            if !qualityOverridesParameters && !disableAudio && parameters.fps != 24 {
+                HStack(spacing: 6) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundStyle(.orange)
+                    Text("Sync speech works best at 24 fps. Current setting: \(parameters.fps) fps.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            
+        }
+        .padding()
+        .sheet(isPresented: $showEnhancedPreview) {
+            EnhancedPreviewSheet(
+                enhancedPrompt: enhancedPreview ?? "",
+                originalPrompt: prompt,
+                error: previewError,
+                onDismiss: {
+                    showEnhancedPreview = false
+                    enhancedPreview = nil
+                    previewError = nil
+                }
+            )
+        }
+        .sheet(isPresented: $showSaveCharacterProfile) {
+            SaveCharacterProfileSheet(
+                profileName: $newCharacterProfileName,
+                isPresented: $showSaveCharacterProfile,
+                onSave: saveCurrentCharacterProfile
+            )
+        }
+        .onAppear {
+            if !storedImagePath.isEmpty && sourceImageThumbnail == nil {
+                let url = URL(fileURLWithPath: storedImagePath)
+                if FileManager.default.fileExists(atPath: storedImagePath) {
+                    loadThumbnail(from: url)
+                    showImageToVideo = true
+                } else {
+                    storedImagePath = ""
+                }
+            }
+        }
+        .onChange(of: selectedModelID) { _, _ in
+            if !selectedModel.supportsBuiltInAudio {
+                disableAudio = false
+            }
+            dismissedHeavyEncoderComboHint = false
+        }
+        .onChange(of: selectedTextEncoderID) { _, _ in
+            dismissedHeavyEncoderComboHint = false
+        }
+        .onChange(of: disableAudio) { oldValue, newValue in
+            if oldValue != newValue { presetRaw = GenerationPreset.custom.rawValue }
+        }
+        .alert("High Memory Risk", isPresented: $showMemoryRiskAlert) {
+            Button("Continue Anyway") {
+                executePendingQueueAction()
+            }
+            Button("Cancel", role: .cancel) {
+                pendingQueueAction = nil
+            }
+        } message: {
+            Text(memoryRiskGuidance)
+        }
+    }
+
+    private func runPreview() async {
+        guard !prompt.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        isPreviewing = true
+        previewError = nil
+        enhancedPreview = nil
+        do {
+            let enhanced = try await LTXBridge.shared.previewEnhancedPrompt(
+                prompt: prompt,
+                modelRepo: selectedModel.repo,
+                temperature: gemmaTopP,
+                sourceImagePath: sourceImagePath
+            ) { status in
+                DispatchQueue.main.async { previewStatusMessage = status }
+            }
+            await MainActor.run {
+                enhancedPreview = enhanced
+                showEnhancedPreview = true
+            }
+        } catch {
+            await MainActor.run {
+                previewError = error.localizedDescription
+                showEnhancedPreview = true
+            }
+        }
+        await MainActor.run { isPreviewing = false }
+    }
+    
+    private func generateVideo(dismissAfterSubmission: Bool) {
+        submissionError = nil
+        isSubmitting = true
+        defer { isSubmitting = false }
+        let request = makeGenerationRequest(parameters: parameters)
+        do {
+            let job = try DirectGenerationSubmission.makeJob(
+                request: request, title: shortTitle(request.prompt))
+            ProductionQueueService.shared.enqueue(job)
+            if dismissAfterSubmission { onPrimarySubmissionQueued() }
+        } catch {
+            submissionError = error.localizedDescription
+        }
+    }
+
+    /// A compact label for the queue row; the full prompt lives in the request.
+    private func shortTitle(_ prompt: String) -> String {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.count > 60 ? String(trimmed.prefix(60)) + "…" : trimmed
+    }
+
+    private func makeGenerationRequest(parameters: GenerationParameters) -> GenerationRequest {
+        GenerationRequest(
+            prompt: prompt,
+            negativePrompt: negativePrompt,
+            voiceoverText: voiceoverText,
+            voiceoverSource: voiceoverSource.rawValue,
+            voiceoverVoice: voiceoverSource == .elevenLabs ? selectedElevenLabsVoice : selectedMLXVoice,
+            sourceImagePath: sourceImagePath,
+            musicEnabled: musicEnabled,
+            musicGenre: musicEnabled ? selectedMusicGenre.rawValue : nil,
+            disableAudio: disableAudio,
+            gemmaRepetitionPenalty: gemmaRepetitionPenalty,
+            gemmaTopP: gemmaTopP,
+            modelId: selectedModelID,
+            textEncoderId: selectedTextEncoderID,
+            parameters: parameters,
+            qualityMode: autoQualityEnabled ? qualityModeRaw : nil,
+            preset: autoQualityEnabled ? selectedPreset.rawValue : nil,
+            generationSource: "generate"
+        )
+    }
+
+    private func saveCurrentCharacterProfile(name: String) {
+        let profile = CharacterProfile(
+            name: name,
+            prompt: prompt,
+            negativePrompt: negativePrompt,
+            sourceImagePath: sourceImagePath,
+            voiceoverText: voiceoverText,
+            voiceoverSource: voiceoverSource.rawValue,
+            voiceoverVoice: selectedVoiceId,
+            musicEnabled: musicEnabled,
+            musicGenre: musicEnabled ? selectedMusicGenre.rawValue : nil,
+            disableAudio: disableAudio,
+            modelId: selectedModelID,
+            parameters: parameters
+        )
+        characterProfileManager.addProfile(profile)
+        newCharacterProfileName = ""
+    }
+
+    private func applyCharacterProfile(_ profile: CharacterProfile) {
+        prompt = profile.prompt
+        negativePrompt = profile.negativePrompt
+        voiceoverText = profile.voiceoverText
+        voiceoverSource = AudioSource(rawValue: profile.voiceoverSource) ?? .mlxAudio
+        if voiceoverSource == .elevenLabs {
+            selectedElevenLabsVoice = profile.voiceoverVoice
+        } else {
+            selectedMLXVoice = profile.voiceoverVoice
+        }
+        musicEnabled = profile.musicEnabled
+        if let musicGenre = profile.musicGenre, let genre = MusicGenre(rawValue: musicGenre) {
+            selectedMusicGenre = genre
+        }
+        disableAudio = profile.disableAudio
+        selectedModelID = profile.modelId
+        parameters = profile.parameters
+
+        storedImagePath = profile.sourceImagePath ?? ""
+        if let imagePath = profile.sourceImagePath, !imagePath.isEmpty {
+            loadThumbnail(from: URL(fileURLWithPath: imagePath))
+            showImageToVideo = true
+        } else {
+            sourceImageThumbnail = nil
+        }
+
+        showNegativePrompt = !negativePrompt.isEmpty
+        showVoiceover = !voiceoverText.isEmpty
+        showMusic = musicEnabled
+    }
+
+    private func requestSingleGeneration(dismissAfterSubmission: Bool) {
+        if !DependencyHealthManager.shared.canStartGeneration {
+            DependencyHealthManager.shared.showSetupWizard = true
+            return
+        }
+        if isHighMemoryRisk {
+            pendingQueueAction = .single(dismissAfterSubmission: dismissAfterSubmission)
+            showMemoryRiskAlert = true
+            return
+        }
+        generateVideo(dismissAfterSubmission: dismissAfterSubmission)
+    }
+    
+    private func generateBatch(count: Int) {
+        let requests = (0..<count).map { _ in
+            makeGenerationRequest(
+                parameters: GenerationParameters(
+                    numInferenceSteps: parameters.numInferenceSteps,
+                    guidanceScale: parameters.guidanceScale,
+                    width: parameters.width,
+                    height: parameters.height,
+                    numFrames: parameters.numFrames,
+                    fps: parameters.fps,
+                    seed: Int.random(in: 0..<Int(Int32.max)),
+                    vaeTilingMode: parameters.vaeTilingMode,
+                    imageStrength: parameters.imageStrength
+                )
+            )
+        }
+        // The whole batch is ONE global job: ten renders queued together stay
+        // together, and the next job waits for all of them.
+        var snapshot = ProductionJobSnapshot()
+        snapshot.prompt = requests.first?.prompt ?? ""
+        snapshot.pendingRequests = requests
+        snapshot.batchCount = requests.count
+        ProductionQueueService.shared.enqueue(ProductionJob(
+            kind: .generate,
+            title: "\(shortTitle(requests.first?.prompt ?? "")) × \(requests.count)",
+            snapshot: snapshot))
+    }
+
+    private func requestBatchGeneration(count: Int) {
+        if !DependencyHealthManager.shared.canStartGeneration {
+            DependencyHealthManager.shared.showSetupWizard = true
+            return
+        }
+        if isHighMemoryRisk {
+            pendingQueueAction = .batch(count)
+            showMemoryRiskAlert = true
+            return
+        }
+        generateBatch(count: count)
+    }
+
+    private func executePendingQueueAction() {
+        guard let action = pendingQueueAction else { return }
+        pendingQueueAction = nil
+        switch action {
+        case .single(let dismissAfterSubmission):
+            generateVideo(dismissAfterSubmission: dismissAfterSubmission)
+        case .batch(let count):
+            generateBatch(count: count)
+        }
+    }
+    
+    // MARK: - Image Selection
+    
+    private func selectSourceImage() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.image, .png, .jpeg, .webP]
+        panel.message = "Select source image for image-to-video generation"
+        panel.prompt = "Select"
+        
+        if panel.runModal() == .OK, let url = panel.url {
+            storedImagePath = url.path
+            loadThumbnail(from: url)
+            
+            // Auto-expand the section when image is selected
+            showImageToVideo = true
+        }
+    }
+    
+    private func loadThumbnail(from url: URL) {
+        if let image = NSImage(contentsOf: url) {
+            // Create a smaller thumbnail for display
+            let maxSize: CGFloat = 160
+            let aspectRatio = image.size.width / image.size.height
+            
+            let thumbnailSize: NSSize
+            if aspectRatio > 1 {
+                thumbnailSize = NSSize(width: maxSize, height: maxSize / aspectRatio)
+            } else {
+                thumbnailSize = NSSize(width: maxSize * aspectRatio, height: maxSize)
+            }
+            
+            let thumbnail = NSImage(size: thumbnailSize)
+            thumbnail.lockFocus()
+            image.draw(in: NSRect(origin: .zero, size: thumbnailSize),
+                      from: NSRect(origin: .zero, size: image.size),
+                      operation: .copy,
+                      fraction: 1.0)
+            thumbnail.unlockFocus()
+            
+            sourceImageThumbnail = thumbnail
+        }
+    }
+    
+    private func clearSourceImage() {
+        storedImagePath = ""
+        sourceImageThumbnail = nil
+    }
+}
+
+private enum PendingQueueAction {
+    case single(dismissAfterSubmission: Bool)
+    case batch(Int)
+}
+
+private struct SaveCharacterProfileSheet: View {
+    @Binding var profileName: String
+    @Binding var isPresented: Bool
+    let onSave: (String) -> Void
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Save Character Profile")
+                .font(.headline)
+
+            TextField("Profile Name", text: $profileName)
+                .textFieldStyle(.roundedBorder)
+
+            HStack {
+                Button("Cancel") {
+                    isPresented = false
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button("Save") {
+                    onSave(profileName)
+                    isPresented = false
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(profileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding()
+        .frame(width: 320)
+    }
+}
+
+private struct EnhancedPreviewSheet: View {
+    let enhancedPrompt: String
+    let originalPrompt: String
+    let error: String?
+    let onDismiss: () -> Void
+
+    private var displayText: String {
+        if !enhancedPrompt.isEmpty { return enhancedPrompt }
+        return originalPrompt
+    }
+
+    private var isEmptyNote: String? {
+        enhancedPrompt.isEmpty && !originalPrompt.isEmpty ? "Enhancement produced no output (possibly filtered). Showing your original prompt:" : nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Label("Enhanced Prompt Preview", systemImage: "sparkles")
+                    .font(.headline)
+                Spacer()
+                Button("Done") { onDismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+            if let err = error {
+                Text(err)
+                    .foregroundStyle(.red)
+                    .font(.caption)
+            }
+            if let note = isEmptyNote {
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if !displayText.isEmpty {
+                ScrollView {
+                    Text(displayText)
+                        .font(.body)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                }
+                .padding(8)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            Spacer()
+        }
+        .padding(24)
+        .frame(minWidth: 400, minHeight: 300)
+    }
+}
+
+#if !SPM_BUILD
+#Preview {
+    PromptInputView(
+        prompt: .constant("A majestic eagle soaring through mountains"),
+        negativePrompt: .constant(""),
+        voiceoverText: .constant(""),
+        parameters: .constant(.default)
+    )
+    .environmentObject(PresetManager())
+    .environmentObject(CharacterProfileManager())
+    .frame(width: 500)
+}
+#endif

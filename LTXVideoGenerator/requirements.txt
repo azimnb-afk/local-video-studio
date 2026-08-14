@@ -1,0 +1,39 @@
+# Local Video Studio - MLX Dependencies
+# Required for Apple Silicon MLX-based video generation
+
+# Core MLX framework
+mlx>=0.20.0
+
+# MLX Vision-Language Models (required for Gemma 3 text encoder)
+mlx-vlm>=0.3.0
+
+# MLX Language Models (for prompt enhancement)
+mlx-lm>=0.19.0
+
+# Hugging Face model downloading
+huggingface_hub>=0.20.0
+
+# Tokenization
+transformers>=4.40.0
+
+# Weight file format
+safetensors>=0.4.0
+
+# Numerical operations
+numpy>=1.24.0
+
+# Image processing
+Pillow>=10.0.0
+
+# Video encoding
+opencv-python>=4.8.0
+
+# Progress bars
+tqdm>=4.65.0
+
+# Audio generation (for adding narration/TTS to videos)
+mlx-audio>=0.2.0
+
+# Unified audio-video generation (DEFAULT model)
+# Generates video with synchronized audio in a single pass
+mlx-video-with-audio>=0.1.36

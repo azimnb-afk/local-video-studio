@@ -340,9 +340,17 @@ private struct OneShotView: View {
                 Text("Short Brief")
                     .font(.headline)
                 TextEditor(text: $brief)
+                    .font(.body)
+                    .lineSpacing(3)
+                    .scrollContentBackground(.hidden)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
                     .frame(minHeight: 140)
-                    .padding(10)
                     .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                    )
                 startingImageSection
                 HStack(spacing: 16) {
                     Picker("Preset", selection: $presetRaw) {

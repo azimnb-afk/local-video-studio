@@ -1,8 +1,27 @@
 import Foundation
 @testable import LTXVideoGeneratorCore
 
+private func runTestAsync<T>(_ block: @escaping () async throws -> T) throws -> T {
+    var result: Result<T, Error>?
+    Task {
+        do {
+            let val = try await block()
+            result = .success(val)
+        } catch {
+            result = .failure(error)
+        }
+    }
+    while result == nil {
+        RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
+    }
+    switch result! {
+    case .success(let val): return val
+    case .failure(let err): throw err
+    }
+}
+
 func runBasicDirectorStrictEnglishTests(_ t: TestKit) {
-    t.suite("Basic Director Strict English Render Prompt & Fail-Closed Gate") {
+    t.suite("Basic Director Strict English Render Prompt & Real On-Device Translation") {
         let testDefaults = UserDefaults(suiteName: "test.basic.strict.english.\(UUID().uuidString)")!
         defer {
             testDefaults.removePersistentDomain(forName: testDefaults.description)
@@ -11,7 +30,7 @@ func runBasicDirectorStrictEnglishTests(_ t: TestKit) {
         let japaneseBrief = "斧を振り回す女性"
         let normalizedEnglishAction = "A woman swings an axe."
 
-        // 1. Basic Japanese brief becomes English renderer description via local normalizer
+        // 1. Basic Japanese brief becomes English renderer description via local normalizer (Mock)
         let mockNormalizer = MockRenderTextNormalizer(mappings: [
             japaneseBrief: normalizedEnglishAction
         ])
@@ -24,41 +43,38 @@ func runBasicDirectorStrictEnglishTests(_ t: TestKit) {
             userDefaults: testDefaults
         )
 
-        let sem = DispatchSemaphore(value: 0)
-        Task {
-            do {
-                let (request, plan, providerName) = try await basicDirector.makeRequest(
+        do {
+            let (request, plan, providerName) = try runTestAsync {
+                try await basicDirector.makeRequest(
                     brief: japaneseBrief,
                     base: baseReq
                 )
-
-                t.checkEqual(providerName, "template", "Basic / template provider was used")
-                t.checkEqual(plan.action, normalizedEnglishAction, "Plan action is normalized English")
-
-                // Descriptive prompt must NOT contain raw Japanese
-                t.check(!request.prompt.contains("斧"), "Render prompt does not contain '斧'")
-                t.check(!request.prompt.contains("振り"), "Render prompt does not contain '振り'")
-                t.check(!request.prompt.contains("女性"), "Render prompt does not contain '女性'")
-                t.check(request.prompt.contains(normalizedEnglishAction), "Render prompt contains English action")
-
-                // 2. Original Japanese brief remains unchanged in GenerationRequest
-                t.checkEqual(request.brief, japaneseBrief, "GenerationRequest retains original Japanese brief")
-
-                // 12. Camera grammar remains clean
-                t.check(request.prompt.contains("The camera holds a static medium shot, eye level."), "Camera grammar is clean")
-                t.check(!request.prompt.contains("The camera static"), "Avoids 'The camera static'")
-
-                // 13. Motion grammar remains clean
-                t.check(request.prompt.contains("The motion is natural and continuous.") || request.prompt.contains("Motion is natural and continuous."), "Motion grammar is clean")
-
-                // 14. No-BGM policy remains intact
-                t.check(request.prompt.contains("No music"), "No-BGM policy is present in prompt")
-            } catch {
-                t.check(false, "Basic Japanese makeRequest threw: \(error)")
             }
-            sem.signal()
+
+            t.checkEqual(providerName, "template", "Basic / template provider was used")
+            t.checkEqual(plan.action, normalizedEnglishAction, "Plan action is normalized English")
+
+            // Descriptive prompt must NOT contain raw Japanese
+            t.check(!request.prompt.contains("斧"), "Render prompt does not contain '斧'")
+            t.check(!request.prompt.contains("振り"), "Render prompt does not contain '振り'")
+            t.check(!request.prompt.contains("女性"), "Render prompt does not contain '女性'")
+            t.check(request.prompt.contains(normalizedEnglishAction), "Render prompt contains English action")
+
+            // 2. Original Japanese brief remains unchanged in GenerationRequest
+            t.checkEqual(request.brief, japaneseBrief, "GenerationRequest retains original Japanese brief")
+
+            // 12. Camera grammar remains clean
+            t.check(request.prompt.contains("The camera holds a static medium shot, eye level."), "Camera grammar is clean")
+            t.check(!request.prompt.contains("The camera static"), "Avoids 'The camera static'")
+
+            // 13. Motion grammar remains clean
+            t.check(request.prompt.contains("The motion is natural and continuous.") || request.prompt.contains("Motion is natural and continuous."), "Motion grammar is clean")
+
+            // 14. No-BGM policy remains intact
+            t.check(request.prompt.contains("No music"), "No-BGM policy is present in prompt")
+        } catch {
+            t.check(false, "Basic Japanese makeRequest threw: \(error)")
         }
-        sem.wait()
 
         // 3 & 4. GenerationResult retains brief and separates Original Brief from Render Prompt
         let result = GenerationResult(
@@ -93,22 +109,19 @@ func runBasicDirectorStrictEnglishTests(_ t: TestKit) {
         let englishTemplateProvider = TemplateDirectorProvider(normalizer: englishMockNormalizer)
         let englishDirector = LocalDirector(providers: [englishTemplateProvider])
 
-        let sem2 = DispatchSemaphore(value: 0)
-        Task {
-            do {
-                let (request, plan, _) = try await englishDirector.makeRequest(
+        do {
+            let (request, plan, _) = try runTestAsync {
+                try await englishDirector.makeRequest(
                     brief: englishBrief,
                     base: GenerationRequest(prompt: englishBrief, brief: englishBrief, userDefaults: testDefaults)
                 )
-                t.checkEqual(plan.action, englishBrief, "English action preserved unchanged")
-                t.check(request.prompt.contains(englishBrief), "Render prompt contains unchanged English action")
-                t.checkEqual(request.brief, englishBrief, "Original English brief retained")
-            } catch {
-                t.check(false, "English makeRequest threw: \(error)")
             }
-            sem2.signal()
+            t.checkEqual(plan.action, englishBrief, "English action preserved unchanged")
+            t.check(request.prompt.contains(englishBrief), "Render prompt contains unchanged English action")
+            t.checkEqual(request.brief, englishBrief, "Original English brief retained")
+        } catch {
+            t.check(false, "English makeRequest threw: \(error)")
         }
-        sem2.wait()
 
         // 6. Chinese Basic description normalizes to English
         let chineseBrief = "一个女人挥舞着斧头"
@@ -118,22 +131,19 @@ func runBasicDirectorStrictEnglishTests(_ t: TestKit) {
         let chineseProvider = TemplateDirectorProvider(normalizer: chineseNormalizer)
         let chineseDirector = LocalDirector(providers: [chineseProvider])
 
-        let sem3 = DispatchSemaphore(value: 0)
-        Task {
-            do {
-                let (request, plan, _) = try await chineseDirector.makeRequest(
+        do {
+            let (request, plan, _) = try runTestAsync {
+                try await chineseDirector.makeRequest(
                     brief: chineseBrief,
                     base: GenerationRequest(prompt: chineseBrief, brief: chineseBrief, userDefaults: testDefaults)
                 )
-                t.checkEqual(plan.action, "A woman swings an axe.", "Chinese action normalized to English")
-                t.check(!request.prompt.contains("女人"), "Render prompt contains no Chinese Han characters")
-                t.checkEqual(request.brief, chineseBrief, "Original Chinese brief retained in request.brief")
-            } catch {
-                t.check(false, "Chinese makeRequest threw: \(error)")
             }
-            sem3.signal()
+            t.checkEqual(plan.action, "A woman swings an axe.", "Chinese action normalized to English")
+            t.check(!request.prompt.contains("女人"), "Render prompt contains no Chinese Han characters")
+            t.checkEqual(request.brief, chineseBrief, "Original Chinese brief retained in request.brief")
+        } catch {
+            t.check(false, "Chinese makeRequest threw: \(error)")
         }
-        sem3.wait()
 
         // 7. Cyrillic Basic description normalizes to English
         let cyrillicBrief = "Женщина размахивает топором"
@@ -143,44 +153,38 @@ func runBasicDirectorStrictEnglishTests(_ t: TestKit) {
         let cyrillicProvider = TemplateDirectorProvider(normalizer: cyrillicNormalizer)
         let cyrillicDirector = LocalDirector(providers: [cyrillicProvider])
 
-        let sem4 = DispatchSemaphore(value: 0)
-        Task {
-            do {
-                let (request, plan, _) = try await cyrillicDirector.makeRequest(
+        do {
+            let (request, plan, _) = try runTestAsync {
+                try await cyrillicDirector.makeRequest(
                     brief: cyrillicBrief,
                     base: GenerationRequest(prompt: cyrillicBrief, brief: cyrillicBrief, userDefaults: testDefaults)
                 )
-                t.checkEqual(plan.action, "A woman swings an axe.", "Cyrillic action normalized to English")
-                t.check(!request.prompt.contains("Женщина"), "Render prompt contains no Cyrillic characters")
-                t.checkEqual(request.brief, cyrillicBrief, "Original Cyrillic brief retained in request.brief")
-            } catch {
-                t.check(false, "Cyrillic makeRequest threw: \(error)")
             }
-            sem4.signal()
+            t.checkEqual(plan.action, "A woman swings an axe.", "Cyrillic action normalized to English")
+            t.check(!request.prompt.contains("Женщина"), "Render prompt contains no Cyrillic characters")
+            t.checkEqual(request.brief, cyrillicBrief, "Original Cyrillic brief retained in request.brief")
+        } catch {
+            t.check(false, "Cyrillic makeRequest threw: \(error)")
         }
-        sem4.wait()
 
         // 8. Fail-Closed: If normalization fails/throws, generation throws and backend is NOT reached
         let failingNormalizer = MockRenderTextNormalizer(shouldThrow: true)
         let failingProvider = TemplateDirectorProvider(normalizer: failingNormalizer)
         let failingDirector = LocalDirector(providers: [failingProvider])
 
-        let sem5 = DispatchSemaphore(value: 0)
-        Task {
-            do {
-                _ = try await failingDirector.makeRequest(
+        do {
+            _ = try runTestAsync {
+                try await failingDirector.makeRequest(
                     brief: japaneseBrief,
                     base: GenerationRequest(prompt: japaneseBrief, brief: japaneseBrief, userDefaults: testDefaults)
                 )
-                t.check(false, "Failing normalizer did not throw error (Fail-Closed violated)")
-            } catch let error as DirectorError {
-                t.check(true, "Fail-Closed: Threw expected DirectorError: \(error)")
-            } catch {
-                t.check(true, "Fail-Closed: Threw error: \(error)")
             }
-            sem5.signal()
+            t.check(false, "Failing normalizer did not throw error (Fail-Closed violated)")
+        } catch let error as DirectorError {
+            t.check(true, "Fail-Closed: Threw expected DirectorError: \(error)")
+        } catch {
+            t.check(true, "Fail-Closed: Threw error: \(error)")
         }
-        sem5.wait()
 
         // 9. Validation Gate: If normalizer returns unresolved Japanese, validation rejects it
         let leakJapaneseNormalizer = MockRenderTextNormalizer(mappings: [
@@ -189,26 +193,23 @@ func runBasicDirectorStrictEnglishTests(_ t: TestKit) {
         let leakProvider = TemplateDirectorProvider(normalizer: leakJapaneseNormalizer)
         let leakDirector = LocalDirector(providers: [leakProvider])
 
-        let sem6 = DispatchSemaphore(value: 0)
-        Task {
-            do {
-                _ = try await leakDirector.makeRequest(
+        do {
+            _ = try runTestAsync {
+                try await leakDirector.makeRequest(
                     brief: japaneseBrief,
                     base: GenerationRequest(prompt: japaneseBrief, brief: japaneseBrief, userDefaults: testDefaults)
                 )
-                t.check(false, "Unresolved Japanese action was not rejected by validation gate")
-            } catch let error as DirectorError {
-                if case .unsupportedRenderLanguage = error {
-                    t.check(true, "Validation gate caught unresolved Japanese action: \(error)")
-                } else {
-                    t.check(true, "Rejected with DirectorError: \(error)")
-                }
-            } catch {
-                t.check(true, "Rejected with error: \(error)")
             }
-            sem6.signal()
+            t.check(false, "Unresolved Japanese action was not rejected by validation gate")
+        } catch let error as DirectorError {
+            if case .unsupportedRenderLanguage = error {
+                t.check(true, "Validation gate caught unresolved Japanese action: \(error)")
+            } else {
+                t.check(true, "Rejected with DirectorError: \(error)")
+            }
+        } catch {
+            t.check(true, "Rejected with error: \(error)")
         }
-        sem6.wait()
 
         // 10. Validation Gate: CJK Han text rejected
         t.check(!RenderLanguageValidator.isRendererSafeEnglish("一个女人挥舞着斧头"), "CJK Han detected as unsafe")
@@ -272,55 +273,70 @@ func runBasicDirectorStrictEnglishTests(_ t: TestKit) {
         let mockLLMProvider = MockDirectorProvider(responses: [mockLLMPlan])
         let llmDirector = LocalDirector(providers: [mockLLMProvider])
 
-        let sem7 = DispatchSemaphore(value: 0)
-        Task {
-            do {
-                let (request, plan, providerName) = try await llmDirector.makeRequest(
+        do {
+            let (request, plan, providerName) = try runTestAsync {
+                try await llmDirector.makeRequest(
                     brief: japaneseBrief,
                     base: GenerationRequest(prompt: japaneseBrief, brief: japaneseBrief, userDefaults: testDefaults)
                 )
-                t.checkEqual(providerName, "mock", "LLM Mock provider used")
-                t.checkEqual(plan.action, "A skilled warrior wields an axe with precision.", "LLM normalized action to English")
-                t.check(!request.prompt.contains(japaneseBrief), "LLM prompt contains no raw Japanese")
-                t.checkEqual(request.brief, japaneseBrief, "Original brief preserved in request")
-            } catch {
-                t.check(false, "Local Director makeRequest threw: \(error)")
             }
-            sem7.signal()
+            t.checkEqual(providerName, "mock", "LLM Mock provider used")
+            t.checkEqual(plan.action, "A skilled warrior wields an axe with precision.", "LLM normalized action to English")
+            t.check(!request.prompt.contains(japaneseBrief), "LLM prompt contains no raw Japanese")
+            t.checkEqual(request.brief, japaneseBrief, "Original brief preserved in request")
+        } catch {
+            t.check(false, "Local Director makeRequest threw: \(error)")
         }
-        sem7.wait()
 
-        // 21. Default BasicRenderLanguageNormalizer fails closed on non-English text when no translation engine exists
+        // 21. Production BasicRenderLanguageNormalizer performs real Japanese -> English on-device translation
         let defaultNormalizer = BasicRenderLanguageNormalizer()
-        let sem8 = DispatchSemaphore(value: 0)
-        Task {
+        let realInputs = [
+            "女性が電車に乗っている",
+            "斧を振り回す女性",
+            "日本人女性がコーヒーを飲む"
+        ]
+        for input in realInputs {
             do {
-                _ = try await defaultNormalizer.normalizeDescriptionToEnglish(japaneseBrief)
-                t.check(false, "Default normalizer unexpectedly succeeded on Japanese without local engine")
-            } catch let error as DirectorError {
-                if case .basicNormalizationFailed = error {
-                    t.check(true, "Default normalizer threw basicNormalizationFailed as expected")
-                } else {
-                    t.check(true, "Threw DirectorError: \(error)")
+                let translated = try runTestAsync {
+                    try await defaultNormalizer.normalizeDescriptionToEnglish(input)
                 }
+                t.check(!translated.isEmpty, "Real translator produced non-empty English for '\(input)'")
+                t.check(RenderLanguageValidator.isRendererSafeEnglish(translated), "Real translation is renderer-safe English: '\(translated)'")
+                t.check(!RenderLanguageValidator.containsNonEnglishDescriptiveScript(translated), "Real translation has 0 non-English script for '\(input)'")
             } catch {
-                t.check(true, "Threw error: \(error)")
+                t.check(false, "Real on-device translation threw for '\(input)': \(error)")
             }
-            sem8.signal()
         }
-        sem8.wait()
+
+        // Real Production Template Provider end-to-end with real BasicRenderLanguageNormalizer
+        let realTemplateProvider = TemplateDirectorProvider(normalizer: defaultNormalizer)
+        let realBasicDirector = LocalDirector(providers: [realTemplateProvider])
+        do {
+            let testBrief = "女性が電車に乗っている"
+            let (request, plan, providerName) = try runTestAsync {
+                try await realBasicDirector.makeRequest(
+                    brief: testBrief,
+                    base: GenerationRequest(prompt: testBrief, brief: testBrief, userDefaults: testDefaults)
+                )
+            }
+            t.checkEqual(providerName, "template", "Production Template Director executed")
+            t.checkEqual(request.brief, testBrief, "Original brief preserved in request")
+            t.check(RenderLanguageValidator.isRendererSafeEnglish(plan.action), "Plan action is clean English: '\(plan.action)'")
+            t.check(!request.prompt.contains("女性"), "Render prompt contains no Japanese")
+            t.check(!request.prompt.contains("電車"), "Render prompt contains no Japanese")
+            t.check(request.prompt.contains("The camera holds a static medium shot, eye level."), "Camera grammar clean")
+        } catch {
+            t.check(false, "Production Template Director E2E threw: \(error)")
+        }
 
         // Default BasicRenderLanguageNormalizer allows already-English text without error
-        let sem9 = DispatchSemaphore(value: 0)
-        Task {
-            do {
-                let result = try await defaultNormalizer.normalizeDescriptionToEnglish("A woman swings an axe.")
-                t.checkEqual(result, "A woman swings an axe.", "Already-English text passed through safely")
-            } catch {
-                t.check(false, "Default normalizer threw on English text: \(error)")
+        do {
+            let result = try runTestAsync {
+                try await defaultNormalizer.normalizeDescriptionToEnglish("A woman swings an axe.")
             }
-            sem9.signal()
+            t.checkEqual(result, "A woman swings an axe.", "Already-English text passed through safely")
+        } catch {
+            t.check(false, "Default normalizer threw on English text: \(error)")
         }
-        sem9.wait()
     }
 }

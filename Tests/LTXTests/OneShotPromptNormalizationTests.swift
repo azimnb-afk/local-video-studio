@@ -1,6 +1,25 @@
 import Foundation
 @testable import LTXVideoGeneratorCore
 
+private func runTestAsync<T>(_ block: @escaping () async throws -> T) throws -> T {
+    var result: Result<T, Error>?
+    Task {
+        do {
+            let val = try await block()
+            result = .success(val)
+        } catch {
+            result = .failure(error)
+        }
+    }
+    while result == nil {
+        RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
+    }
+    switch result! {
+    case .success(let val): return val
+    case .failure(let err): throw err
+    }
+}
+
 func runOneShotPromptNormalizationTests(_ t: TestKit) {
     t.suite("One Shot Prompt Language Normalization & Template Grammar") {
         let testDefaults = UserDefaults(suiteName: "test.oneshot.prompt.normalization.\(UUID().uuidString)")!
@@ -31,41 +50,38 @@ func runOneShotPromptNormalizationTests(_ t: TestKit) {
             userDefaults: testDefaults
         )
 
-        let sem = DispatchSemaphore(value: 0)
-        Task {
-            do {
-                let (request, plan, providerName) = try await director.makeRequest(
+        do {
+            let (request, plan, providerName) = try runTestAsync {
+                try await director.makeRequest(
                     brief: japaneseBrief,
                     base: baseReq
                 )
-
-                t.checkEqual(providerName, "mock", "Mock provider executed")
-                t.checkEqual(plan.action, "A woman swings an axe with focused determination.", "Director normalized action to English")
-                
-                // Final prompt should contain normalized English action
-                t.check(request.prompt.contains("A woman swings an axe with focused determination."), "Render prompt contains normalized action")
-                
-                // Final prompt should NOT contain raw Japanese brief in the middle of English prose
-                t.check(!request.prompt.contains(japaneseBrief), "Render prompt does not contain raw Japanese brief")
-                
-                // 2. Original brief remains unchanged in request.brief
-                t.checkEqual(request.brief, japaneseBrief, "Request retains original Japanese brief")
-                
-                // 6. Camera template grammar is clean and valid
-                t.check(request.prompt.contains("The camera holds a static medium shot, eye level."), "Camera sentence formatted cleanly (no 'The camera static')")
-                t.check(!request.prompt.contains("The camera static"), "Malformed 'The camera static' is not present")
-                
-                // 7. Motion template avoids duplicated 'motion ... motion'
-                t.check(!request.prompt.contains("motion is rapid and dynamic motion"), "Motion does not duplicate 'motion'")
-                
-                // 8. Audio policy (No-BGM) remains present
-                t.check(request.prompt.contains("No music"), "Audio policy is preserved in compiled prompt")
-            } catch {
-                t.check(false, "makeRequest threw unexpected error: \(error)")
             }
-            sem.signal()
+
+            t.checkEqual(providerName, "mock", "Mock provider executed")
+            t.checkEqual(plan.action, "A woman swings an axe with focused determination.", "Director normalized action to English")
+
+            // Final prompt should contain normalized English action
+            t.check(request.prompt.contains("A woman swings an axe with focused determination."), "Render prompt contains normalized action")
+
+            // Final prompt should NOT contain raw Japanese brief in the middle of English prose
+            t.check(!request.prompt.contains(japaneseBrief), "Render prompt does not contain raw Japanese brief")
+
+            // 2. Original brief remains unchanged in request.brief
+            t.checkEqual(request.brief, japaneseBrief, "Request retains original Japanese brief")
+
+            // 6. Camera template grammar is clean and valid
+            t.check(request.prompt.contains("The camera holds a static medium shot, eye level."), "Camera sentence formatted cleanly (no 'The camera static')")
+            t.check(!request.prompt.contains("The camera static"), "Malformed 'The camera static' is not present")
+
+            // 7. Motion template avoids duplicated 'motion ... motion'
+            t.check(!request.prompt.contains("motion is rapid and dynamic motion"), "Motion does not duplicate 'motion'")
+
+            // 8. Audio policy (No-BGM) remains present
+            t.check(request.prompt.contains("No music"), "Audio policy is preserved in compiled prompt")
+        } catch {
+            t.check(false, "makeRequest threw unexpected error: \(error)")
         }
-        sem.wait()
 
         // 3. English user brief remains valid and is not broken
         let englishPlan = """
@@ -84,22 +100,19 @@ func runOneShotPromptNormalizationTests(_ t: TestKit) {
         let englishDirector = LocalDirector(providers: [mockEnglishProvider])
         let englishBrief = "A lone rider in the desert"
 
-        let sem2 = DispatchSemaphore(value: 0)
-        Task {
-            do {
-                let (request, _, _) = try await englishDirector.makeRequest(
+        do {
+            let (request, _, _) = try runTestAsync {
+                try await englishDirector.makeRequest(
                     brief: englishBrief,
                     base: GenerationRequest(prompt: englishBrief, brief: englishBrief, userDefaults: testDefaults)
                 )
-                t.check(request.prompt.contains("wide establishing shot"), "English camera formatted cleanly")
-                t.check(request.prompt.contains("A lone rider travels across the desert dunes."), "English action included")
-                t.checkEqual(request.brief, englishBrief, "Original English brief retained")
-            } catch {
-                t.check(false, "English makeRequest threw: \(error)")
             }
-            sem2.signal()
+            t.check(request.prompt.contains("wide establishing shot"), "English camera formatted cleanly")
+            t.check(request.prompt.contains("A lone rider travels across the desert dunes."), "English action included")
+            t.checkEqual(request.brief, englishBrief, "Original English brief retained")
+        } catch {
+            t.check(false, "English makeRequest threw: \(error)")
         }
-        sem2.wait()
 
         // 4. Basic / Template fallback normalizes action and formats cleanly
         let mockTemplateNormalizer = MockRenderTextNormalizer(mappings: [
@@ -108,28 +121,25 @@ func runOneShotPromptNormalizationTests(_ t: TestKit) {
         let templateProvider = TemplateDirectorProvider(normalizer: mockTemplateNormalizer)
         let templateDirector = LocalDirector(providers: [templateProvider])
 
-        let sem3 = DispatchSemaphore(value: 0)
-        Task {
-            do {
-                let (request, plan, providerName) = try await templateDirector.makeRequest(
+        do {
+            let (request, plan, providerName) = try runTestAsync {
+                try await templateDirector.makeRequest(
                     brief: japaneseBrief,
                     base: GenerationRequest(prompt: japaneseBrief, brief: japaneseBrief, userDefaults: testDefaults)
                 )
-                t.checkEqual(providerName, "template", "Fallback template provider executed")
-                t.checkEqual(plan.action, "A woman swings an axe.", "Fallback plan normalizes brief to English action")
-                
-                // Structured cleanly:
-                t.check(request.prompt.contains("The camera holds a static medium shot, eye level."), "Fallback camera is clean")
-                t.check(request.prompt.contains("A woman swings an axe."), "Fallback prompt includes normalized English action")
-                t.check(request.prompt.contains("Motion is natural and continuous.") || request.prompt.contains("The motion is natural and continuous."), "Fallback motion is clean")
-                t.check(!request.prompt.contains("The camera static"), "Fallback avoids 'The camera static'")
-                t.check(!request.prompt.contains("continuous motion."), "Fallback avoids 'continuous motion.' repetition")
-            } catch {
-                t.check(false, "Template makeRequest threw: \(error)")
             }
-            sem3.signal()
+            t.checkEqual(providerName, "template", "Fallback template provider executed")
+            t.checkEqual(plan.action, "A woman swings an axe.", "Fallback plan normalizes brief to English action")
+
+            // Structured cleanly:
+            t.check(request.prompt.contains("The camera holds a static medium shot, eye level."), "Fallback camera is clean")
+            t.check(request.prompt.contains("A woman swings an axe."), "Fallback prompt includes normalized English action")
+            t.check(request.prompt.contains("Motion is natural and continuous.") || request.prompt.contains("The motion is natural and continuous."), "Fallback motion is clean")
+            t.check(!request.prompt.contains("The camera static"), "Fallback avoids 'The camera static'")
+            t.check(!request.prompt.contains("continuous motion."), "Fallback avoids 'continuous motion.' repetition")
+        } catch {
+            t.check(false, "Template makeRequest threw: \(error)")
         }
-        sem3.wait()
 
         // 5. Multilingual non-Latin test (e.g. Arabic, Cyrillic, Hindi) to ensure no ASCII-only assumptions
         let multilingualPlan = OneShotPlan(

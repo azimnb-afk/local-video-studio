@@ -152,7 +152,7 @@ final class LocalDirectorCompatibilityService {
 /// over the reply. No schema checking is duplicated here.
 struct OllamaLocalDirectorProber: LocalDirectorProbing {
     private let session: URLSession
-    init(session: URLSession = .shared) { self.session = session }
+    init(session: URLSession = OllamaDirectorProvider.defaultSession) { self.session = session }
 
     static let probeBrief = "A woman walks through a hallway."
 

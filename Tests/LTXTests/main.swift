@@ -1,6 +1,33 @@
 import Foundation
 @testable import LTXVideoGeneratorCore
 
+// CLI probe for real local Director model
+//   swift run LTXTests --probe-director-model <model-name>
+if CommandLine.arguments.count == 3,
+   CommandLine.arguments[1] == "--probe-director-model" {
+    let model = CommandLine.arguments[2]
+    let prober = OllamaLocalDirectorProber()
+    let compatibility = LocalDirectorCompatibilityService(prober: prober)
+    let sem = DispatchSemaphore(value: 0)
+    Task {
+        print("=== Real Local Runtime Probe for \(model) ===")
+        let result = await compatibility.negotiate(model: model)
+        switch result {
+        case .ready(let proto):
+            print("Probe Verdict: READY via \(proto.displayName) (\(proto.rawValue))")
+        case .incompatible(let summary):
+            print("Probe Verdict: INCOMPATIBLE (\(summary))")
+        case .unavailable(let summary):
+            print("Probe Verdict: UNAVAILABLE (\(summary))")
+        }
+        sem.signal()
+    }
+    while sem.wait(timeout: .now() + 0.1) == .timedOut {
+        RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1))
+    }
+    exit(0)
+}
+
 // Creates a deterministic production-acceptance movie from an existing,
 // already-rendered opening Shot and appends it to the real Production Queue.
 // The shipping app still owns every subsequent step: Shot 2 render, continuity
@@ -689,5 +716,6 @@ runOneShotPromptNormalizationTests(t)
 runBasicDirectorStrictEnglishTests(t)
 runEnhancedPromptHardeningTests(t)
 runKeychainCredentialStoreTests(t)
+runAutoMovieDirectorFallbackTests(t)
 
 t.finish()

@@ -119,7 +119,7 @@ final class OllamaDirectorEnvironmentClient: DirectorEnvironmentClient {
     static let endpoint = URL(string: "http://127.0.0.1:11434")!
     private let session: URLSession
 
-    init(session: URLSession = .shared) { self.session = session }
+    init(session: URLSession = OllamaDirectorProvider.defaultSession) { self.session = session }
 
     func installedModels() async throws -> [String] {
         var request = URLRequest(url: Self.endpoint.appendingPathComponent("api/tags"))
@@ -314,7 +314,11 @@ final class DirectorEnvironmentService {
             return "Local AI replied, but the plan was missing required details. Try a different Local AI model in Settings."
         case "jsonSyntaxInvalid", "jsonExtractionFailed":
             return "Local AI replied, but not in the required format. Try a different Local AI model in Settings."
-        default: return "Local AI could not complete the plan."
+        case "noResponse":
+            return "Local AI did not return a response in time. Check that Ollama is responsive."
+        case "ollamaRequestFailed":
+            return "Local AI request failed. Check that Ollama is running."
+        default: return "Local AI could not complete the plan (\(reason ?? "unknown"))."
         }
     }
 }
@@ -352,6 +356,13 @@ final class OllamaDirectorProvider: DirectorProvider {
     let name = "ollama"
     static let modelUserDefaultsKey = "directorOllamaModel"
 
+    static let defaultSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 300 // 5 minutes for local LLM planning
+        config.timeoutIntervalForResource = 300
+        return URLSession(configuration: config)
+    }()
+
     private let baseURL: URL
     private let session: URLSession
     private let explicitModel: String?
@@ -362,7 +373,7 @@ final class OllamaDirectorProvider: DirectorProvider {
 
     init(model: String? = nil,
          baseURL: URL = OllamaDirectorEnvironmentClient.endpoint,
-         session: URLSession = .shared) {
+         session: URLSession = OllamaDirectorProvider.defaultSession) {
         self.explicitModel = model
         self.baseURL = baseURL
         self.session = session
@@ -454,7 +465,7 @@ final class EnvironmentDirectorProvider: DirectorProvider {
 
     var modelIdentifier: String? { selectedModel }
 
-    init(mode: DirectorMode, environment: DirectorEnvironmentService = DirectorEnvironmentService(), session: URLSession = .shared) {
+    init(mode: DirectorMode, environment: DirectorEnvironmentService = DirectorEnvironmentService(), session: URLSession = OllamaDirectorProvider.defaultSession) {
         self.mode = mode
         self.environment = environment
         self.session = session

@@ -25,7 +25,7 @@ The sanitized public staging repository has been prepared locally at:
    git status
    git log -1
    ```
-2. Verify that all 2,173 tests pass from the staged repository:
+2. Verify that all 2,177 tests pass from the staged repository:
    ```bash
    swift build
    swift run LTXTests
@@ -52,10 +52,9 @@ git remote add origin https://github.com/<your-username>/<your-repo-name>.git
 git push -u origin main
 ```
 
-### 3. Tag and Publish Release Candidate
+### 3. Push Release Tag
 ```bash
-# Create annotated tag
-git tag -a v0.9.0-preview.1 -m "Release v0.9.0-preview.1 (Public Preview)"
+# The staged repository is pre-tagged with v0.9.0-preview.1. Push tag:
 git push origin v0.9.0-preview.1
 ```
 

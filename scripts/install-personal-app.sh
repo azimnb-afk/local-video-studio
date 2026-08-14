@@ -74,8 +74,17 @@ if [ ! -d "${BUILT_APP}" ]; then
     exit 1
 fi
 
+# Defensive path verification
+if [ -z "${TARGET_APP:-}" ] || [ "${TARGET_APP}" = "/" ] || [ "${TARGET_APP}" = "${HOME}" ] || [ "${TARGET_APP}" != "${HOME}/Applications/Local Video Studio.app" ]; then
+    echo "Error: Refusing to replace invalid or unsafe TARGET_APP path: '${TARGET_APP}'" >&2
+    exit 1
+fi
+
 echo "==> Installing into ${TARGET_APP}..."
-rm -rf "${TARGET_APP}"
+if [ -d "${TARGET_APP}" ]; then
+    BACKUP_PATH="/private/tmp/LocalVideoStudio_backup_$(date +%s).app"
+    mv "${TARGET_APP}" "${BACKUP_PATH}"
+fi
 cp -R "${BUILT_APP}" "${TARGET_APP}"
 
 echo "==> Registering with LaunchServices..."

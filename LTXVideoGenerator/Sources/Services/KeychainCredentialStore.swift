@@ -138,8 +138,9 @@ public final class KeychainCredentialStore: ObservableObject, @unchecked Sendabl
             return secret
         }
 
-        // 2. Check legacy Keychain if this is a personal/migrating store
-        if serviceName != Self.legacyServiceName,
+        // 2. Check legacy Keychain ONLY if this is the Personal store (Dev must not inherit)
+        if !AppStorageDirectory.isDev,
+           serviceName != Self.legacyServiceName,
            let legacyKeychainSecret = storage.read(service: Self.legacyServiceName, account: Self.elevenLabsAccountName),
            !legacyKeychainSecret.isEmpty {
             _ = storage.write(legacyKeychainSecret, service: serviceName, account: Self.elevenLabsAccountName)
@@ -149,8 +150,9 @@ public final class KeychainCredentialStore: ObservableObject, @unchecked Sendabl
             return legacyKeychainSecret
         }
 
-        // 3. Check legacy UserDefaults
-        if let legacySecret = userDefaults.string(forKey: Self.legacyElevenLabsUserDefaultsKey), !legacySecret.isEmpty {
+        // 3. Check legacy UserDefaults ONLY for Personal store
+        if !AppStorageDirectory.isDev,
+           let legacySecret = userDefaults.string(forKey: Self.legacyElevenLabsUserDefaultsKey), !legacySecret.isEmpty {
             if storage.write(legacySecret, service: serviceName, account: Self.elevenLabsAccountName) {
                 userDefaults.removeObject(forKey: Self.legacyElevenLabsUserDefaultsKey)
                 return legacySecret

@@ -63,13 +63,16 @@ public enum AppStorageDirectory {
         return url
     }
 
+    public static var isDev: Bool {
+        let bundleID = Bundle.main.bundleIdentifier ?? ""
+        return bundleID.contains(".dev")
+    }
+
+    public static let personalServiceName = "com.localvideostudio.personal.credentials"
+    public static let devServiceName = "com.localvideostudio.dev.credentials"
+
     /// Keychain service identifier isolated by bundle identity.
     public static var keychainService: String {
-        let bundleID = Bundle.main.bundleIdentifier ?? ""
-        if bundleID.contains(".dev") {
-            return "com.localvideostudio.dev.credentials"
-        } else {
-            return "com.localvideostudio.personal.credentials"
-        }
+        isDev ? devServiceName : personalServiceName
     }
 }

@@ -109,6 +109,20 @@ func runRegistryTests(_ t: TestKit) {
 
         let customModel = registry.descriptor(id: ModelRegistry.customModelID)!
         t.check(adapters.adapter(for: customModel) is LTX2MLXAdapter, "custom model → LTX2MLXAdapter")
+
+        // Invariant: every model the registry will actually offer for selection must resolve to an adapter.
+        for offered in registry.selectableModels(customModelsEnabled: true) {
+            t.check(adapters.adapter(for: offered) != nil, "offered model \(offered.id) resolves to an adapter")
+        }
+    }
+
+    t.suite("LTX2MLXAdapter gating") {
+        let adapter = LTX2MLXAdapter()
+        let registry = ModelRegistry(userDefaults: defaults)
+        var descriptor = registry.descriptor(id: ModelRegistry.customModelID)!
+        t.check(adapter.supports(model: descriptor), "LTX2MLXAdapter supports generic custom model")
+        descriptor.isOfficial = true
+        t.check(!adapter.supports(model: descriptor), "LTX2MLXAdapter refuses official models even on this backend")
     }
 
     t.suite("AppStorageDirectory and Keychain isolation") {

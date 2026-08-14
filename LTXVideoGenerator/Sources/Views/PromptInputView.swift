@@ -634,7 +634,7 @@ struct PromptInputView: View {
                         }
                         .pickerStyle(.menu)
                         .fixedSize()
-                        .help("Models from the registry. Derived/adult models only appear when their features and Adult Content Mode are enabled and the model passed verification.")
+                        .help("Select active generation model from the registry.")
                     }
                     if autoQualityEnabled {
                         Picker("Preset", selection: $presetRaw) {

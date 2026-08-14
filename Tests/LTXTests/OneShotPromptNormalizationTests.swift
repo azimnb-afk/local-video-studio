@@ -101,8 +101,11 @@ func runOneShotPromptNormalizationTests(_ t: TestKit) {
         }
         sem2.wait()
 
-        // 4. Basic / Template fallback is structurally formatted rather than malformed English
-        let templateProvider = TemplateDirectorProvider()
+        // 4. Basic / Template fallback normalizes action and formats cleanly
+        let mockTemplateNormalizer = MockRenderTextNormalizer(mappings: [
+            japaneseBrief: "A woman swings an axe."
+        ])
+        let templateProvider = TemplateDirectorProvider(normalizer: mockTemplateNormalizer)
         let templateDirector = LocalDirector(providers: [templateProvider])
 
         let sem3 = DispatchSemaphore(value: 0)
@@ -113,11 +116,11 @@ func runOneShotPromptNormalizationTests(_ t: TestKit) {
                     base: GenerationRequest(prompt: japaneseBrief, brief: japaneseBrief, userDefaults: testDefaults)
                 )
                 t.checkEqual(providerName, "template", "Fallback template provider executed")
-                t.checkEqual(plan.action, japaneseBrief, "Fallback plan keeps brief as action")
+                t.checkEqual(plan.action, "A woman swings an axe.", "Fallback plan normalizes brief to English action")
                 
                 // Structured cleanly:
                 t.check(request.prompt.contains("The camera holds a static medium shot, eye level."), "Fallback camera is clean")
-                t.check(request.prompt.contains(japaneseBrief), "Fallback prompt includes action")
+                t.check(request.prompt.contains("A woman swings an axe."), "Fallback prompt includes normalized English action")
                 t.check(request.prompt.contains("Motion is natural and continuous.") || request.prompt.contains("The motion is natural and continuous."), "Fallback motion is clean")
                 t.check(!request.prompt.contains("The camera static"), "Fallback avoids 'The camera static'")
                 t.check(!request.prompt.contains("continuous motion."), "Fallback avoids 'continuous motion.' repetition")

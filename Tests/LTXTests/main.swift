@@ -686,6 +686,7 @@ runTextEncoderDownloadTests(t)
 runLTX2MLXBackendTests(t)
 runActiveModelDisplayResolverTests(t)
 runOneShotPromptNormalizationTests(t)
+runBasicDirectorStrictEnglishTests(t)
 runKeychainCredentialStoreTests(t)
 
 t.finish()

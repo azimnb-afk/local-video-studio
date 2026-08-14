@@ -117,6 +117,8 @@
 		AA000254 /* FFmpegDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000255; };
 		AA000256 /* SetupWizardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000257; };
 		AA000314 /* ActiveModelDisplayResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000315; };
+		AA000316 /* RenderLanguageValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000317; };
+		AA000318 /* RenderTextNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000319; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -229,6 +231,8 @@
 		AA000193 /* LTXGenerationLogSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LTXGenerationLogSummary.swift; sourceTree = "<group>"; };
 		AA000195 /* GenerationFailureRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationFailureRecovery.swift; sourceTree = "<group>"; };
 		AA000315 /* ActiveModelDisplayResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveModelDisplayResolver.swift; sourceTree = "<group>"; };
+		AA000317 /* RenderLanguageValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderLanguageValidator.swift; sourceTree = "<group>"; };
+		AA000319 /* RenderTextNormalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderTextNormalizer.swift; sourceTree = "<group>"; };
 		AA000030 /* LTXVideoGenerator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LTXVideoGenerator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -380,6 +384,8 @@
 				AA000253 /* DependencyHealthManager.swift */,
 				AA000255 /* FFmpegDetector.swift */,
 				AA000315 /* ActiveModelDisplayResolver.swift */,
+				AA000317 /* RenderLanguageValidator.swift */,
+				AA000319 /* RenderTextNormalizer.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -591,6 +597,8 @@
 				AA000254 /* FFmpegDetector.swift in Sources */,
 				AA000256 /* SetupWizardView.swift in Sources */,
 				AA000314 /* ActiveModelDisplayResolver.swift in Sources */,
+				AA000316 /* RenderLanguageValidator.swift in Sources */,
+				AA000318 /* RenderTextNormalizer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

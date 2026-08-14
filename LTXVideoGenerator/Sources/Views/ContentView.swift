@@ -526,6 +526,8 @@ private struct OneShotView: View {
                 startingImageThumbnail = nil
                 startingImageError = error.localizedDescription
                 status = error.localizedDescription
+            } catch let error as DirectorError {
+                status = error.localizedDescription
             } catch {
                 status = "Planning failed: \(error.localizedDescription)"
             }

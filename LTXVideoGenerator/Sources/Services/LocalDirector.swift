@@ -150,6 +150,10 @@ final class LocalDirector {
         japaneseHandling: JapaneseDialogueHandling = .native
     ) async throws -> (request: GenerationRequest, plan: OneShotPlan, providerName: String) {
         let (plan, providerName) = try await self.plan(brief: brief)
+
+        // Strict English renderer action validation gate
+        try RenderLanguageValidator.validateRendererAction(plan.action)
+
         let compiled = PromptCompiler.compile(
             plan: plan,
             options: PromptCompiler.Options(

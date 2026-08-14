@@ -325,6 +325,8 @@ enum DirectorError: Error, Equatable {
     case invalidPlanJSON(String)
     case planValidationFailed([String])
     case providerFailed(String)
+    case basicNormalizationFailed(String)
+    case unsupportedRenderLanguage(String)
 }
 
 extension DirectorError: LocalizedError {
@@ -336,6 +338,10 @@ extension DirectorError: LocalizedError {
             return message
         case .planValidationFailed(let issues):
             return "Director plan validation failed: \(issues.joined(separator: ", "))"
+        case .basicNormalizationFailed(let message):
+            return message
+        case .unsupportedRenderLanguage(let message):
+            return message
         }
     }
 }
@@ -481,12 +487,17 @@ final class EnvironmentDirectorProvider: DirectorProvider {
     }
 }
 
-/// Deterministic no-LLM fallback so the Director feature degrades gracefully
-/// when no local LLM is installed: the brief itself becomes the action and
-/// sensible defaults fill the rest. Always available, uses no memory.
+/// Local fallback director provider: provides template-based shot planning
+/// when no local LLM is installed. Uses RenderTextNormalizer for renderer-safe English
+/// descriptions. Always available, uses minimal memory.
 final class TemplateDirectorProvider: DirectorProvider {
     let name = "template"
     let isFallbackProvider = true
+    let normalizer: RenderTextNormalizer
+
+    init(normalizer: RenderTextNormalizer = BasicRenderLanguageNormalizer()) {
+        self.normalizer = normalizer
+    }
 
     func isAvailable() async -> Bool { true }
 
@@ -499,9 +510,16 @@ final class TemplateDirectorProvider: DirectorProvider {
         } else {
             brief = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         }
+
+        // Normalize user brief into renderer-safe English action
+        let normalizedAction = try await normalizer.normalizeDescriptionToEnglish(brief)
+
+        // Strict renderer-language validation gate
+        try RenderLanguageValidator.validateRendererAction(normalizedAction)
+
         let plan = OneShotPlan(
             camera: "static medium shot, eye level",
-            action: brief,
+            action: normalizedAction,
             acting: nil,
             motion: "natural and continuous",
             lighting: "soft natural lighting",

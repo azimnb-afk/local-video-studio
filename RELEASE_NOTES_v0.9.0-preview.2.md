@@ -39,7 +39,7 @@ Local Video Studio for Mac — AutoMovie Edition `v0.9.0-preview.2` is the secon
 
 - **Mac**: Apple Silicon Mac (M1 Pro, M2, M3, M4)
 - **RAM**: 32 GB minimum (Q4 models); 48 GB+ recommended
-- **OS**: macOS 14.0 (Sonoma) or later (Apple On-Device Translation requires macOS 15.0+)
+- **OS**: macOS 14.0 (Sonoma) or later (Apple On-Device Translation programmatic session requires macOS 26.0+)
 - **Tools**: Python 3.11+ and `ffmpeg` (via Homebrew)
 
 ---
@@ -47,7 +47,7 @@ Local Video Studio for Mac — AutoMovie Edition `v0.9.0-preview.2` is the secon
 ## Known Limitations
 
 1. **No-BGM Policy is Best-Effort with Built-in Audio**: Prompt negative constraints suppress music, but acoustic output cannot be 100% guaranteed by diffusion weights alone.
-2. **Apple On-Device Translation Availability**: Native platform translation requires supported macOS versions (macOS 15.0+); older versions fail-closed cleanly.
+2. **Apple On-Device Translation Availability**: Native programmatic platform translation requires supported macOS versions (macOS 26.0+); unsupported or older versions fail-closed cleanly without sending unresolved non-English descriptive text to the renderer.
 3. **Hardware Intensive**: Local generation fully utilizes GPU and unified memory. Close heavy applications during multi-shot rendering.
 
 ---

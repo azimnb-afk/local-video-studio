@@ -186,6 +186,7 @@ All generation requests are dispatched to a resilient background queue:
 ## Known Issues & Limitations
 
 - **No-BGM is Best-Effort with Built-in Audio**: Negative prompting strongly suppresses BGM in the prompt plumbing, but acoustic output is model-dependent and music suppression cannot be guaranteed by the diffusion weights. For guaranteed music-free output, turn **Built-in Audio OFF** and use **Final Audio** or external diegetic audio tracks.
+- **Apple On-Device Translation Availability**: Native programmatic platform translation requires supported macOS versions (macOS 26.0+); on unsupported or earlier macOS releases, non-English descriptive inputs fail-closed safely rather than leaking raw Japanese to the renderer.
 - **Motion Tempo Continuity**: Motion tempo shapes prompt dynamics across shots, but true physical momentum continuation remains bounded by Last-Frame I2V conditioning.
 - **Identity Consistency vs Face Lock**: Character Bible grounding maintains costume and appearance consistency, but diffusion models do not provide deterministic biometric Face Lock.
 - **External Dependency**: `ffmpeg` is required for multi-shot assembly and must be installed separately by the user.

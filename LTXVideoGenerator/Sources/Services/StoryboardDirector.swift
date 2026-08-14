@@ -201,13 +201,28 @@ final class StoryboardDirector {
         }
     }
 
+    private static func isCancellationError(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if (error as? DirectorError) == .cancelled { return true }
+        if (error as? URLError)?.code == .cancelled { return true }
+        return false
+    }
+
     /// Brief → validated storyboard draft. Provider terminated before return.
     func draft(
         brief: String,
         characterBible: CharacterBible = CharacterBible(),
         openingSceneEvidence: OpeningReferenceAppearance? = nil,
-        targetDurationSeconds: Double? = nil
+        targetDurationSeconds: Double? = nil,
+        handle: DirectorPlanningHandle? = nil,
+        progressCallback: ((DirectorPlanningPhase, String) -> Void)? = nil
     ) async throws -> (draft: StoryboardDraft, providerName: String) {
+        if handle?.isCancelled == true || Task.isCancelled {
+            progressCallback?(.cancelled, "Planning cancelled")
+            throw DirectorError.cancelled
+        }
+        progressCallback?(.preparing, "Preparing Local Director…")
+
         diagnostics = []
         lastProviderModel = nil
         lastPlanningMode = nil
@@ -217,6 +232,10 @@ final class StoryboardDirector {
         var lastError: Error = DirectorError.noProviderAvailable
         var precedingProviderFailed = false
         for provider in providers {
+            if handle?.isCancelled == true || Task.isCancelled {
+                progressCallback?(.cancelled, "Planning cancelled")
+                throw DirectorError.cancelled
+            }
             if let model = provider.modelIdentifier { lastProviderModel = model }
             guard await provider.isAvailable() else {
                 record(.ollamaRequestFailed, provider: provider.name, attempt: 0,
@@ -243,7 +262,9 @@ final class StoryboardDirector {
                     draft = try await draftWithProvider(
                         provider, brief: brief, characterBible: characterBible,
                         openingSceneEvidence: openingSceneEvidence,
-                        targetDurationSeconds: targetDurationSeconds)
+                        targetDurationSeconds: targetDurationSeconds,
+                        handle: handle,
+                        progressCallback: progressCallback)
                 } else {
                     // Capability negotiation: start from what this model was
                     // last seen to handle, and if that protocol fails in
@@ -257,13 +278,22 @@ final class StoryboardDirector {
                     var localDraft: StoryboardDraft?
                     var localError: Error?
                     for planProtocol in order {
+                        if handle?.isCancelled == true || Task.isCancelled {
+                            progressCallback?(.cancelled, "Planning cancelled")
+                            throw DirectorError.cancelled
+                        }
+                        let phase: DirectorPlanningPhase = planProtocol == .structuredJSON ? .structuredPlanning : .textProtocolPlanning
+                        progressCallback?(phase, phase.displayName)
+
                         let diagnosticMark = diagnostics.count
                         do {
                             localDraft = try await draftWithProvider(
                                 provider, brief: brief, characterBible: characterBible,
                                 openingSceneEvidence: openingSceneEvidence,
                                 targetDurationSeconds: targetDurationSeconds,
-                                planProtocol: planProtocol)
+                                planProtocol: planProtocol,
+                                handle: handle,
+                                progressCallback: progressCallback)
                             lastProtocol = planProtocol
                             if !model.isEmpty {
                                 // Remember a downgrade so the next run starts
@@ -272,6 +302,11 @@ final class StoryboardDirector {
                             }
                             break
                         } catch {
+                            if Self.isCancellationError(error) || handle?.isCancelled == true || Task.isCancelled {
+                                await provider.terminate()
+                                progressCallback?(.cancelled, "Planning cancelled")
+                                throw DirectorError.cancelled
+                            }
                             localError = error
                             if preferredProtocolFallbackReason == nil {
                                 preferredProtocolFallbackReason = diagnostics[diagnosticMark...]
@@ -299,6 +334,10 @@ final class StoryboardDirector {
                 return (draft, provider.name)
             } catch {
                 await provider.terminate()
+                if Self.isCancellationError(error) || handle?.isCancelled == true || Task.isCancelled {
+                    progressCallback?(.cancelled, "Planning cancelled")
+                    throw DirectorError.cancelled
+                }
                 lastError = error
                 precedingProviderFailed = true
             }
@@ -332,7 +371,9 @@ final class StoryboardDirector {
         characterBible: CharacterBible,
         openingSceneEvidence: OpeningReferenceAppearance? = nil,
         targetDurationSeconds: Double? = nil,
-        planProtocol: LocalDirectorProtocol = .structuredJSON
+        planProtocol: LocalDirectorProtocol = .structuredJSON,
+        handle: DirectorPlanningHandle? = nil,
+        progressCallback: ((DirectorPlanningPhase, String) -> Void)? = nil
     ) async throws -> StoryboardDraft {
         var prompt = DirectorPlanFormat.userPrompt(
             for: planProtocol, brief: brief,
@@ -341,6 +382,9 @@ final class StoryboardDirector {
             targetDurationSeconds: targetDurationSeconds)
         var lastFailure = ""
         for attempt in 0...maxRepairAttempts {
+            if handle?.isCancelled == true || Task.isCancelled {
+                throw DirectorError.cancelled
+            }
             let response: String
             do {
                 response = try await provider.complete(
@@ -349,6 +393,9 @@ final class StoryboardDirector {
                     expectsJSON: planProtocol == .structuredJSON
                 )
             } catch {
+                if Self.isCancellationError(error) || handle?.isCancelled == true || Task.isCancelled {
+                    throw DirectorError.cancelled
+                }
                 let stage: FailureStage
                 if case DirectorError.noResponse = error {
                     stage = .noResponse
@@ -370,6 +417,12 @@ final class StoryboardDirector {
                        message: error.localizedDescription)
                 throw error
             }
+
+            if handle?.isCancelled == true || Task.isCancelled {
+                throw DirectorError.cancelled
+            }
+
+            progressCallback?(.parsing, "Parsing director plan…")
             appendDebugRawResponse(response, provider: provider.name, attempt: attempt)
 
             let parsed = DirectorPlanFormat.parse(response, as: planProtocol, brief: brief)
@@ -626,12 +679,22 @@ final class StoryboardDirector {
         settings: ProjectSettings = ProjectSettings(),
         characterBible: CharacterBible = CharacterBible(),
         openingSceneEvidence: OpeningReferenceAppearance? = nil,
-        capabilityAwarePlanning: Bool = false
+        capabilityAwarePlanning: Bool = false,
+        handle: DirectorPlanningHandle? = nil,
+        progressCallback: ((DirectorPlanningPhase, String) -> Void)? = nil
     ) async throws -> (project: FilmProject, violations: [ContinuityEngine.Violation], providerName: String) {
         let (rawDraft, providerName) = try await self.draft(
             brief: brief, characterBible: characterBible,
             openingSceneEvidence: openingSceneEvidence,
-            targetDurationSeconds: capabilityAwarePlanning ? settings.targetDurationSeconds : nil)
+            targetDurationSeconds: capabilityAwarePlanning ? settings.targetDurationSeconds : nil,
+            handle: handle,
+            progressCallback: progressCallback)
+
+        if handle?.isCancelled == true || Task.isCancelled {
+            progressCallback?(.cancelled, "Planning cancelled")
+            throw DirectorError.cancelled
+        }
+        progressCallback?(.applying, "Applying storyboard…")
         var draft = rawDraft
 
         // Auto Movie steers the plan toward shots this profile actually renders
@@ -786,6 +849,7 @@ final class StoryboardDirector {
 
         CharacterPromptPipeline.recompile(project: &project)
         violations.append(contentsOf: ContinuityEngine.monotonyWarnings(shots: project.shots))
+        progressCallback?(.completed, "Plan ready")
         return (project, violations, providerName)
     }
 
@@ -1013,7 +1077,9 @@ final class HybridProjectCoordinator {
         brief: String,
         settings: ProjectSettings,
         characterBible: CharacterBible = CharacterBible(),
-        openingSceneEvidence: OpeningReferenceAppearance? = nil
+        openingSceneEvidence: OpeningReferenceAppearance? = nil,
+        handle: DirectorPlanningHandle? = nil,
+        progressCallback: ((DirectorPlanningPhase, String) -> Void)? = nil
     ) async throws -> (project: FilmProject, violations: [ContinuityEngine.Violation], providerName: String) {
         var (project, violations, providerName) = try await director.makeProject(
             projectID: projectID, title: title, brief: brief,
@@ -1022,7 +1088,9 @@ final class HybridProjectCoordinator {
             // Auto Movie only. The same pass runs for the local AI planner and
             // for the no-LLM template, so generation feasibility does not depend
             // on whether a local model happened to be available.
-            capabilityAwarePlanning: true
+            capabilityAwarePlanning: true,
+            handle: handle,
+            progressCallback: progressCallback
         )
         let target = min(60, max(5, settings.targetDurationSeconds ?? 20))
         let desiredCount = min(12, max(1, Int(ceil(target / 5))))

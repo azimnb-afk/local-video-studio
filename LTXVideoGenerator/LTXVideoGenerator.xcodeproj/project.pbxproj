@@ -103,6 +103,7 @@
 		AA000308 /* LocalDirectorProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000309; };
 		AA00030A /* TextProtocolPlanParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00030B; };
 		AA00030C /* LocalDirectorCompatibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00030D; };
+		AA00031C /* DirectorPlanningPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00031D; };
 		AA00030E /* GenerationModelResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00030F; };
 		AA000312 /* LTX2MLXBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000313; };
 		AA000310 /* GenerationBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000311; };
@@ -215,6 +216,7 @@
 		AA000309 /* LocalDirectorProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDirectorProtocol.swift; sourceTree = "<group>"; };
 		AA00030B /* TextProtocolPlanParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextProtocolPlanParser.swift; sourceTree = "<group>"; };
 		AA00030D /* LocalDirectorCompatibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDirectorCompatibility.swift; sourceTree = "<group>"; };
+		AA00031D /* DirectorPlanningPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectorPlanningPhase.swift; sourceTree = "<group>"; };
 		AA00030F /* GenerationModelResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationModelResolver.swift; sourceTree = "<group>"; };
 		AA000313 /* LTX2MLXBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LTX2MLXBackend.swift; sourceTree = "<group>"; };
 		AA000311 /* GenerationBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationBackend.swift; sourceTree = "<group>"; };
@@ -371,6 +373,7 @@
 				AA000309 /* LocalDirectorProtocol.swift */,
 				AA00030B /* TextProtocolPlanParser.swift */,
 				AA00030D /* LocalDirectorCompatibility.swift */,
+				AA00031D /* DirectorPlanningPhase.swift */,
 				AA00030F /* GenerationModelResolver.swift */,
 				AA000313 /* LTX2MLXBackend.swift */,
 				AA000311 /* GenerationBackend.swift */,
@@ -583,6 +586,7 @@
 				AA000308 /* LocalDirectorProtocol.swift in Sources */,
 				AA00030A /* TextProtocolPlanParser.swift in Sources */,
 				AA00030C /* LocalDirectorCompatibility.swift in Sources */,
+				AA00031C /* DirectorPlanningPhase.swift in Sources */,
 				AA00030E /* GenerationModelResolver.swift in Sources */,
 				AA000312 /* LTX2MLXBackend.swift in Sources */,
 				AA000310 /* GenerationBackend.swift in Sources */,

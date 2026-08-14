@@ -915,5 +915,6 @@ runEnhancedPromptHardeningTests(t)
 runKeychainCredentialStoreTests(t)
 runAutoMovieDirectorFallbackTests(t)
 runQueueCancellationTests(t)
+runDirectorPlanningCancellationTests(t)
 
 t.finish()

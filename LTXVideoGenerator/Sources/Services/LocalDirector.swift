@@ -82,27 +82,47 @@ final class LocalDirector {
 
     /// Produces a validated plan from a brief. The provider is ALWAYS
     /// terminated before this returns, success or failure.
-    func plan(brief: String) async throws -> (plan: OneShotPlan, providerName: String) {
+    func plan(brief: String, handle: DirectorPlanningHandle? = nil) async throws -> (plan: OneShotPlan, providerName: String) {
+        if handle?.isCancelled == true || Task.isCancelled {
+            throw DirectorError.cancelled
+        }
         var lastError: Error = DirectorError.noProviderAvailable
         for provider in providers {
+            if handle?.isCancelled == true || Task.isCancelled {
+                throw DirectorError.cancelled
+            }
             guard await provider.isAvailable() else { continue }
             do {
-                let plan = try await planWithProvider(provider, brief: brief)
+                let plan = try await planWithProvider(provider, brief: brief, handle: handle)
                 await provider.terminate()
                 return (plan, provider.name)
             } catch {
                 await provider.terminate()
+                if error is CancellationError || (error as? DirectorError) == .cancelled || (error as? URLError)?.code == .cancelled || handle?.isCancelled == true || Task.isCancelled {
+                    throw DirectorError.cancelled
+                }
                 lastError = error
             }
         }
         throw lastError
     }
 
-    private func planWithProvider(_ provider: DirectorProvider, brief: String) async throws -> OneShotPlan {
+    private func planWithProvider(_ provider: DirectorProvider, brief: String, handle: DirectorPlanningHandle? = nil) async throws -> OneShotPlan {
         var prompt = "BRIEF: \(brief)"
         var lastFailure = ""
         for attempt in 0...maxRepairAttempts {
-            let response = try await provider.complete(system: Self.directorSystemPrompt, prompt: prompt)
+            if handle?.isCancelled == true || Task.isCancelled {
+                throw DirectorError.cancelled
+            }
+            let response: String
+            do {
+                response = try await provider.complete(system: Self.directorSystemPrompt, prompt: prompt)
+            } catch {
+                if error is CancellationError || (error as? DirectorError) == .cancelled || (error as? URLError)?.code == .cancelled || handle?.isCancelled == true || Task.isCancelled {
+                    throw DirectorError.cancelled
+                }
+                throw error
+            }
             appendDebugLog("provider=\(provider.name) attempt=\(attempt)\n\(response)")
             if let plan = Self.parsePlan(from: response) {
                 if plan.isValid {

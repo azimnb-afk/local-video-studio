@@ -331,6 +331,7 @@ enum DirectorError: Error, Equatable {
     case providerFailed(String)
     case basicNormalizationFailed(String)
     case unsupportedRenderLanguage(String)
+    case cancelled
 }
 
 extension DirectorError: LocalizedError {
@@ -346,6 +347,8 @@ extension DirectorError: LocalizedError {
             return message
         case .unsupportedRenderLanguage(let message):
             return message
+        case .cancelled:
+            return "Planning was cancelled"
         }
     }
 }

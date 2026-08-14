@@ -20,6 +20,9 @@ struct StoryboardView: View {
     @State private var statusMessage: String?
     @State private var isAssembling = false
     @State private var isCreating = false
+    @State private var planningPhase: DirectorPlanningPhase = .idle
+    @State private var planningElapsedSeconds = 0
+    @State private var planningHandle: DirectorPlanningHandle?
     private let mode: StoryboardWorkspaceMode
 
     init() { self.mode = .storyboard }
@@ -67,7 +70,13 @@ struct StoryboardView: View {
         .onAppear(perform: refresh)
         .onReceive(refreshTimer) { _ in refresh() }
         .sheet(isPresented: $showNewProjectSheet) {
-            NewStoryboardSheet(isCreating: $isCreating, mode: mode) { projectID, title, brief, settings, characterBible, generateFirstPass, openingReferenceURL in
+            NewStoryboardSheet(
+                isCreating: $isCreating,
+                planningPhase: $planningPhase,
+                planningElapsedSeconds: $planningElapsedSeconds,
+                planningHandle: $planningHandle,
+                mode: mode
+            ) { projectID, title, brief, settings, characterBible, generateFirstPass, openingReferenceURL in
                 createProject(
                     projectID: projectID,
                     title: title,
@@ -193,9 +202,25 @@ struct StoryboardView: View {
         openingReferenceURL: URL? = nil
     ) {
         isCreating = true
-        statusMessage = "Planning storyboard…"
-        Task {
-            defer { isCreating = false }
+        planningPhase = .preparing
+        planningElapsedSeconds = 0
+        let handle = DirectorPlanningHandle()
+        planningHandle = handle
+        statusMessage = "Preparing Local Director…"
+
+        Task { @MainActor in
+            let timerTask = Task { @MainActor in
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    if Task.isCancelled { break }
+                    planningElapsedSeconds += 1
+                }
+            }
+            defer {
+                timerTask.cancel()
+                isCreating = false
+                planningHandle = nil
+            }
             do {
                 // The opening reference is imported and read *before* planning.
                 // When the Director ran first it invented a costume from the
@@ -226,17 +251,31 @@ struct StoryboardView: View {
                 let planningBible = OpeningReferenceSync.seedBible(
                     from: openingAppearance, existing: characterBible)
 
-                statusMessage = "Planning storyboard…"
+                if handle.isCancelled || Task.isCancelled {
+                    throw DirectorError.cancelled
+                }
+
+                let progressCallback: (DirectorPlanningPhase, String) -> Void = { phase, message in
+                    Task { @MainActor in
+                        planningPhase = phase
+                        statusMessage = message
+                    }
+                }
+
                 var (project, violations, _) = mode == .hybrid
                     ? try await HybridProjectCoordinator().makeProject(
                         projectID: projectID, title: title, brief: brief,
                         settings: settings, characterBible: planningBible,
-                        openingSceneEvidence: openingAppearance
+                        openingSceneEvidence: openingAppearance,
+                        handle: handle,
+                        progressCallback: progressCallback
                     )
                     : try await StoryboardDirector().makeProject(
                         projectID: projectID, title: title, brief: brief,
                         settings: settings, characterBible: planningBible,
-                        openingSceneEvidence: openingAppearance
+                        openingSceneEvidence: openingAppearance,
+                        handle: handle,
+                        progressCallback: progressCallback
                     )
                 project.workflowMode = mode.workflowValue
                 if mode == .hybrid {
@@ -310,9 +349,17 @@ struct StoryboardView: View {
                 statusMessage = "Planned \(project.shots.count) shots via \(planningSource)"
                     + (mode == .hybrid && generateFirstPass ? "; queued one take per shot sequentially" : "")
                     + (violations.isEmpty ? "" : " (\(errors) continuity errors, \(warnings) warnings)")
+                planningPhase = .completed
                 showNewProjectSheet = false
             } catch {
-                statusMessage = "Storyboard planning failed: \(error.localizedDescription)"
+                if (error as? DirectorError) == .cancelled || handle.isCancelled || Task.isCancelled {
+                    planningPhase = .cancelled
+                    statusMessage = "Planning cancelled."
+                    store.removeUncommittedProjectAssets(projectID: projectID)
+                } else {
+                    planningPhase = .failed
+                    statusMessage = "Storyboard planning failed: \(error.localizedDescription)"
+                }
             }
         }
     }
@@ -324,6 +371,9 @@ private struct NewStoryboardSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var generationService: GenerationService
     @Binding var isCreating: Bool
+    @Binding var planningPhase: DirectorPlanningPhase
+    @Binding var planningElapsedSeconds: Int
+    @Binding var planningHandle: DirectorPlanningHandle?
     let mode: StoryboardWorkspaceMode
     let onCreate: (UUID, String, String, ProjectSettings, CharacterBible, Bool, URL?) -> Void
 
@@ -356,6 +406,7 @@ private struct NewStoryboardSheet: View {
                 .font(.headline)
             TextField("Title", text: $title)
                 .textFieldStyle(.roundedBorder)
+                .disabled(isCreating)
             Text("Brief — what is this short film about?")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -364,10 +415,11 @@ private struct NewStoryboardSheet: View {
                 .frame(height: 110)
                 .padding(6)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+                .disabled(isCreating)
             CharacterBibleDraftSection(
                 projectID: projectID,
                 bible: $characterBible,
-                generationActive: generationService.isProcessing
+                generationActive: generationService.isProcessing || isCreating
             )
             HStack {
                 Picker("Preset", selection: $presetRaw) {
@@ -381,6 +433,7 @@ private struct NewStoryboardSheet: View {
                         if old != new { presetRaw = GenerationPreset.custom.rawValue }
                     }
             }
+            .disabled(isCreating)
             if presetRaw == GenerationPreset.custom.rawValue {
                 HStack {
                     Picker("Width", selection: $width) {
@@ -393,6 +446,7 @@ private struct NewStoryboardSheet: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .disabled(isCreating)
             }
             if mode == .hybrid {
                 VStack(alignment: .leading, spacing: 6) {
@@ -400,9 +454,12 @@ private struct NewStoryboardSheet: View {
                     OpeningReferencePicker(selection: $openingReferenceURL, compact: true)
                     OpeningReferenceExplanation()
                 }
+                .disabled(isCreating)
                 Stepper("Target Duration: \(targetDuration, specifier: "%.0f")s", value: $targetDuration, in: 5...60, step: 5)
+                    .disabled(isCreating)
                 Toggle("Generate first pass after planning", isOn: $generateFirstPass)
                     .help("Turn off to review the Character Bible, shot assignments and compiled prompts before rendering.")
+                    .disabled(isCreating)
             }
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
@@ -412,6 +469,7 @@ private struct NewStoryboardSheet: View {
                         Text("Basic").tag(DirectorMode.basic.rawValue)
                     }
                     .pickerStyle(.segmented)
+                    .disabled(isCreating)
                     if isCheckingDirector { ProgressView().controlSize(.small) }
                 }
                 HStack(spacing: 6) {
@@ -425,9 +483,46 @@ private struct NewStoryboardSheet: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+
+            if isCreating {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(planningPhase.displayName)
+                            .font(.subheadline.bold())
+                        Spacer()
+                        Text(formatPlanningTime(planningElapsedSeconds))
+                            .font(.subheadline.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Spacer()
+                        Button {
+                            planningPhase = .cancelling
+                            planningHandle?.cancel()
+                        } label: {
+                            if planningPhase == .cancelling {
+                                HStack(spacing: 4) {
+                                    ProgressView().controlSize(.mini)
+                                    Text("Cancelling…")
+                                }
+                            } else {
+                                Text("Cancel Planning")
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(planningPhase == .cancelling)
+                    }
+                }
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
+            }
+
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
+                    .disabled(isCreating)
                 Button {
                     var settings = ProjectSettings.usingCurrentSelections()
                     let preset = GenerationPreset(rawValue: presetRaw) ?? .standard
@@ -475,6 +570,16 @@ private struct NewStoryboardSheet: View {
             if FilmProjectStore.shared.project(id: projectID) == nil {
                 FilmProjectStore.shared.removeUncommittedProjectAssets(projectID: projectID)
             }
+        }
+    }
+
+    private func formatPlanningTime(_ seconds: Int) -> String {
+        let m = seconds / 60
+        let s = seconds % 60
+        if m > 0 {
+            return "\(m)m \(s)s"
+        } else {
+            return "\(s)s"
         }
     }
 

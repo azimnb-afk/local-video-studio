@@ -153,6 +153,50 @@ func runLTX2MLXBackendTests(_ t: TestKit) {
         // 8. Runtime path remains completely independent from model path
         t.checkEqual(LTX2MLXRuntime.executablePath(userDefaults: defaults), executable,
                      "runtime executable path is independent from local model path")
+
+        // 9. Compatible alternate layout with transformer.safetensors (e.g. notapalindrome) is accepted
+        let altDir = tempDir.appendingPathComponent("local-alt-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: altDir, withIntermediateDirectories: true)
+        for name in ["transformer.safetensors", "connector.safetensors", "vae_decoder.safetensors", "vae_encoder.safetensors"] {
+            try? Data("weights".utf8).write(to: altDir.appendingPathComponent(name))
+        }
+        defaults.set(altDir.path, forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+        readiness = LTX2MLXRuntime.readiness(userDefaults: defaults)
+        t.check(readiness.canGenerate, "alternate layout with transformer.safetensors is accepted without false rejection")
+        t.check(readiness.model.isReady, "alternate transformer model reported ready")
+
+        // 10. Compatible layout with versioned transformer-distilled-1.1.safetensors is accepted
+        let versionedDir = tempDir.appendingPathComponent("local-versioned-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: versionedDir, withIntermediateDirectories: true)
+        for name in ["transformer-distilled-1.1.safetensors", "connector.safetensors", "vae_decoder.safetensors", "vae_encoder.safetensors"] {
+            try? Data("weights".utf8).write(to: versionedDir.appendingPathComponent(name))
+        }
+        defaults.set(versionedDir.path, forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+        readiness = LTX2MLXRuntime.readiness(userDefaults: defaults)
+        t.check(readiness.canGenerate, "versioned transformer-distilled-1.1 model is accepted")
+        t.check(readiness.model.isReady, "versioned model reported ready")
+
+        // 11. Missing connector is rejected
+        let missingConnectorDir = tempDir.appendingPathComponent("local-no-conn-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: missingConnectorDir, withIntermediateDirectories: true)
+        for name in ["transformer.safetensors", "vae_decoder.safetensors"] {
+            try? Data("weights".utf8).write(to: missingConnectorDir.appendingPathComponent(name))
+        }
+        defaults.set(missingConnectorDir.path, forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+        readiness = LTX2MLXRuntime.readiness(userDefaults: defaults)
+        t.check(!readiness.canGenerate, "missing connector is rejected")
+        t.check(!readiness.model.isReady, "missing connector reported not ready")
+
+        // 12. Missing VAE decoder is rejected
+        let missingVaeDir = tempDir.appendingPathComponent("local-no-vae-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: missingVaeDir, withIntermediateDirectories: true)
+        for name in ["transformer.safetensors", "connector.safetensors"] {
+            try? Data("weights".utf8).write(to: missingVaeDir.appendingPathComponent(name))
+        }
+        defaults.set(missingVaeDir.path, forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+        readiness = LTX2MLXRuntime.readiness(userDefaults: defaults)
+        t.check(!readiness.canGenerate, "missing VAE decoder is rejected")
+        t.check(!readiness.model.isReady, "missing VAE decoder reported not ready")
     }
 
     t.suite("Custom model gating") {

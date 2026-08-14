@@ -188,14 +188,41 @@ enum LTX2MLXRuntime {
     }
 
     static func hasRequiredComponents(in directory: URL, fileManager: FileManager = .default) -> Bool {
-        for component in LTX2MLXModelCatalog.requiredComponents {
-            let file = directory.appendingPathComponent(component)
-            // Follows the cache's symlinks into blobs/, and a zero-byte or
-            // still-downloading blob does not count as present.
-            let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            if size <= 0 { return false }
+        guard let files = try? fileManager.contentsOfDirectory(atPath: directory.path) else { return false }
+
+        // 1. Must contain at least one valid transformer safetensors file (e.g. transformer.safetensors,
+        // transformer-distilled.safetensors, transformer-distilled-1.1.safetensors).
+        let hasTransformer = files.contains { name in
+            (name == "transformer.safetensors" ||
+             name.hasPrefix("transformer-distilled") ||
+             (name.contains("transformer") && name.hasSuffix(".safetensors"))) &&
+            fileSize(of: directory.appendingPathComponent(name)) > 0
         }
+        guard hasTransformer else { return false }
+
+        // 2. Must contain connector for prompt embedding projection
+        let hasConnector = files.contains { name in
+            name == "connector.safetensors" && fileSize(of: directory.appendingPathComponent(name)) > 0
+        }
+        guard hasConnector else { return false }
+
+        // 3. Must contain VAE decoder for video generation output
+        let hasVaeDecoder = files.contains { name in
+            name == "vae_decoder.safetensors" && fileSize(of: directory.appendingPathComponent(name)) > 0
+        }
+        guard hasVaeDecoder else { return false }
+
+        // 4. Must contain VAE encoder for image/frame conditioning
+        let hasVaeEncoder = files.contains { name in
+            name == "vae_encoder.safetensors" && fileSize(of: directory.appendingPathComponent(name)) > 0
+        }
+        guard hasVaeEncoder else { return false }
+
         return true
+    }
+
+    private static func fileSize(of url: URL) -> Int {
+        (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
     }
 
     static func modelReadiness(

@@ -17,7 +17,7 @@ This document provides the concise checklist and step-by-step procedure for the 
 ## Staged Public Repository Verification
 
 The sanitized public staging repository has been prepared locally at:
-`<STAGING_REPO_PATH>` (e.g. `/Users/azimnb/ltx23appdev/local-video-studio-public-preview`)
+`<STAGING_REPO_PATH>` (e.g. `../local-video-studio-public-preview`)
 
 1. Inspect the staged files:
    ```bash

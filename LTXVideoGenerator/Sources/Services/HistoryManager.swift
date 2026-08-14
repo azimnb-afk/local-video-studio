@@ -11,10 +11,14 @@ class HistoryManager: ObservableObject {
     let thumbnailsDirectory: URL
     private let historyFile: URL
     
-    nonisolated init() {
-        let appDir = AppStorageDirectory.root
+    nonisolated init(rootDirectory: URL? = nil) {
+        let appDir = rootDirectory ?? AppStorageDirectory.root
         
-        videosDirectory = AppStorageDirectory.videosDirectory
+        if let rootDirectory {
+            videosDirectory = rootDirectory.appendingPathComponent("Videos", isDirectory: true)
+        } else {
+            videosDirectory = AppStorageDirectory.videosDirectory
+        }
         thumbnailsDirectory = appDir.appendingPathComponent("Thumbnails", isDirectory: true)
         historyFile = appDir.appendingPathComponent("history.json")
         

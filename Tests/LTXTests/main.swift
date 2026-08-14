@@ -34,16 +34,27 @@ if CommandLine.arguments.count >= 2,
    CommandLine.arguments[1] == "--probe-cancellation-acceptance" {
     Task { @MainActor in
         print("=== STARTING REAL GENERATION CANCELLATION RUNTIME PROBE ===")
-        UserDefaults.standard.set("/Users/azimnb/ltx-venv/bin/python3", forKey: "pythonPath")
-
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cancellation-acceptance-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
+        // Set temporary isolated output directory to avoid touching Personal App Support
+        let originalOutputDir = UserDefaults.standard.string(forKey: "outputDirectory")
+        let isolatedVideosDir = tmpDir.appendingPathComponent("Videos", isDirectory: true)
+        try? FileManager.default.createDirectory(at: isolatedVideosDir, withIntermediateDirectories: true)
+        UserDefaults.standard.set(isolatedVideosDir.path, forKey: "outputDirectory")
+        defer {
+            if let originalOutputDir {
+                UserDefaults.standard.set(originalOutputDir, forKey: "outputDirectory")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "outputDirectory")
+            }
+        }
+
         let queueURL = tmpDir.appendingPathComponent("queue.json")
 
-        let historyManager = HistoryManager()
+        let historyManager = HistoryManager(rootDirectory: tmpDir)
         let queueStore = ProductionQueueStore(fileURL: queueURL)
         let coordinator = ProductionQueueCoordinator(store: queueStore)
         let queueService = ProductionQueueService(coordinator: coordinator)

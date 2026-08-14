@@ -488,6 +488,7 @@ private struct OneShotView: View {
                 }
                 let baseRequest = GenerationRequest(
                     prompt: trimmed,
+                    brief: trimmed,
                     sourceImagePath: validatedStartingImage,
                     disableAudio: !audioEnabled,
                     modelId: modelID,

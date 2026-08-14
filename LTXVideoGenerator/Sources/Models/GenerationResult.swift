@@ -48,6 +48,7 @@ struct GenerationResult: Identifiable, Codable {
     var filmProjectID: UUID?
     var shotID: UUID?
     var takeID: UUID?
+    var brief: String?
 
     var videoURL: URL {
         URL(fileURLWithPath: videoPath)
@@ -73,6 +74,7 @@ struct GenerationResult: Identifiable, Codable {
         musicPath != nil
     }
     
+    
     var formattedDuration: String {
         let minutes = Int(duration) / 60
         let seconds = Int(duration) % 60
@@ -97,6 +99,7 @@ struct GenerationResult: Identifiable, Codable {
         id: UUID,
         requestId: UUID,
         prompt: String,
+        brief: String? = nil,
         enhancedPrompt: String?,
         negativePrompt: String,
         voiceoverText: String,
@@ -142,6 +145,7 @@ struct GenerationResult: Identifiable, Codable {
         self.id = id
         self.requestId = requestId
         self.prompt = prompt
+        self.brief = brief
         self.enhancedPrompt = enhancedPrompt
         self.negativePrompt = negativePrompt
         self.voiceoverText = voiceoverText
@@ -189,6 +193,7 @@ struct GenerationResult: Identifiable, Codable {
         case id
         case requestId
         case prompt
+        case brief
         case enhancedPrompt
         case negativePrompt
         case voiceoverText
@@ -237,6 +242,7 @@ struct GenerationResult: Identifiable, Codable {
         id = try container.decode(UUID.self, forKey: .id)
         requestId = try container.decode(UUID.self, forKey: .requestId)
         prompt = try container.decode(String.self, forKey: .prompt)
+        brief = try container.decodeIfPresent(String.self, forKey: .brief)
         enhancedPrompt = try container.decodeIfPresent(String.self, forKey: .enhancedPrompt)
         negativePrompt = try container.decode(String.self, forKey: .negativePrompt)
         voiceoverText = try container.decode(String.self, forKey: .voiceoverText)

@@ -477,6 +477,7 @@ class GenerationService: ObservableObject {
             generationResult.filmProjectID = request.filmProjectID
             generationResult.shotID = request.shotID
             generationResult.takeID = request.takeID
+            generationResult.brief = request.brief
 
             // Save to history
             historyManager.addResult(generationResult)

@@ -503,7 +503,7 @@ final class TemplateDirectorProvider: DirectorProvider {
             camera: "static medium shot, eye level",
             action: brief,
             acting: nil,
-            motion: "natural, continuous motion",
+            motion: "natural and continuous",
             lighting: "soft natural lighting",
             dialogue: [],
             audioCues: [],

@@ -685,6 +685,7 @@ runFinalAudioTests(t)
 runTextEncoderDownloadTests(t)
 runLTX2MLXBackendTests(t)
 runActiveModelDisplayResolverTests(t)
+runOneShotPromptNormalizationTests(t)
 runKeychainCredentialStoreTests(t)
 
 t.finish()

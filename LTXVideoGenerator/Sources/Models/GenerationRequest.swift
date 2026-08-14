@@ -205,6 +205,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
     var customModelsEnabled: Bool
     var customModelLocalPath: String?  // Frozen local model / snapshot path at request creation time
     var customModelSourceMode: String? // Frozen source mode ("huggingFace" or "local") at request creation time
+    var brief: String?                 // Original user brief before prompt compilation
     var filmProjectID: UUID?
     var shotID: UUID?
     var takeID: UUID?
@@ -227,6 +228,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
     init(
         id: UUID = UUID(),
         prompt: String,
+        brief: String? = nil,
         negativePrompt: String = "",
         voiceoverText: String = "",
         voiceoverSource: String = "mlx-audio",
@@ -259,6 +261,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
     ) {
         self.id = id
         self.prompt = prompt
+        self.brief = brief
         self.negativePrompt = negativePrompt
         self.voiceoverText = voiceoverText
         self.voiceoverSource = voiceoverSource
@@ -312,6 +315,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case id
         case prompt
+        case brief
         case negativePrompt
         case voiceoverText
         case voiceoverSource
@@ -346,6 +350,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
         prompt = try container.decode(String.self, forKey: .prompt)
+        brief = try container.decodeIfPresent(String.self, forKey: .brief)
         negativePrompt = try container.decode(String.self, forKey: .negativePrompt)
         voiceoverText = try container.decode(String.self, forKey: .voiceoverText)
         voiceoverSource = try container.decode(String.self, forKey: .voiceoverSource)

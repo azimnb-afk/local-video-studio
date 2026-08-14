@@ -346,9 +346,19 @@ struct HistoryDetailView: View {
             // Details
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    if let brief = result.brief, !brief.isEmpty, brief != result.prompt {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Original Brief")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(brief)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    
                     // Prompt
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Prompt")
+                        Text(result.brief != nil && result.brief != result.prompt ? "Render Prompt" : "Prompt")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Text(result.prompt)

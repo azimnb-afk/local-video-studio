@@ -175,7 +175,7 @@ func runProductionQueueTests(_ t: TestKit) {
             "J: queued LTX request remains on mlx-video-with-audio")
         t.checkEqual(GenerationModelResolver.backend(
             for: eros?.snapshot.pendingRequests.first?.modelId), .ltx2MLX,
-            "J: queued 10Eros request remains on ltx-2-mlx")
+            "J: queued custom model request remains on ltx-2-mlx")
 
         // K. The new fully populated snapshot uses the existing Codable model.
         let encoder = JSONEncoder()
@@ -299,9 +299,9 @@ func runProductionQueueTests(_ t: TestKit) {
         t.checkEqual(queuedB.modelId, LTXModelCatalog.defaultModelID, "14: B stays on LTX-2.3")
 
         // 15/16/17. Backend routing is derived from the frozen model ID, so a
-        // queued 10Eros job cannot become an LTX-2.3 render while it waits.
+        // queued custom model job cannot become an LTX-2.3 render while it waits.
         t.checkEqual(GenerationModelResolver.backend(for: queuedA.modelId), .ltx2MLX,
-                     "16: queued 10Eros routes to ltx-2-mlx")
+                     "16: queued custom model routes to ltx-2-mlx")
         t.checkEqual(GenerationModelResolver.backend(for: queuedB.modelId), .mlxVideoWithAudio,
                      "15: queued LTX-2.3 routes to mlx-video-with-audio")
         t.check(GenerationModelResolver.backend(for: queuedA.modelId)

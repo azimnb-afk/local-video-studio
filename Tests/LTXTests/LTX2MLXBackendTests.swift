@@ -251,7 +251,7 @@ func runLTX2MLXBackendTests(_ t: TestKit) {
         }
     }
 
-    t.suite("10Eros process environment / FFmpeg propagation") {
+    t.suite("Custom MLX process environment / FFmpeg propagation") {
         // Test 1: Prepends resolved FFmpeg directory to PATH
         let baseEnv = ["PATH": "/usr/bin:/bin", "USER": "testuser"]
         let envWithFFmpeg = LTX2MLXBackend.runtimeEnvironment(

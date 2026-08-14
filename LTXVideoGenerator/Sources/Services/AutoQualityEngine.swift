@@ -344,7 +344,7 @@ enum GenerationSettingsResolver {
             preset: request.preset,
             targetDurationSeconds: request.targetDurationSeconds,
             generationSource: request.generationSource,
-            adultMode: request.adultMode,
+            customModelsEnabled: request.customModelsEnabled,
             filmProjectID: request.filmProjectID,
             shotID: request.shotID,
             takeID: request.takeID

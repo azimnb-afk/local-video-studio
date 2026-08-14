@@ -32,10 +32,10 @@
       "description": "Registry model id, or \"auto\" for the app's selected model.",
       "default": "auto"
     },
-    "adultMode": {
+    "customModelsEnabled": {
       "type": "boolean",
       "default": false,
-      "description": "Only honored when Adult Content Mode is also enabled in the app."
+      "description": "Enable generation with user-configured custom MLX models."
     },
     "variations": { "type": "integer", "minimum": 1, "maximum": 20, "default": 1 },
     "seed": { "type": "integer" }

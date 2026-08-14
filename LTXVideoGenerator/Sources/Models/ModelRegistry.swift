@@ -226,9 +226,6 @@ final class ModelRegistry {
     // MARK: Lookup
 
     func descriptor(id: String) -> ModelDescriptor? {
-        if id == Self.customModelID || id.hasPrefix("10eros") {
-            return descriptors[Self.customModelID]
-        }
         return descriptors[id]
     }
 

@@ -191,7 +191,7 @@ final class LocalDirector {
             preset: base.preset,
             targetDurationSeconds: customParameters ? nil : (base.targetDurationSeconds ?? plan.durationIntentSeconds),
             generationSource: base.generationSource ?? "oneShot",
-            adultMode: base.adultMode,
+            customModelsEnabled: base.customModelsEnabled,
             filmProjectID: base.filmProjectID,
             shotID: base.shotID,
             takeID: base.takeID

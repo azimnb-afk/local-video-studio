@@ -99,7 +99,7 @@ enum APIv1 {
         var quality: String               // auto/high/compact/advanced
         var audio: Bool
         var modelID: String?              // nil/"auto" → selected model
-        var adultMode: Bool
+        var customModelsEnabled: Bool
         var variations: Int
         var seed: Int?
     }
@@ -147,7 +147,7 @@ enum APIv1 {
             quality: quality,
             audio: (json["audio"] as? Bool) ?? true,
             modelID: json["model"] as? String,
-            adultMode: (json["adultMode"] as? Bool) ?? false,
+            customModelsEnabled: (json["customModelsEnabled"] as? Bool) ?? false,
             variations: variations,
             seed: json["seed"] as? Int
         )
@@ -197,7 +197,7 @@ enum APIv1 {
                 preset: GenerationPreset.resolving(presetRaw: nil, qualityModeRaw: payload.quality).rawValue,
                 targetDurationSeconds: payload.durationSeconds,
                 generationSource: "apiV1",
-                adultMode: payload.adultMode
+                customModelsEnabled: payload.customModelsEnabled
             )
         }
     }

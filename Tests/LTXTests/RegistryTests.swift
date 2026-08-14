@@ -67,15 +67,6 @@ func runRegistryTests(_ t: TestKit) {
             t.check(false, "custom model must be runnable")
         }
 
-        // 3. Legacy 10eros ID resolves to custom model for backward compatibility.
-        switch GenerationModelResolver.resolve(modelID: "10eros_v13_dmd_q4", registry: registry) {
-        case .runnable(let runnable):
-            t.checkEqual(runnable.model.id, ModelRegistry.customModelID, "legacy 10eros ID maps to custom model")
-            t.checkEqual(runnable.backend, .ltx2MLX, "legacy 10eros routes to ltx-2-mlx")
-        case .unsupported:
-            t.check(false, "legacy 10eros must resolve to custom model")
-        }
-
         // 4. Unknown model fails loudly.
         switch GenerationModelResolver.resolve(modelID: "no_such_model", registry: registry) {
         case .runnable(let runnable):
@@ -136,7 +127,7 @@ func runRegistryTests(_ t: TestKit) {
         do {
             let decoded = try JSONDecoder().decode(GenerationRequest.self, from: Data(legacyRequest.utf8))
             t.checkEqual(decoded.modelId, LTXModelCatalog.defaultModelID, "legacy request: modelId defaults")
-            t.checkEqual(decoded.adultMode, false, "legacy request: adultMode defaults false")
+            t.checkEqual(decoded.customModelsEnabled, false, "legacy request: customModelsEnabled defaults false")
             t.check(decoded.modelRevision == nil && decoded.filmProjectID == nil && decoded.preset == nil, "legacy request: new fields nil")
         } catch {
             t.check(false, "legacy GenerationRequest decodes (threw \(error))")
@@ -162,7 +153,7 @@ func runRegistryTests(_ t: TestKit) {
             preset: "standard",
             targetDurationSeconds: 5,
             generationSource: "oneShot",
-            adultMode: false,
+            customModelsEnabled: false,
             filmProjectID: UUID()
         )
         request.modelRevision = "abc123"

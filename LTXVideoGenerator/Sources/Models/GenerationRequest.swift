@@ -202,7 +202,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
     var targetDurationSeconds: Double?
     /// Origin of the request (generate/oneShot/storyboard/hybrid/apiV1).
     var generationSource: String?
-    var adultMode: Bool                // Adult Content Mode state at submission time
+    var customModelsEnabled: Bool
     var filmProjectID: UUID?
     var shotID: UUID?
     var takeID: UUID?
@@ -247,7 +247,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         preset: String? = nil,
         targetDurationSeconds: Double? = nil,
         generationSource: String? = nil,
-        adultMode: Bool = false,
+        customModelsEnabled: Bool = false,
         filmProjectID: UUID? = nil,
         shotID: UUID? = nil,
         takeID: UUID? = nil
@@ -276,7 +276,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         self.preset = preset
         self.targetDurationSeconds = targetDurationSeconds
         self.generationSource = generationSource
-        self.adultMode = adultMode
+        self.customModelsEnabled = customModelsEnabled
         self.filmProjectID = filmProjectID
         self.shotID = shotID
         self.takeID = takeID
@@ -307,7 +307,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         case preset
         case targetDurationSeconds
         case generationSource
-        case adultMode
+        case customModelsEnabled
         case filmProjectID
         case shotID
         case takeID
@@ -340,7 +340,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         preset = try container.decodeIfPresent(String.self, forKey: .preset)
         targetDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .targetDurationSeconds)
         generationSource = try container.decodeIfPresent(String.self, forKey: .generationSource)
-        adultMode = try container.decodeIfPresent(Bool.self, forKey: .adultMode) ?? false
+        customModelsEnabled = try container.decodeIfPresent(Bool.self, forKey: .customModelsEnabled) ?? false
         filmProjectID = try container.decodeIfPresent(UUID.self, forKey: .filmProjectID)
         shotID = try container.decodeIfPresent(UUID.self, forKey: .shotID)
         takeID = try container.decodeIfPresent(UUID.self, forKey: .takeID)

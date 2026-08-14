@@ -43,7 +43,7 @@ enum CustomLTX2MLXModelCatalog {
     }
 
     static func model(id: String, userDefaults: UserDefaults = .standard) -> LTXModel? {
-        if id == customModelID || id.hasPrefix("10eros") {
+        if id == customModelID {
             return customModel(userDefaults: userDefaults)
         }
         return nil

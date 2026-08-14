@@ -203,6 +203,9 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
     /// Origin of the request (generate/oneShot/storyboard/hybrid/apiV1).
     var generationSource: String?
     var customModelsEnabled: Bool
+    var customModelLocalPath: String?  // Frozen local model / snapshot path at request creation time
+    var customModelSourceMode: String? // Frozen source mode ("huggingFace" or "local") at request creation time
+    var brief: String?                 // Original user brief before prompt compilation
     var filmProjectID: UUID?
     var shotID: UUID?
     var takeID: UUID?
@@ -225,6 +228,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
     init(
         id: UUID = UUID(),
         prompt: String,
+        brief: String? = nil,
         negativePrompt: String = "",
         voiceoverText: String = "",
         voiceoverSource: String = "mlx-audio",
@@ -247,13 +251,17 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         preset: String? = nil,
         targetDurationSeconds: Double? = nil,
         generationSource: String? = nil,
-        customModelsEnabled: Bool = false,
+        customModelsEnabled: Bool? = nil,
+        customModelLocalPath: String? = nil,
+        customModelSourceMode: String? = nil,
         filmProjectID: UUID? = nil,
         shotID: UUID? = nil,
-        takeID: UUID? = nil
+        takeID: UUID? = nil,
+        userDefaults: UserDefaults = .standard
     ) {
         self.id = id
         self.prompt = prompt
+        self.brief = brief
         self.negativePrompt = negativePrompt
         self.voiceoverText = voiceoverText
         self.voiceoverSource = voiceoverSource
@@ -276,15 +284,38 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         self.preset = preset
         self.targetDurationSeconds = targetDurationSeconds
         self.generationSource = generationSource
-        self.customModelsEnabled = customModelsEnabled
+        self.customModelsEnabled = customModelsEnabled ?? FeatureFlags.isEnabled(.customModelsV1, userDefaults: userDefaults)
         self.filmProjectID = filmProjectID
         self.shotID = shotID
         self.takeID = takeID
+
+        if modelId == ModelRegistry.customModelID {
+            let effectiveMode = customModelSourceMode
+                ?? userDefaults.string(forKey: ModelRegistry.customSourceModeUserDefaultsKey)
+                ?? CustomModelSourceMode.huggingFace.rawValue
+            self.customModelSourceMode = effectiveMode
+
+            if effectiveMode == CustomModelSourceMode.local.rawValue {
+                if let explicitPath = customModelLocalPath, !explicitPath.isEmpty {
+                    self.customModelLocalPath = LTX2MLXRuntime.localModelDirectory(at: explicitPath) ?? explicitPath
+                } else if let storedPath = userDefaults.string(forKey: ModelRegistry.customLocalPathUserDefaultsKey)?.trimmingCharacters(in: .whitespacesAndNewlines), !storedPath.isEmpty {
+                    self.customModelLocalPath = LTX2MLXRuntime.localModelDirectory(at: storedPath) ?? storedPath
+                } else {
+                    self.customModelLocalPath = nil
+                }
+            } else {
+                self.customModelLocalPath = customModelLocalPath
+            }
+        } else {
+            self.customModelLocalPath = customModelLocalPath
+            self.customModelSourceMode = customModelSourceMode
+        }
     }
 
     enum CodingKeys: String, CodingKey {
         case id
         case prompt
+        case brief
         case negativePrompt
         case voiceoverText
         case voiceoverSource
@@ -308,6 +339,8 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         case targetDurationSeconds
         case generationSource
         case customModelsEnabled
+        case customModelLocalPath
+        case customModelSourceMode
         case filmProjectID
         case shotID
         case takeID
@@ -317,6 +350,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
         prompt = try container.decode(String.self, forKey: .prompt)
+        brief = try container.decodeIfPresent(String.self, forKey: .brief)
         negativePrompt = try container.decode(String.self, forKey: .negativePrompt)
         voiceoverText = try container.decode(String.self, forKey: .voiceoverText)
         voiceoverSource = try container.decode(String.self, forKey: .voiceoverSource)
@@ -341,6 +375,8 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         targetDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .targetDurationSeconds)
         generationSource = try container.decodeIfPresent(String.self, forKey: .generationSource)
         customModelsEnabled = try container.decodeIfPresent(Bool.self, forKey: .customModelsEnabled) ?? false
+        customModelLocalPath = try container.decodeIfPresent(String.self, forKey: .customModelLocalPath)
+        customModelSourceMode = try container.decodeIfPresent(String.self, forKey: .customModelSourceMode)
         filmProjectID = try container.decodeIfPresent(UUID.self, forKey: .filmProjectID)
         shotID = try container.decodeIfPresent(UUID.self, forKey: .shotID)
         takeID = try container.decodeIfPresent(UUID.self, forKey: .takeID)

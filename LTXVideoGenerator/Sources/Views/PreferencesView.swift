@@ -1208,12 +1208,19 @@ struct DetectedPathsView: View {
 struct CustomLTX2MLXRuntimeSection: View {
     @Binding var executablePath: String
     @StateObject private var downloads = CustomModelDownloadCoordinator.shared
+    @AppStorage(ModelRegistry.customSourceModeUserDefaultsKey) private var customSourceModeRaw = CustomModelSourceMode.huggingFace.rawValue
     @AppStorage(ModelRegistry.customRepositoryUserDefaultsKey) private var customRepo = ""
+    @AppStorage(ModelRegistry.customLocalPathUserDefaultsKey) private var customLocalPath = ""
+
+    private var customSourceMode: CustomModelSourceMode {
+        get { CustomModelSourceMode(rawValue: customSourceModeRaw) ?? .huggingFace }
+        set { customSourceModeRaw = newValue.rawValue }
+    }
 
     private var model: LTXModel { CustomLTX2MLXModelCatalog.customModel() }
 
     private var readiness: LTX2MLXRuntime.Readiness {
-        LTX2MLXRuntime.readiness(repository: model.repo)
+        LTX2MLXRuntime.readiness()
     }
 
     var body: some View {
@@ -1234,23 +1241,50 @@ struct CustomLTX2MLXRuntimeSection: View {
                 Button("Choose…") { chooseExecutable() }
             }
 
-            statusRow(
-                title: "Custom Model Repo",
-                isReady: state.model.isReady,
-                readyDetail: "Ready: \(model.repo)",
-                missingDetail: modelStatusDetail
-            )
-            HStack {
-                TextField("Hugging Face repository (e.g. organization/model-name)", text: $customRepo)
-                    .textFieldStyle(.roundedBorder)
+            Divider()
+                .padding(.vertical, 2)
+
+            Picker("Model Source", selection: $customSourceModeRaw) {
+                Text("Hugging Face Repository").tag(CustomModelSourceMode.huggingFace.rawValue)
+                Text("Existing Local Model").tag(CustomModelSourceMode.local.rawValue)
             }
-            if !state.model.isReady && !model.repo.isEmpty && !model.repo.contains("user-supplied") {
-                modelDownloadControl
+            .pickerStyle(.segmented)
+
+            if customSourceMode == .huggingFace {
+                statusRow(
+                    title: "Custom Model Repo",
+                    isReady: state.model.isReady,
+                    readyDetail: "Ready: \(model.repo)",
+                    missingDetail: modelStatusDetail
+                )
+                HStack {
+                    TextField("Hugging Face repository (e.g. organization/model-name)", text: $customRepo)
+                        .textFieldStyle(.roundedBorder)
+                }
+                if !state.model.isReady && !model.repo.isEmpty && !model.repo.contains("user-supplied") {
+                    modelDownloadControl
+                }
+                BilingualSettingDescription(
+                    english: "Download with: hf download \(model.repo). Cached in ~/.cache/huggingface/.",
+                    japanese: "ダウンロード方法: hf download \(model.repo)。~/.cache/huggingface/に保存されます。"
+                )
+            } else {
+                statusRow(
+                    title: "Local Model Directory",
+                    isReady: state.model.isReady,
+                    readyDetail: "Ready: \(state.model.detail)",
+                    missingDetail: state.model.detail
+                )
+                HStack {
+                    TextField("Path to local model directory or snapshot folder", text: $customLocalPath)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Choose…") { chooseLocalModel() }
+                }
+                BilingualSettingDescription(
+                    english: "Directly uses existing local model weights without downloading. Compatible with Hugging Face snapshots or raw checkpoint folders.",
+                    japanese: "ローカルにある既存のモデル重みを直接使用します（再ダウンロード不要）。Hugging Faceのスナップショットやチェックポイントフォルダに対応しています。"
+                )
             }
-            BilingualSettingDescription(
-                english: "Download with: hf download \(model.repo). Cached in ~/.cache/huggingface/.",
-                japanese: "ダウンロード方法: hf download \(model.repo)。~/.cache/huggingface/に保存されます。"
-            )
 
             if !state.canGenerate {
                 Text("Generation with \(model.displayName) needs both the runtime and model weights.")
@@ -1315,6 +1349,24 @@ struct CustomLTX2MLXRuntimeSection: View {
         panel.message = "Select the ltx-2-mlx executable"
         if panel.runModal() == .OK, let url = panel.url {
             executablePath = url.path
+        }
+    }
+
+    private func chooseLocalModel() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Select the local model directory or snapshot folder"
+        panel.prompt = "Choose"
+
+        let defaultHub = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cache/huggingface/hub")
+        if FileManager.default.fileExists(atPath: defaultHub.path) {
+            panel.directoryURL = defaultHub
+        }
+
+        if panel.runModal() == .OK, let url = panel.url {
+            customLocalPath = url.path
         }
     }
 }

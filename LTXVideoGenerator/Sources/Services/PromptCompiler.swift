@@ -173,7 +173,7 @@ enum PromptCompiler {
         var sentences: [String] = []
 
         // Camera first: it frames everything that follows.
-        sentences.append(sentence(plan.camera, prefix: "The camera"))
+        sentences.append(formatCameraSentence(plan.camera))
 
         // For I2V the source image is the visual source of truth: do not
         // re-describe static appearance, only what changes/moves.
@@ -185,10 +185,10 @@ enum PromptCompiler {
             sentences.append(acting)
         }
         if let motion = plan.motion, !motion.isEmpty {
-            sentences.append(sentence(motion, prefix: "The motion is"))
+            sentences.append(formatMotionSentence(motion))
         }
         if let lighting = plan.lighting, !lighting.isEmpty {
-            sentences.append(sentence(lighting, prefix: "Lighting:"))
+            sentences.append(formatLightingSentence(lighting))
         }
 
         let dialogue = DialogueNormalizer.normalize(plan.dialogue, handling: options.japaneseHandling)
@@ -259,15 +259,52 @@ enum PromptCompiler {
         return min(241, max(25, n * 8 + 1))
     }
 
-    private static func sentence(_ text: String, prefix: String) -> String {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    private static func formatCameraSentence(_ camera: String) -> String {
+        let trimmed = camera.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
         let lower = trimmed.lowercased()
-        // Avoid duplicated subjects ("The camera the camera pans…").
-        if lower.hasPrefix("the camera") || lower.hasPrefix("camera")
-            || lower.hasPrefix("lighting") || lower.hasPrefix("the motion") {
+        if lower.hasPrefix("the camera") || lower.hasPrefix("camera") {
             return trimmed
         }
-        return "\(prefix) \(trimmed)"
+        if lower.hasPrefix("static") {
+            return "The camera holds a \(trimmed)"
+        }
+        let verbs = ["pans", "pan", "tilts", "tilt", "tracks", "track", "zooms", "zoom", "moves", "move", "holds", "hold", "rotates", "rotate", "follows", "follow", "circles", "dollies", "dolly", "sweeps", "glides", "drifts", "pushes", "pulls"]
+        let firstWord = lower.components(separatedBy: .whitespaces).first ?? ""
+        if verbs.contains(firstWord) {
+            return "The camera \(trimmed)"
+        }
+        return "The camera captures a \(trimmed)"
+    }
+
+    private static func formatMotionSentence(_ motion: String) -> String {
+        let trimmed = motion.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        let lower = trimmed.lowercased()
+        if lower.hasPrefix("the motion is") || lower.hasPrefix("motion is") {
+            return trimmed
+        }
+        if lower.hasPrefix("the motion") || lower.hasPrefix("motion") {
+            return trimmed
+        }
+        if lower == "natural, continuous motion" || lower == "natural, continuous" {
+            return "The motion is natural and continuous"
+        }
+        if lower.hasSuffix("motion") {
+            let withoutSuffix = trimmed.dropLast(6).trimmingCharacters(in: .whitespacesAndNewlines.union(.init(charactersIn: ",-")))
+            return "The motion is \(withoutSuffix)"
+        }
+        return "The motion is \(trimmed)"
+    }
+
+    private static func formatLightingSentence(_ lighting: String) -> String {
+        let trimmed = lighting.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        let lower = trimmed.lowercased()
+        if lower.hasPrefix("lighting:") || lower.hasPrefix("lighting is") || lower.hasPrefix("lighting") {
+            return trimmed
+        }
+        return "Lighting: \(trimmed)"
     }
 
     private static func ensureTerminated(_ text: String) -> String {

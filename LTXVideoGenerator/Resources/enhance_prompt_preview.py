@@ -63,11 +63,52 @@ def _apply_chat_template(system_prompt: str, user_content: str) -> str:
     return formatted
 
 
+TERMINAL_TOKENS = [
+    "<end_of_turn>",
+    "<eos>",
+    "<|eos|>",
+    "</s>",
+    "<|eot_id|>",
+    "<|end_of_text|>",
+    "<|im_end|>",
+]
+
+START_PATTERNS = [
+    r"^<start_of_turn>(?:model|assistant|user|system)?\s*",
+    r"^<\|im_start\|>(?:model|assistant|user|system)?\s*",
+    r"^<\|start_header_id\|>(?:model|assistant|user|system)<\|end_header_id\|>\s*",
+    r"<bos>",
+    r"<\|bos\|>",
+    r"<s>",
+]
+
+
 def _clean_response(response: str) -> str:
-    """Clean up the generated response."""
-    response = response.strip()
-    response = re.sub(r"^[^\w\s]+", "", response)
-    return response
+    """Clean up the generated response: truncate at first terminal token and strip control tags."""
+    text = response
+
+    # 1. Truncate at earliest terminal control token
+    earliest_pos = None
+    for token in TERMINAL_TOKENS:
+        pos = text.lower().find(token.lower())
+        if pos != -1:
+            if earliest_pos is None or pos < earliest_pos:
+                earliest_pos = pos
+    if earliest_pos is not None:
+        text = text[:earliest_pos]
+
+    # 2. Remove start tokens and chat-template role prefixes
+    for pat in START_PATTERNS:
+        text = re.sub(pat, "", text, flags=re.IGNORECASE)
+
+    # 3. Strip code fences
+    text = re.sub(r"```(?:markdown|json)?", "", text, flags=re.IGNORECASE)
+
+    # 4. Normalize whitespace
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    text = " ".join(lines).strip()
+
+    return text
 
 
 def _enhance_with_mlx_lm(

@@ -610,9 +610,14 @@ private struct ProjectDetailView: View {
                         Text(model)
                             .foregroundStyle(.secondary)
                     }
+                    if let protocolName = project.directorProtocol {
+                        Text(protocolName == "textProtocol" ? "(Text Protocol)" : "(Structured)")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
                 .font(.caption)
-                .help("Planned by \(project.directorProvider ?? "local AI")")
+                .help("Planned by \(project.directorProvider ?? "local AI") via \(project.directorProtocol ?? "local protocol")")
             }
             ProjectSettingsEditor(project: project) {
                 onChanged()

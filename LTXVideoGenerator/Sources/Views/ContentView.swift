@@ -488,6 +488,7 @@ private struct OneShotView: View {
                 }
                 let baseRequest = GenerationRequest(
                     prompt: trimmed,
+                    brief: trimmed,
                     sourceImagePath: validatedStartingImage,
                     disableAudio: !audioEnabled,
                     modelId: modelID,
@@ -524,6 +525,8 @@ private struct OneShotView: View {
             } catch let error as OneShotStartingImageError {
                 startingImageThumbnail = nil
                 startingImageError = error.localizedDescription
+                status = error.localizedDescription
+            } catch let error as DirectorError {
                 status = error.localizedDescription
             } catch {
                 status = "Planning failed: \(error.localizedDescription)"
@@ -591,20 +594,23 @@ struct ModelStatusView: View {
     @StateObject private var apiServer = APIServer.shared
     @AppStorage(LTXModelCatalog.selectedModelIDKey) private var selectedModelID = LTXModelCatalog.defaultModelID
 
-    private var selectedModel: LTXModel {
-        LTXModelCatalog.resolvedModel(id: selectedModelID)
+    private var displayInfo: ActiveModelDisplayResolver.DisplayInfo {
+        ActiveModelDisplayResolver.resolve(
+            modelID: selectedModelID,
+            generationServiceLoaded: generationService.isModelLoaded
+        )
     }
     
     var body: some View {
         VStack(spacing: 8) {
             // Model variant indicator
             HStack(spacing: 6) {
-                Image(systemName: "cpu")
+                Image(systemName: displayInfo.isCustom ? "shippingbox.fill" : "cpu")
                     .foregroundStyle(.blue)
-                Text(selectedModel.displayName)
+                Text(displayInfo.displayName)
                     .font(.caption.bold())
                 Spacer()
-                Text("MLX")
+                Text(displayInfo.backendBadge)
                     .font(.caption2.monospaced())
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -615,28 +621,30 @@ struct ModelStatusView: View {
             // Model status
             HStack(spacing: 8) {
                 Circle()
-                    .fill(generationService.isModelLoaded ? Color.green : Color.gray)
+                    .fill(displayInfo.isReady ? Color.green : Color.gray)
                     .frame(width: 8, height: 8)
-                Text(generationService.isModelLoaded ? "Environment Ready" : "Environment Not Ready")
+                Text(displayInfo.statusText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                if !generationService.isModelLoaded {
-                    Button("Load") {
-                        Task { await generationService.loadModel() }
+                if !displayInfo.isCustom {
+                    if !generationService.isModelLoaded {
+                        Button("Load") {
+                            Task { await generationService.loadModel() }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    } else {
+                        Button("Unload") {
+                            Task { await generationService.unloadModel() }
+                        }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                } else {
-                    Button("Unload") {
-                        Task { await generationService.unloadModel() }
-                    }
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
                 }
             }
 
-            if generationService.isModelLoaded {
+            if !displayInfo.isCustom && generationService.isModelLoaded {
                 Text("Model files are downloaded on first generation if cache is missing.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)

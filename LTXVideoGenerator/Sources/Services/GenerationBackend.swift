@@ -127,6 +127,41 @@ enum LTX2MLXRuntime {
 
     // MARK: Model
 
+    static func customModelSourceMode(userDefaults: UserDefaults = .standard) -> CustomModelSourceMode {
+        let raw = userDefaults.string(forKey: ModelRegistry.customSourceModeUserDefaultsKey) ?? ""
+        return CustomModelSourceMode(rawValue: raw) ?? .huggingFace
+    }
+
+    static func localModelPath(userDefaults: UserDefaults = .standard) -> String? {
+        guard let path = userDefaults.string(forKey: ModelRegistry.customLocalPathUserDefaultsKey),
+              !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        return path
+    }
+
+    /// Resolves whether a given directory path contains the required ltx-2-mlx model components,
+    /// checking both the direct folder and any nested `snapshots/` folder.
+    static func localModelDirectory(at path: String, fileManager: FileManager = .default) -> String? {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return nil
+        }
+        let url = URL(fileURLWithPath: path)
+        if hasRequiredComponents(in: url, fileManager: fileManager) {
+            return url.path
+        }
+        let snapshotsDir = url.appendingPathComponent("snapshots")
+        if let entries = try? fileManager.contentsOfDirectory(atPath: snapshotsDir.path) {
+            for entry in entries.sorted() {
+                let snap = snapshotsDir.appendingPathComponent(entry)
+                if hasRequiredComponents(in: snap, fileManager: fileManager) {
+                    return snap.path
+                }
+            }
+        }
+        return nil
+    }
+
     /// Resolves the cached snapshot directory for a repo, which is what
     /// `ltx-2-mlx --model` expects — it takes a directory, not a repo ID, when
     /// the weights are already local.
@@ -152,39 +187,112 @@ enum LTX2MLXRuntime {
         return nil
     }
 
-    private static func hasRequiredComponents(in directory: URL, fileManager: FileManager) -> Bool {
-        for component in LTX2MLXModelCatalog.requiredComponents {
-            let file = directory.appendingPathComponent(component)
-            // Follows the cache's symlinks into blobs/, and a zero-byte or
-            // still-downloading blob does not count as present.
-            let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            if size <= 0 { return false }
+    static func hasRequiredComponents(in directory: URL, fileManager: FileManager = .default) -> Bool {
+        guard let files = try? fileManager.contentsOfDirectory(atPath: directory.path) else { return false }
+
+        // 1. Must contain at least one valid transformer safetensors file (e.g. transformer.safetensors,
+        // transformer-distilled.safetensors, transformer-distilled-1.1.safetensors).
+        let hasTransformer = files.contains { name in
+            (name == "transformer.safetensors" ||
+             name.hasPrefix("transformer-distilled") ||
+             (name.contains("transformer") && name.hasSuffix(".safetensors"))) &&
+            fileSize(of: directory.appendingPathComponent(name)) > 0
         }
+        guard hasTransformer else { return false }
+
+        // 2. Must contain connector for prompt embedding projection
+        let hasConnector = files.contains { name in
+            name == "connector.safetensors" && fileSize(of: directory.appendingPathComponent(name)) > 0
+        }
+        guard hasConnector else { return false }
+
+        // 3. Must contain VAE decoder for video generation output
+        let hasVaeDecoder = files.contains { name in
+            name == "vae_decoder.safetensors" && fileSize(of: directory.appendingPathComponent(name)) > 0
+        }
+        guard hasVaeDecoder else { return false }
+
+        // 4. Must contain VAE encoder for image/frame conditioning
+        let hasVaeEncoder = files.contains { name in
+            name == "vae_encoder.safetensors" && fileSize(of: directory.appendingPathComponent(name)) > 0
+        }
+        guard hasVaeEncoder else { return false }
+
         return true
     }
 
+    private static func fileSize(of url: URL) -> Int {
+        (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+    }
+
     static func modelReadiness(
-        repository: String,
+        repository: String? = nil,
+        localPath: String? = nil,
+        sourceMode: CustomModelSourceMode? = nil,
+        userDefaults: UserDefaults = .standard,
         hubDirectory: URL? = nil,
         fileManager: FileManager = .default
     ) -> ComponentReadiness {
-        guard let directory = cachedModelDirectory(
-            repository: repository, hubDirectory: hubDirectory, fileManager: fileManager
-        ) else {
-            return .missing("The \(repository) weights are not downloaded yet.")
+        let mode = sourceMode ?? (localPath != nil ? .local : customModelSourceMode(userDefaults: userDefaults))
+        switch mode {
+        case .local:
+            let path: String?
+            if let localPath = localPath {
+                path = localPath.isEmpty ? nil : localPath
+            } else if sourceMode != nil {
+                // If sourceMode was explicitly frozen on the request without a valid localPath,
+                // do NOT fallback to live mutable preferences.
+                path = nil
+            } else {
+                path = self.localModelPath(userDefaults: userDefaults)
+            }
+            guard let path = path else {
+                return .missing("No local model directory selected. Choose a local model in Preferences.")
+            }
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory) else {
+                return .missing("The selected local model path does not exist at \(path).")
+            }
+            guard isDirectory.boolValue else {
+                return .missing("The selected local model path is a file, but a model directory is required.")
+            }
+            guard let resolved = localModelDirectory(at: path, fileManager: fileManager) else {
+                return .missing("The directory at \(path) does not appear to contain a complete ltx-2-mlx model (missing required .safetensors components).")
+            }
+            return .ready(resolved)
+
+        case .huggingFace:
+            let repo = repository
+                ?? userDefaults.string(forKey: ModelRegistry.customRepositoryUserDefaultsKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? ""
+            let effectiveRepo = repo.isEmpty ? "user-supplied/custom-model" : repo
+            guard let directory = cachedModelDirectory(
+                repository: effectiveRepo, hubDirectory: hubDirectory, fileManager: fileManager
+            ) else {
+                return .missing("The \(effectiveRepo) weights are not downloaded yet.")
+            }
+            return .ready(directory)
         }
-        return .ready(directory)
     }
 
     static func readiness(
-        repository: String,
+        repository: String? = nil,
+        localPath: String? = nil,
+        sourceMode: CustomModelSourceMode? = nil,
         userDefaults: UserDefaults = .standard,
         hubDirectory: URL? = nil,
         fileManager: FileManager = .default
     ) -> Readiness {
         Readiness(
             runtime: runtimeReadiness(userDefaults: userDefaults, fileManager: fileManager),
-            model: modelReadiness(repository: repository, hubDirectory: hubDirectory, fileManager: fileManager)
+            model: modelReadiness(
+                repository: repository,
+                localPath: localPath,
+                sourceMode: sourceMode,
+                userDefaults: userDefaults,
+                hubDirectory: hubDirectory,
+                fileManager: fileManager
+            )
         )
     }
 }
@@ -217,7 +325,10 @@ final class CustomModelDownloadCoordinator: ObservableObject {
     }
 
     /// Only ever called from an explicit user action.
-    func startDownload(repository: String) async {
+    func startDownload(repository: String, userDefaults: UserDefaults = .standard) async {
+        guard LTX2MLXRuntime.customModelSourceMode(userDefaults: userDefaults) == .huggingFace else {
+            return
+        }
         guard !repository.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         if case .downloading = state { return }
         if isCached(repository) {
@@ -239,10 +350,10 @@ final class CustomModelDownloadCoordinator: ObservableObject {
         }
     }
 
-    func retry(repository: String) async {
+    func retry(repository: String, userDefaults: UserDefaults = .standard) async {
         guard case .failed = state else { return }
         state = .idle
-        await startDownload(repository: repository)
+        await startDownload(repository: repository, userDefaults: userDefaults)
     }
 }
 

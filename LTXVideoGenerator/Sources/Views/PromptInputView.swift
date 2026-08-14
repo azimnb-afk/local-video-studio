@@ -811,7 +811,7 @@ struct PromptInputView: View {
                 DispatchQueue.main.async { previewStatusMessage = status }
             }
             await MainActor.run {
-                enhancedPreview = enhanced
+                enhancedPreview = enhanced.map { PromptSanitizer.sanitize($0) }
                 showEnhancedPreview = true
             }
         } catch {

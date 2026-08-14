@@ -84,7 +84,11 @@ struct LTX2MLXBackend {
         progressHandler: @escaping (Double, String) -> Void
     ) async throws -> (videoPath: String, seed: Int, enhancedPrompt: String?) {
         let readiness = LTX2MLXRuntime.readiness(
-            repository: model.repo, userDefaults: userDefaults, fileManager: fileManager
+            repository: model.repo,
+            localPath: request.customModelLocalPath,
+            sourceMode: request.customModelSourceMode.flatMap { CustomModelSourceMode(rawValue: $0) },
+            userDefaults: userDefaults,
+            fileManager: fileManager
         )
         // Runtime and model are reported separately: they have different fixes.
         guard case .ready(let executable) = readiness.runtime else {

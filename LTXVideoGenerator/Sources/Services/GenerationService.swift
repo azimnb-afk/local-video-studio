@@ -248,7 +248,7 @@ class GenerationService: ObservableObject {
                     // models still end up in the same LTXBridge fast path.
                     let descriptor: ModelDescriptor
                     do {
-                        descriptor = try ModelRegistry.shared.validateForGeneration(modelID: req.modelId)
+                        descriptor = try ModelRegistry.shared.validateForGeneration(request: req)
                     } catch let policyError as ModelPolicyError {
                         throw LTXError.generationFailed(policyError.userMessage)
                     }
@@ -477,6 +477,7 @@ class GenerationService: ObservableObject {
             generationResult.filmProjectID = request.filmProjectID
             generationResult.shotID = request.shotID
             generationResult.takeID = request.takeID
+            generationResult.brief = request.brief
 
             // Save to history
             historyManager.addResult(generationResult)

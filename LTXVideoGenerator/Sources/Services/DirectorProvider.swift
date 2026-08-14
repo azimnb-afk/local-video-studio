@@ -119,7 +119,7 @@ final class OllamaDirectorEnvironmentClient: DirectorEnvironmentClient {
     static let endpoint = URL(string: "http://127.0.0.1:11434")!
     private let session: URLSession
 
-    init(session: URLSession = .shared) { self.session = session }
+    init(session: URLSession = OllamaDirectorProvider.defaultSession) { self.session = session }
 
     func installedModels() async throws -> [String] {
         var request = URLRequest(url: Self.endpoint.appendingPathComponent("api/tags"))
@@ -314,7 +314,11 @@ final class DirectorEnvironmentService {
             return "Local AI replied, but the plan was missing required details. Try a different Local AI model in Settings."
         case "jsonSyntaxInvalid", "jsonExtractionFailed":
             return "Local AI replied, but not in the required format. Try a different Local AI model in Settings."
-        default: return "Local AI could not complete the plan."
+        case "noResponse":
+            return "Local AI did not return a response in time. Check that Ollama is responsive."
+        case "ollamaRequestFailed":
+            return "Local AI request failed. Check that Ollama is running."
+        default: return "Local AI could not complete the plan (\(reason ?? "unknown"))."
         }
     }
 }
@@ -325,6 +329,8 @@ enum DirectorError: Error, Equatable {
     case invalidPlanJSON(String)
     case planValidationFailed([String])
     case providerFailed(String)
+    case basicNormalizationFailed(String)
+    case unsupportedRenderLanguage(String)
 }
 
 extension DirectorError: LocalizedError {
@@ -336,6 +342,10 @@ extension DirectorError: LocalizedError {
             return message
         case .planValidationFailed(let issues):
             return "Director plan validation failed: \(issues.joined(separator: ", "))"
+        case .basicNormalizationFailed(let message):
+            return message
+        case .unsupportedRenderLanguage(let message):
+            return message
         }
     }
 }
@@ -345,6 +355,13 @@ extension DirectorError: LocalizedError {
 final class OllamaDirectorProvider: DirectorProvider {
     let name = "ollama"
     static let modelUserDefaultsKey = "directorOllamaModel"
+
+    static let defaultSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 300 // 5 minutes for local LLM planning
+        config.timeoutIntervalForResource = 300
+        return URLSession(configuration: config)
+    }()
 
     private let baseURL: URL
     private let session: URLSession
@@ -356,7 +373,7 @@ final class OllamaDirectorProvider: DirectorProvider {
 
     init(model: String? = nil,
          baseURL: URL = OllamaDirectorEnvironmentClient.endpoint,
-         session: URLSession = .shared) {
+         session: URLSession = OllamaDirectorProvider.defaultSession) {
         self.explicitModel = model
         self.baseURL = baseURL
         self.session = session
@@ -448,7 +465,7 @@ final class EnvironmentDirectorProvider: DirectorProvider {
 
     var modelIdentifier: String? { selectedModel }
 
-    init(mode: DirectorMode, environment: DirectorEnvironmentService = DirectorEnvironmentService(), session: URLSession = .shared) {
+    init(mode: DirectorMode, environment: DirectorEnvironmentService = DirectorEnvironmentService(), session: URLSession = OllamaDirectorProvider.defaultSession) {
         self.mode = mode
         self.environment = environment
         self.session = session
@@ -481,12 +498,17 @@ final class EnvironmentDirectorProvider: DirectorProvider {
     }
 }
 
-/// Deterministic no-LLM fallback so the Director feature degrades gracefully
-/// when no local LLM is installed: the brief itself becomes the action and
-/// sensible defaults fill the rest. Always available, uses no memory.
+/// Local fallback director provider: provides template-based shot planning
+/// when no local LLM is installed. Uses RenderTextNormalizer for renderer-safe English
+/// descriptions. Always available, uses minimal memory.
 final class TemplateDirectorProvider: DirectorProvider {
     let name = "template"
     let isFallbackProvider = true
+    let normalizer: RenderTextNormalizer
+
+    init(normalizer: RenderTextNormalizer = BasicRenderLanguageNormalizer()) {
+        self.normalizer = normalizer
+    }
 
     func isAvailable() async -> Bool { true }
 
@@ -499,11 +521,18 @@ final class TemplateDirectorProvider: DirectorProvider {
         } else {
             brief = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         }
+
+        // Normalize user brief into renderer-safe English action
+        let normalizedAction = try await normalizer.normalizeDescriptionToEnglish(brief)
+
+        // Strict renderer-language validation gate
+        try RenderLanguageValidator.validateRendererAction(normalizedAction)
+
         let plan = OneShotPlan(
             camera: "static medium shot, eye level",
-            action: brief,
+            action: normalizedAction,
             acting: nil,
-            motion: "natural, continuous motion",
+            motion: "natural and continuous",
             lighting: "soft natural lighting",
             dialogue: [],
             audioCues: [],

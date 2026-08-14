@@ -52,16 +52,16 @@ final class LocalDirector {
     You are a film director planning a single continuous video shot (4-8 seconds).
     Respond with ONLY a JSON object, no markdown, with these fields:
     {
-      "camera": "framing and camera movement",
-      "action": "chronological, present-tense description of visible action",
-      "acting": "performance and expression notes (optional)",
-      "motion": "motion quality and pacing (optional)",
-      "lighting": "light direction and mood (optional)",
+      "camera": "framing and camera movement in English",
+      "action": "chronological, present-tense description of visible action in English",
+      "acting": "performance and expression notes in English (optional)",
+      "motion": "motion quality and pacing in English (optional)",
+      "lighting": "light direction and mood in English (optional)",
       "dialogue": [{"speaker": "name", "text": "spoken line"}],
-      "audioCues": ["sound effect or ambience"],
+      "audioCues": ["sound effect or ambience in English"],
       "durationIntentSeconds": 5
     }
-    Keep the user's dialogue lines verbatim if they provided any. Do not add
+    Translate or normalize the action and visuals into clear English for the video generation model, while keeping the user's spoken dialogue lines verbatim if they provided any. Do not add
     scene cuts — this is one continuous shot.
     \(PerShotAudioPolicy.directorInstruction)
     """
@@ -150,6 +150,10 @@ final class LocalDirector {
         japaneseHandling: JapaneseDialogueHandling = .native
     ) async throws -> (request: GenerationRequest, plan: OneShotPlan, providerName: String) {
         let (plan, providerName) = try await self.plan(brief: brief)
+
+        // Strict English renderer action validation gate
+        try RenderLanguageValidator.validateRendererAction(plan.action)
+
         let compiled = PromptCompiler.compile(
             plan: plan,
             options: PromptCompiler.Options(
@@ -169,6 +173,7 @@ final class LocalDirector {
         let request = GenerationRequest(
             id: base.id,
             prompt: compiled,
+            brief: base.brief ?? brief,
             negativePrompt: base.negativePrompt,
             voiceoverText: base.voiceoverText,
             voiceoverSource: base.voiceoverSource,
@@ -192,6 +197,8 @@ final class LocalDirector {
             targetDurationSeconds: customParameters ? nil : (base.targetDurationSeconds ?? plan.durationIntentSeconds),
             generationSource: base.generationSource ?? "oneShot",
             customModelsEnabled: base.customModelsEnabled,
+            customModelLocalPath: base.customModelLocalPath,
+            customModelSourceMode: base.customModelSourceMode,
             filmProjectID: base.filmProjectID,
             shotID: base.shotID,
             takeID: base.takeID

@@ -120,6 +120,13 @@ struct ModelInstallRecord: Codable, Equatable {
     var checksumVerified: Bool
 }
 
+// MARK: - Custom Model Source Mode
+
+public enum CustomModelSourceMode: String, Codable, CaseIterable {
+    case huggingFace = "huggingFace"
+    case local = "local"
+}
+
 // MARK: - Registry
 
 /// Registry of known models. Official models mirror LTXModelCatalog;
@@ -130,6 +137,7 @@ final class ModelRegistry {
     public static let customModelID = "custom_ltx2_mlx"
     public static let customRepositoryUserDefaultsKey = "customLTX2MLXRepository"
     public static let customLocalPathUserDefaultsKey = "customLTX2MLXLocalPath"
+    public static let customSourceModeUserDefaultsKey = "customLTX2MLXSourceMode"
 
     private(set) var descriptors: [String: ModelDescriptor] = [:]
     private let userDefaults: UserDefaults
@@ -226,7 +234,25 @@ final class ModelRegistry {
     // MARK: Lookup
 
     func descriptor(id: String) -> ModelDescriptor? {
+        if id == Self.customModelID {
+            seedCustomModel()
+        }
         return descriptors[id]
+    }
+
+    /// Resolves a ModelDescriptor tailored for an immutable GenerationRequest,
+    /// honoring any frozen local snapshot path or pinned revision.
+    func descriptor(for request: GenerationRequest) -> ModelDescriptor? {
+        guard var desc = descriptor(id: request.modelId) else { return nil }
+        if request.modelId == Self.customModelID {
+            if let frozenPath = request.customModelLocalPath, !frozenPath.isEmpty {
+                desc.localPath = frozenPath
+            }
+            if let frozenRevision = request.modelRevision {
+                desc.revision = frozenRevision
+            }
+        }
+        return desc
     }
 
     func refreshVerification(from lab: CompatibilityLab) {
@@ -266,6 +292,15 @@ final class ModelRegistry {
         try validatePolicy(modelID: modelID, customModelsEnabled: customModelsEnabled)
         guard let model = descriptor(id: modelID) else {
             throw ModelPolicyError.modelNotRegistered(modelID: modelID)
+        }
+        return model
+    }
+
+    func validateForGeneration(request: GenerationRequest, customModelsEnabled: Bool? = nil) throws -> ModelDescriptor {
+        let allowCustom = customModelsEnabled ?? (request.customModelsEnabled || FeatureFlags.isEnabled(.customModelsV1, userDefaults: userDefaults))
+        try validatePolicy(modelID: request.modelId, customModelsEnabled: allowCustom)
+        guard let model = descriptor(for: request) else {
+            throw ModelPolicyError.modelNotRegistered(modelID: request.modelId)
         }
         return model
     }

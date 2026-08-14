@@ -3,7 +3,7 @@
 [![macOS](https://img.shields.io/badge/macOS-14.0+-blue.svg)](https://www.apple.com/macos/)
 [![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-M1%2FM2%2FM3%2FM4-orange.svg)](https://support.apple.com/en-us/HT211814)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/Release-v0.9.0--preview.1-purple.svg)](RELEASE_NOTES_v0.9.0-preview.1.md)
+[![Release](https://img.shields.io/badge/Release-v0.9.0--preview.2-purple.svg)](RELEASE_NOTES_v0.9.0-preview.2.md)
 
 Apple Silicon Macで、画像1枚＋短い指示からローカルAI動画を生成。
 LTX-2.3、Custom MLX Models、Auto Movie、Local AI Director対応。
@@ -26,13 +26,22 @@ Generation runs **locally on your Mac** via Apple Silicon unified memory—no re
 
 - **Native macOS Interface**: Built in SwiftUI with native performance, real-time generation previews, and background job queuing.
 - **Auto Movie Director**: Turn a single prompt or opening reference image into a multi-beat cinematic story. Plans camera angles, shot scales, and action pacing.
-- **Local AI Director**: Connects to local LLM providers (Ollama / Local AI) to negotiate structured multi-shot scripts on-device.
+- **Local AI Director with Text Protocol Fallback**: Connects to local LLM providers (Ollama / Local AI) with dual-protocol negotiation (Structured JSON + Text Protocol fallback) and 300-second timeout support for large reasoning models.
 - **Storyboard Workflow**: Build multi-shot films shot-by-shot with full manual control over prompts, takes, and camera direction.
 - **Shot Continuity (Last-Frame I2V)**: Seamlessly carries the selected take's final frame into subsequent shots as an image conditioning anchor with adaptive strength.
 - **Character & Scene Consistency**: Opening Reference analysis extracts environment, lighting, subject state, and visible clothing evidence to ground scene continuity across takes.
 - **Selected Take Precedence**: Generate multiple takes per shot and mark your preferred version for downstream continuity and Final Assembly.
 - **Source Orientation Presets**: Automatically adapts generation resolutions (16:9 landscape vs 9:16 portrait) based on input source image aspect ratios.
 - **Motion Tempo Control**: Contextual motion pacing instructions preserved across multi-shot sequences.
+- **Multilingual Input & Strict English Render Prompts**:
+  - **Original Brief vs. Render Prompt**: Preserves original user language in project briefs while ensuring descriptive render prompts are clean, renderer-safe English.
+  - **Apple On-Device Translation**: Translates non-English descriptions locally on macOS without cloud APIs or network calls.
+  - **Dialogue Separation**: Retains user dialogue verbatim in its original language.
+  - **Fail-Closed Safety**: Rejects un-translatable descriptive non-English text to prevent renderer hallucination.
+- **Enhanced Prompt Sanitizer**: Strips chat-template special tokens (`<end_of_turn>`, `<|eot_id|>`, `</s>`, etc.) and constrains local LLM semantic over-expansion.
+- **Existing Local Model Support**: Directly pick local weight folders for custom LTX-2 MLX models without redownloading.
+- **Immutable Queued Snapshots**: Freezes model configurations into queued generation jobs, ensuring queue items execute with their original model even if UI selections change.
+- **Live Sidebar Model Indicator**: Real-time display reflecting active UI model selection and environment readiness.
 - **Integrated Audio Pipeline**:
   - **Native Synchronized Audio**: Per-shot natural sound effects generated directly by the underlying model.
   - **No-BGM Policy v2**: Prompt-level suppression of unwanted background music to keep speech/SFX clean.
@@ -52,7 +61,7 @@ Generation runs **locally on your Mac** via Apple Silicon unified memory—no re
 | **LTX-2.3 Unified** | LTX-2.3 AV | `mlx-video-with-audio` | Supported (Beta) | 48–64 GB Unified Memory |
 | **Custom LTX-2 MLX Model** | LTX-2 Derived | `ltx-2-mlx` | Supported (User-Configurable) | 24–32 GB Unified Memory |
 
-*Note: Custom LTX-2 MLX models can be configured in Preferences > Models & Features and run via the isolated `ltx-2-mlx` backend.*
+*Note: Custom LTX-2 MLX models can be configured in Preferences > Models & Features and run via the isolated `ltx-2-mlx` backend using either Hugging Face repositories or existing local directories.*
 
 ---
 
@@ -101,7 +110,7 @@ Builds the Debug application with isolated development state (`com.localvideostu
 
 ### 4. Try One Shot
 1. Switch to **One Shot**.
-2. Select an image, choose a motion tempo and camera direction, and click **Plan & Generate**.
+2. Select an image, choose a motion tempo and camera direction, and click **Plan & Generate**. Multilingual briefs are automatically translated to clean English render prompts on-device.
 
 ### 5. Create an Auto Movie
 1. Switch to **Auto Movie**.
@@ -114,7 +123,7 @@ Builds the Debug application with isolated development state (`com.localvideostu
 ## Auto Movie Workflow
 
 1. **Opening Reference Grounding**: Drop a starting image. The vision engine analyzes scene environment, lighting, subject state, visible clothing, and key objects.
-2. **Director Beat Planning**: The Local AI Director formats structured JSON shot beats consistent with the opening visual state.
+2. **Director Beat Planning**: The Local AI Director formats structured shot beats consistent with the opening visual state. If Structured JSON fails, it automatically succeeds via Text Protocol.
 3. **CUT / CONTINUE Strategy**:
    - **CONTINUE**: Automatically passes the last frame of the previous shot as the starting image for continuous action.
    - **CUT**: Transitions camera angles or locations without image conditioning.
@@ -125,8 +134,8 @@ Builds the Debug application with isolated development state (`com.localvideostu
 ## Director Modes
 
 - **Auto**: Automatically selects the best available director provider.
-- **Local AI**: Connects to localhost Ollama (`gemma3`, `llama3`, `qwen2.5`) with structured JSON protocol negotiation.
-- **Basic (Deterministic)**: Rule-based fallback director ensuring reliable shot planning without requiring an external LLM server.
+- **Local AI**: Connects to localhost Ollama (`qwen3.6`, `gemma3`, `llama3`, `qwen2.5`). Employs Structured JSON with automatic Text Protocol negotiation and 300s timeout support for reasoning models.
+- **Basic (Deterministic)**: Template-based director with Apple on-device translation ensuring reliable shot planning without requiring an external LLM server.
 
 ---
 
@@ -144,6 +153,7 @@ Builds the Debug application with isolated development state (`com.localvideostu
 Models are managed transparently:
 - **Video Weights**: Downloaded on first generation into `~/.cache/huggingface/hub/`. Downloads can be paused and resumed.
 - **Text Encoders**: Selected in Preferences (Default: `Gemma 12B bf16` / `Gemma 4B bf16` / `Gemma 12B 4-bit`). Explicit **Download** button in the UI ensures the text encoder is cached before generation starts.
+- **Custom Local Models**: Configure existing local weights directly via folder selection in Preferences > Models & Features > Custom LTX-2 MLX Model.
 - **No Background Telemetry**: Models are fetched directly from official Hugging Face repositories only upon explicit user action.
 
 ---
@@ -151,6 +161,7 @@ Models are managed transparently:
 ## Production Queue
 
 All generation requests are dispatched to a resilient background queue:
+- **Immutable Job Snapshots**: Every queued request retains its frozen model ID and custom path, even if you switch the active model in the UI during rendering.
 - **Non-blocking UI**: Continue writing prompts and planning storyboards while generations render.
 - **Job Status & Cancellation**: Inspect live rendering progress, execution time, and memory usage.
 - **Persistent Archive**: Finished jobs automatically populate the project archive.
@@ -174,7 +185,8 @@ All generation requests are dispatched to a resilient background queue:
 
 ## Known Issues & Limitations
 
-- **No-BGM is Prompt-Based**: Negative prompting strongly suppresses BGM, but acoustic output is model-dependent and music suppression cannot be 100% mathematically guaranteed by the diffusion weights.
+- **No-BGM is Best-Effort with Built-in Audio**: Negative prompting strongly suppresses BGM in the prompt plumbing, but acoustic output is model-dependent and music suppression cannot be guaranteed by the diffusion weights. For guaranteed music-free output, turn **Built-in Audio OFF** and use **Final Audio** or external diegetic audio tracks.
+- **Apple On-Device Translation Availability**: Native programmatic platform translation requires supported macOS versions (macOS 26.0+); on unsupported or earlier macOS releases, non-English descriptive inputs fail-closed safely rather than leaking raw Japanese to the renderer.
 - **Motion Tempo Continuity**: Motion tempo shapes prompt dynamics across shots, but true physical momentum continuation remains bounded by Last-Frame I2V conditioning.
 - **Identity Consistency vs Face Lock**: Character Bible grounding maintains costume and appearance consistency, but diffusion models do not provide deterministic biometric Face Lock.
 - **External Dependency**: `ffmpeg` is required for multi-shot assembly and must be installed separately by the user.
@@ -184,7 +196,7 @@ All generation requests are dispatched to a resilient background queue:
 
 ## Privacy & Local-First Architecture
 
-- **100% Local Inference**: Video generation, text embedding, Local Director LLM, and final movie assembly execute completely on your Mac.
+- **100% Local Inference**: Video generation, text embedding, Local Director LLM, Apple on-device translation, and final movie assembly execute completely on your Mac.
 - **Zero Telemetry**: No analytics, crash telemetry, or tracking pings are embedded in the codebase.
 - **Secure Credential Storage**: Optional ElevenLabs API keys are stored securely in macOS Keychain with isolated namespaces for Personal and Dev apps.
 - **Optional Cloud APIs**: ElevenLabs voiceover and music are strictly opt-in and only invoked if you explicitly provide an API key.
@@ -193,7 +205,7 @@ All generation requests are dispatched to a resilient background queue:
 
 ## Development Status
 
-- **Current Version**: `v0.9.0-preview.1` (Public Preview Release Candidate)
+- **Current Version**: `v0.9.0-preview.2` (Public Preview Release Candidate)
 - **Status**: Feature Frozen for Preview Hardening.
 
 ---

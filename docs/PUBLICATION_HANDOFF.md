@@ -25,7 +25,7 @@ The sanitized public staging repository has been prepared locally at:
    git status
    git log -1
    ```
-2. Verify that all 2,193 tests pass from the staged repository:
+2. Verify that all 2,201 tests pass from the staged repository:
    ```bash
    swift build
    swift run LTXTests

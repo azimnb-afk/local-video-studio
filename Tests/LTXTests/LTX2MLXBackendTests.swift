@@ -261,4 +261,36 @@ func runLTX2MLXBackendTests(_ t: TestKit) {
             }
         }
     }
+
+    t.suite("10Eros process environment / FFmpeg propagation") {
+        // Test 1: Prepends resolved FFmpeg directory to PATH
+        let baseEnv = ["PATH": "/usr/bin:/bin", "USER": "testuser"]
+        let envWithFFmpeg = LTX2MLXBackend.runtimeEnvironment(
+            base: baseEnv,
+            ffmpegPath: "/opt/homebrew/bin/ffmpeg"
+        )
+        let path = envWithFFmpeg["PATH"] ?? ""
+        let parts = path.components(separatedBy: ":")
+
+        t.checkEqual(envWithFFmpeg["USER"], "testuser", "base environment preserved")
+        t.check(parts.contains("/opt/homebrew/bin"), "PATH contains /opt/homebrew/bin")
+        t.check(parts.contains("/usr/bin"), "PATH contains /usr/bin")
+        t.check(parts.contains("/bin"), "PATH contains /bin")
+        t.check(parts.first == "/opt/homebrew/bin", "/opt/homebrew/bin prepended to front")
+
+        // Test 2: No duplicates when already in PATH
+        let duplicateBase = ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"]
+        let deduplicatedEnv = LTX2MLXBackend.runtimeEnvironment(
+            base: duplicateBase,
+            ffmpegPath: "/opt/homebrew/bin/ffmpeg"
+        )
+        let dedupPath = deduplicatedEnv["PATH"] ?? ""
+        let dedupParts = dedupPath.components(separatedBy: ":")
+        let homebrewCount = dedupParts.filter { $0 == "/opt/homebrew/bin" }.count
+        t.checkEqual(homebrewCount, 1, "No duplicate /opt/homebrew/bin in PATH")
+
+        // Test 3: Standard candidates are all represented
+        t.check(dedupParts.contains("/usr/local/bin"), "PATH contains /usr/local/bin")
+        t.check(dedupParts.contains("/usr/bin"), "PATH contains /usr/bin")
+    }
 }

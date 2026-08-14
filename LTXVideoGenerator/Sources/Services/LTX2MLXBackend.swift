@@ -93,6 +93,12 @@ struct LTX2MLXBackend {
         guard case .ready(let modelDirectory) = readiness.model else {
             throw LTXError.modelLoadFailed("\(model.displayName): \(readiness.model.detail)")
         }
+        guard FFmpegDetector.isAvailable else {
+            throw LTXError.generationFailed(
+                "FFmpeg is required for \(GenerationBackendKind.ltx2MLX.displayName) video generation but was not found. "
+                + "Install it via Homebrew: brew install ffmpeg"
+            )
+        }
 
         let params = request.parameters
         // ltx-2-mlx works in multiples of 32; the app already snaps to 64.
@@ -124,6 +130,37 @@ struct LTX2MLXBackend {
         return (outputPath, seed, nil)
     }
 
+    /// Builds a process environment containing the resolved FFmpeg directory in PATH.
+    static func runtimeEnvironment(
+        base: [String: String] = ProcessInfo.processInfo.environment,
+        ffmpegPath: String? = FFmpegDetector.findFFmpeg()
+    ) -> [String: String] {
+        var env = base
+        var searchDirs: [String] = []
+        if let ffmpeg = ffmpegPath {
+            let dir = URL(fileURLWithPath: ffmpeg).deletingLastPathComponent().path
+            searchDirs.append(dir)
+        }
+        for candidate in FFmpegDetector.searchPaths {
+            let dir = URL(fileURLWithPath: candidate).deletingLastPathComponent().path
+            if !searchDirs.contains(dir) {
+                searchDirs.append(dir)
+            }
+        }
+        let existing = env["PATH"] ?? ""
+        let parts = existing.components(separatedBy: ":")
+        var prepend: [String] = []
+        for dir in searchDirs {
+            if !parts.contains(dir) && !prepend.contains(dir) {
+                prepend.append(dir)
+            }
+        }
+        if !prepend.isEmpty {
+            env["PATH"] = (prepend + [existing]).filter { !$0.isEmpty }.joined(separator: ":")
+        }
+        return env
+    }
+
     private func run(
         executable: String,
         arguments: [String],
@@ -133,6 +170,7 @@ struct LTX2MLXBackend {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: executable)
             process.arguments = arguments
+            process.environment = Self.runtimeEnvironment()
 
             let outPipe = Pipe()
             let errPipe = Pipe()

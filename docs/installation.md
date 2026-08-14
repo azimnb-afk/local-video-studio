@@ -7,7 +7,7 @@ nav_order: 2
 # Installation Guide
 {: .no_toc }
 
-Complete setup instructions for LTX Video Generator.
+Complete setup instructions for Local Video Studio.
 {: .fs-6 .fw-300 }
 
 ## Table of contents
@@ -21,20 +21,20 @@ Complete setup instructions for LTX Video Generator.
 ## Download the App
 
 1. Obtain a release published by the repository maintainer
-2. Download the latest `.dmg` file
-3. Open the DMG and drag **LTX Video Generator** to your Applications folder
+2. Download the latest `.dmg` file or build from source
+3. Open the DMG and drag **Local Video Studio** to your Applications folder
 4. Open the app normally. A released DMG will be Developer ID signed and
    notarized; a `-local-test.dmg` is for the developer's own Mac only.
 
 ## Configure Python
 
-LTX Video Generator uses an external isolated Python environment. The exercised
+Local Video Studio uses an external isolated Python environment. The exercised
 production combination is Python 3.14.5 with `mlx-video-with-audio` 0.1.36;
 the backend package requires Python 3.11 or newer.
 
 ### Step 1: Open Preferences
 
-1. Launch **LTX Video Generator**
+1. Launch **Local Video Studio**
 2. Open **Preferences** (⌘,)
 3. Click **Auto Detect** to find your Python installation
 

@@ -1,4 +1,4 @@
-# LTX Video Generator - MLX Dependencies
+# Local Video Studio - MLX Dependencies
 # Required for Apple Silicon MLX-based video generation
 
 # Core MLX framework

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Setup GitHub Secrets for LTX Video Generator CI/CD
+# Setup GitHub Secrets for Local Video Studio CI/CD
 # This script helps export and configure the required secrets
 
 set -e
@@ -7,7 +7,7 @@ set -e
 REPO="${GITHUB_REPOSITORY:?Set GITHUB_REPOSITORY to owner/repository before configuring secrets.}"
 CERT_NAME="${CODE_SIGN_IDENTITY:-Developer ID Application}"
 
-echo "=== LTX Video Generator - GitHub Secrets Setup ==="
+echo "=== Local Video Studio - GitHub Secrets Setup ==="
 echo ""
 
 # Step 1: Export the certificate

@@ -1,12 +1,12 @@
 #!/bin/bash
 set -e
 
-# LTX Video Generator - Local Build Script
+# Local Video Studio - Local Build Script
 # This script builds, signs, notarizes, and packages the app for distribution
 
 # Configuration
-APP_NAME="LTX Video Generator"
-BUNDLE_ID="${PRODUCT_BUNDLE_IDENTIFIER:-com.example.ltxvideogenerator}"
+APP_NAME="Local Video Studio"
+BUNDLE_ID="${PRODUCT_BUNDLE_IDENTIFIER:-com.localvideostudio.personal}"
 SCHEME="LTXVideoGenerator"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="${PROJECT_DIR}/build"
@@ -23,7 +23,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}=== LTX Video Generator Build Script ===${NC}"
+echo -e "${GREEN}=== Local Video Studio Build Script ===${NC}"
 echo "Project: ${PROJECT_DIR}"
 echo ""
 

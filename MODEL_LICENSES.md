@@ -31,11 +31,12 @@ The Gemma Terms of Use permit commercial use, but require passing the same terms
 
 ## User-Configured Custom Models (ltx-2-mlx compatible)
 
-The application supports user-configured arbitrary fine-tuned models compatible with the `ltx-2-mlx` backend. These models are configured locally in Preferences:
+Local Video Studio supports user-supplied third-party models compatible with the `ltx-2-mlx` backend. These models are configured locally in Preferences:
 
-- The application source code does not distribute or pre-bundle any third-party fine-tuned weights.
-- When configuring a custom repository or local directory path, it is the user's responsibility to review and comply with the specific license terms and acceptable use policies governing those weights.
-- Custom models execute via the isolated `ltx-2-mlx` backend on local hardware.
+- **No Bundled Weights**: The application source code and distribution archives do not bundle, host, or distribute any third-party fine-tuned weights.
+- **No Specific Endorsement**: Local Video Studio does not recommend, endorse, or warrant any specific third-party model.
+- **User Responsibility**: Each third-party model may have its own license, acceptable use policy, and distribution restrictions. Users are responsible for reviewing and complying with the respective terms before downloading or using any custom model.
+- **Isolated Execution**: Custom models execute via the isolated `ltx-2-mlx` backend on local hardware.
 
 ## What this document is not
 

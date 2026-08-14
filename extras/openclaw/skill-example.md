@@ -6,13 +6,13 @@ directory and adjust to your skill format version.
 ```markdown
 ---
 name: ltx-video
-description: Generate short videos locally with the LTX Video Generator Mac app (localhost API). Use for "generate a video of ...", "animate this image ...".
+description: Generate short videos locally with the Local Video Studio Mac app (localhost API). Use for "generate a video of ...", "animate this image ...".
 ---
 
 # ltx-video
 
 Base URL: http://127.0.0.1:8421
-Token: read from ~/Library/Application Support/LTXVideoGenerator/api_token
+Token: read from ~/Library/Application Support/LocalVideoStudio/api_token
 Header: Authorization: Bearer <token>
 
 ## Generate from text

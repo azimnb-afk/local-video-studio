@@ -65,10 +65,10 @@ jobs:
           
           # Export app from archive
           mkdir -p build dist
-          cp -R "build/LTXVideoGenerator.xcarchive/Products/Applications/LTXVideoGenerator.app" "build/LTX Video Generator.app"
+          cp -R "build/LTXVideoGenerator.xcarchive/Products/Applications/LTXVideoGenerator.app" "build/Local Video Studio.app"
           
           # Verify app exists
-          ls -la "build/LTX Video Generator.app"
+          ls -la "build/Local Video Studio.app"
           
           echo "Build complete"
 
@@ -78,7 +78,7 @@ jobs:
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          APP_PATH="build/LTX Video Generator.app"
+          APP_PATH="build/Local Video Studio.app"
           
           # Create zip for notarization
           ditto -c -k --keepParent "$APP_PATH" build/app.zip
@@ -101,11 +101,11 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          DMG_NAME="LTXVideoGenerator-${VERSION}.dmg"
+          DMG_NAME="LocalVideoStudio-${VERSION}.dmg"
           
           # Create DMG
-          hdiutil create -volname "LTX Video Generator" \
-            -srcfolder "build/LTX Video Generator.app" \
+          hdiutil create -volname "Local Video Studio" \
+            -srcfolder "build/Local Video Studio.app" \
             -ov \
             -format UDZO \
             "dist/${DMG_NAME}"

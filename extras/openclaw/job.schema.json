@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "LTX Video Generator v1 Job",
+  "title": "Local Video Studio v1 Job",
   "type": "object",
   "required": ["prompt"],
   "properties": {

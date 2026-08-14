@@ -20,11 +20,11 @@ Technical details of the generation pipeline and supported models.
 
 ## Overview
 
-LTX Video Generator is a native macOS SwiftUI application that shells out to a Python backend (`mlx-video-with-audio`) for the actual generation work. The Python library runs LTX-2 models on Apple Silicon using MLX.
+Local Video Studio is a native macOS SwiftUI application that shells out to a Python backend (`mlx-video-with-audio`) for the actual generation work. The Python library runs LTX-2 models on Apple Silicon using MLX.
 
 ```
 ┌──────────────────────────────┐
-│  LTX Video Generator (Swift) │
+│  Local Video Studio (Swift)  │
 │  SwiftUI · GenerationService │
 │  LTXBridge · PythonEnv       │
 └──────────┬───────────────────┘

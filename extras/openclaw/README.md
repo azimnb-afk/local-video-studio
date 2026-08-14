@@ -1,6 +1,6 @@
 # OpenClaw / Local Agent Integration (optional)
 
-LTX Video Generator is a **GUI-first macOS app**. This directory documents the
+Local Video Studio is a **GUI-first macOS app**. This directory documents the
 optional localhost REST API (v1) that lets OpenClaw — or any local agent or
 script — drive the same generation core the GUI uses. The app is 100% usable
 without OpenClaw; this API is an additional entry point, not a runtime.
@@ -16,7 +16,7 @@ without OpenClaw; this API is an additional entry point, not a runtime.
 A random installation token is generated on first start:
 
 ```
-~/Library/Application Support/LTXVideoGenerator/api_token
+~/Library/Application Support/LocalVideoStudio/api_token
 ```
 
 Send it on every request:

@@ -7,7 +7,7 @@ nav_order: 3
 # Usage Guide
 {: .no_toc }
 
-Learn how to get the best results from LTX Video Generator.
+Learn how to get the best results from Local Video Studio.
 {: .fs-6 .fw-300 }
 
 ## Table of contents

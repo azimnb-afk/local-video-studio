@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# LTX Video Generator - Release Build Script
+# Local Video Studio - Release Build Script
 # Supports two modes: local-test and distribution
 
 # Configuration
@@ -50,12 +50,12 @@ require_distribution_credentials() {
 
 case "$MODE" in
 local-test)
-    echo "=== LTX Video Generator Build ==="
+    echo "=== Local Video Studio Build ==="
     echo "Mode: local-test"
     echo "WARNING: This is a local test build. NOT FOR DISTRIBUTION."
     ;;
 distribution)
-    echo "=== LTX Video Generator Build ==="
+    echo "=== Local Video Studio Build ==="
     echo "Mode: distribution"
     require_distribution_credentials
     ;;

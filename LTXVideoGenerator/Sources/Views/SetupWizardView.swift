@@ -55,7 +55,7 @@ public struct SetupWizardView: View {
                 .foregroundStyle(.blue)
                 .padding(.bottom, 8)
             
-            Text("Set Up LTX Video Generator")
+            Text("Set Up Local Video Studio")
                 .font(.largeTitle.bold())
             
             Text("Let's make sure your Mac is ready to generate local AI video.")
@@ -334,7 +334,7 @@ public struct SetupWizardView: View {
     }
     
     private func copyDiagnostics() {
-        var logs = ["LTX Video Generator Diagnostics\n---"]
+        var logs = ["Local Video Studio Diagnostics\n---"]
         for req in SetupRequirement.allCases {
             let statusStr: String
             if let status = healthManager.statuses[req] {

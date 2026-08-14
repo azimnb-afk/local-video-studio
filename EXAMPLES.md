@@ -1,6 +1,6 @@
 # Example Prompts
 
-A collection of prompts that work well with LTX Video Generator. Copy-paste these directly or use them as inspiration for your own scenes.
+A collection of prompts that work well with Local Video Studio. Copy-paste these directly or use them as inspiration for your own scenes.
 
 ---
 

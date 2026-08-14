@@ -546,7 +546,7 @@ struct PreferencesView: View {
                     .font(.system(size: 64))
                     .foregroundStyle(.blue.gradient)
                 
-                Text("LTX Video Generator")
+                Text("Local Video Studio")
                     .font(.title)
                     .bold()
                 
@@ -557,7 +557,7 @@ struct PreferencesView: View {
                     .frame(width: 200)
                 
                 VStack(spacing: 8) {
-                    Text("Powered by LTX-2 from Lightricks")
+                    Text("Native AI Video Studio for Apple Silicon")
                     Link("https://github.com/Lightricks/LTX-2",
                          destination: URL(string: "https://github.com/Lightricks/LTX-2")!)
                 }

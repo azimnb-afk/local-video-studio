@@ -8,7 +8,9 @@
 Apple Silicon Macで、画像1枚＋短い指示からローカルAI動画を生成。
 LTX-2.3、Custom MLX Models、Auto Movie、Local AI Director対応。
 
-> **Software license vs. model license**: The MIT license in this repository covers the Swift and Python application source code only. It does **not** cover model weights, Gemma text encoder weights, or other third-party models downloaded from Hugging Face. See [MODEL_LICENSES.md](MODEL_LICENSES.md) and [Licensing](#licensing).
+> **Independent Project Disclaimer**: Local Video Studio is an independent open-source community project and is not affiliated with, sponsored by, or endorsed by Lightricks Ltd., Google LLC, or Apple Inc.
+>
+> **Software License vs. Model Licenses**: The MIT license in this repository covers the Swift and Python application source code only. **No model weights are bundled in this repository or source release.** LTX-2.3, Gemma text encoders, and user-supplied third-party models are separate works downloaded independently by the user from Hugging Face and remain subject to their respective licenses and usage terms. See [MODEL_LICENSES.md](MODEL_LICENSES.md) and [License](#license).
 
 ---
 
@@ -207,8 +209,9 @@ All generation requests are dispatched to a resilient background queue:
 
 ---
 
-## License
+## License & Disclaimers
 
-This application's source code is licensed under the **MIT License** — see [LICENSE](LICENSE).
-For third-party software licenses, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-For model weights and licenses, see [MODEL_LICENSES.md](MODEL_LICENSES.md).
+- **Application Source Code**: Licensed under the **MIT License** — see [LICENSE](LICENSE).
+- **Third-Party Software**: For third-party software dependencies and their licenses, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+- **Model Weights & Terms**: Model weights are **not bundled** with this application. LTX-2.3 is provided separately by Lightricks and is subject to the applicable LTX model license. Gemma components are subject to the Gemma Terms of Use and applicable Prohibited Use Policy. Local Video Studio supports user-supplied third-party models compatible with the `ltx-2-mlx` backend; these weights are not bundled or recommended by this project and remain subject to their respective licenses and usage terms. Users are responsible for reviewing and complying with all applicable terms. See [MODEL_LICENSES.md](MODEL_LICENSES.md).
+- **Independent Project**: Local Video Studio is an independent community project and is not affiliated with, sponsored by, or endorsed by Lightricks Ltd., Google LLC, or Apple Inc.

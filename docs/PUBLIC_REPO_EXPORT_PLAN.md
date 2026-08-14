@@ -1,12 +1,10 @@
-# Public Repository Export Plan
-
-This document defines the procedure for exporting the feature-frozen codebase from the private development workspace into a clean, public repository named **`ltx-video-mac-automovie`**.
+This document defines the procedure for exporting the feature-frozen codebase from the private development workspace into a clean, public repository named **`local-video-studio`**.
 
 ---
 
 ## 1. Export Overview
 
-- **Target Public Repository Name**: `ltx-video-mac-automovie`
+- **Target Public Repository Name**: `local-video-studio`
 - **Initial Public Release Tag**: `v0.9.0-preview.1`
 - **Export Strategy**: Fresh single initial commit containing all approved tracked files. No private branch history, internal debugging transcripts, or experimental POC commits will be exported.
 
@@ -88,13 +86,7 @@ swift run LTXTests
 
 # 5. Create initial public release commit
 git add .
-git commit -m "feat: initial public preview v0.9.0-preview.1
-
-LTX Video Generator for Mac — AutoMovie Edition
-- Apple Silicon native AI video generation via MLX
-- LTX-2.3 & Custom MLX video diffusion
-- Auto Movie & Local AI Director integration
-- Storyboard, shot continuity, and production queue"
+git commit -m "Local Video Studio for Mac — AutoMovie Edition v0.9.0-preview.1 (Source-Only Public Preview)"
 
 # 6. Tag the release candidate
 git tag -a v0.9.0-preview.1 -m "Release v0.9.0-preview.1"

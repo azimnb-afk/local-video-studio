@@ -42,8 +42,8 @@ This checklist defines the required verification steps before tagging or publish
 
 - [ ] **App Version**: `MARKETING_VERSION` matches candidate version (e.g. `0.9.0`).
 - [ ] **Build Number**: `CURRENT_PROJECT_VERSION` incremented monotonically (e.g. `9`).
-- [ ] **App Display Name**: `LTX Video Generator`.
-- [ ] **Bundle Identifier**: `com.example.ltxvideogenerator` preserved without regression.
+- [ ] **App Display Name**: `Local Video Studio` (Personal) / `Local Video Studio Dev` (Dev).
+- [ ] **Bundle Identifier**: `com.localvideostudio.personal` / `com.localvideostudio.dev` isolated without regression.
 - [ ] **Code Signing & Notarization**:
   - Unsigned/ad-hoc build for developer preview verified.
   - Distribution signing/notarization profile verified if building standalone `.dmg`.
@@ -68,5 +68,5 @@ This checklist defines the required verification steps before tagging or publish
 - [ ] Human review of license declarations and third-party notices.
 - [ ] Human verification of developer signing identity and notarization credentials.
 - [ ] Manual smoke test on target Apple Silicon hardware (e.g. M4 Pro / M3 Max).
-- [ ] Create clean public git repository `ltx-video-mac-automovie`.
+- [ ] Create clean public git repository `local-video-studio`.
 - [ ] Publish public GitHub release tag `v0.9.0-preview.1`.

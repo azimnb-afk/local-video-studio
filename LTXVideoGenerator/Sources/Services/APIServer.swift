@@ -117,7 +117,7 @@ class APIServer: ObservableObject {
         switch (method, path) {
         case ("GET", "/"):
             sendResponse(connection, status: 200, body: [
-                "service": "LTX Video Generator",
+                "service": "Local Video Studio",
                 "version": "1.0.5",
                 "endpoints": [
                     "GET /status": "Server and generation status",

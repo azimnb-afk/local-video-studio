@@ -17,11 +17,11 @@ This document provides the concise checklist and step-by-step procedure for the 
 ## Staged Public Repository Verification
 
 The sanitized public staging repository has been prepared locally at:
-`/Users/azimnb/ltx23appdev/ltx-video-mac-automovie-public-preview`
+`<STAGING_REPO_PATH>` (e.g. `../ltx-video-mac-automovie-public-preview`)
 
 1. Inspect the staged files:
    ```bash
-   cd /Users/azimnb/ltx23appdev/ltx-video-mac-automovie-public-preview
+   cd <STAGING_REPO_PATH>
    git status
    git log -1
    ```
@@ -43,7 +43,7 @@ Create a new public repository on GitHub (e.g. named `ltx-video-mac-automovie` o
 
 ### 2. Add Remote and Push
 ```bash
-cd /Users/azimnb/ltx23appdev/ltx-video-mac-automovie-public-preview
+cd <STAGING_REPO_PATH>
 
 # Add your GitHub remote URL
 git remote add origin https://github.com/<your-username>/<your-repo-name>.git

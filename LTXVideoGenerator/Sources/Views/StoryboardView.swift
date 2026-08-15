@@ -40,12 +40,12 @@ struct StoryboardView: View {
     var body: some View {
         VStack(spacing: 0) {
             BilingualPageHeader(
-                title: mode == .hybrid ? "Auto Movie (Sora 2-like)" : "Storyboard",
+                title: mode == .hybrid ? "Auto Movie" : "Storyboard",
                 englishDescription: mode == .hybrid
-                    ? "Turn a simple idea into multiple connected shots and automatically assemble them into a complete video."
+                    ? "Create longer sequences with automatic shot-to-shot continuity from the previous final frame."
                     : "Build and manage a video as multiple shots, takes, and characters.",
                 japaneseDescription: mode == .hybrid
-                    ? "簡単なアイデアから連続した複数のショットを生成し、1本の動画として自動で仕上げます。"
+                    ? "前のショットの最終フレームを引き継ぎ、連続したショットでより長い映像シーケンスを自動生成します。"
                     : "複数のショット・テイク・キャラクターを管理しながら映像を制作します。"
             )
             .padding(.horizontal, 24)

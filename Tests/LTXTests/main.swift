@@ -262,7 +262,10 @@ if CommandLine.arguments.count >= 2,
         project.workflowMode = AutoMovieRunCoordinator.autoMovieWorkflowMode
         project.continuityChainEnabled = true
         project.settings.modelID = LTXModelCatalog.defaultModelID
-        project.settings.textEncoderID = LTXTextEncoderCatalog.defaultTextEncoderID
+        // Acceptance must remain offline and reuse the encoder already proven
+        // by this repository's real E2E runs. The catalog default is the much
+        // larger BF16 encoder and can trigger an unintended model download.
+        project.settings.textEncoderID = "gemma3_12b_4bit"
         // .advanced skips Auto Quality resolution entirely, so the literal
         // numFrames/numInferenceSteps below are honored instead of being
         // replaced by a hardware-fitted profile (Auto Quality can pick a much

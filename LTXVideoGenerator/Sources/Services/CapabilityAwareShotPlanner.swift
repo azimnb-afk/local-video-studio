@@ -158,6 +158,8 @@ enum CapabilityAwareShotPlanner {
         brief: String
     ) -> (shots: [StoryboardDirector.ShotPlanDraft], adjustments: [Adjustment]) {
         let userAskedForTightFraming = briefRequestsTightFraming(brief)
+        let userExplicitOverride = CharacterContinuitySafetyPolicy.isExplicitUserIntentOverride(in: brief)
+        let honoursExplicitIntent = userAskedForTightFraming || userExplicitOverride
         // A single-shot draft is the input to beat splitting, not a shot as it
         // will be rendered, so its action chain is a duration question that the
         // splitter answers — not a shot-design problem for this pass.
@@ -194,16 +196,16 @@ enum CapabilityAwareShotPlanner {
                     index: index, risk: .normal, reasons: [],
                     originalScale: scale, effectiveScale: scale,
                     originalSummary: draft.summary, effectiveSummary: opening.summary,
-                    honoursExplicitUserFraming: false,
+                    honoursExplicitUserFraming: honoursExplicitIntent,
                     appliedOpeningAnchor: anchorApplies
                 ))
                 continue
             }
 
-            guard !userAskedForTightFraming else {
-                // The brief named this kind of framing. Recorded as risky, but
-                // deliberately left alone: an automatic policy should not delete
-                // a visual choice the user made themselves.
+            guard !honoursExplicitIntent else {
+                // The brief named this kind of framing or explicit character direction.
+                // Recorded as risky, but deliberately left alone: an automatic policy
+                // should not delete a visual choice the user made themselves.
                 effective.append(draft)
                 adjustments.append(Adjustment(
                     index: index, risk: .highRisk, reasons: reasons,
@@ -278,6 +280,11 @@ enum CapabilityAwareShotPlanner {
             if beats >= maxVisibleBeats {
                 reasons.append("\(beats) action beats in one short shot")
             }
+        }
+
+        // E. Character Continuity Safety: prolonged departure/disappearance risk in continuous sequence
+        if CharacterContinuitySafetyPolicy.isProlongedDisappearance(current.summary) {
+            reasons.append("prolonged subject disappearance/empty-frame risk")
         }
         return reasons
     }
@@ -377,6 +384,9 @@ enum CapabilityAwareShotPlanner {
         }
         if reasons.contains(where: { $0.contains("action beats") }) {
             directives.append("Show this as one continuous action.")
+        }
+        if reasons.contains("prolonged subject disappearance/empty-frame risk") {
+            text = CharacterContinuitySafetyPolicy.safeContinuitySummary(text)
         }
         guard !directives.isEmpty else { return text }
         let terminated = text.hasSuffix(".") || text.hasSuffix("!") || text.hasSuffix("?")

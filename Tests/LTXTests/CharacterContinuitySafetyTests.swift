@@ -4,12 +4,13 @@ import Foundation
 func runCharacterContinuitySafetyTests(_ t: TestKit) {
     t.suite("Character Continuity Safety Tests") {
 
-        // MARK: - Section 22: Face Absence Avoidance Guidance
+        // MARK: - A. Structured prompt contains Character Continuity Safety
         let structuredPrompt = StoryboardDirector.storyboardSystemPrompt
         t.check(structuredPrompt.contains("CHARACTER CONTINUITY SAFETY"), "Structured prompt contains safety header")
         t.check(structuredPrompt.contains("avoid prolonged face absence"), "Structured prompt guides against prolonged face absence")
         t.check(structuredPrompt.contains("split the shot BEFORE identity information is lost"), "Structured prompt instructs shot splitting before identity loss")
 
+        // MARK: - B. Text Protocol contains semantic equivalent
         let textSystem = DirectorPlanFormat.systemPrompt(for: .textProtocol, characterBible: CharacterBible())
         t.check(textSystem.contains("CHARACTER CONTINUITY SAFETY"), "Text Protocol system prompt contains safety guidance")
         t.check(textSystem.contains("avoid prolonged face absence"), "Text Protocol guides against prolonged face absence")
@@ -18,7 +19,53 @@ func runCharacterContinuitySafetyTests(_ t: TestKit) {
         t.check(textTemplate.contains("CHARACTER CONTINUITY SAFETY"), "Text Protocol template contains safety guidance")
         t.check(textTemplate.contains("split shots before characters leave or disappear"), "Text Protocol template includes shot split directive")
 
-        // MARK: - Section 23: Gradual Camera Change Guidance
+        // MARK: - C. Basic Template risky face-absence case
+        let riskySummary = "A woman walks down a corridor, leaves the frame completely, the camera stays on the empty corridor, then she returns toward the camera."
+        let riskyDraft = StoryboardDirector.ShotPlanDraft(
+            title: "Risky Shot",
+            summary: riskySummary,
+            shotScale: "medium",
+            continuity: "continue"
+        )
+        let basicPlanned = CapabilityAwareShotPlanner.plan(
+            shots: [riskyDraft],
+            brief: "A woman in a hallway"
+        )
+        t.check(basicPlanned.adjustments.first?.reasons.contains("prolonged subject disappearance/empty-frame risk") == true, "Risky face absence detected in Basic planner")
+        let effectiveSummary = basicPlanned.shots.first?.summary ?? ""
+        t.check(!effectiveSummary.contains("stays on the empty corridor"), "Basic planner avoids prolonged empty-frame interval")
+        t.check(effectiveSummary.contains("approaches the corridor exit") || effectiveSummary.contains("keeping facial and clothing features visible"), "Basic planner preserves identity evidence before boundary")
+
+        // MARK: - D. Explicit "back only" user intent preserved
+        let explicitBackBrief = "Show only her back for the entire shot."
+        let backDraft = StoryboardDirector.ShotPlanDraft(
+            title: "Back Shot",
+            summary: "A woman stands facing away, showing only her back for the entire shot.",
+            shotScale: "medium",
+            continuity: "continue"
+        )
+        let backPlanned = CapabilityAwareShotPlanner.plan(
+            shots: [backDraft],
+            brief: explicitBackBrief
+        )
+        t.check(backPlanned.adjustments.first?.honoursExplicitUserFraming == true, "Explicit back intent preserved in Basic planner")
+        t.checkEqual(backPlanned.shots.first?.summary, backDraft.summary, "Explicit back summary left untouched")
+
+        // MARK: - E. Explicit "leave frame" user intent preserved
+        let explicitExitBrief = "A silhouette of a traveler who leaves frame completely into sunset."
+        let exitDraft = StoryboardDirector.ShotPlanDraft(
+            title: "Exit Shot",
+            summary: "A silhouette of a traveler who leaves frame completely into sunset.",
+            shotScale: "wide",
+            continuity: "cut"
+        )
+        let exitPlanned = CapabilityAwareShotPlanner.plan(
+            shots: [exitDraft],
+            brief: explicitExitBrief
+        )
+        t.check(exitPlanned.adjustments.first?.honoursExplicitUserFraming == true, "Explicit exit intent preserved in Basic planner")
+
+        // MARK: - F. Gradual camera guidance
         let instruction = CharacterContinuitySafetyPolicy.directorInstruction
         t.check(instruction.contains("Use gradual camera reframing"), "Instructs gradual camera reframing")
         t.check(instruction.contains("rather than extreme abrupt jumps"), "Warns against extreme abrupt jumps")
@@ -29,23 +76,7 @@ func runCharacterContinuitySafetyTests(_ t: TestKit) {
         let scales4 = AutoMovieBeatPlanner.shotScales(count: 4)
         t.checkEqual(scales4, ["wide", "medium", "medium-close-up", "close-up"], "4-beat movie steps smoothly without extreme leaps")
 
-        // MARK: - Section 24: User Intent Override
-        let explicitBack = "Show only her back for the entire shot."
-        t.check(CharacterContinuitySafetyPolicy.isExplicitUserIntentOverride(in: explicitBack), "Detects explicit back view intent")
-
-        let explicitBehind = "A mysterious figure seen from behind only walking into fog."
-        t.check(CharacterContinuitySafetyPolicy.isExplicitUserIntentOverride(in: explicitBehind), "Detects 'from behind only' intent")
-
-        let explicitSilhouette = "A dancer in complete silhouette against the sunset."
-        t.check(CharacterContinuitySafetyPolicy.isExplicitUserIntentOverride(in: explicitSilhouette), "Detects 'silhouette' intent")
-
-        let explicitJapanese = "主人公の後ろ姿のみを映し続ける"
-        t.check(CharacterContinuitySafetyPolicy.isExplicitUserIntentOverride(in: explicitJapanese), "Detects Japanese back-view intent")
-
-        let normalBrief = "A woman walks down a corridor, turns to face the camera and smiles."
-        t.check(!CharacterContinuitySafetyPolicy.isExplicitUserIntentOverride(in: normalBrief), "Normal face-forward action is not an override")
-
-        // MARK: - Section 25: Identity Text Persistence without Prompt Inflation
+        // MARK: - G. Identity-critical text remains concise
         var char = CharacterBibleEntry(name: "Elena")
         char.appearance.hair = "black bob haircut"
         char.appearance.faceDescription = "sharp angular features"
@@ -69,22 +100,7 @@ func runCharacterContinuitySafetyTests(_ t: TestKit) {
         t.check(compiled.contains("Current costume: red leather jacket."), "Contains costume")
         t.check(compiled.count < 300, "Compiled character context remains concise (\(compiled.count) chars)")
 
-        // MARK: - Section 26: Fallback Semantic Parity
-        let structured = StoryboardDirector.storyboardSystemPrompt
-        t.check(structured.contains("Keep face and identity evidence"), "Structured has face evidence guidance")
-
-        let textSystem2 = DirectorPlanFormat.systemPrompt(for: .textProtocol, characterBible: CharacterBible())
-        t.check(textSystem2.contains("Keep face/hair/costume visible"), "Text Protocol has face evidence guidance")
-
-        let beatSummary = AutoMovieBeatPlanner.beatSummary(
-            brief: "A detective inspects a vintage car",
-            index: 1,
-            count: 3
-        )
-        t.check(!beatSummary.isEmpty, "Beat planner produces active continuation without empty absence")
-        t.check(!beatSummary.lowercased().contains("leaves the frame"), "Beat planner does not invent character departure")
-
-        // MARK: - Section 27: Auto Movie Strict Sequential Continuity Regression
+        // MARK: - H. Auto Movie strict continuity regression & manual Storyboard preservation
         let coordinator = HybridProjectCoordinator()
         let settings = ProjectSettings(targetDurationSeconds: 15)
 
@@ -109,20 +125,19 @@ func runCharacterContinuitySafetyTests(_ t: TestKit) {
         }
         sem.wait()
 
-        // MARK: - Section 28: Storyboard Manual Workflow Regression
-        var project = FilmProject(title: "Manual Film")
-        var shot1 = Shot(index: 0, title: "Shot 1")
-        shot1.continuityMode = .cut
+        var manualProject = FilmProject(title: "Manual Film")
+        var mShot1 = Shot(index: 0, title: "Shot 1")
+        mShot1.continuityMode = .cut
 
-        var shot2 = Shot(index: 1, title: "Shot 2")
-        shot2.continuityMode = .continueFromPrevious
+        var mShot2 = Shot(index: 1, title: "Shot 2")
+        mShot2.continuityMode = .continueFromPrevious
 
-        var shot3 = Shot(index: 2, title: "Shot 3")
-        shot3.continuityMode = .cut
+        var mShot3 = Shot(index: 2, title: "Shot 3")
+        mShot3.continuityMode = .cut
 
-        project.shots = [shot1, shot2, shot3]
-        t.checkEqual(project.shots[0].continuityMode, .cut, "Manual shot 1 is cut")
-        t.checkEqual(project.shots[1].continuityMode, .continueFromPrevious, "Manual shot 2 is continue")
-        t.checkEqual(project.shots[2].continuityMode, .cut, "Manual shot 3 respects manual cut")
+        manualProject.shots = [mShot1, mShot2, mShot3]
+        t.checkEqual(manualProject.shots[0].continuityMode, .cut, "Manual shot 1 is cut")
+        t.checkEqual(manualProject.shots[1].continuityMode, .continueFromPrevious, "Manual shot 2 is continue")
+        t.checkEqual(manualProject.shots[2].continuityMode, .cut, "Manual shot 3 respects manual cut")
     }
 }

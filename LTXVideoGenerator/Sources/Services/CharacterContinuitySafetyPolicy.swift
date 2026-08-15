@@ -29,7 +29,8 @@ public enum CharacterContinuitySafetyPolicy {
     private static let explicitIntentPatterns: [String] = [
         "show only her back", "show only his back", "show only their back",
         "from behind only", "back view only", "facing away entirely",
-        "silhouette only", "complete silhouette", "leaves frame completely",
+        "silhouette only", "complete silhouette", "silhouette of", "silhouette",
+        "leaves frame completely", "leaves the frame completely",
         "walks away into distance", "extreme wide only", "never show face",
         "顔を見せない", "後ろ姿のみ", "背中のみ", "シルエットのみ", "完全に画面外"
     ]
@@ -45,12 +46,35 @@ public enum CharacterContinuitySafetyPolicy {
     public static func isProlongedDisappearance(_ summary: String) -> Bool {
         let lower = summary.lowercased()
         let exitPhrases = [
+            "leaves the frame completely",
+            "leaves frame completely",
             "leaves the frame and disappears",
+            "leaves frame and disappears",
             "leaves frame, camera stays on empty",
             "walks out of view for a long time",
             "completely disappears from view",
             "vacant empty hallway for several seconds"
         ]
         return exitPhrases.contains { lower.contains($0) }
+    }
+
+    /// Rewrites a prolonged disappearance summary to end while the subject remains identifiable,
+    /// fulfilling Rule 2 (Split before identity information is lost).
+    public static func safeContinuitySummary(_ summary: String) -> String {
+        var text = summary
+        let exitReplacements: [(pattern: String, replacement: String)] = [
+            ("leaves the frame completely, the camera stays on the empty corridor", "approaches the corridor exit, keeping facial and clothing features visible before the shot ends"),
+            ("leaves the frame completely", "approaches the frame boundary while remaining visible"),
+            ("leaves the frame and disappears", "moves toward the frame edge while remaining identifiable"),
+            ("leaves frame, camera stays on empty", "moves forward while keeping identity evidence in frame"),
+            ("completely disappears from view", "moves toward the exit with visible identity cues"),
+            ("vacant empty hallway for several seconds", "active subject in the corridor")
+        ]
+        for (pattern, replacement) in exitReplacements {
+            if let range = text.range(of: pattern, options: .caseInsensitive) {
+                text.replaceSubrange(range, with: replacement)
+            }
+        }
+        return text
     }
 }

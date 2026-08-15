@@ -1227,7 +1227,7 @@ private struct ShotCard: View {
     @ViewBuilder
     private var continuityBadge: some View {
         let resolved = AutoMovieRunCoordinator.shared
-            .resolvedContinuityMode(forShotAt: shot.index, in: project)
+            .displayedAutoMovieContinuityMode(forShotAt: shot.index, in: project)
         if let blocked = shot.continuityBlockedReason {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)

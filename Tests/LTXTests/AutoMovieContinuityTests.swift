@@ -170,16 +170,33 @@ func runAutoMovieContinuityTests(_ t: TestKit) {
             t.check(false, "planTakes threw for continue shot: \(error)")
         }
 
-        // J. A cut shot must NOT inherit anything.
+        // J. Since preview.3, Auto Movie ignores a Director-planned Cut on
+        // Shot 2+ entirely and still inherits from the previous shot.
         let cutStore = makeStore("cut")
         let cutProject = makeProject(store: cutStore, shotCount: 2, continuity: .cut)
         _ = completeShot(store: cutStore, projectID: cutProject.id, shotIndex: 0, videoPath: fixtureA)
         var pending: [GenerationRequest] = []
         _ = AutoMovieRunCoordinator(store: cutStore).advance(projectID: cutProject.id) { pending = $0 }
-        t.check(pending.first?.sourceImagePath == nil, "cut shot does not inherit a starting image")
+        t.check(pending.first?.sourceImagePath != nil,
+                "a Director-planned Cut no longer applies inside Auto Movie — Shot 2 still inherits")
         let cutSaved = cutStore.project(id: cutProject.id)!
-        t.check(cutSaved.shots[1].continuityImageRelativePath == nil,
-                "cut shot stores no continuity asset")
+        t.check(cutSaved.shots[1].continuityImageRelativePath != nil,
+                "the continuity asset is still extracted and stored")
+
+        // The generic engine is unchanged for manual Storyboards: an explicit
+        // Cut there still means no inheritance.
+        let sbCutStore = makeStore("storyboard-cut")
+        let sbCutProject = makeProject(
+            store: sbCutStore, shotCount: 2, workflowMode: nil, continuity: .cut)
+        _ = completeShot(store: sbCutStore, projectID: sbCutProject.id, shotIndex: 0, videoPath: fixtureA)
+        do {
+            let sbRequests = try TakeGenerationCoordinator(store: sbCutStore).planTakes(
+                projectID: sbCutProject.id, shotID: sbCutProject.shots[1].id, count: 1)
+            t.check(sbRequests.first?.sourceImagePath == nil,
+                    "a manual Storyboard Cut shot still does not inherit a starting image")
+        } catch {
+            t.check(false, "planTakes threw for a manual Storyboard cut shot: \(error)")
+        }
     }
 
     t.suite("Auto Movie — selected Take controls future regeneration") {
@@ -344,13 +361,15 @@ func runAutoMovieContinuityTests(_ t: TestKit) {
             t.check(false, "unexpected no-usable-Take error: \(error)")
         }
 
+        // Since preview.3, a stored Cut on Auto Movie Shot 2+ no longer has any
+        // effect at generation time — the policy always continues.
         var cutProject = reopened.project(id: project.id)!
         cutProject.shots[1].continuityMode = .cut
         reopened.save(cutProject)
         let cutRequests = try? reopenedCoordinator.planTakes(
             projectID: project.id, shotID: project.shots[1].id, count: 1, baseSeed: 908)
-        t.check(cutRequests?.first?.sourceImagePath == nil,
-                "Cut ignores every previous selected Take")
+        t.check(cutRequests?.first?.sourceImagePath?.contains(take3.uuidString) == true,
+                "Auto Movie ignores a stored Cut on Shot 2+ and still falls back to the latest usable Take")
     }
 
     t.suite("Auto Movie — edited Cut / Continue reaches execution") {
@@ -393,9 +412,9 @@ func runAutoMovieContinuityTests(_ t: TestKit) {
         t.check(continueRequests.first?.isImageToVideo == true,
                 "the edited Continue executes as Last Frame I2V")
 
-        // CONTINUE → CUT after a frame was already prepared must not leak that
-        // path. Advance sees the new effective mode and plans an independent
-        // request; the editor has also removed every stale prepared reference.
+        // Since preview.3, Auto Movie Shot 2+ can no longer be edited to Cut
+        // at all — the edit is rejected, the prepared frame is left in place,
+        // and the run coordinator still enqueues the shot as a continuation.
         let cutStore = makeStore("edited-cut")
         var cutProject = makeProject(store: cutStore, shotCount: 2)
         _ = completeShot(
@@ -406,27 +425,25 @@ func runAutoMovieContinuityTests(_ t: TestKit) {
         cutProject = cutStore.project(id: cutProject.id)!
         t.check(cutProject.shots[1].continuityImageRelativePath != nil,
                 "fixture begins with a prepared continuation frame")
-        t.check(AutoMoviePlanEditor.applyContinuityMode(
+        t.check(!AutoMoviePlanEditor.applyContinuityMode(
             project: &cutProject, shotID: cutProject.shots[1].id, mode: .cut),
-                "a prepared Continue can be changed to Cut")
+                "Auto Movie Shot 2+ cannot be edited to Cut")
         cutStore.save(cutProject)
         var cutRequests: [GenerationRequest] = []
         let cutStep = AutoMovieRunCoordinator(store: cutStore).advance(
             projectID: cutProject.id) { cutRequests = $0 }
         if case .enqueued = cutStep {
-            t.check(true, "the edited Cut is enqueued independently")
+            t.check(true, "the shot still enqueues as a continuation")
         } else {
-            t.check(false, "expected edited Cut to enqueue, got \(cutStep)")
+            t.check(false, "expected enqueued step, got \(cutStep)")
         }
         let cutSaved = cutStore.project(id: cutProject.id)!
-        t.check(cutSaved.shots[1].continuityImageRelativePath == nil,
-                "edited Cut retains no prepared previous-frame path")
-        t.check(cutSaved.shots[1].identityRefreshAnchorRelativePath == nil,
-                "edited Cut retains no continuation-derived refresh anchor")
-        t.check(cutRequests.first?.sourceImagePath == nil,
-                "the generation request contains no previous-frame leak")
-        t.check(cutRequests.first?.isImageToVideo == false,
-                "without another valid source the edited Cut executes as T2V")
+        t.check(cutSaved.shots[1].continuityImageRelativePath != nil,
+                "the rejected edit leaves the prepared previous-frame path in place")
+        t.check(cutRequests.first?.sourceImagePath != nil,
+                "the previous shot's frame is still used")
+        t.check(cutRequests.first?.isImageToVideo == true,
+                "the shot still executes as Last Frame I2V")
     }
 
     // MARK: - No silent fallback
@@ -857,15 +874,20 @@ func runContinuityStrengthTests(_ t: TestKit) {
         t.checkEqual(explicitPending.first?.parameters.imageStrength, 1.0,
                      "B: explicit starting image keeps exact-first-frame strength")
 
-        // C. A cut shot gets neither an image nor the continuity strength.
+        // C. Since preview.3, a Director-planned Cut on Auto Movie Shot 2+
+        // still inherits the previous shot's frame with the full calibrated
+        // continuity strength — Shot 2+ always has meaningful previous-frame
+        // conditioning, never a scene-change opt-out down to the default 1.0.
         let cutStore = makeStore("cut")
         let cutProject = makeProject(store: cutStore, shotCount: 2, continuity: .cut)
         completeShot(store: cutStore, projectID: cutProject.id, shotIndex: 0, videoPath: fixtureA)
         var cutPending: [GenerationRequest] = []
         _ = AutoMovieRunCoordinator(store: cutStore).advance(projectID: cutProject.id) { cutPending = $0 }
-        t.check(cutPending.first?.sourceImagePath == nil, "C: cut shot inherits no image")
-        t.checkEqual(cutPending.first?.parameters.imageStrength, 1.0,
-                     "C: cut shot keeps the default strength")
+        t.check(cutPending.first?.sourceImagePath != nil,
+                "C: a planned Cut no longer prevents inheritance on Auto Movie Shot 2+")
+        t.checkEqual(cutPending.first?.parameters.imageStrength,
+                     AutoMovieRunCoordinator.continuityImageStrength,
+                     "C: the shot still gets the calibrated continuity strength, not the default")
 
         // D. The first shot has nothing to inherit, so it is unaffected.
         let firstStore = makeStore("first")

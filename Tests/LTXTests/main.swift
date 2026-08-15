@@ -225,6 +225,199 @@ if CommandLine.arguments.count >= 2,
     RunLoop.main.run()
 }
 
+// CLI probe for the preview.3 strict Auto Movie continuity policy, against a
+// real backend. Fully isolated: its own FilmProjectStore and HistoryManager
+// under a tmp directory, so it never reads or writes the real Personal/Dev
+// project store. GenerationService's own take-completion recording is
+// hardcoded to FilmProjectStore.shared, so it is a guaranteed no-op here (the
+// probe's project ID does not exist there); completion is instead recorded by
+// this probe directly against the isolated store, using the same production
+// TakeGenerationCoordinator.recordCompletion(result:) the app itself uses.
+//
+// Shot 4 is given an explicit scene AND camera change (interior -> exterior
+// wide) that the generic Cut/Continue engine would resolve to a cut, to prove
+// the new Auto Movie policy overrides it at real generation time.
+//
+//   swift run LTXTests --probe-strict-continuity-acceptance
+if CommandLine.arguments.count >= 2,
+   CommandLine.arguments[1] == "--probe-strict-continuity-acceptance" {
+    Task { @MainActor in
+        print("=== STARTING STRICT AUTO MOVIE CONTINUITY POLICY REAL RUNTIME PROBE ===")
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("strict-continuity-acceptance-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        print("Isolated working directory: \(tmpDir.path)")
+
+        let originalOutputDir = UserDefaults.standard.string(forKey: "outputDirectory")
+        let isolatedVideosDir = tmpDir.appendingPathComponent("Videos", isDirectory: true)
+        try? FileManager.default.createDirectory(at: isolatedVideosDir, withIntermediateDirectories: true)
+        UserDefaults.standard.set(isolatedVideosDir.path, forKey: "outputDirectory")
+
+        let historyManager = HistoryManager(rootDirectory: tmpDir)
+        let store = FilmProjectStore(
+            projectsDirectory: tmpDir.appendingPathComponent("Projects", isDirectory: true))
+        let generationService = GenerationService(historyManager: historyManager)
+
+        var project = FilmProject(title: "Strict Continuity Acceptance")
+        project.workflowMode = AutoMovieRunCoordinator.autoMovieWorkflowMode
+        project.continuityChainEnabled = true
+        project.settings.modelID = LTXModelCatalog.defaultModelID
+        project.settings.textEncoderID = LTXTextEncoderCatalog.defaultTextEncoderID
+        // .advanced skips Auto Quality resolution entirely, so the literal
+        // numFrames/numInferenceSteps below are honored instead of being
+        // replaced by a hardware-fitted profile (Auto Quality can pick a much
+        // heavier profile than requested, e.g. it resolved 73 frames / 25
+        // steps from a 9-frame / 4-step request on the first probe attempt).
+        project.settings.qualityMode = QualityMode.advanced.rawValue
+        project.settings.preset = GenerationPreset.custom.rawValue
+        project.settings.width = 512
+        project.settings.height = 320
+        project.settings.fps = 24
+        project.settings.numFrames = 9
+        project.settings.numInferenceSteps = 4
+        project.settings.audioEnabled = false
+
+        var shot1 = Shot(index: 0, title: "Reading Room",
+                         summary: "A woman sits reading in a quiet library.")
+        shot1.compiledPrompt = "A woman sits reading in a quiet sunlit library reading room."
+        shot1.durationSeconds = 1
+        shot1.continuityMode = .cut
+
+        var shot2 = Shot(index: 1, title: "Rises", summary: "She rises and walks toward the door.")
+        shot2.compiledPrompt = "She rises from her chair and walks toward the tall wooden door."
+        shot2.durationSeconds = 1
+        shot2.continuityMode = .auto
+
+        var shot3 = Shot(index: 2, title: "Opens Door", summary: "She opens the door and steps through.")
+        shot3.compiledPrompt = "She opens the tall wooden door and steps through into the hallway."
+        shot3.durationSeconds = 1
+        shot3.continuityMode = .auto
+        var beforeState = ContinuitySnapshot(); beforeState.location = "library hallway"
+        shot3.continuityBefore = beforeState
+
+        // A deliberate, explicit scene AND camera change — exactly the kind of
+        // cut the OLD Director-driven heuristic would make. The new Auto Movie
+        // policy must still continue from Shot 3's actual final frame.
+        var shot4 = Shot(index: 3, title: "City Street",
+                         summary: "Establishing wide shot of a busy city street at night.")
+        shot4.compiledPrompt =
+            "Establishing wide shot of a busy city street at night, neon signs reflecting on wet pavement."
+        shot4.durationSeconds = 1
+        shot4.continuityMode = .auto
+        shot4.camera.shotScale = "wide"
+        shot4.explicitChanges = ["location=city street at night"]
+        var afterState = ContinuitySnapshot(); afterState.location = "city street"
+        shot4.continuityBefore = afterState
+
+        project.shots = [shot1, shot2, shot3, shot4]
+        store.save(project)
+        project = store.project(id: project.id)!
+
+        let coordinator = AutoMovieRunCoordinator(store: store)
+        let genericShot4Mode = coordinator.resolvedContinuityMode(forShotAt: 3, in: project)
+        print("Sanity check — generic engine resolves Shot 4 to: \(genericShot4Mode) " +
+              "(expected .cut; the new Auto Movie policy must override this)")
+
+        struct ShotEvidence {
+            let shotIndex: Int
+            let request: GenerationRequest
+            let elapsedSeconds: TimeInterval
+        }
+        var evidence: [ShotEvidence] = []
+
+        for shotIndex in 0..<4 {
+            var pendingRequests: [GenerationRequest] = []
+            let step = coordinator.advance(projectID: project.id) { pendingRequests = $0 }
+            guard case .enqueued = step, let request = pendingRequests.first else {
+                print("FAIL: expected Shot \(shotIndex + 1) to enqueue, got \(step)")
+                exit(1)
+            }
+            print("\n--- Shot \(shotIndex + 1): submitting real generation ---")
+            print("sourceImagePath=\(request.sourceImagePath ?? "nil") imageStrength=\(request.parameters.imageStrength)")
+
+            let submitTime = Date()
+            generationService.addBatch([request])
+
+            var finished = false
+            // Generous ceiling: the first shot also pays for one-time model
+            // loading, on top of real backend inference.
+            for i in 0..<1800 {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                if !generationService.isProcessing && generationService.queue.isEmpty {
+                    finished = true
+                    break
+                }
+                if i % 20 == 0 {
+                    print("[\(Int(Date().timeIntervalSince(submitTime)))s] statusMessage='\(generationService.statusMessage)'")
+                }
+            }
+            let elapsed = Date().timeIntervalSince(submitTime)
+            guard finished else {
+                print("FAIL: Shot \(shotIndex + 1) did not finish within timeout (900s)")
+                exit(2)
+            }
+            print("Shot \(shotIndex + 1) backend finished in \(String(format: "%.1f", elapsed))s. " +
+                  "statusMessage='\(generationService.statusMessage)' error=\(String(describing: generationService.error))")
+
+            guard let result = historyManager.results.first(where: { $0.requestId == request.id }) else {
+                print("FAIL: Shot \(shotIndex + 1) produced no history result " +
+                      "(likely failed) — error: \(String(describing: generationService.error))")
+                exit(3)
+            }
+            TakeGenerationCoordinator(store: store).recordCompletion(result: result)
+            evidence.append(ShotEvidence(shotIndex: shotIndex, request: request, elapsedSeconds: elapsed))
+        }
+
+        let final = store.project(id: project.id)!
+        print("\n=== RESULTS ===")
+        for item in evidence {
+            let shot = final.shots[item.shotIndex]
+            let take = shot.takes.first(where: { $0.status == .completed })
+            print("Shot \(item.shotIndex + 1): sourceImagePath=\(item.request.sourceImagePath ?? "nil") " +
+                  "isImageToVideo=\(item.request.isImageToVideo) " +
+                  "continuitySourceTakeID=\(shot.continuitySourceTakeID?.uuidString ?? "nil") " +
+                  "imageStrength=\(item.request.parameters.imageStrength) " +
+                  "outputPath=\(take?.outputPath ?? "nil") " +
+                  "elapsed=\(String(format: "%.1f", item.elapsedSeconds))s")
+        }
+
+        let shot1TakeID = final.shots[0].takes.first(where: { $0.status == .completed })?.id
+        let shot2TakeID = final.shots[1].takes.first(where: { $0.status == .completed })?.id
+        let shot3TakeID = final.shots[2].takes.first(where: { $0.status == .completed })?.id
+
+        guard evidence[0].request.sourceImagePath == nil else {
+            print("\nFAIL: Shot 1 unexpectedly inherited a source image"); exit(4)
+        }
+        guard evidence[1].request.sourceImagePath != nil,
+              final.shots[1].continuitySourceTakeID == shot1TakeID else {
+            print("\nFAIL: Shot 2 did not continue from Shot 1's actual final frame"); exit(4)
+        }
+        guard evidence[2].request.sourceImagePath != nil,
+              final.shots[2].continuitySourceTakeID == shot2TakeID else {
+            print("\nFAIL: Shot 3 did not continue from Shot 2's actual final frame"); exit(4)
+        }
+        guard evidence[3].request.sourceImagePath != nil,
+              final.shots[3].continuitySourceTakeID == shot3TakeID else {
+            print("\nFAIL: Shot 4 did not continue from Shot 3's actual final frame " +
+                  "despite the explicit scene/camera change")
+            exit(4)
+        }
+        print("\nPASS: Shot 4 continued from Shot 3's actual final frame despite the " +
+              "explicit scene/camera change. All four shots chained correctly.")
+
+        if let originalOutputDir {
+            UserDefaults.standard.set(originalOutputDir, forKey: "outputDirectory")
+        } else {
+            UserDefaults.standard.removeObject(forKey: "outputDirectory")
+        }
+
+        print("\nEvidence preserved at: \(tmpDir.path)")
+        print("=== STRICT AUTO MOVIE CONTINUITY POLICY PROBE PASSED ===")
+        exit(0)
+    }
+    RunLoop.main.run()
+}
+
 // Creates a deterministic production-acceptance movie from an existing,
 // already-rendered opening Shot and appends it to the real Production Queue.
 // The shipping app still owns every subsequent step: Shot 2 render, continuity
@@ -884,6 +1077,7 @@ runStartingImageBridgeTests(t)
 runStartingImageUXTests(t)
 runStoryboardTests(t)
 runAutoMovieContinuityTests(t)
+runAutoMovieStrictContinuityPolicyTests(t)
 runContinuityStrengthTests(t)
 runCinematicProgressionTests(t)
 runContinuityReconcilerTests(t)

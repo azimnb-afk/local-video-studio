@@ -93,8 +93,10 @@ final class TakeGenerationCoordinator {
         }
         let mayInheritPreviousShot: Bool
         if project.workflowMode == AutoMovieRunCoordinator.autoMovieWorkflowMode {
+            // Since preview.3, Auto Movie always continues from Shot 2 on —
+            // see `AutoMovieRunCoordinator.autoMovieContinuityMode`.
             mayInheritPreviousShot = AutoMovieRunCoordinator(store: store)
-                .resolvedContinuityMode(forShotAt: shotIndex, in: project)
+                .autoMovieContinuityMode(forShotAt: shotIndex, in: project)
                 == .continueFromPrevious
         } else {
             // Preserve legacy/manual Storyboard behaviour: absent/auto modes

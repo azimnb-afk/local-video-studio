@@ -584,11 +584,16 @@ class GenerationService: ObservableObject {
         let coordinator = AutoMovieRunCoordinator.shared
 
         for projectID in projectIDs {
-            // Adaptive Identity Refresh runs here, between one shot finishing
-            // and the next being planned: the take is where the starting image
-            // is chosen, so this is the last moment it can be influenced. It is
-            // a stage inside this job — it renders through the same serialized
-            // path and never becomes a second queued job.
+            // Adaptive Identity Refresh would run here, between one shot
+            // finishing and the next being planned — the take is where the
+            // starting image is chosen, so this is the last moment it could be
+            // influenced. Since preview.3, Auto Movie's own policy always
+            // inherits the immediately previous shot's frame directly and
+            // never opts into this, so `prepareNextShotContinuity` returns nil
+            // unconditionally and this branch never fires today. It stays
+            // wired, as a stage inside this job — rendering through the same
+            // serialized path and never becoming a second queued job — for any
+            // future caller that opts back in.
             if FeatureFlags.isEnabled(.adaptiveIdentityRefresh),
                let shotIndex = coordinator.prepareNextShotContinuity(projectID: projectID) {
                 Task { @MainActor [weak self] in

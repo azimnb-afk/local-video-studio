@@ -18,7 +18,8 @@ struct AutoMoviePlanPreview: Equatable {
         var cameraMovement: String
         /// What this shot will start from, in the user's words.
         var sourceDescription: String
-        /// Continue vs cut, as planned.
+        /// Continue vs cut for a future shot, or the historical source used by
+        /// an already-generated shot.
         var continuityIntent: String
         /// True once this shot has a completed take, so the preview can say
         /// what is already done rather than implying everything is pending.
@@ -53,7 +54,7 @@ struct AutoMoviePlanPreview: Equatable {
         var preview = AutoMoviePlanPreview()
         preview.rows = project.shots.enumerated().map { index, shot in
             let effectiveMode = AutoMovieRunCoordinator.shared
-                .resolvedContinuityMode(forShotAt: index, in: project)
+                .displayedAutoMovieContinuityMode(forShotAt: index, in: project)
             let resolution = LTXContinuityResolver.resolve(
                 shot: shot, shotIndex: index,
                 hasOpeningReference: hasOpeningReference,
@@ -106,6 +107,14 @@ enum AutoMoviePlanEditor {
     /// Shot 1 can never continue, and `auto` remains Director-only rather than
     /// a user-facing third state in Phase B.
     ///
+    /// Since preview.3, Auto Movie Shot 2+ can never be edited to Cut either:
+    /// Auto Movie is a single continuous sequence by policy
+    /// (`AutoMovieRunCoordinator.autoMovieContinuityMode`), and that decision
+    /// is no longer user-editable per shot — a different scene belongs in a
+    /// separate Auto Movie. This restriction only applies to Auto Movie
+    /// projects; the Cut/Continue editor stays fully available for any other
+    /// consumer of the generic engine.
+    ///
     /// Any prepared last-frame or refresh state belongs to the old choice and
     /// is invalidated. The managed pixels may remain as independent project
     /// files, but no future request can reach them through this shot. Existing
@@ -118,7 +127,9 @@ enum AutoMoviePlanEditor {
     ) -> Bool {
         guard mode == .cut || mode == .continueFromPrevious,
               let index = project.shots.firstIndex(where: { $0.id == shotID }),
-              index > 0 || mode == .cut
+              index > 0 || mode == .cut,
+              project.workflowMode != AutoMovieRunCoordinator.autoMovieWorkflowMode
+                  || index == 0 || mode == .continueFromPrevious
         else { return false }
 
         let shot = project.shots[index]

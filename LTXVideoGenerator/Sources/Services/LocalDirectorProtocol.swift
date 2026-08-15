@@ -47,6 +47,7 @@ enum DirectorPlanFormat {
             return """
             You are a film director planning a short film as a sequence of concise shots. When the user provides a total movie duration, treat that total as authoritative.
             \(PerShotAudioPolicy.directorInstruction)
+            \(CharacterContinuitySafetyPolicy.compactDirectorInstruction)
             """
         }
     }
@@ -89,6 +90,7 @@ enum DirectorPlanFormat {
             Your previous response was invalid (\(failure)). \
             Respond again with ONLY the JSON object described in the system prompt.
             \(PerShotAudioPolicy.directorInstruction)
+            \(CharacterContinuitySafetyPolicy.compactDirectorInstruction)
             \(durationBlock)\(evidenceBlock)BRIEF: \(brief)
             """
         case .textProtocol:
@@ -178,6 +180,7 @@ enum DirectorPlanFormat {
     slow motion. A CONTINUE shot keeps the preceding tempos unless the story
     explicitly changes them.
     \(PerShotAudioPolicy.directorInstruction)
+    \(CharacterContinuitySafetyPolicy.compactDirectorInstruction)
     """
 
     /// Parses a reply into a draft using the protocol's own rules. Returns the

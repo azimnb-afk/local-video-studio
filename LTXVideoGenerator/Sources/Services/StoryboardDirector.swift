@@ -102,6 +102,7 @@ final class StoryboardDirector {
     prop+:item, prop-:item, propOwner:item=Name, dialogueState=, storyState=.
     2 to 8 shots. Keep user-provided dialogue verbatim.
     \(PerShotAudioPolicy.directorInstruction)
+    \(CharacterContinuitySafetyPolicy.directorInstruction)
     Motion tempo describes how quickly the subject acts. Camera tempo describes
     camera pacing independently. Playback style is realTime unless the brief
     explicitly asks for slow motion, fast motion, or time-lapse. Words such as

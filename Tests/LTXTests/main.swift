@@ -1114,6 +1114,7 @@ runAutoMovieDirectorFallbackTests(t)
 runQueueCancellationTests(t)
 runDirectorPlanningCancellationTests(t)
 runStorageHealthTests(t)
+runCharacterContinuitySafetyTests(t)
 if CommandLine.arguments.contains("--probe-director-cancellation-acceptance") {
     runRealDirectorPlanningCancellationAcceptanceProbe(t)
 }

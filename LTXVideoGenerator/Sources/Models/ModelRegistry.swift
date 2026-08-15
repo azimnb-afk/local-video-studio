@@ -308,12 +308,20 @@ final class ModelRegistry {
 
     /// Models visible for selection.
     /// - Official models are always listed.
+    /// - LTX-2.5 (Experimental) is listed as an experimental capability model.
     /// - Custom models are listed when customModelsV1 is enabled.
     func selectableModels(customModelsEnabled: Bool? = nil) -> [ModelDescriptor] {
         let allowCustom = customModelsEnabled ?? FeatureFlags.isEnabled(.customModelsV1, userDefaults: userDefaults)
-        return descriptors.values
+        var models = Array(descriptors.values)
+        if let ltx25 = descriptor(id: LTX25ModelCatalog.ltx25ExperimentalID) {
+            if !models.contains(where: { $0.id == ltx25.id }) {
+                models.append(ltx25)
+            }
+        }
+        return models
             .filter { model in
                 if model.isOfficial { return true }
+                if model.id == LTX25ModelCatalog.ltx25ExperimentalID { return true }
                 return allowCustom
             }
             .sorted { ($0.isOfficial ? 0 : 1, $0.id) < ($1.isOfficial ? 0 : 1, $1.id) }

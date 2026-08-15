@@ -92,11 +92,11 @@ func runRegistryTests(_ t: TestKit) {
     t.suite("Selectable models / flags") {
         let registry = ModelRegistry(userDefaults: defaults)
         FeatureFlags.disableAll(userDefaults: defaults)
-        let officialOnly = registry.selectableModels(customModelsEnabled: false)
-        t.checkEqual(officialOnly.count, LTXModelCatalog.all.count, "flags OFF → official models only")
+        let defaultAvailable = registry.selectableModels(customModelsEnabled: false)
+        t.checkEqual(defaultAvailable.count, LTXModelCatalog.all.count + 1, "flags OFF → official models + LTX-2.5 experimental")
         
         FeatureFlags.set(.customModelsV1, enabled: true, userDefaults: defaults)
-        t.checkEqual(registry.selectableModels(customModelsEnabled: true).count, LTXModelCatalog.all.count + 1,
+        t.checkEqual(registry.selectableModels(customModelsEnabled: true).count, LTXModelCatalog.all.count + 2,
                      "customModels ON → custom model visible")
         FeatureFlags.disableAll(userDefaults: defaults)
     }

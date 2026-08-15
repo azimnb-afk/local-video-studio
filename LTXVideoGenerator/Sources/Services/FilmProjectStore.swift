@@ -1,7 +1,7 @@
 import Foundation
 
 /// Versioned, crash-safe persistence for FilmProjects.
-/// One JSON file per project under Application Support/LTXVideoGenerator/Projects.
+/// One JSON file per project under Application Support/LocalVideoStudio(Dev)/Projects.
 /// Writes are atomic; schema migrations keep a backup of the pre-migration file.
 final class FilmProjectStore {
     static let shared = FilmProjectStore()

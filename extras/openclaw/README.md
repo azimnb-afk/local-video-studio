@@ -50,7 +50,7 @@ Notes:
 ## curl examples
 
 ```bash
-TOKEN=$(cat ~/Library/Application\ Support/LTXVideoGenerator/api_token)
+TOKEN=$(cat ~/Library/Application\ Support/LocalVideoStudio/api_token)
 BASE=http://127.0.0.1:8421
 
 # System info

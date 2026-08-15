@@ -11,6 +11,9 @@ struct CharacterAnchorSection: View {
 
     private let store = FilmProjectStore.shared
 
+    @State private var extractingSheetAsset: CharacterReferenceAsset?
+    @State private var assetOperationError: String?
+
     private var anchor: CharacterAnchor { project.characterAnchor }
 
     private var characters: [BibleCharacter] {
@@ -22,10 +25,18 @@ struct CharacterAnchorSection: View {
         return characters.first { $0.id == id }
     }
 
+    private var selectedCharacterSheetAsset: CharacterReferenceAsset? {
+        selectedCharacter?.referenceAssets.first { $0.type == .characterSheet }
+    }
+
     /// Character sheets are excluded: a multi-pose layout is not a frame a shot
     /// can begin on.
     private var selectableAssets: [CharacterReferenceAsset] {
         (selectedCharacter?.referenceAssets ?? []).filter { $0.isStartingImageCandidate }
+    }
+
+    private var hasOpeningReference: Bool {
+        project.openingReferenceImage != nil
     }
 
     private var issue: CharacterAnchorIssue? {
@@ -57,6 +68,15 @@ struct CharacterAnchorSection: View {
                 configuration
             }
 
+            if hasOpeningReference && anchor.isEnabled {
+                HStack(spacing: 4) {
+                    Image(systemName: "info.circle")
+                    Text("Opening Reference Image is active, so Character Anchor will not be used for Shot 1.")
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+
             Text("The selected reference image is used as the opening shot's first frame, so whatever it shows — including a plain background — appears there. Later shots continue from the previous shot. Visual consistency may improve, but exact identity is not guaranteed. For a cinematic opening, prefer an Opening Reference Image above.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -66,6 +86,27 @@ struct CharacterAnchorSection: View {
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.06)))
+        .sheet(item: $extractingSheetAsset) { sourceAsset in
+            if let character = selectedCharacter {
+                CharacterReferenceExtractionSheet(
+                    projectID: project.id,
+                    characterID: character.id,
+                    sourceAsset: sourceAsset,
+                    generationActive: false
+                ) { assets in
+                    saveExtractedAssets(assets, for: character.id)
+                    extractingSheetAsset = nil
+                }
+            }
+        }
+        .alert("Reference Images", isPresented: Binding(
+            get: { assetOperationError != nil },
+            set: { if !$0 { assetOperationError = nil } }
+        )) {
+            Button("OK", role: .cancel) { assetOperationError = nil }
+        } message: {
+            Text(assetOperationError ?? "")
+        }
     }
 
     private var configuration: some View {
@@ -83,19 +124,40 @@ struct CharacterAnchorSection: View {
                     .frame(maxWidth: 320)
 
                     if selectableAssets.isEmpty {
-                        Text("This character has no reference image that can start a shot. Extract a Front or Face reference first.")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    } else {
-                        Picker("Reference", selection: Binding(
-                            get: { anchor.referenceAssetID ?? selectableAssets.first?.id },
-                            set: { setAsset($0) }
-                        )) {
-                            ForEach(selectableAssets) { asset in
-                                Text(asset.displayLabel).tag(Optional(asset.id))
+                        if let sheetAsset = selectedCharacterSheetAsset {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("No starting reference image is available for this character.")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                                Button("Extract References…") {
+                                    extractingSheetAsset = sheetAsset
+                                }
+                                .controlSize(.small)
+                                Text("Front is recommended for most openings; Face provides stronger facial detail but may favor a close-up.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
                             }
+                        } else {
+                            Text("No starting reference image is available. Add a Character Sheet in Character Bible, then extract reference images.")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
                         }
-                        .frame(maxWidth: 320)
+                    } else {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Picker("Reference", selection: Binding(
+                                get: { anchor.referenceAssetID ?? selectableAssets.first?.id },
+                                set: { setAsset($0) }
+                            )) {
+                                ForEach(selectableAssets) { asset in
+                                    Text(asset.displayLabel).tag(Optional(asset.id))
+                                }
+                            }
+                            .frame(maxWidth: 320)
+
+                            Text("Front is recommended for most openings; Face provides stronger facial detail but may favor a close-up.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 Spacer()
@@ -163,6 +225,34 @@ struct CharacterAnchorSection: View {
         update { anchor in
             anchor.referenceAssetID = id
             anchor.referenceAssetType = asset.type.rawValue
+        }
+    }
+
+    private func saveExtractedAssets(_ assets: [CharacterReferenceAsset], for characterID: UUID) {
+        guard var updated = store.project(id: project.id),
+              var character = updated.characterBible.character(id: characterID) else { return }
+        let updatedAssets = character.referenceAssets + assets
+        character.referenceAssets = updatedAssets
+        character.updatedAt = Date()
+        updated.upsertCharacter(character)
+
+        // If no referenceAssetID is set or the current one is not among valid candidates, select preferredAsset
+        if updated.characterAnchor.referenceAssetID == nil ||
+           !updatedAssets.contains(where: { $0.id == updated.characterAnchor.referenceAssetID && $0.isStartingImageCandidate }) {
+            if let preferred = CharacterAnchor.preferredAsset(for: character) {
+                updated.characterAnchor.referenceAssetID = preferred.id
+                updated.characterAnchor.referenceAssetType = preferred.type.rawValue
+            }
+        }
+
+        do {
+            try store.saveThrowing(updated)
+            onChanged()
+        } catch {
+            for asset in assets {
+                store.removeManagedCharacterAsset(projectID: project.id, asset: asset)
+            }
+            assetOperationError = "Reference images were not saved: \(error.localizedDescription)"
         }
     }
 

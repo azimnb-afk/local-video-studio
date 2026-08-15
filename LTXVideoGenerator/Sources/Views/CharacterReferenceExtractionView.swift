@@ -126,7 +126,7 @@ struct CharacterReferenceExtractionSheet: View {
     private var footer: some View {
         HStack {
             Label(
-                "Reference images are saved locally for future use. They are not an identity guarantee and are not sent to LTX.",
+                "Reference images are saved locally. When selected as a Character Anchor, a reference can be used as the opening shot's starting image. It does not guarantee identity.",
                 systemImage: "lock.shield"
             )
             .font(.caption).foregroundStyle(.secondary)

@@ -32,7 +32,8 @@ struct LTX2MLXBackend {
         outputPath: String,
         seed: Int,
         width: Int,
-        height: Int
+        height: Int,
+        effectiveSourceImagePath: String? = nil
     ) -> [String] {
         var args = [
             "generate",
@@ -48,7 +49,8 @@ struct LTX2MLXBackend {
             // distilled two-stage pipeline is the one it was packaged for.
             "--distilled",
         ]
-        if let sourceImage = request.sourceImagePath, !sourceImage.isEmpty {
+        let sourceImage = effectiveSourceImagePath ?? request.sourceImagePath
+        if let sourceImage, !sourceImage.isEmpty {
             args.append(contentsOf: ["--image", sourceImage])
         }
         return args
@@ -110,13 +112,25 @@ struct LTX2MLXBackend {
         let height = (params.height / 32) * 32
         let seed = params.seed ?? Int.random(in: 0..<Int(Int32.max))
 
+        var effectiveSourceImage = request.sourceImagePath
+        if let rawPath = request.sourceImagePath?.trimmingCharacters(in: .whitespacesAndNewlines), !rawPath.isEmpty {
+            if let prepared = try? ImageConditioningPreparer.shared.prepare(
+                sourceURL: URL(fileURLWithPath: rawPath),
+                targetWidth: width,
+                targetHeight: height
+            ) {
+                effectiveSourceImage = prepared.preparedURL.path
+            }
+        }
+
         for note in Self.settingsMismatch(request: request).notes {
             progressHandler(0.02, note)
         }
 
         let args = Self.arguments(
             request: request, modelDirectory: modelDirectory, outputPath: outputPath,
-            seed: seed, width: width, height: height
+            seed: seed, width: width, height: height,
+            effectiveSourceImagePath: effectiveSourceImage
         )
         progressHandler(0.05, "Starting generation on \(GenerationBackendKind.ltx2MLX.displayName)…")
 

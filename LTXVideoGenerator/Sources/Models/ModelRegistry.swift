@@ -150,6 +150,48 @@ final class ModelRegistry {
 
     // MARK: Seeding
 
+    private func ltx25Descriptor() -> ModelDescriptor {
+        let model = LTX25ModelCatalog.ltx25Experimental
+        return ModelDescriptor(
+            id: model.id,
+            displayName: model.displayName,
+            repository: model.repo,
+            revision: nil,
+            localPath: nil,
+            quantization: nil,
+            precision: "bf16",
+            estimatedModelSizeGB: 25,
+            recommendedUnifiedMemoryGB: 64,
+            minimumUnifiedMemoryGB: 32,
+            architecture: ArchitectureDescriptor(
+                modelFamily: "LTX",
+                modelVersion: "2.5",
+                modelType: "unified-av"
+            ),
+            capabilities: CapabilitySet(
+                textToVideo: true,
+                imageToVideo: true,
+                synchronizedAudio: false,
+                keyframes: true,
+                firstLastFrame: true,
+                continuation: true
+            ),
+            runtime: RuntimeCompatibility(
+                backend: "ltx-2-mlx",
+                minimumBackendVersion: "0.14.19",
+                verified: true,
+                verificationNotes: "Experimental LTX-2.5 support on MLX backend."
+            ),
+            policy: .general,
+            license: ModelLicenseMetadata(
+                name: "LTX-2.5 Community License",
+                url: "https://huggingface.co/\(model.repo)",
+                requiresAcknowledgement: false
+            ),
+            isOfficial: false
+        )
+    }
+
     private func seedOfficialModels() {
         for legacy in LTXModelCatalog.all {
             let quant: String? = legacy.id.hasSuffix("_q4") ? "q4" : nil
@@ -236,6 +278,9 @@ final class ModelRegistry {
     func descriptor(id: String) -> ModelDescriptor? {
         if id == Self.customModelID {
             seedCustomModel()
+        }
+        if id == LTX25ModelCatalog.ltx25ExperimentalID {
+            return ltx25Descriptor()
         }
         return descriptors[id]
     }

@@ -39,6 +39,19 @@ enum ActiveModelDisplayResolver {
             )
         }
 
+        if let ltx25 = LTX25ModelCatalog.model(id: effectiveID) {
+            let readiness = LTX2MLXRuntime.readiness(repository: ltx25.repo, userDefaults: userDefaults)
+            let status = readiness.canGenerate ? "Ready" : "Not Configured"
+            return DisplayInfo(
+                modelID: effectiveID,
+                displayName: ltx25.displayName,
+                backendBadge: "ltx-2-mlx",
+                isCustom: false,
+                isReady: readiness.canGenerate,
+                statusText: status
+            )
+        }
+
         if let official = LTXModelCatalog.model(id: effectiveID) {
             let status = generationServiceLoaded ? "Environment Ready" : "Environment Not Ready"
             return DisplayInfo(

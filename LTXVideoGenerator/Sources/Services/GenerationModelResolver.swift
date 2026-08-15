@@ -65,6 +65,9 @@ enum GenerationModelResolver {
         if let runnable = LTXModelCatalog.model(id: modelID) {
             return .runnable(RunnableModel(model: runnable, backend: .mlxVideoWithAudio))
         }
+        if let runnable = LTX25ModelCatalog.model(id: modelID) {
+            return .runnable(RunnableModel(model: runnable, backend: .ltx2MLX))
+        }
         if let runnable = LTX2MLXModelCatalog.model(id: modelID) {
             return .runnable(RunnableModel(model: runnable, backend: .ltx2MLX))
         }

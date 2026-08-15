@@ -90,6 +90,30 @@ enum LTXModelCatalog {
     }
 }
 
+enum LTX25ModelCatalog {
+    public static let ltx25ExperimentalID = "ltx25_experimental"
+
+    public static let ltx25Experimental = LTXModel(
+        id: ltx25ExperimentalID,
+        repo: "Lightricks/LTX-2.5",
+        displayName: "LTX-2.5 (Experimental)",
+        downloadSize: "~25GB",
+        supportsBuiltInAudio: false,
+        qualityWarning: "Experimental: LTX-2.5 model running on Apple Silicon / MLX runtime.",
+        recommendedStepsLower: 15,
+        recommendedStepsUpper: 30,
+        tips: "Requires MLX-compatible LTX-2.5 weights and LTX Gemma 4 text encoder."
+    )
+
+    static let all: [LTXModel] = [
+        ltx25Experimental
+    ]
+
+    static func model(id: String) -> LTXModel? {
+        all.first { $0.id == id }
+    }
+}
+
 enum LTXTextEncoderCatalog {
     static let selectedTextEncoderIDKey = "selectedTextEncoderID"
     /// When the "Custom" preset is selected, this repo id is passed as `--text-encoder-repo`.

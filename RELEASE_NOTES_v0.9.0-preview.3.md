@@ -1,6 +1,6 @@
 # v0.9.0-preview.3 — Third Public Preview Release Candidate
 
-Local Video Studio for Mac — AutoMovie Edition `v0.9.0-preview.3` focuses on enabling creators to produce **longer, more consistent AI video sequences locally on Apple Silicon Macs** without requiring high-end discrete GPU PCs or cloud generation subscriptions.
+Local Video Studio for Mac `v0.9.0-preview.3` focuses on enabling creators to produce **longer, more consistent AI video sequences locally on Apple Silicon Macs** without requiring high-end discrete GPU PCs or cloud generation subscriptions.
 
 ---
 
@@ -20,7 +20,7 @@ Local Video Studio for Mac — AutoMovie Edition `v0.9.0-preview.3` focuses on e
 
 ### 🛡️ 4. Storage Health Preflight Guards
 - **Target Volume Preflight**: Automatically verifies available disk capacity on target write destinations (Videos directory, Hugging Face model cache, temporary assembly workspace) before heavy operations begin.
-- **Failure Risk Reduction**: Prevents out-of-disk failures during video generation, large model downloads, and final movie assembly while preserving all user data and project history without automatic deletion.
+- **Failure Risk Reduction**: Helps reduce storage-related failures during video generation, large model downloads, and final movie assembly while preserving all user data and project history without automatic deletion.
 
 ### 📊 5. Clearer Standard & High Quality Preset Summaries
 - **Transparent Generation Settings**: Preset summaries clearly display exact inference step counts and clip durations across One Shot, Storyboard, and Auto Movie workflows.

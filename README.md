@@ -1,4 +1,4 @@
-# Local Video Studio for Mac — AutoMovie Edition
+# Local Video Studio for Mac
 
 [![macOS](https://img.shields.io/badge/macOS-14.0+-blue.svg)](https://www.apple.com/macos/)
 [![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-M1%2FM2%2FM3%2FM4-orange.svg)](https://support.apple.com/en-us/HT211814)
@@ -22,7 +22,7 @@ Local Video Studio for Mac is a native desktop studio designed for on-device AI 
 
 Rather than trying to generate an entire film in a single unwieldy diffusion pass, Local Video Studio uses an **Auto Movie workflow**: it plans a sequence of connected shots, renders each shot locally, and automatically passes the **final frame of the previous shot** as the starting visual anchor for the next shot. This builds longer video sequences while significantly improving visual continuity across takes.
 
-Generation runs **100% locally on your Mac** via Apple Silicon unified memory.
+Runs local generation on Apple Silicon unified memory with no required cloud generation API.
 
 ---
 
@@ -211,7 +211,7 @@ All generation requests are dispatched to a resilient background queue:
 
 ## Privacy & Local-First Architecture
 
-- **100% Local Inference**: Video generation, text embedding, Local Director LLM, Apple on-device translation, and final movie assembly execute completely on your Mac.
+- **Local-First Processing**: Video generation, text embedding, Local Director LLM, Apple on-device translation, and final movie assembly execute locally on your Mac with no required cloud generation API.
 - **Zero Telemetry**: No analytics, crash telemetry, or tracking pings are embedded in the codebase.
 - **Secure Credential Storage**: Optional ElevenLabs API keys are stored securely in macOS Keychain with isolated namespaces for Personal and Dev apps.
 - **Optional Cloud APIs**: ElevenLabs voiceover and music are strictly opt-in and only invoked if you explicitly provide an API key.

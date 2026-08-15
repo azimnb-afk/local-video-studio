@@ -229,6 +229,21 @@ class GenerationService: ObservableObject {
             // Ensure directory exists
             try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
         }
+
+        // Authoritative storage preflight check before launching heavy Python backend
+        let storageStatus = StorageHealthService.shared.check(url: outputDir, for: .videoGeneration(expectedTakes: max(1, queue.count)))
+        if storageStatus.isBlocked {
+            let errorMsg = storageStatus.message ?? "Not enough disk space for generation"
+            queue[index].status = .failed
+            self.error = .generationFailed(errorMsg)
+            statusMessage = errorMsg
+            currentRequest = nil
+            isProcessing = false
+            progress = 0
+            queue.removeAll { $0.status != .pending }
+            return
+        }
+
         let filename = "\(request.id.uuidString).mp4"
         let outputPath = outputDir.appendingPathComponent(filename).path
         var effectiveParametersForDiagnostics = request.parameters

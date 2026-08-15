@@ -200,6 +200,7 @@ public final class TextEncoderDownloadCoordinator: ObservableObject {
 
     public var downloader: TextEncoderDownloading
     private var healthManager: DependencyHealthManager
+    public var storageChecker: StorageHealthService
     /// Injectable for testing; defaults to the real Hugging Face cache
     /// checker against `~/.cache/huggingface/hub` (same one everything else
     /// in the app uses).
@@ -208,10 +209,12 @@ public final class TextEncoderDownloadCoordinator: ObservableObject {
     public init(
         downloader: TextEncoderDownloading? = nil,
         healthManager: DependencyHealthManager? = nil,
+        storageChecker: StorageHealthService = .shared,
         isCached: ((String) -> Bool)? = nil
     ) {
         self.downloader = downloader ?? DefaultTextEncoderDownloader()
         self.healthManager = healthManager ?? .shared
+        self.storageChecker = storageChecker
         self.isCached = isCached ?? { HuggingFaceCacheChecker.isCached(repository: $0) }
     }
 
@@ -239,6 +242,15 @@ public final class TextEncoderDownloadCoordinator: ObservableObject {
         if isCached(encoder.repo) {
             state = .succeeded
             await healthManager.refresh()
+            return
+        }
+
+        // Authoritative storage preflight check on Hugging Face hub volume
+        let hubDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cache/huggingface/hub")
+        let expectedBytes: Int64 = 2500 * 1024 * 1024 // ~2.5 GB for T5 text encoder
+        let storageStatus = storageChecker.check(url: hubDirectory, for: .modelDownload(expectedBytes: expectedBytes))
+        if storageStatus.isBlocked {
+            state = .failed(storageStatus.message ?? "Not enough disk space for text encoder download.")
             return
         }
 

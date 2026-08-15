@@ -118,6 +118,7 @@ final class ProductionQueueService: ObservableObject {
     private let store = FilmProjectStore.shared
     private var generationService: GenerationService?
     private var cancellables = Set<AnyCancellable>()
+    public var storageChecker: StorageHealthService
     /// True between admitting a job and observing it finish. Guards against the
     /// idle-looking moment before the renderer has picked the work up.
     private var isAwaitingCompletion = false
@@ -125,8 +126,12 @@ final class ProductionQueueService: ObservableObject {
     /// terminal outcome for the *active job's own project* is ever acted on.
     private var lastFilmRunEvent: FilmRunEvent?
 
-    init(coordinator: ProductionQueueCoordinator = .shared) {
+    init(
+        coordinator: ProductionQueueCoordinator = .shared,
+        storageChecker: StorageHealthService = .shared
+    ) {
         self.coordinator = coordinator
+        self.storageChecker = storageChecker
         coordinator.runner = { [weak self] job in
             guard let self else { return .failed("Queue is unavailable") }
             return self.start(job)
@@ -244,6 +249,22 @@ final class ProductionQueueService: ObservableObject {
         // A previous run's outcome must not be read as this one's, including on
         // a retry of the same project.
         lastFilmRunEvent = nil
+
+        // Authoritative execution-time disk space preflight on output volume
+        let userOutputDir = UserDefaults.standard.string(forKey: "outputDirectory") ?? ""
+        let outputDir = userOutputDir.isEmpty ? AppStorageDirectory.videosDirectory : URL(fileURLWithPath: userOutputDir)
+        let expectedTakes: Int
+        switch job.kind {
+        case .generate, .oneShot:
+            expectedTakes = max(1, job.snapshot.pendingRequests.count)
+        case .storyboard, .autoMovie:
+            let project = job.snapshot.projectID.flatMap { store.project(id: $0) }
+            expectedTakes = max(1, project?.shots.count ?? 1)
+        }
+        let storageStatus = storageChecker.check(url: outputDir, for: .videoGeneration(expectedTakes: expectedTakes))
+        if storageStatus.isBlocked {
+            return .failed(storageStatus.message ?? "Not enough disk space for generation")
+        }
 
         switch job.kind {
         case .generate, .oneShot:

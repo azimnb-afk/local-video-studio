@@ -916,6 +916,9 @@ runKeychainCredentialStoreTests(t)
 runAutoMovieDirectorFallbackTests(t)
 runQueueCancellationTests(t)
 runDirectorPlanningCancellationTests(t)
-runRealDirectorPlanningCancellationAcceptanceProbe(t)
+runStorageHealthTests(t)
+if CommandLine.arguments.contains("--probe-director-cancellation-acceptance") {
+    runRealDirectorPlanningCancellationAcceptanceProbe(t)
+}
 
 t.finish()

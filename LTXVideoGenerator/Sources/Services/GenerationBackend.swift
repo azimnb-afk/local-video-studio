@@ -313,15 +313,18 @@ final class CustomModelDownloadCoordinator: ObservableObject {
 
     private let downloader: TextEncoderDownloading
     private let isCached: (String) -> Bool
+    public var storageChecker: StorageHealthService
 
     init(
         downloader: TextEncoderDownloading? = nil,
-        isCached: ((String) -> Bool)? = nil
+        isCached: ((String) -> Bool)? = nil,
+        storageChecker: StorageHealthService = .shared
     ) {
         self.downloader = downloader ?? DefaultTextEncoderDownloader()
         self.isCached = isCached ?? { repository in
             LTX2MLXRuntime.cachedModelDirectory(repository: repository) != nil
         }
+        self.storageChecker = storageChecker
     }
 
     /// Only ever called from an explicit user action.
@@ -335,6 +338,16 @@ final class CustomModelDownloadCoordinator: ObservableObject {
             state = .succeeded
             return
         }
+
+        // Authoritative storage preflight check on model cache destination volume
+        let hfCacheURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cache/huggingface/hub")
+        let storageStatus = storageChecker.check(url: hfCacheURL, for: .modelDownload(expectedBytes: nil))
+        if storageStatus.isBlocked {
+            state = .failed(storageStatus.message ?? "Not enough disk space for model download.")
+            return
+        }
+
         state = .downloading(progress: nil, message: "Starting download…")
         let result = await downloader.download(repository: repository) { [weak self] progress, message in
             Task { @MainActor in

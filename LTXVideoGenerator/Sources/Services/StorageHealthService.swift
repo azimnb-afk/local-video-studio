@@ -64,7 +64,8 @@ public enum StorageOperationKind: Equatable, Sendable {
 
 /// Centralized preflight storage health checker.
 /// Verifies destination volume capacity before heavy operations (rendering, model downloading, assembly)
-/// to prevent out-of-disk failures without deleting any user data.
+/// to reduce storage-related failures without deleting any user data.
+/// Thresholds represent minimum operational preflight estimates, not absolute runtime guarantees.
 public final class StorageHealthService: Sendable {
     public static let shared = StorageHealthService()
 

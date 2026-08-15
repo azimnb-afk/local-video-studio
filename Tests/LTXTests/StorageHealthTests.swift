@@ -234,5 +234,55 @@ func runStorageHealthTests(_ t: TestKit) {
         let formattedMB = StorageHealthService.formatBytes(524_288_000)
         t.check(formattedGB.contains("GB") || formattedGB.contains("G"), "Formats gigabytes nicely: \(formattedGB)")
         t.check(formattedMB.contains("MB") || formattedMB.contains("M"), "Formats megabytes nicely: \(formattedMB)")
+
+        // =====================================================================
+        // TEST 11: CustomModelDownloadCoordinator Preflight Guard (Blocks before download)
+        // =====================================================================
+        let mockCustomDownloadCapacity = MockDiskCapacityProvider(defaultCapacity: 500 * 1024 * 1024) // 500 MB (insufficient for unknown model, needs 1GB)
+        let customDownloadChecker = StorageHealthService(capacityProvider: mockCustomDownloadCapacity)
+        let fakeCustomDownloader = FakeTextEncoderDownloading()
+
+        runAsyncTest {
+            let customCoordinator = CustomModelDownloadCoordinator(
+                downloader: fakeCustomDownloader,
+                isCached: { _ in false },
+                storageChecker: customDownloadChecker
+            )
+            await customCoordinator.startDownload(repository: "mlx-community/custom-model-test")
+            if case .failed(let reason) = customCoordinator.state {
+                t.check(reason.contains("disk space"), "Custom download blocked on critical storage: \(reason)")
+            } else {
+                t.check(false, "Expected custom download to fail on critical storage, got \(customCoordinator.state)")
+            }
+            t.checkEqual(fakeCustomDownloader.invokedRepositories.count, 0, "Downloader was never invoked when storage is critical (0 invocations)")
+        }
+
+        // =====================================================================
+        // TEST 12: Existing Local Model does NOT trigger download preflight
+        // =====================================================================
+        let mockLocalModelCapacity = MockDiskCapacityProvider(defaultCapacity: 500 * 1024 * 1024) // 500 MB (would fail model download)
+        let localModelChecker = StorageHealthService(capacityProvider: mockLocalModelCapacity)
+        let fakeLocalDownloader = FakeTextEncoderDownloading()
+
+        runAsyncTest {
+            let cachedCoordinator = CustomModelDownloadCoordinator(
+                downloader: fakeLocalDownloader,
+                isCached: { _ in true }, // Existing local model is cached/local
+                storageChecker: localModelChecker
+            )
+            await cachedCoordinator.startDownload(repository: "mlx-community/already-local-model")
+            t.checkEqual(cachedCoordinator.state, .succeeded, "Existing local model succeeds immediately without download")
+            t.checkEqual(fakeLocalDownloader.invokedRepositories.count, 0, "Downloader was never invoked for local model")
+        }
+
+        // =====================================================================
+        // TEST 13: Unknown Capacity allows execution and does not show 0-byte warning
+        // =====================================================================
+        let mockUnknownCapacity = MockDiskCapacityProvider(defaultCapacity: nil)
+        let unknownChecker = StorageHealthService(capacityProvider: mockUnknownCapacity)
+        let statusUnknown = unknownChecker.check(url: URL(fileURLWithPath: "/Volumes/Unresolved/Path"), for: .videoGeneration(expectedTakes: 2))
+        t.checkEqual(statusUnknown, .unknown, "Unresolved path returns .unknown")
+        t.check(!statusUnknown.isBlocked, "Unknown status does not block execution")
+        t.check(statusUnknown.message == nil, "Unknown status does not emit a bogus 0 B warning message")
     }
 }

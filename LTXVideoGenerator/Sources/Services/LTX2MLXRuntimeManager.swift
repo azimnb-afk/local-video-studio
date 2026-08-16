@@ -4,7 +4,7 @@ import Foundation
 public struct LTX2MLXRuntimeManifest: Codable, Equatable, Sendable {
     public static let currentSchemaVersion = 1
     public static let minimumRuntimeVersion = "0.2.0-preview4"
-    public static let pinnedSourceRevision: String = "80c1287"
+    public static let pinnedSourceRevision: String = "c49bcc1"
 
     public static let requiredCapabilities: [String] = [
         "ltx25_gguf",

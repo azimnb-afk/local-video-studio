@@ -12,7 +12,7 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
             capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2"]
         )
         t.check(validManifest.isCompatible, "Complete manifest must be compatible")
-        t.checkEqual(LTX2MLXRuntimeManifest.pinnedSourceRevision, "80c1287", "Pinned revision matches")
+        t.checkEqual(LTX2MLXRuntimeManifest.pinnedSourceRevision, "c49bcc1", "Pinned revision matches")
         t.checkEqual(validManifest.missingCapabilities, [], "No missing capabilities on full manifest")
 
         // Missing audio_decode_v2
@@ -74,5 +74,17 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
                 "Detail must explain not installed, not configured, or issue"
             )
         }
+
+        // MARK: - E. Managed runtime path isolation & self-containment contracts
+        let managedExec = manager.managedExecutableURL.path
+        t.check(managedExec.contains("LocalVideoStudio"), "Managed executable must reside inside AppStorageDirectory")
+        t.check(!managedExec.contains("ltx23appdev"), "Managed executable must never point to developer checkout")
+        t.check(!managedExec.contains("ltx-2-mlx-ltx25-poc"), "Managed executable must never point to PoC repository")
+
+        // MARK: - F. GGUF precedence contract
+        let modelDirURL = URL(fileURLWithPath: "/tmp/mock_model_dir")
+        t.check(LTX2MLXRuntimeManifest.requiredCapabilities.contains("ltx25_gguf"), "Runtime requires ltx25_gguf capability")
+        t.check(LTX2MLXRuntimeManifest.requiredCapabilities.contains("gguf_block_streaming_v1"), "Runtime requires gguf_block_streaming_v1 capability")
+        t.check(LTX2MLXRuntimeManifest.requiredCapabilities.contains("audio_decode_v2"), "Runtime requires audio_decode_v2 capability")
     }
 }

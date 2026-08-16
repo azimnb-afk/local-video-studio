@@ -55,7 +55,11 @@ enum GenerationModelResolver {
 
     /// Resolves without falling back to a different checkpoint. A caller that
     /// gets `.unsupported` must surface it, never substitute another model.
-    static func resolve(modelID: String?, registry: ModelRegistry = .shared) -> Resolution {
+    static func resolve(
+        modelID: String?,
+        registry: ModelRegistry = .shared,
+        userDefaults: UserDefaults = .standard
+    ) -> Resolution {
         guard let modelID, !modelID.isEmpty else {
             // No selection at all keeps the historical default, which is what
             // every project written before model selection existed expects.
@@ -70,6 +74,20 @@ enum GenerationModelResolver {
         }
         if let runnable = LTX2MLXModelCatalog.model(id: modelID) {
             return .runnable(RunnableModel(model: runnable, backend: .ltx2MLX))
+        }
+        if let profile = CustomModelProfileStore.profile(forModelID: modelID, userDefaults: userDefaults) {
+            let customModel = LTXModel(
+                id: profile.modelID,
+                repo: profile.displayName,
+                displayName: profile.displayName,
+                downloadSize: "~14GB",
+                supportsBuiltInAudio: true,
+                qualityWarning: nil,
+                recommendedStepsLower: 8,
+                recommendedStepsUpper: 8,
+                tips: "Custom model profile: \(profile.displayName)"
+            )
+            return .runnable(RunnableModel(model: customModel, backend: .ltx2MLX))
         }
         if let descriptor = registry.descriptor(id: modelID) {
             return .unsupported(.notRunnableOnInstalledBackend(

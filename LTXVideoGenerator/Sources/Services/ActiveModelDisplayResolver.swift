@@ -39,6 +39,21 @@ enum ActiveModelDisplayResolver {
             )
         }
 
+        if let profile = CustomModelProfileStore.profile(forModelID: effectiveID, userDefaults: userDefaults) {
+            let runtimeReadiness = LTX2MLXRuntime.runtimeReadiness(userDefaults: userDefaults)
+            let modelReadiness = CustomModelProfileStore.readiness(for: profile, userDefaults: userDefaults)
+            let canGenerate = runtimeReadiness.isReady && modelReadiness.isReady
+            let status = canGenerate ? "Ready" : "Not Configured"
+            return DisplayInfo(
+                modelID: effectiveID,
+                displayName: profile.displayName,
+                backendBadge: profile.runtimeKind,
+                isCustom: true,
+                isReady: canGenerate,
+                statusText: status
+            )
+        }
+
         if let ltx25 = LTX25ModelCatalog.model(id: effectiveID) {
             let readiness = LTX2MLXRuntime.readiness(repository: ltx25.repo, userDefaults: userDefaults)
             let status = readiness.canGenerate ? "Ready" : "Not Configured"

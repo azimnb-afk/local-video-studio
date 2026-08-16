@@ -273,6 +273,36 @@ final class ModelRegistry {
         )
     }
 
+    private func profileDescriptor(for profile: CustomModelProfile) -> ModelDescriptor {
+        ModelDescriptor(
+            id: profile.modelID,
+            displayName: profile.displayName,
+            repository: "user-supplied/\(profile.id.uuidString.lowercased())",
+            revision: nil,
+            localPath: profile.modelPath,
+            quantization: "q4",
+            precision: nil,
+            estimatedModelSizeGB: 14,
+            recommendedUnifiedMemoryGB: 32,
+            minimumUnifiedMemoryGB: 24,
+            architecture: ArchitectureDescriptor(modelFamily: profile.modelFamily, modelVersion: "2.3", modelType: "unified-av"),
+            capabilities: CapabilitySet(textToVideo: true, imageToVideo: true, synchronizedAudio: true),
+            runtime: RuntimeCompatibility(
+                backend: profile.runtimeKind,
+                minimumBackendVersion: "0.14.19",
+                verified: true,
+                verificationNotes: "Runs on user-configured \(profile.runtimeKind) runtime with custom profile weights."
+            ),
+            policy: .custom,
+            license: ModelLicenseMetadata(
+                name: "User-supplied model profile",
+                url: nil,
+                requiresAcknowledgement: false
+            ),
+            isOfficial: false
+        )
+    }
+
     // MARK: Lookup
 
     func descriptor(id: String) -> ModelDescriptor? {
@@ -282,6 +312,9 @@ final class ModelRegistry {
         if id == LTX25ModelCatalog.ltx25ExperimentalID {
             return ltx25Descriptor()
         }
+        if let profile = CustomModelProfileStore.profile(forModelID: id, userDefaults: userDefaults) {
+            return profileDescriptor(for: profile)
+        }
         return descriptors[id]
     }
 
@@ -289,7 +322,7 @@ final class ModelRegistry {
     /// honoring any frozen local snapshot path or pinned revision.
     func descriptor(for request: GenerationRequest) -> ModelDescriptor? {
         guard var desc = descriptor(id: request.modelId) else { return nil }
-        if request.modelId == Self.customModelID {
+        if request.modelId == Self.customModelID || request.modelId.hasPrefix(CustomModelProfile.idPrefix) {
             if let frozenPath = request.customModelLocalPath, !frozenPath.isEmpty {
                 desc.localPath = frozenPath
             }
@@ -309,13 +342,26 @@ final class ModelRegistry {
     /// Models visible for selection.
     /// - Official models are always listed.
     /// - LTX-2.5 (Experimental) is listed as an experimental capability model.
-    /// - Custom models are listed when customModelsV1 is enabled.
+    /// - Custom models and profiles are listed when customModelsV1 is enabled.
     func selectableModels(customModelsEnabled: Bool? = nil) -> [ModelDescriptor] {
         let allowCustom = customModelsEnabled ?? FeatureFlags.isEnabled(.customModelsV1, userDefaults: userDefaults)
         var models = Array(descriptors.values)
         if let ltx25 = descriptor(id: LTX25ModelCatalog.ltx25ExperimentalID) {
             if !models.contains(where: { $0.id == ltx25.id }) {
                 models.append(ltx25)
+            }
+        }
+        if allowCustom {
+            let profiles = CustomModelProfileStore.loadProfiles(userDefaults: userDefaults).filter(\.isEnabled)
+            if !profiles.isEmpty {
+                // When profiles exist, use profiles instead of the legacy single custom model descriptor
+                models.removeAll { $0.id == Self.customModelID }
+                for profile in profiles {
+                    let desc = profileDescriptor(for: profile)
+                    if !models.contains(where: { $0.id == desc.id }) {
+                        models.append(desc)
+                    }
+                }
             }
         }
         return models

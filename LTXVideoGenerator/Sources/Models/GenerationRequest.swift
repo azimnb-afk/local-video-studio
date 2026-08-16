@@ -229,6 +229,8 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
     var customModelsEnabled: Bool
     var customModelLocalPath: String?  // Frozen local model / snapshot path at request creation time
     var customModelSourceMode: String? // Frozen source mode ("huggingFace" or "local") at request creation time
+    var customModelProfileID: UUID?    // Bound custom model profile UUID if generated with a profile
+    var customModelDisplayNameSnapshot: String? // Snapshot of profile display name at creation time
     var brief: String?                 // Original user brief before prompt compilation
     var filmProjectID: UUID?
     var shotID: UUID?
@@ -278,6 +280,8 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         customModelsEnabled: Bool? = nil,
         customModelLocalPath: String? = nil,
         customModelSourceMode: String? = nil,
+        customModelProfileID: UUID? = nil,
+        customModelDisplayNameSnapshot: String? = nil,
         filmProjectID: UUID? = nil,
         shotID: UUID? = nil,
         takeID: UUID? = nil,
@@ -313,7 +317,18 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         self.shotID = shotID
         self.takeID = takeID
 
-        if modelId == ModelRegistry.customModelID {
+        if let profile = CustomModelProfileStore.profile(forModelID: modelId, userDefaults: userDefaults) {
+            self.customModelProfileID = profile.id
+            self.customModelDisplayNameSnapshot = profile.displayName
+            self.customModelSourceMode = CustomModelSourceMode.local.rawValue
+            if let explicitPath = customModelLocalPath, !explicitPath.isEmpty {
+                self.customModelLocalPath = LTX2MLXRuntime.localModelDirectory(at: explicitPath) ?? explicitPath
+            } else {
+                self.customModelLocalPath = LTX2MLXRuntime.localModelDirectory(at: profile.modelPath) ?? profile.modelPath
+            }
+        } else if modelId == ModelRegistry.customModelID {
+            self.customModelProfileID = customModelProfileID
+            self.customModelDisplayNameSnapshot = customModelDisplayNameSnapshot
             let effectiveMode = customModelSourceMode
                 ?? userDefaults.string(forKey: ModelRegistry.customSourceModeUserDefaultsKey)
                 ?? CustomModelSourceMode.huggingFace.rawValue
@@ -331,6 +346,8 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
                 self.customModelLocalPath = customModelLocalPath
             }
         } else {
+            self.customModelProfileID = customModelProfileID
+            self.customModelDisplayNameSnapshot = customModelDisplayNameSnapshot
             self.customModelLocalPath = customModelLocalPath
             self.customModelSourceMode = customModelSourceMode
         }
@@ -365,6 +382,8 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         case customModelsEnabled
         case customModelLocalPath
         case customModelSourceMode
+        case customModelProfileID
+        case customModelDisplayNameSnapshot
         case filmProjectID
         case shotID
         case takeID
@@ -401,6 +420,8 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         customModelsEnabled = try container.decodeIfPresent(Bool.self, forKey: .customModelsEnabled) ?? false
         customModelLocalPath = try container.decodeIfPresent(String.self, forKey: .customModelLocalPath)
         customModelSourceMode = try container.decodeIfPresent(String.self, forKey: .customModelSourceMode)
+        customModelProfileID = try container.decodeIfPresent(UUID.self, forKey: .customModelProfileID)
+        customModelDisplayNameSnapshot = try container.decodeIfPresent(String.self, forKey: .customModelDisplayNameSnapshot)
         filmProjectID = try container.decodeIfPresent(UUID.self, forKey: .filmProjectID)
         shotID = try container.decodeIfPresent(UUID.self, forKey: .shotID)
         takeID = try container.decodeIfPresent(UUID.self, forKey: .takeID)

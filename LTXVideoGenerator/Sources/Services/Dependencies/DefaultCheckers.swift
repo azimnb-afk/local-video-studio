@@ -97,6 +97,15 @@ public class DefaultModelChecker: ModelChecking {
             return .invalid("Selected model '\(modelID)' is not registered.")
         }
         
+        if model.runtime.backend == "ltx-2-mlx" {
+            let readiness = LTX2MLXRuntime.modelReadiness(repository: model.repository)
+            if readiness.isReady {
+                return .ready
+            } else {
+                return .missing(readiness.detail)
+            }
+        }
+
         if HuggingFaceCacheChecker.isCached(repository: model.repository) {
             return .ready
         } else {

@@ -156,7 +156,7 @@ final class ModelRegistry {
             id: model.id,
             displayName: model.displayName,
             repository: model.repo,
-            revision: nil,
+            revision: "main",
             localPath: nil,
             quantization: nil,
             precision: "bf16",

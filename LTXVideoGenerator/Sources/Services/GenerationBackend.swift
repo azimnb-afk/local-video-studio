@@ -46,6 +46,9 @@ enum CustomLTX2MLXModelCatalog {
         if id == customModelID {
             return customModel(userDefaults: userDefaults)
         }
+        if id == LTX25ModelCatalog.ltx25ExperimentalID {
+            return LTX25ModelCatalog.ltx25Experimental
+        }
         return nil
     }
 
@@ -189,6 +192,14 @@ enum LTX2MLXRuntime {
 
     static func hasRequiredComponents(in directory: URL, fileManager: FileManager = .default) -> Bool {
         guard let files = try? fileManager.contentsOfDirectory(atPath: directory.path) else { return false }
+
+        // GGUF model files (e.g. LTX-2.5-Distilled-Q4_K_M.gguf) resolve components dynamically
+        let hasGGUF = files.contains { name in
+            name.hasSuffix(".gguf") && fileSize(of: directory.appendingPathComponent(name)) > 0
+        }
+        if hasGGUF {
+            return true
+        }
 
         // 1. Must contain at least one valid transformer safetensors file (e.g. transformer.safetensors,
         // transformer-distilled.safetensors, transformer-distilled-1.1.safetensors).

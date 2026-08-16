@@ -683,4 +683,33 @@ func runDirectorTests(_ t: TestKit) {
         t.check(!emptyAppearancePrompt.contains("CURRENT OPENING SCENE EVIDENCE"), "Empty evidence fields generate old behavior (no header)")
         t.checkEqual(emptyAppearancePrompt, "BRIEF: She runs.", "Empty evidence fields generate exactly old behavior")
     }
+
+    t.suite("TemplateStoryboardProvider - Explicit Shot Parsing & Isolation") {
+        let multiShotBrief = """
+        Shot 1: The woman walks through a softly lit corridor toward a doorway.
+        Shot 2: She enters the bright sunlit room and smiles gently.
+        """
+        let beats = TemplateStoryboardProvider.explicitBeats(from: multiShotBrief)
+        t.checkEqual(beats.count, 2, "Extracted exactly 2 shot beats")
+        if beats.count >= 2 {
+            let shot1 = beats[0]
+            let shot2 = beats[1]
+            t.checkEqual(shot1, "The woman walks through a softly lit corridor toward a doorway.", "Shot 1 content matches exactly")
+            t.check(!shot1.contains("Shot 2"), "Shot 1 must not contain Shot 2 marker")
+            t.check(!shot1.contains("enters the bright"), "Shot 1 must not contain Shot 2 action")
+            t.check(!shot1.contains("smiles gently"), "Shot 1 must not contain Shot 2 acting")
+
+            t.checkEqual(shot2, "She enters the bright sunlit room and smiles gently.", "Shot 2 content matches exactly")
+            t.check(!shot2.contains("Shot 1"), "Shot 2 must not contain Shot 1 marker")
+            t.check(!shot2.contains("walks through a softly lit corridor"), "Shot 2 must not contain Shot 1 action")
+        }
+
+        let inlineShotBrief = "Shot 1: A woman walking in a park. Shot 2: She sits on a bench."
+        let inlineBeats = TemplateStoryboardProvider.explicitBeats(from: inlineShotBrief)
+        t.checkEqual(inlineBeats.count, 2, "Inline Shot 1 / Shot 2 extracted cleanly")
+        if inlineBeats.count >= 2 {
+            t.checkEqual(inlineBeats[0], "A woman walking in a park.", "Inline Shot 1 matches")
+            t.checkEqual(inlineBeats[1], "She sits on a bench.", "Inline Shot 2 matches")
+        }
+    }
 }

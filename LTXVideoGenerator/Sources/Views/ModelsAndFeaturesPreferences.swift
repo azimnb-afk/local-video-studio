@@ -15,9 +15,14 @@ struct ModelsAndFeaturesPreferences: View {
     @State private var editingProfile: CustomModelProfile? = nil
     @State private var isShowingAddSheet = false
     @State private var profileToDelete: CustomModelProfile? = nil
+    @StateObject private var runtimeManager = LTX2MLXRuntimeManager.shared
 
     var body: some View {
         Form {
+            Section("LTX-2.5 Runtime") {
+                LTX2MLXRuntimePreferenceView(manager: runtimeManager)
+            }
+
             Section("Custom Models") {
                 Toggle("Enable Custom Model Profiles", isOn: $flagCustomModels)
                     .help("Enable user-supplied custom model profiles running on the ltx-2-mlx backend.")
@@ -366,6 +371,153 @@ struct CustomModelProfileEditorSheet: View {
 
         if panel.runModal() == .OK, let url = panel.url {
             modelPath = url.path
+        }
+    }
+}
+
+/// View displaying the app-managed LTX-2.5 runtime state with install/update/repair actions.
+struct LTX2MLXRuntimePreferenceView: View {
+    @ObservedObject var manager: LTX2MLXRuntimeManager
+    @State private var isInstalling = false
+    @State private var installProgress: Double = 0.0
+    @State private var installStep: String = ""
+    @State private var errorMessage: String? = nil
+    @State private var showOverrideSettings = false
+    @AppStorage(LTX2MLXRuntimeManager.overrideExecutableKey) private var overridePath: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            let currentStatus = manager.status
+
+            HStack(spacing: 8) {
+                switch currentStatus {
+                case .ready:
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("Runtime: Ready")
+                        .font(.headline)
+                case .notInstalled:
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.secondary)
+                    Text("Runtime: Not Installed")
+                        .font(.headline)
+                case .installing:
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Runtime: Installing…")
+                        .font(.headline)
+                case .outdated:
+                    Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                        .foregroundStyle(.orange)
+                    Text("Runtime: Update Required")
+                        .font(.headline)
+                case .broken:
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.red)
+                    Text("Runtime: Issue Detected")
+                        .font(.headline)
+                }
+
+                Spacer()
+
+                switch currentStatus {
+                case .notInstalled:
+                    Button("Install LTX-2.5 Runtime") {
+                        startInstallation()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isInstalling)
+                case .outdated:
+                    Button("Update Runtime") {
+                        startInstallation()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isInstalling)
+                case .broken:
+                    Button("Repair Runtime") {
+                        startInstallation()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isInstalling)
+                case .ready, .installing:
+                    EmptyView()
+                }
+            }
+
+            Text(currentStatus.displayMessage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if isInstalling {
+                VStack(alignment: .leading, spacing: 4) {
+                    ProgressView(value: installProgress, total: 1.0)
+                    Text(installStep)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 4)
+            }
+
+            if let error = errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            Divider()
+
+            DisclosureGroup("Advanced Developer Override", isExpanded: $showOverrideSettings) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Optionally specify an external ltx-2-mlx executable path for local development:")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        TextField("Path to ltx-2-mlx binary", text: $overridePath)
+                            .textFieldStyle(.roundedBorder)
+                        if !overridePath.isEmpty {
+                            Button("Clear") {
+                                overridePath = ""
+                                manager.setOverrideExecutablePath(nil)
+                            }
+                        }
+                    }
+                }
+                .padding(.top, 4)
+            }
+            .font(.caption)
+
+            BilingualSettingDescription(
+                english: "Local Video Studio automatically manages an isolated LTX-2.5 runtime environment with Metal-optimized MLX and GGUF block streaming support.",
+                japanese: "Local Video Studio は、Metal 最適化 MLX と GGUF ブロックストリーミングに対応した隔離 LTX-2.5 ランタイム環境を自動管理します。"
+            )
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func startInstallation() {
+        isInstalling = true
+        errorMessage = nil
+        installProgress = 0.05
+        installStep = "Starting…"
+
+        Task {
+            do {
+                try await manager.installManagedRuntime { progress, step in
+                    DispatchQueue.main.async {
+                        self.installProgress = progress
+                        self.installStep = step
+                    }
+                }
+                DispatchQueue.main.async {
+                    self.isInstalling = false
+                    self.installStep = "Complete"
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isInstalling = false
+                    self.errorMessage = error.localizedDescription
+                }
+            }
         }
     }
 }

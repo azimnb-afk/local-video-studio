@@ -104,28 +104,32 @@ enum LTX2MLXRuntime {
 
     // MARK: Runtime
 
-    static func executablePath(userDefaults: UserDefaults = .standard) -> String? {
-        guard let path = userDefaults.string(forKey: executablePathKey),
-              !path.trimmingCharacters(in: .whitespaces).isEmpty
-        else { return nil }
-        return path
+    static func executablePath(
+        userDefaults: UserDefaults = .standard,
+        manager: LTX2MLXRuntimeManager = .shared
+    ) -> String? {
+        let status = manager.evaluateStatus(userDefaults: userDefaults)
+        return status.executablePath
     }
 
     static func runtimeReadiness(
         userDefaults: UserDefaults = .standard,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        manager: LTX2MLXRuntimeManager = .shared
     ) -> ComponentReadiness {
-        guard let path = executablePath(userDefaults: userDefaults) else {
-            return .missing("The ltx-2-mlx runtime is not configured. Set its path in Preferences → General.")
+        let status = manager.evaluateStatus(userDefaults: userDefaults)
+        switch status {
+        case .ready(let path, _):
+            return .ready(path)
+        case .notInstalled:
+            return .missing("The ltx-2-mlx runtime is not configured or installed. Set its path or install in Preferences → Models & Features.")
+        case .outdated(_, let current, let req, let missing):
+            return .missing("The ltx-2-mlx runtime is outdated (v\(current) -> v\(req), missing \(missing.joined(separator: ", "))). Update it in Preferences → Models & Features.")
+        case .broken(let reason):
+            return .missing("The ltx-2-mlx runtime has an issue: \(reason)")
+        case .installing(_, let step):
+            return .missing("The ltx-2-mlx runtime is currently installing (\(step))…")
         }
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else {
-            return .missing("The configured ltx-2-mlx runtime was not found at \(path).")
-        }
-        guard fileManager.isExecutableFile(atPath: path) else {
-            return .missing("The configured ltx-2-mlx runtime at \(path) is not executable.")
-        }
-        return .ready(path)
     }
 
     // MARK: Model

@@ -63,6 +63,15 @@ public enum AppStorageDirectory {
         return url
     }
 
+    /// Subdirectory for app-managed runtime environments (e.g. ltx-2-mlx).
+    public static var runtimesDirectory: URL {
+        let url = root.appendingPathComponent("Runtimes", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+        return url
+    }
+
     public static var isDev: Bool {
         let bundleID = Bundle.main.bundleIdentifier ?? ""
         return bundleID.contains(".dev")

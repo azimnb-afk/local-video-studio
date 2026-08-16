@@ -124,6 +124,7 @@
 		AA000318 /* RenderTextNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000319; };
 		AA00031A /* PromptSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00031B; };
 		AA000322 /* CustomModelProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000323; };
+		AA000324 /* LTX2MLXRuntimeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000325; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -243,6 +244,7 @@
 		AA000319 /* RenderTextNormalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderTextNormalizer.swift; sourceTree = "<group>"; };
 		AA00031B /* PromptSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptSanitizer.swift; sourceTree = "<group>"; };
 		AA000323 /* CustomModelProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomModelProfile.swift; sourceTree = "<group>"; };
+		AA000325 /* LTX2MLXRuntimeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LTX2MLXRuntimeManager.swift; sourceTree = "<group>"; };
 		AA000030 /* LTXVideoGenerator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LTXVideoGenerator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -398,6 +400,7 @@
 				AA000253 /* DependencyHealthManager.swift */,
 				AA000255 /* FFmpegDetector.swift */,
 				AA000315 /* ActiveModelDisplayResolver.swift */,
+				AA000325 /* LTX2MLXRuntimeManager.swift */,
 				AA000317 /* RenderLanguageValidator.swift */,
 				AA000319 /* RenderTextNormalizer.swift */,
 				AA00031B /* PromptSanitizer.swift */,
@@ -619,6 +622,7 @@
 				AA000318 /* RenderTextNormalizer.swift in Sources */,
 				AA00031A /* PromptSanitizer.swift in Sources */,
 				AA000322 /* CustomModelProfile.swift in Sources */,
+				AA000324 /* LTX2MLXRuntimeManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

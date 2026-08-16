@@ -1118,6 +1118,7 @@ runCharacterContinuitySafetyTests(t)
 runCharacterAnchorExtractionTests(t)
 runLTX25ModelSupportTests(t)
 runCustomModelProfileTests(t)
+runLTX2MLXRuntimeManagerTests(t)
 if CommandLine.arguments.contains("--probe-director-cancellation-acceptance") {
     runRealDirectorPlanningCancellationAcceptanceProbe(t)
 }

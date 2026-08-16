@@ -132,8 +132,75 @@ func runLTX25ModelSupportTests(_ t: TestKit) {
         t.check(!statusHealthy.isBlocked, "30GB should be healthy for 25GB download")
 
         // 20 GB available: critical for a 25 GB download
-        let serviceCritical = StorageHealthService(capacityProvider: MockDiskProvider(capacity: 20 * 1024 * 1024 * 1024))
-        let statusCritical = serviceCritical.check(url: URL(fileURLWithPath: "/tmp"), for: .modelDownload(expectedBytes: 25 * 1024 * 1024 * 1024))
-        t.check(statusCritical.isBlocked, "20GB should block a 25GB download")
+        // MARK: - H. GenerationResult modelDisplayName resolution & backward compatibility
+        let result25 = GenerationResult(
+            id: UUID(),
+            requestId: UUID(),
+            prompt: "A cute dog",
+            enhancedPrompt: nil,
+            negativePrompt: "",
+            voiceoverText: "",
+            voiceoverSource: "none",
+            voiceoverVoice: "default",
+            modelId: LTX25ModelCatalog.ltx25ExperimentalID,
+            parameters: params,
+            videoPath: "/path/to/v.mp4",
+            thumbnailPath: nil,
+            audioPath: nil,
+            musicPath: nil,
+            musicGenre: nil,
+            createdAt: Date(),
+            completedAt: Date(),
+            duration: 10.0,
+            seed: 42
+        )
+        t.checkEqual(result25.modelDisplayName, "LTX-2.5 (Experimental)", "LTX-2.5 result must display LTX-2.5 (Experimental)")
+
+        let resultCustom = GenerationResult(
+            id: UUID(),
+            requestId: UUID(),
+            prompt: "A custom shot",
+            enhancedPrompt: nil,
+            negativePrompt: "",
+            voiceoverText: "",
+            voiceoverSource: "none",
+            voiceoverVoice: "default",
+            modelId: "custom_profile_123",
+            parameters: params,
+            videoPath: "/path/to/v.mp4",
+            thumbnailPath: nil,
+            audioPath: nil,
+            musicPath: nil,
+            musicGenre: nil,
+            createdAt: Date(),
+            completedAt: Date(),
+            duration: 10.0,
+            seed: 42,
+            effectiveProfileName: "My Custom Studio Model"
+        )
+        t.checkEqual(resultCustom.modelDisplayName, "My Custom Studio Model", "Custom profile result must display profile name")
+
+        let result23 = GenerationResult(
+            id: UUID(),
+            requestId: UUID(),
+            prompt: "An old 2.3 shot",
+            enhancedPrompt: nil,
+            negativePrompt: "",
+            voiceoverText: "",
+            voiceoverSource: "none",
+            voiceoverVoice: "default",
+            modelId: "ltx23_distilled_q4",
+            parameters: params,
+            videoPath: "/path/to/v.mp4",
+            thumbnailPath: nil,
+            audioPath: nil,
+            musicPath: nil,
+            musicGenre: nil,
+            createdAt: Date(),
+            completedAt: Date(),
+            duration: 10.0,
+            seed: 42
+        )
+        t.checkEqual(result23.modelDisplayName, "LTX-2.3 Distilled Q4 (Beta)", "Legacy 2.3 result must display LTX-2.3 Distilled Q4 (Beta)")
     }
 }

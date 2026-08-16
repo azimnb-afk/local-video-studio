@@ -92,7 +92,29 @@ struct GenerationResult: Identifiable, Codable {
     }
 
     var model: LTXModel {
-        LTXModelCatalog.resolvedModel(id: modelId)
+        if modelId == LTX25ModelCatalog.ltx25ExperimentalID {
+            return LTX25ModelCatalog.ltx25Experimental
+        }
+        return LTXModelCatalog.resolvedModel(id: modelId)
+    }
+
+    var modelDisplayName: String {
+        if modelId == LTX25ModelCatalog.ltx25ExperimentalID {
+            return LTX25ModelCatalog.ltx25Experimental.displayName
+        }
+        if let descriptor = ModelRegistry.shared.descriptor(id: modelId) {
+            return descriptor.displayName
+        }
+        if let model = LTXModelCatalog.model(id: modelId) {
+            return model.displayName
+        }
+        if let effectiveProfileName, !effectiveProfileName.isEmpty {
+            return effectiveProfileName
+        }
+        if !modelId.isEmpty {
+            return modelId
+        }
+        return LTXModelCatalog.defaultModel.displayName
     }
 
     init(

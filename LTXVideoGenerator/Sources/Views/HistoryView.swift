@@ -116,13 +116,15 @@ struct HistoryView: View {
                             GridItem(.adaptive(minimum: 180, maximum: 250), spacing: 16)
                         ], spacing: 16) {
                             ForEach(filteredResults) { result in
-                                HistoryThumbnailView(
-                                    result: result,
-                                    isSelected: selection.contains(result)
-                                )
-                                .onTapGesture {
+                                Button {
                                     historyManager.selectedResult = result
+                                } label: {
+                                    HistoryThumbnailView(
+                                        result: result,
+                                        isSelected: historyManager.selectedResult?.id == result.id
+                                    )
                                 }
+                                .buttonStyle(.plain)
                                 .onTapGesture(count: 2) {
                                     historyManager.revealInFinder(result)
                                 }
@@ -166,6 +168,11 @@ struct HistoryView: View {
                     addAudioResult = nil
                 }
             )
+        }
+        .onAppear {
+            if historyManager.selectedResult == nil {
+                historyManager.selectedResult = filteredResults.first
+            }
         }
     }
     
@@ -436,7 +443,7 @@ struct HistoryDetailView: View {
                         }
                         DetailItem(label: "Guidance", value: String(format: "%.1f", result.parameters.guidanceScale))
                         DetailItem(label: "Seed", value: "\(result.seed)", copyable: true)
-                        DetailItem(label: "Model", value: result.model.displayName)
+                        DetailItem(label: "Model", value: result.modelDisplayName)
                     }
                     
                     Divider()

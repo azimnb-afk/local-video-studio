@@ -8,11 +8,12 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
             schemaVersion: 1,
             runtime: "ltx-2-mlx",
             runtimeVersion: "0.2.0-preview4",
-            sourceRevision: "9c5819b",
+            sourceRevision: "cbded94",
             capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "video_decoder_weights_v2", "ltx25_official_video_vae_v1", "ltx25_audio_toggle_v1"]
         )
         t.check(validManifest.isCompatible, "Complete manifest must be compatible")
-        t.checkEqual(LTX2MLXRuntimeManifest.pinnedSourceRevision, "9c5819b", "Pinned revision matches the VideoDecoder strict-loading fix")
+        t.checkEqual(LTX2MLXRuntimeManifest.pinnedSourceRevision, "cbded94", "Pinned revision matches the published audio-toggle + official-VAE fixes")
+        t.checkEqual(LTX2MLXRuntimeManifest.pinnedRepoURL, "https://github.com/azimnb-afk/ltx-2-mlx.git", "Runtime source points at the user-owned public fork")
         t.checkEqual(validManifest.missingCapabilities, [], "No missing capabilities on full manifest")
 
         // Missing audio_decode_v2

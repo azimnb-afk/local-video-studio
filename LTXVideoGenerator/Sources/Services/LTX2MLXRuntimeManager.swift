@@ -4,40 +4,42 @@ import Foundation
 public struct LTX2MLXRuntimeManifest: Codable, Equatable, Sendable {
     public static let currentSchemaVersion = 1
     public static let minimumRuntimeVersion = "0.2.0-preview4"
+
+    // Runtime source history, most recent first:
+    //
+    // 9c5819b -> cbded94: two fixes landed together for Preview.4 —
+    // (1) official Lightricks/LTX-2.5 combined Video VAE support
+    // (decoder./encoder. prefixes, raw PyTorch Conv3D layout; previously
+    // not loadable at all, see ltx25_official_video_vae_v1), and
+    // (2) the Generate Audio toggle actually working for LTX-2.5 (a new
+    // --no-audio CLI flag threaded through disable_audio, skipping the
+    // audio decoder/vocoder load and mux step entirely; previously
+    // LTX2MLXBackend.arguments() never read request.disableAudio at all,
+    // see ltx25_audio_toggle_v1). Both verified end-to-end through the
+    // real app: 86/86 strict VAE load, Audio OFF -> 0 audio streams,
+    // Audio ON -> unchanged AAC 48kHz stereo.
+    //
     // c49bcc1 -> 9c5819b: exact prefix resolution + strict=True loading for
     // VideoDecoder. Without this fix, MP4 generation can succeed while the
-    // decoded video is full-screen noise — see video_decoder_weights_v2 below,
-    // which is what actually gates readiness on this fix being present.
+    // decoded video is full-screen noise — see video_decoder_weights_v2.
     //
-    // 9c5819b -> a99a9c7 (local runtime-repo commit, NOT YET on the public
-    // remote — see PREVIEW4_PUBLICATION_CHECKLIST.md): the official
-    // Lightricks/LTX-2.5 combined Video VAE checkpoint (decoder./encoder.
-    // prefixes, raw PyTorch Conv3D layout) was not loadable at all by
-    // 9c5819b — it would either silently resolve an unrelated LTX-2.3 cache
-    // file (fixed separately, see allow_external_cache_fallback) or fail
-    // outright. See ltx25_official_video_vae_v1 below.
+    // Runtime source moved from dgrauet/ltx-2-mlx (upstream) to
+    // azimnb-afk/ltx-2-mlx (a user-owned, user-controlled fork of
+    // mrbizarro/ltx-2-mlx, itself a fork of dgrauet/ltx-2-mlx) at the same
+    // time as this pin bump, so the app is never blocked on an external
+    // maintainer accepting a large experimental PR on their own timeline.
     //
-    // pinnedSourceRevision intentionally still points at 9c5819b: bumping it
-    // to a99a9c7 before that commit is pushed and merged into the canonical
-    // public remote would make every fresh "Install Runtime" fetch a
-    // nonexistent revision and fail outright. Because requiredCapabilities
-    // below already requires ltx25_official_video_vae_v1 (which 9c5819b
-    // cannot satisfy), a fresh install against today's pin will correctly
-    // fail closed at the post-install capability check instead of silently
-    // reporting Ready with an incomplete runtime — bump this pin as the
-    // first step once a99a9c7 (or its equivalent) is public.
-    // a99a9c7 -> cbded94 (local runtime-repo commit, NOT YET on the public
-    // remote): the Generate Audio toggle had no effect on LTX-2.5 at all —
-    // LTX2MLXBackend.arguments() never read request.disableAudio, so every
-    // LTX-2.5 render included audio regardless of the toggle. Fixed by
-    // threading a new --no-audio CLI flag through disable_audio on the
-    // pipeline side (skips loading the audio decoder/vocoder and the mux
-    // step entirely) and appending --no-audio from Swift when disableAudio
-    // is set. An old runtime without this fix doesn't recognize --no-audio
-    // at all (hard CLI parse error) — see ltx25_audio_toggle_v1 below.
-    // Verified end-to-end through the real app: Audio OFF -> 0 audio
-    // streams, Audio ON -> unchanged AAC 48kHz stereo.
-    public static let pinnedSourceRevision: String = "9c5819b"
+    // Installing a monorepo root via plain `pip install git+<url>@<rev>`
+    // does not work here regardless of revision — ltx-2-mlx is a uv
+    // workspace with no single installable package at the repo root
+    // (setuptools refuses outright: "Multiple top-level packages
+    // discovered in a flat-layout: ['poc', 'packages']"). installManagedRuntime
+    // below installs each of packages/ltx-core-mlx and
+    // packages/ltx-pipelines-mlx individually via pip's VCS subdirectory
+    // syntax (#subdirectory=...), mirroring the editable dev-override path.
+    // Verified against the real public repo with no developer overrides.
+    public static let pinnedRepoURL: String = "https://github.com/azimnb-afk/ltx-2-mlx.git"
+    public static let pinnedSourceRevision: String = "cbded94"
 
     public static let requiredCapabilities: [String] = [
         "ltx25_gguf",
@@ -463,9 +465,18 @@ public final class LTX2MLXRuntimeManager: ObservableObject, @unchecked Sendable 
                 }
             }
         } else {
-            // For production distributable, install from pinned repository release
-            let pinnedRepoSpec = "git+https://github.com/dgrauet/ltx-2-mlx.git@\(LTX2MLXRuntimeManifest.pinnedSourceRevision)"
-            try await runSubprocess(executable: venvPip, arguments: ["install", pinnedRepoSpec])
+            // For production distributable, install from the pinned repository release.
+            // ltx-2-mlx is a uv workspace monorepo: the repo root has no single
+            // installable package (setuptools refuses it outright -- "Multiple
+            // top-level packages discovered in a flat-layout: ['poc', 'packages']"),
+            // so `pip install git+https://.../ltx-2-mlx.git@rev` on the bare repo
+            // always fails, for any revision. Each package needs pip's VCS
+            // subdirectory syntax, mirroring the editable dev-override path above.
+            let pinnedBaseSpec = "git+\(LTX2MLXRuntimeManifest.pinnedRepoURL)@\(LTX2MLXRuntimeManifest.pinnedSourceRevision)"
+            for subdirectory in ["packages/ltx-core-mlx", "packages/ltx-pipelines-mlx"] {
+                let pinnedRepoSpec = "\(pinnedBaseSpec)#subdirectory=\(subdirectory)"
+                try await runSubprocess(executable: venvPip, arguments: ["install", pinnedRepoSpec, "--no-deps"])
+            }
         }
 
         // 5. Write runtime_manifest.json

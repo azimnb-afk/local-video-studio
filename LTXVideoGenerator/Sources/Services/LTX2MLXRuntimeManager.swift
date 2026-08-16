@@ -8,13 +8,32 @@ public struct LTX2MLXRuntimeManifest: Codable, Equatable, Sendable {
     // VideoDecoder. Without this fix, MP4 generation can succeed while the
     // decoded video is full-screen noise — see video_decoder_weights_v2 below,
     // which is what actually gates readiness on this fix being present.
+    //
+    // 9c5819b -> a99a9c7 (local runtime-repo commit, NOT YET on the public
+    // remote — see PREVIEW4_PUBLICATION_CHECKLIST.md): the official
+    // Lightricks/LTX-2.5 combined Video VAE checkpoint (decoder./encoder.
+    // prefixes, raw PyTorch Conv3D layout) was not loadable at all by
+    // 9c5819b — it would either silently resolve an unrelated LTX-2.3 cache
+    // file (fixed separately, see allow_external_cache_fallback) or fail
+    // outright. See ltx25_official_video_vae_v1 below.
+    //
+    // pinnedSourceRevision intentionally still points at 9c5819b: bumping it
+    // to a99a9c7 before that commit is pushed and merged into the canonical
+    // public remote would make every fresh "Install Runtime" fetch a
+    // nonexistent revision and fail outright. Because requiredCapabilities
+    // below already requires ltx25_official_video_vae_v1 (which 9c5819b
+    // cannot satisfy), a fresh install against today's pin will correctly
+    // fail closed at the post-install capability check instead of silently
+    // reporting Ready with an incomplete runtime — bump this pin as the
+    // first step once a99a9c7 (or its equivalent) is public.
     public static let pinnedSourceRevision: String = "9c5819b"
 
     public static let requiredCapabilities: [String] = [
         "ltx25_gguf",
         "gguf_block_streaming_v1",
         "audio_decode_v2",
-        "video_decoder_weights_v2"
+        "video_decoder_weights_v2",
+        "ltx25_official_video_vae_v1"
     ]
 
     public var schemaVersion: Int
@@ -271,6 +290,8 @@ public final class LTX2MLXRuntimeManager: ObservableObject, @unchecked Sendable 
             src = inspect.getsource(blocks.VideoDecoder.load)
             if 'strict=True' in src:
                 caps.append('video_decoder_weights_v2')
+            if 'pytorch_conv3d_reorder' in src and 'per_channel_statistics.mean-of-means' in src:
+                caps.append('ltx25_official_video_vae_v1')
         except Exception:
             pass
 

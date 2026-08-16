@@ -197,12 +197,22 @@ enum LTX2MLXRuntime {
     static func hasRequiredComponents(in directory: URL, fileManager: FileManager = .default) -> Bool {
         guard let files = try? fileManager.contentsOfDirectory(atPath: directory.path) else { return false }
 
-        // GGUF model files (e.g. LTX-2.5-Distilled-Q4_K_M.gguf) resolve components dynamically
+        // GGUF model files (e.g. LTX-2.5-Distilled-Q4_K_M.gguf) resolve most components dynamically,
+        // but the runtime's Video VAE decoder never falls back to an external cache (weights differ
+        // between model versions and a wrong cross-version match would load silently — see
+        // VideoDecoder.load()'s allow_external_cache_fallback=False in the runtime). It must be
+        // present directly in this folder, matching the same filename patterns the runtime accepts.
         let hasGGUF = files.contains { name in
             name.hasSuffix(".gguf") && fileSize(of: directory.appendingPathComponent(name)) > 0
         }
         if hasGGUF {
-            return true
+            let hasVideoVAE = files.contains { name in
+                (name == "vae_decoder.safetensors" ||
+                 name.contains("video-vae-conv") ||
+                 name.contains("vae_decoder")) &&
+                fileSize(of: directory.appendingPathComponent(name)) > 0
+            }
+            return hasVideoVAE
         }
 
         // 1. Must contain at least one valid transformer safetensors file (e.g. transformer.safetensors,

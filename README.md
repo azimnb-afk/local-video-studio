@@ -141,7 +141,7 @@ The runtime (the isolated Python environment that runs the model) and the model 
 
 1. Open **Preferences** (⌘,) → **Models & Features**.
 2. Under the LTX-2.5 section, click **Install Runtime**. This creates an isolated, app-managed Python environment just for LTX-2.5 — it does not touch your Python setup from step 2 above. Installation is explicit; the app never downloads it silently.
-3. Once the runtime shows **Ready**, add an **LTX-2.5 Custom Model Profile** pointing at a folder containing an LTX-2.5 Distilled GGUF file (for example, a `Distilled-GGUF` folder downloaded from Hugging Face). You can save up to 5 model profiles.
+3. Once the runtime shows **Ready**, add an **LTX-2.5 Custom Model Profile** pointing at a folder containing both an LTX-2.5 Distilled GGUF file (for example, from a `Distilled-GGUF` folder downloaded from Hugging Face) **and** a Video VAE decoder file (`vae_decoder.safetensors`, or the official combined VAE file matching `*video-vae-conv*`) placed directly in the same folder. The GGUF file alone is not enough — video output requires the Video VAE decoder, and the app will report the profile as not ready until it is present. You can save up to 5 model profiles.
 4. Select **LTX-2.5 (Experimental)** as the model on the Generate, One Shot, Auto Movie, or Storyboard screen and generate as usual.
 5. Runtime and model status are shown separately in Models & Features (**Runtime Not Installed / Ready / Update Required / Broken**, and per-profile model readiness), so you can tell which one needs attention if generation is blocked.
 

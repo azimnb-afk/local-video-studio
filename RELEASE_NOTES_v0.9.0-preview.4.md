@@ -22,6 +22,11 @@ Local Video Studio for Mac `v0.9.0-preview.4` introduces **experimental LTX-2.5 
 - **Accurate Archive Labels**: A video generated with LTX-2.5 or a custom model profile now shows its actual model/profile name in Video Archive, instead of a stale or incorrect label from a different model.
 - **Existing History Preserved**: Previously generated LTX-2.3 history entries remain readable and correctly labeled.
 
+### 🔒 4. Fail-Closed LTX-2.5 Video Component Checks
+- **Video VAE Presence Is Verified, Not Assumed**: An LTX-2.5 model folder is only shown as Ready once its Video VAE decoder component is actually present next to the GGUF file — a GGUF transformer file alone is no longer treated as a complete, generation-ready profile.
+- **No Silent Cross-Model Substitution**: The Video VAE component is resolved only from the selected model's own folder, never guessed from an unrelated cached model elsewhere on disk.
+- **Fails Closed, Not Silently**: If a required component is missing, generation stops with a clear, actionable message instead of proceeding and producing corrupted output.
+
 ---
 
 ## System Requirements

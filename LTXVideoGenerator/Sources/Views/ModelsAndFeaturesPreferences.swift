@@ -492,6 +492,16 @@ struct LTX2MLXRuntimePreferenceView: View {
             )
         }
         .padding(.vertical, 4)
+        .onAppear {
+            // `manager.status` is seeded optimistically at init (file-existence
+            // check only, no capability probe) so app launch never blocks on a
+            // subprocess call. Refresh here so a runtime that's present on disk
+            // but missing a newly-required capability is never shown as Ready
+            // before an actual probe has run.
+            if !isInstalling {
+                manager.refreshStatus()
+            }
+        }
     }
 
     private func startInstallation() {

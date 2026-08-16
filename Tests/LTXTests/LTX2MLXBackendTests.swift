@@ -197,6 +197,37 @@ func runLTX2MLXBackendTests(_ t: TestKit) {
         readiness = LTX2MLXRuntime.readiness(userDefaults: defaults)
         t.check(!readiness.canGenerate, "missing VAE decoder is rejected")
         t.check(!readiness.model.isReady, "missing VAE decoder reported not ready")
+
+        // 13. GGUF-only directory without a Video VAE file is rejected (not "Ready").
+        // The runtime's VideoDecoder never falls back to an external cache for this
+        // component, so a GGUF folder without its own VAE file cannot generate.
+        let ggufNoVaeDir = tempDir.appendingPathComponent("local-gguf-no-vae-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: ggufNoVaeDir, withIntermediateDirectories: true)
+        try? Data("gguf-weights".utf8).write(to: ggufNoVaeDir.appendingPathComponent("transformer-distilled-q4.gguf"))
+        defaults.set(ggufNoVaeDir.path, forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+        readiness = LTX2MLXRuntime.readiness(userDefaults: defaults)
+        t.check(!readiness.canGenerate, "GGUF folder without Video VAE cannot generate")
+        t.check(!readiness.model.isReady, "GGUF folder without Video VAE reported not ready")
+
+        // 14. GGUF directory with vae_decoder.safetensors alongside it is accepted.
+        let ggufWithVaeDir = tempDir.appendingPathComponent("local-gguf-vae-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: ggufWithVaeDir, withIntermediateDirectories: true)
+        try? Data("gguf-weights".utf8).write(to: ggufWithVaeDir.appendingPathComponent("transformer-distilled-q4.gguf"))
+        try? Data("vae-weights".utf8).write(to: ggufWithVaeDir.appendingPathComponent("vae_decoder.safetensors"))
+        defaults.set(ggufWithVaeDir.path, forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+        readiness = LTX2MLXRuntime.readiness(userDefaults: defaults)
+        t.check(readiness.canGenerate, "GGUF folder with Video VAE decoder can generate")
+        t.check(readiness.model.isReady, "GGUF folder with Video VAE decoder reported ready")
+
+        // 15. GGUF directory with the official combined VAE file (video-vae-conv naming) is accepted.
+        let ggufWithOfficialVaeDir = tempDir.appendingPathComponent("local-gguf-official-vae-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: ggufWithOfficialVaeDir, withIntermediateDirectories: true)
+        try? Data("gguf-weights".utf8).write(to: ggufWithOfficialVaeDir.appendingPathComponent("transformer-distilled-q4.gguf"))
+        try? Data("vae-weights".utf8).write(to: ggufWithOfficialVaeDir.appendingPathComponent("ltx-2.5-video-vae-conv-bf16.safetensors"))
+        defaults.set(ggufWithOfficialVaeDir.path, forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+        readiness = LTX2MLXRuntime.readiness(userDefaults: defaults)
+        t.check(readiness.canGenerate, "GGUF folder with official video-vae-conv file can generate")
+        t.check(readiness.model.isReady, "GGUF folder with official video-vae-conv file reported ready")
     }
 
     t.suite("Custom model gating") {

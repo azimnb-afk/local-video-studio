@@ -9,7 +9,7 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
             runtime: "ltx-2-mlx",
             runtimeVersion: "0.2.0-preview4",
             sourceRevision: "9c5819b",
-            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "video_decoder_weights_v2"]
+            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "video_decoder_weights_v2", "ltx25_official_video_vae_v1"]
         )
         t.check(validManifest.isCompatible, "Complete manifest must be compatible")
         t.checkEqual(LTX2MLXRuntimeManifest.pinnedSourceRevision, "9c5819b", "Pinned revision matches the VideoDecoder strict-loading fix")
@@ -21,7 +21,7 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
             runtime: "ltx-2-mlx",
             runtimeVersion: "0.2.0-preview4",
             sourceRevision: "a0bb232",
-            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "video_decoder_weights_v2"]
+            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "video_decoder_weights_v2", "ltx25_official_video_vae_v1"]
         )
         t.check(!missingAudio.isCompatible, "Manifest missing audio_decode_v2 must not be compatible")
         t.checkEqual(missingAudio.missingCapabilities, ["audio_decode_v2"], "Missing audio_decode_v2 correctly identified")
@@ -32,7 +32,7 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
             runtime: "ltx-2-mlx",
             runtimeVersion: "0.1.0",
             sourceRevision: "1111111",
-            capabilities: ["ltx25_gguf", "audio_decode_v2", "video_decoder_weights_v2"]
+            capabilities: ["ltx25_gguf", "audio_decode_v2", "video_decoder_weights_v2", "ltx25_official_video_vae_v1"]
         )
         t.check(!missingStreaming.isCompatible, "Manifest missing gguf_block_streaming_v1 must not be compatible")
         t.checkEqual(missingStreaming.missingCapabilities, ["gguf_block_streaming_v1"], "Missing gguf_block_streaming_v1 correctly identified")
@@ -45,12 +45,28 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
             runtime: "ltx-2-mlx",
             runtimeVersion: "0.2.0-preview4",
             sourceRevision: "c49bcc1",
-            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2"]
+            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "ltx25_official_video_vae_v1"]
         )
         t.check(!missingVideoDecoderFix.isCompatible,
                 "A runtime without the VideoDecoder strict-loading fix must not be compatible")
         t.checkEqual(missingVideoDecoderFix.missingCapabilities, ["video_decoder_weights_v2"],
                      "Missing video_decoder_weights_v2 correctly identified")
+
+        // Missing the official LTX-2.5 Video VAE loader (decoder./encoder.
+        // prefix + Conv3D layout remap): a runtime pinned at 9c5819b already
+        // has the strict=True fix but cannot load the official raw
+        // Lightricks/LTX-2.5 combined VAE checkpoint at all.
+        let missingOfficialVAESupport = LTX2MLXRuntimeManifest(
+            schemaVersion: 1,
+            runtime: "ltx-2-mlx",
+            runtimeVersion: "0.2.0-preview4",
+            sourceRevision: "9c5819b",
+            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "video_decoder_weights_v2"]
+        )
+        t.check(!missingOfficialVAESupport.isCompatible,
+                "A runtime without official LTX-2.5 Video VAE support must not be compatible")
+        t.checkEqual(missingOfficialVAESupport.missingCapabilities, ["ltx25_official_video_vae_v1"],
+                     "Missing ltx25_official_video_vae_v1 correctly identified")
 
         // MARK: - B. Isolation of Personal vs Dev AppStorageDirectory
         let runtimesURL = AppStorageDirectory.runtimesDirectory
@@ -102,5 +118,6 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
         t.check(LTX2MLXRuntimeManifest.requiredCapabilities.contains("gguf_block_streaming_v1"), "Runtime requires gguf_block_streaming_v1 capability")
         t.check(LTX2MLXRuntimeManifest.requiredCapabilities.contains("audio_decode_v2"), "Runtime requires audio_decode_v2 capability")
         t.check(LTX2MLXRuntimeManifest.requiredCapabilities.contains("video_decoder_weights_v2"), "Runtime requires video_decoder_weights_v2 capability")
+        t.check(LTX2MLXRuntimeManifest.requiredCapabilities.contains("ltx25_official_video_vae_v1"), "Runtime requires ltx25_official_video_vae_v1 capability")
     }
 }

@@ -70,8 +70,11 @@ Runs local generation on Apple Silicon unified memory with no required cloud gen
 | **LTX-2 Unified** | LTX-2 AV | `mlx-video-with-audio` | Supported (Official) | 48–64 GB Unified Memory |
 | **LTX-2.3 Unified** | LTX-2.3 AV | `mlx-video-with-audio` | Supported (Beta) | 48–64 GB Unified Memory |
 | **Custom LTX-2 MLX Model** | LTX-2 Derived | `ltx-2-mlx` | Supported (User-Configurable) | 24–32 GB Unified Memory |
+| **LTX-2.5 (Experimental)** | LTX-2.5 GGUF (Distilled) | `ltx-2-mlx` (app-managed runtime) | Experimental | 32 GB+ Unified Memory |
 
 *Note: Custom LTX-2 MLX models can be configured in Preferences > Models & Features and run via the isolated `ltx-2-mlx` backend using either Hugging Face repositories or existing local directories.*
+
+*LTX-2.5 is experimental and may currently be significantly slower to generate than LTX-2.3. LTX-2.3 remains the stable, default model for everyday use. See [LTX-2.5 Experimental Setup](#ltx-25-experimental-setup) below.*
 
 ---
 
@@ -127,6 +130,22 @@ Builds the Debug application with isolated development state (`com.localvideostu
 2. Set an **Opening Reference image** and enter a brief narrative (e.g., "A detective investigates an abandoned train platform in the rain").
 3. Click **Plan Movie** to review the Local AI Director's shot beats.
 4. Click **Generate Movie** to render shots sequentially to the Production Queue with automatic shot-to-shot visual continuity.
+
+---
+
+## LTX-2.5 Experimental Setup
+
+LTX-2.5 support is **experimental** and off the stable path by default. LTX-2.3 remains the recommended model for everyday use — try LTX-2.5 once your Python setup above is working.
+
+The runtime (the isolated Python environment that runs the model) and the model weights (the GGUF file you generate from) are two separate things you set up independently:
+
+1. Open **Preferences** (⌘,) → **Models & Features**.
+2. Under the LTX-2.5 section, click **Install Runtime**. This creates an isolated, app-managed Python environment just for LTX-2.5 — it does not touch your Python setup from step 2 above. Installation is explicit; the app never downloads it silently.
+3. Once the runtime shows **Ready**, add an **LTX-2.5 Custom Model Profile** pointing at a folder containing an LTX-2.5 Distilled GGUF file (for example, a `Distilled-GGUF` folder downloaded from Hugging Face). You can save up to 5 model profiles.
+4. Select **LTX-2.5 (Experimental)** as the model on the Generate, One Shot, Auto Movie, or Storyboard screen and generate as usual.
+5. Runtime and model status are shown separately in Models & Features (**Runtime Not Installed / Ready / Update Required / Broken**, and per-profile model readiness), so you can tell which one needs attention if generation is blocked.
+
+LTX-2.5 may currently be significantly slower to generate than LTX-2.3, and its GGUF files are large — an internal SSD with sufficient free space is recommended.
 
 ---
 

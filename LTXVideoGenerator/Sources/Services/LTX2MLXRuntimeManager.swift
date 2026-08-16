@@ -4,12 +4,17 @@ import Foundation
 public struct LTX2MLXRuntimeManifest: Codable, Equatable, Sendable {
     public static let currentSchemaVersion = 1
     public static let minimumRuntimeVersion = "0.2.0-preview4"
-    public static let pinnedSourceRevision: String = "c49bcc1"
+    // c49bcc1 -> 9c5819b: exact prefix resolution + strict=True loading for
+    // VideoDecoder. Without this fix, MP4 generation can succeed while the
+    // decoded video is full-screen noise — see video_decoder_weights_v2 below,
+    // which is what actually gates readiness on this fix being present.
+    public static let pinnedSourceRevision: String = "9c5819b"
 
     public static let requiredCapabilities: [String] = [
         "ltx25_gguf",
         "gguf_block_streaming_v1",
-        "audio_decode_v2"
+        "audio_decode_v2",
+        "video_decoder_weights_v2"
     ]
 
     public var schemaVersion: Int
@@ -260,6 +265,15 @@ public final class LTX2MLXRuntimeManager: ObservableObject, @unchecked Sendable 
         except Exception:
             pass
 
+        try:
+            import ltx_pipelines_mlx.utils.blocks as blocks
+            import inspect
+            src = inspect.getsource(blocks.VideoDecoder.load)
+            if 'strict=True' in src:
+                caps.append('video_decoder_weights_v2')
+        except Exception:
+            pass
+
         print(json.dumps({'capabilities': caps}))
         """
 
@@ -385,16 +399,16 @@ public final class LTX2MLXRuntimeManager: ObservableObject, @unchecked Sendable 
             self?.status = .installing(progress: 0.75, step: "Finalizing runtime packages")
         }
 
-        // Auto-discover local repo if available
+        // Developer-only override: an explicit parameter or the LTX2MLX_SOURCE_DIR
+        // environment variable installs from a local source checkout instead of the
+        // pinned public release. Deliberately no implicit path auto-discovery here —
+        // a hardcoded developer-machine path has no place in shipped source, and every
+        // real end-user install goes through the pinned repository spec below.
         let resolvedLocalSource: URL? = {
             if let localSourceDirectory { return localSourceDirectory }
             if let envPath = ProcessInfo.processInfo.environment["LTX2MLX_SOURCE_DIR"] {
                 return URL(fileURLWithPath: envPath)
             }
-            let adjacent = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).deletingLastPathComponent().appendingPathComponent("ltx-2-mlx-ltx25-poc")
-            if fileManager.fileExists(atPath: adjacent.path) { return adjacent }
-            let userHomePoc = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("ltx23appdev/ltx-2-mlx-ltx25-poc")
-            if fileManager.fileExists(atPath: userHomePoc.path) { return userHomePoc }
             return nil
         }()
 

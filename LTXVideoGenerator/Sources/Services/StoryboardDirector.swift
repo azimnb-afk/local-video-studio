@@ -1036,6 +1036,28 @@ final class TemplateStoryboardProvider: DirectorProvider {
     func terminate() async {}
 
     static func explicitBeats(from brief: String) -> [String] {
+        let pattern = #"(?i)(?:^|\n|\.\s+|;\s+)(?:shot\s*\d+[:\s\-\.]+|最初のショット[:\s\-\.]*|次のショット[:\s\-\.]*|最後のショット[:\s\-\.]*)"#
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+            let nsString = brief as NSString
+            let matches = regex.matches(in: brief, options: [], range: NSRange(location: 0, length: nsString.length))
+            if matches.count >= 2 {
+                var beats: [String] = []
+                for i in 0..<matches.count {
+                    let start = matches[i].range.location + matches[i].range.length
+                    let end = (i + 1 < matches.count) ? matches[i + 1].range.location : nsString.length
+                    if end > start {
+                        let beat = nsString.substring(with: NSRange(location: start, length: end - start)).trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !beat.isEmpty {
+                            beats.append(beat)
+                        }
+                    }
+                }
+                if beats.count >= 2 {
+                    return Array(beats.prefix(8))
+                }
+            }
+        }
+
         let lines = brief.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }

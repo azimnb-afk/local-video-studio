@@ -53,6 +53,9 @@ struct LTX2MLXBackend {
         if let sourceImage, !sourceImage.isEmpty {
             args.append(contentsOf: ["--image", sourceImage])
         }
+        if request.disableAudio {
+            args.append("--no-audio")
+        }
         return args
     }
 

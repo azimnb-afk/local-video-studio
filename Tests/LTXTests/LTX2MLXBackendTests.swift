@@ -342,6 +342,25 @@ func runLTX2MLXBackendTests(_ t: TestKit) {
             request: cutRequest, modelDirectory: "/m", outputPath: "/o.mp4",
             seed: 1, width: 512, height: 288)
         t.check(!cutArgs.contains("--image"), "CUT shot passes no inherited image")
+
+        // Generate Audio toggle: disableAudio must reach the runtime as
+        // --no-audio, and must NOT appear when audio is requested. Before
+        // this fix, LTX2MLXBackend.arguments() never read disableAudio at
+        // all, so LTX-2.5 generated audio unconditionally regardless of the
+        // toggle.
+        let audioOffRequest = GenerationRequest(
+            prompt: "p", disableAudio: true, modelId: customModel.id)
+        let audioOffArgs = LTX2MLXBackend.arguments(
+            request: audioOffRequest, modelDirectory: "/m", outputPath: "/o.mp4",
+            seed: 1, width: 512, height: 288)
+        t.check(audioOffArgs.contains("--no-audio"), "disableAudio=true reaches the runtime as --no-audio")
+
+        let audioOnRequest = GenerationRequest(
+            prompt: "p", disableAudio: false, modelId: customModel.id)
+        let audioOnArgs = LTX2MLXBackend.arguments(
+            request: audioOnRequest, modelDirectory: "/m", outputPath: "/o.mp4",
+            seed: 1, width: 512, height: 288)
+        t.check(!audioOnArgs.contains("--no-audio"), "disableAudio=false never appends --no-audio")
     }
 
     t.suite("Custom model provenance persistence") {

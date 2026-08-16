@@ -9,7 +9,7 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
             runtime: "ltx-2-mlx",
             runtimeVersion: "0.2.0-preview4",
             sourceRevision: "9c5819b",
-            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "video_decoder_weights_v2", "ltx25_official_video_vae_v1"]
+            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "video_decoder_weights_v2", "ltx25_official_video_vae_v1", "ltx25_audio_toggle_v1"]
         )
         t.check(validManifest.isCompatible, "Complete manifest must be compatible")
         t.checkEqual(LTX2MLXRuntimeManifest.pinnedSourceRevision, "9c5819b", "Pinned revision matches the VideoDecoder strict-loading fix")
@@ -21,7 +21,7 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
             runtime: "ltx-2-mlx",
             runtimeVersion: "0.2.0-preview4",
             sourceRevision: "a0bb232",
-            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "video_decoder_weights_v2", "ltx25_official_video_vae_v1"]
+            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "video_decoder_weights_v2", "ltx25_official_video_vae_v1", "ltx25_audio_toggle_v1"]
         )
         t.check(!missingAudio.isCompatible, "Manifest missing audio_decode_v2 must not be compatible")
         t.checkEqual(missingAudio.missingCapabilities, ["audio_decode_v2"], "Missing audio_decode_v2 correctly identified")
@@ -32,7 +32,7 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
             runtime: "ltx-2-mlx",
             runtimeVersion: "0.1.0",
             sourceRevision: "1111111",
-            capabilities: ["ltx25_gguf", "audio_decode_v2", "video_decoder_weights_v2", "ltx25_official_video_vae_v1"]
+            capabilities: ["ltx25_gguf", "audio_decode_v2", "video_decoder_weights_v2", "ltx25_official_video_vae_v1", "ltx25_audio_toggle_v1"]
         )
         t.check(!missingStreaming.isCompatible, "Manifest missing gguf_block_streaming_v1 must not be compatible")
         t.checkEqual(missingStreaming.missingCapabilities, ["gguf_block_streaming_v1"], "Missing gguf_block_streaming_v1 correctly identified")
@@ -45,7 +45,7 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
             runtime: "ltx-2-mlx",
             runtimeVersion: "0.2.0-preview4",
             sourceRevision: "c49bcc1",
-            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "ltx25_official_video_vae_v1"]
+            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "ltx25_official_video_vae_v1", "ltx25_audio_toggle_v1"]
         )
         t.check(!missingVideoDecoderFix.isCompatible,
                 "A runtime without the VideoDecoder strict-loading fix must not be compatible")
@@ -61,12 +61,28 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
             runtime: "ltx-2-mlx",
             runtimeVersion: "0.2.0-preview4",
             sourceRevision: "9c5819b",
-            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "video_decoder_weights_v2"]
+            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "video_decoder_weights_v2", "ltx25_audio_toggle_v1"]
         )
         t.check(!missingOfficialVAESupport.isCompatible,
                 "A runtime without official LTX-2.5 Video VAE support must not be compatible")
         t.checkEqual(missingOfficialVAESupport.missingCapabilities, ["ltx25_official_video_vae_v1"],
                      "Missing ltx25_official_video_vae_v1 correctly identified")
+
+        // Missing the Generate Audio toggle fix: a runtime that doesn't
+        // recognize --no-audio at all must not be considered Ready, since
+        // passing --no-audio to it would be a hard CLI parse error rather
+        // than either honoring or gracefully ignoring the request.
+        let missingAudioToggleSupport = LTX2MLXRuntimeManifest(
+            schemaVersion: 1,
+            runtime: "ltx-2-mlx",
+            runtimeVersion: "0.2.0-preview4",
+            sourceRevision: "a99a9c7",
+            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "video_decoder_weights_v2", "ltx25_official_video_vae_v1"]
+        )
+        t.check(!missingAudioToggleSupport.isCompatible,
+                "A runtime without the Generate Audio toggle fix must not be compatible")
+        t.checkEqual(missingAudioToggleSupport.missingCapabilities, ["ltx25_audio_toggle_v1"],
+                     "Missing ltx25_audio_toggle_v1 correctly identified")
 
         // MARK: - B. Isolation of Personal vs Dev AppStorageDirectory
         let runtimesURL = AppStorageDirectory.runtimesDirectory
@@ -119,5 +135,6 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
         t.check(LTX2MLXRuntimeManifest.requiredCapabilities.contains("audio_decode_v2"), "Runtime requires audio_decode_v2 capability")
         t.check(LTX2MLXRuntimeManifest.requiredCapabilities.contains("video_decoder_weights_v2"), "Runtime requires video_decoder_weights_v2 capability")
         t.check(LTX2MLXRuntimeManifest.requiredCapabilities.contains("ltx25_official_video_vae_v1"), "Runtime requires ltx25_official_video_vae_v1 capability")
+        t.check(LTX2MLXRuntimeManifest.requiredCapabilities.contains("ltx25_audio_toggle_v1"), "Runtime requires ltx25_audio_toggle_v1 capability")
     }
 }

@@ -26,6 +26,17 @@ public struct LTX2MLXRuntimeManifest: Codable, Equatable, Sendable {
     // fail closed at the post-install capability check instead of silently
     // reporting Ready with an incomplete runtime — bump this pin as the
     // first step once a99a9c7 (or its equivalent) is public.
+    // a99a9c7 -> cbded94 (local runtime-repo commit, NOT YET on the public
+    // remote): the Generate Audio toggle had no effect on LTX-2.5 at all —
+    // LTX2MLXBackend.arguments() never read request.disableAudio, so every
+    // LTX-2.5 render included audio regardless of the toggle. Fixed by
+    // threading a new --no-audio CLI flag through disable_audio on the
+    // pipeline side (skips loading the audio decoder/vocoder and the mux
+    // step entirely) and appending --no-audio from Swift when disableAudio
+    // is set. An old runtime without this fix doesn't recognize --no-audio
+    // at all (hard CLI parse error) — see ltx25_audio_toggle_v1 below.
+    // Verified end-to-end through the real app: Audio OFF -> 0 audio
+    // streams, Audio ON -> unchanged AAC 48kHz stereo.
     public static let pinnedSourceRevision: String = "9c5819b"
 
     public static let requiredCapabilities: [String] = [
@@ -33,7 +44,8 @@ public struct LTX2MLXRuntimeManifest: Codable, Equatable, Sendable {
         "gguf_block_streaming_v1",
         "audio_decode_v2",
         "video_decoder_weights_v2",
-        "ltx25_official_video_vae_v1"
+        "ltx25_official_video_vae_v1",
+        "ltx25_audio_toggle_v1"
     ]
 
     public var schemaVersion: Int
@@ -292,6 +304,15 @@ public final class LTX2MLXRuntimeManager: ObservableObject, @unchecked Sendable 
                 caps.append('video_decoder_weights_v2')
             if 'pytorch_conv3d_reorder' in src and 'per_channel_statistics.mean-of-means' in src:
                 caps.append('ltx25_official_video_vae_v1')
+        except Exception:
+            pass
+
+        try:
+            import ltx_pipelines_mlx.ti2vid_two_stages as ts
+            import inspect
+            sig = inspect.signature(ts.TI2VidTwoStagesPipeline.generate_and_save)
+            if 'disable_audio' in sig.parameters:
+                caps.append('ltx25_audio_toggle_v1')
         except Exception:
             pass
 

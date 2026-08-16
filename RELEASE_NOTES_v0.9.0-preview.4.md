@@ -9,7 +9,7 @@ Local Video Studio for Mac `v0.9.0-preview.4` introduces **experimental LTX-2.5 
 ### 🧪 1. Experimental LTX-2.5 Distilled Q4 GGUF Support
 - **GGUF Model Support**: Run the LTX-2.5 distilled transformer directly from GGUF checkpoints, including memory-saving block-streamed weight loading for lower peak memory use during load.
 - **One Shot, Auto Movie & Last-Frame Continuity**: LTX-2.5 works across the same One Shot and Auto Movie workflows as LTX-2.3, including shot-to-shot Last-Frame Continuity.
-- **Built-in Audio**: LTX-2.5 is a joint audio+video model and always generates synchronized audio alongside video. The Audio toggle does not yet apply to LTX-2.5 — unlike LTX-2.3, there is currently no way to skip audio generation for a faster, video-only LTX-2.5 render.
+- **Built-in Audio**: Synchronized audio generation is supported for LTX-2.5, on the same Audio toggle as LTX-2.3. Turning Audio off for LTX-2.5 skips the audio decode/mux step entirely for a faster, video-only render.
 - **App-Managed Runtime**: LTX-2.5 runs in its own isolated, app-managed Python environment, installed explicitly from Preferences → Models & Features — never silently, and never mixed with your main Python setup.
 - **LTX-2.3 remains Stable and the Default.** LTX-2.5 is clearly labeled **Experimental** throughout the app.
 
@@ -46,7 +46,6 @@ Local Video Studio for Mac `v0.9.0-preview.4` introduces **experimental LTX-2.5 
 3. **Visual Continuity is Model-Dependent**: Same limitation as preview.3 — strong previous-frame conditioning can make large camera resets or location jumps harder within one Auto Movie sequence. For distinct scenes, create separate Auto Movie or One Shot projects and combine them in an external video editor.
 4. **No-BGM Policy is Best-Effort with Built-in Audio**: Prompt negative constraints suppress music, but acoustic output cannot be 100% guaranteed by diffusion weights alone. For guaranteed music-free output, turn **Built-in Audio OFF** and use **Final Audio** mixing.
 5. **Custom Model Profiles Cap at 5**: This is an intentional limit for this release, not a temporary restriction.
-6. **LTX-2.5 Audio Cannot Be Disabled**: The Audio toggle has no effect when LTX-2.5 is selected — every LTX-2.5 render includes generated audio. A video-only, faster LTX-2.5 path is not available in this release.
 
 ---
 

@@ -7,6 +7,18 @@ public struct LTX2MLXRuntimeManifest: Codable, Equatable, Sendable {
 
     // Runtime source history, most recent first:
     //
+    // cbded94 -> ead83e2: azimnb-afk/ltx-2-mlx was rebuilt as a clean,
+    // single-commit source export ("Initial Local Video Studio runtime
+    // export") to remove private developer paths and internal branding
+    // that were baked into old, already-merged commits inherited from the
+    // dgrauet -> mrbizarro fork chain (the working tree was always clean;
+    // only inherited git history was affected). The export contains only
+    // LICENSE plus each package's README/pyproject/src (no tests/, no
+    // poc/, no history) and was independently privacy-audited after
+    // publication: fresh clone, full `git log -p --all`, and every raw
+    // git object scanned for private paths/branding — zero matches.
+    // Functionally identical to cbded94 (same source files, same fixes).
+    //
     // 9c5819b -> cbded94: two fixes landed together for Preview.4 —
     // (1) official Lightricks/LTX-2.5 combined Video VAE support
     // (decoder./encoder. prefixes, raw PyTorch Conv3D layout; previously
@@ -26,8 +38,9 @@ public struct LTX2MLXRuntimeManifest: Codable, Equatable, Sendable {
     // Runtime source moved from dgrauet/ltx-2-mlx (upstream) to
     // azimnb-afk/ltx-2-mlx (a user-owned, user-controlled fork of
     // mrbizarro/ltx-2-mlx, itself a fork of dgrauet/ltx-2-mlx) at the same
-    // time as this pin bump, so the app is never blocked on an external
-    // maintainer accepting a large experimental PR on their own timeline.
+    // time as the cbded94 pin bump, so the app is never blocked on an
+    // external maintainer accepting a large experimental PR on their own
+    // timeline.
     //
     // Installing a monorepo root via plain `pip install git+<url>@<rev>`
     // does not work here regardless of revision — ltx-2-mlx is a uv
@@ -39,7 +52,7 @@ public struct LTX2MLXRuntimeManifest: Codable, Equatable, Sendable {
     // syntax (#subdirectory=...), mirroring the editable dev-override path.
     // Verified against the real public repo with no developer overrides.
     public static let pinnedRepoURL: String = "https://github.com/azimnb-afk/ltx-2-mlx.git"
-    public static let pinnedSourceRevision: String = "cbded94"
+    public static let pinnedSourceRevision: String = "ead83e2"
 
     public static let requiredCapabilities: [String] = [
         "ltx25_gguf",

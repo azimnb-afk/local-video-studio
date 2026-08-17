@@ -54,6 +54,20 @@ public struct LTX2MLXRuntimeManifest: Codable, Equatable, Sendable {
     public static let pinnedRepoURL: String = "https://github.com/azimnb-afk/ltx-2-mlx.git"
     public static let pinnedSourceRevision: String = "ead83e2"
 
+    // NOTE (next preview): "ltx25_official_video_vae_encoder_v1" is probed
+    // below but is deliberately NOT required yet. The published runtime
+    // (ead83e2) loads the official combined VAE's *encoder* half with a
+    // prefix that matches none of its keys, under strict=False — leaving a
+    // randomly-initialized encoder, so every image-conditioned generation
+    // (One Shot with a starting image, Auto Movie Shot 1, every continuity
+    // shot) decodes to noise. The runtime-side fix exists in this repo's
+    // sibling ltx-2-mlx checkout but is not published yet, and requiring a
+    // capability no reachable runtime can satisfy would report the shipped
+    // Preview.4 as permanently outdated while "Install Runtime" reinstalls
+    // the very revision that fails the check — breaking text-to-video too,
+    // with no way out. So this gate and the pinnedSourceRevision bump must
+    // flip together, atomically, as the first step of publishing the fixed
+    // runtime. Until then the capability is reported but not enforced.
     public static let requiredCapabilities: [String] = [
         "ltx25_gguf",
         "gguf_block_streaming_v1",
@@ -319,6 +333,18 @@ public final class LTX2MLXRuntimeManager: ObservableObject, @unchecked Sendable 
                 caps.append('video_decoder_weights_v2')
             if 'pytorch_conv3d_reorder' in src and 'per_channel_statistics.mean-of-means' in src:
                 caps.append('ltx25_official_video_vae_v1')
+        except Exception:
+            pass
+
+        try:
+            import ltx_pipelines_mlx.utils.blocks as blocks
+            import inspect
+            src = inspect.getsource(blocks.ImageConditioner.load)
+            # The encoder half of the official combined VAE. Without both of
+            # these the encoder silently keeps random weights and every
+            # image-conditioned generation decodes to noise.
+            if 'strict=True' in src and 'per_channel_statistics.mean_of_means' in src:
+                caps.append('ltx25_official_video_vae_encoder_v1')
         except Exception:
             pass
 

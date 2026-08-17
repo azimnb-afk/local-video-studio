@@ -137,5 +137,32 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
         t.check(LTX2MLXRuntimeManifest.requiredCapabilities.contains("video_decoder_weights_v2"), "Runtime requires video_decoder_weights_v2 capability")
         t.check(LTX2MLXRuntimeManifest.requiredCapabilities.contains("ltx25_official_video_vae_v1"), "Runtime requires ltx25_official_video_vae_v1 capability")
         t.check(LTX2MLXRuntimeManifest.requiredCapabilities.contains("ltx25_audio_toggle_v1"), "Runtime requires ltx25_audio_toggle_v1 capability")
+
+        // MARK: - G. Official Video VAE *encoder* capability (next-preview gate)
+        //
+        // The published runtime loads the official combined VAE's encoder half
+        // with a prefix matching none of its keys, under strict=False, leaving
+        // a randomly-initialized encoder — so every image-conditioned
+        // generation decodes to noise while text-to-video stays fine. The fix
+        // is written but unpublished, so this capability is deliberately
+        // probed-but-not-required: requiring it now would mark the shipped
+        // build permanently outdated with no reachable runtime that satisfies
+        // it. This test pins that deferral so the gate is flipped on purpose,
+        // together with the pin bump, rather than drifting in unnoticed.
+        t.check(!LTX2MLXRuntimeManifest.requiredCapabilities.contains("ltx25_official_video_vae_encoder_v1"),
+                "Encoder capability stays un-required until the fixed runtime is published")
+
+        // Once it *is* required, a runtime lacking it must fail closed rather
+        // than silently producing corrupted image-conditioned output.
+        let missingEncoderFix = LTX2MLXRuntimeManifest(
+            schemaVersion: 1,
+            runtime: "ltx-2-mlx",
+            runtimeVersion: "0.2.0-preview4",
+            sourceRevision: "ead83e2",
+            capabilities: LTX2MLXRuntimeManifest.requiredCapabilities
+                + ["ltx25_official_video_vae_encoder_v1"]
+        )
+        t.check(missingEncoderFix.isCompatible,
+                "A runtime that also reports the encoder fix stays compatible")
     }
 }

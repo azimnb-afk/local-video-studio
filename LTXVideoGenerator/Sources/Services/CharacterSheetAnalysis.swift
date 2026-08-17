@@ -590,7 +590,7 @@ final class CharacterSheetAnalyzer {
                 let wire = try JSONDecoder().decode(WireCandidate.self, from: normalizedData)
                 return CharacterSheetAnalysisCandidate(
                     sourceAssetID: sourceAssetID,
-                    nameCandidate: wire.nameCandidate,
+                    nameCandidate: Self.sanitizedNameCandidate(wire.nameCandidate),
                     appearance: wire.appearance,
                     defaultCostumeDescription: wire.defaultCostumeDescription,
                     accessories: wire.accessories.joined(separator: ", "),
@@ -632,6 +632,46 @@ final class CharacterSheetAnalyzer {
             continuitySuggestions = try container.decodeIfPresent([String].self, forKey: .continuitySuggestions) ?? []
             uncertainties = try container.decodeIfPresent([String].self, forKey: .uncertainties) ?? []
         }
+    }
+
+    /// Sheet section labels a vision model sometimes returns as the character's
+    /// name, because they are the largest text on the image.
+    ///
+    /// `systemPrompt` already says these are not names, but an instruction is
+    /// not an enforcement mechanism: a local model returned exactly
+    /// "Character Reference Sheet" (while its own uncertainties field warned
+    /// that the sheet's titles "may be interpreted as character names"). That
+    /// name then became the character's identity everywhere, including the
+    /// literal render prompt "CHARACTER 1: Character Reference Sheet." An
+    /// empty name is strictly better: the review UI already offers the name
+    /// field for editing whenever it is blank (see
+    /// `CharacterSheetFieldSelection.defaults(for:)`), so the user is asked
+    /// instead of being handed a label.
+    static let sheetLabelNames: Set<String> = [
+        "character reference sheet", "character sheet", "reference sheet",
+        "characterreferencesheet", "charactersheet", "referencesheet",
+        "character", "reference", "sheet", "model sheet", "modelsheet",
+        "turnaround", "character turnaround", "front", "side", "back",
+        "close-up", "close up", "closeup", "expressions", "expression",
+        "costume details", "costume detail", "costume", "views", "view",
+        "untitled", "unknown", "n/a", "na", "none",
+    ]
+
+    static func sanitizedNameCandidate(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        // Compare on a punctuation-free, case-folded form so "CHARACTER
+        // REFERENCE SHEET:", "Character-Reference-Sheet" and the bare phrase
+        // all collapse onto the same key.
+        let folded = trimmed
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9 ]", with: " ", options: .regularExpression)
+            .split(separator: " ")
+            .joined(separator: " ")
+        guard !folded.isEmpty else { return "" }
+        if sheetLabelNames.contains(folded) { return "" }
+        if sheetLabelNames.contains(folded.replacingOccurrences(of: " ", with: "")) { return "" }
+        return trimmed
     }
 
     private static func normalize(_ source: [String: Any]) -> [String: Any] {

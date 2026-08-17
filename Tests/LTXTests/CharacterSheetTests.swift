@@ -112,6 +112,49 @@ func runCharacterSheetTests(_ t: TestKit) {
         }
     }
 
+    t.suite("Sheet section labels never become a character name") {
+        // A local vision model returned "Character Reference Sheet" as the
+        // nameCandidate despite the system prompt saying that exact phrase is
+        // not a name. It became the character's identity and was rendered into
+        // every shot prompt as "CHARACTER 1: Character Reference Sheet."
+        let leaked = """
+        {"nameCandidate":"Character Reference Sheet","appearance":{"faceDescription":"round face","hair":"light brown ponytail","eyes":"dark","ageImpression":"young adult","build":"slim","complexion":"fair","distinguishingFeatures":"","generalNotes":""},"defaultCostumeDescription":"navy cloak","accessories":[],"detectedViews":["front"],"expressions":[],"continuitySuggestions":[],"uncertainties":[]}
+        """
+        do {
+            let candidate = try CharacterSheetAnalyzer.parse(
+                response: leaked, sourceAssetID: UUID(), provider: "test", model: "vision"
+            )
+            t.checkEqual(candidate.nameCandidate, "", "sheet title is rejected as a name")
+            t.checkEqual(candidate.appearance.hair, "light brown ponytail",
+                         "rejecting the name leaves real appearance data intact")
+        } catch {
+            t.check(false, "leaked-name payload should still parse: \(error)")
+        }
+
+        // Case, punctuation and spacing variants collapse onto the same label.
+        for raw in ["CHARACTER REFERENCE SHEET", "  character-reference-sheet ",
+                    "Character Sheet:", "Front", "EXPRESSIONS", "Costume Details",
+                    "Turnaround", "untitled"] {
+            t.checkEqual(CharacterSheetAnalyzer.sanitizedNameCandidate(raw), "",
+                         "\(raw.trimmingCharacters(in: .whitespaces)) is not a character name")
+        }
+
+        // Real names must survive untouched, including ones that merely
+        // contain a label word.
+        for raw in ["Adventurer Heroine", "Maya", "Sheet Metal Sam", "Reference Rita"] {
+            t.checkEqual(CharacterSheetAnalyzer.sanitizedNameCandidate(raw), raw,
+                         "\(raw) is preserved as a real name")
+        }
+        t.checkEqual(CharacterSheetAnalyzer.sanitizedNameCandidate("  Maya  "), "Maya",
+                     "surrounding whitespace is trimmed from a real name")
+
+        // An empty name is what makes the review UI offer the field, so the
+        // user is asked rather than handed a label.
+        let blank = BibleCharacter(id: UUID(), name: "")
+        t.check(CharacterSheetFieldSelection.defaults(for: blank).name,
+                "a blank name is offered for review")
+    }
+
     t.suite("Vision capability and independent settings") {
         do {
             let tags = try JSONSerialization.data(withJSONObject: ["models": [

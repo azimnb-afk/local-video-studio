@@ -387,6 +387,10 @@ private struct NewStoryboardSheet: View {
     @State private var generateFirstPass = true
     @State private var width = 768
     @State private var height = 512
+    /// Custom width/height are seeded from the preset the user was already on,
+    /// oriented to the Opening Reference. Once the user picks a size themselves
+    /// that explicit choice wins and is never re-seeded.
+    @State private var userEditedDimensions = false
     @State private var characterBible = CharacterBible()
     /// Held as a plain URL until Create: nothing is copied into a project while
     /// the sheet is open, so cancelling leaves no managed asset behind.
@@ -431,17 +435,42 @@ private struct NewStoryboardSheet: View {
                 }
                 Toggle("Audio", isOn: $audioEnabled)
                     .onChange(of: audioEnabled) { old, new in
-                        if old != new { presetRaw = GenerationPreset.custom.rawValue }
+                        // Audio is a Custom-only control, so changing it drops
+                        // the project onto Custom. Carry the preset's *oriented*
+                        // size across that transition: seeding the raw landscape
+                        // default here would silently turn a portrait Opening
+                        // Reference into a landscape movie, which is exactly what
+                        // the user did not ask for by touching the Audio toggle.
+                        if old != new {
+                            seedCustomDimensionsFromCurrentPreset()
+                            presetRaw = GenerationPreset.custom.rawValue
+                        }
                     }
             }
             .disabled(isCreating)
+            .onChange(of: presetRaw) { old, new in
+                if old != new, new == GenerationPreset.custom.rawValue {
+                    seedCustomDimensions(from: GenerationPreset(rawValue: old) ?? .standard)
+                }
+            }
+            .onChange(of: openingReferenceURL) { _, _ in
+                // A reference chosen after landing on Custom still decides the
+                // canvas, as long as the user has not picked a size themselves.
+                if presetRaw == GenerationPreset.custom.rawValue { reseedCustomDimensions() }
+            }
             if presetRaw == GenerationPreset.custom.rawValue {
                 HStack {
                     Picker("Width", selection: $width) {
                         ForEach([320, 512, 640, 768, 896, 1024], id: \.self) { Text("\($0)").tag($0) }
                     }
+                    .onChange(of: width) { old, new in
+                        if old != new { userEditedDimensions = true }
+                    }
                     Picker("Height", selection: $height) {
                         ForEach([320, 384, 512, 576, 768, 1024, 1080], id: \.self) { Text("\($0)").tag($0) }
+                    }
+                    .onChange(of: height) { old, new in
+                        if old != new { userEditedDimensions = true }
                     }
                     Text(effectiveResolutionText(width: width, height: height))
                         .font(.caption)
@@ -615,6 +644,41 @@ private struct NewStoryboardSheet: View {
         isCheckingDirector = true
         directorSnapshot = await directorEnvironment.refresh(mode: directorMode)
         isCheckingDirector = false
+    }
+
+    /// Seeds the Custom size from the preset that is currently selected.
+    private func seedCustomDimensionsFromCurrentPreset() {
+        seedCustomDimensions(from: GenerationPreset(rawValue: presetRaw) ?? .standard)
+    }
+
+    /// Seeds the Custom size from `preset`, oriented to the Opening Reference,
+    /// unless the user has already chosen a size themselves.
+    private func seedCustomDimensions(from preset: GenerationPreset) {
+        guard !userEditedDimensions else { return }
+        guard let dimensions = GenerationSettingsResolver.orientedPresetDimensions(
+            preset: preset,
+            orientation: currentReferenceOrientation,
+            modelID: modelID,
+            audioEnabled: audioEnabled
+        ) else { return }
+        width = dimensions.width
+        height = dimensions.height
+    }
+
+    /// Re-seeds after the Opening Reference changes while already on Custom.
+    private func reseedCustomDimensions() {
+        guard !userEditedDimensions else { return }
+        // The preset is already Custom here, so there is no preset size left to
+        // read. Standard is the size Custom was seeded from in every path that
+        // can reach this point (the sheet opens on Standard).
+        seedCustomDimensions(from: .standard)
+    }
+
+    /// Auto Movie is led by its Opening Reference; a Storyboard has none, so it
+    /// keeps whatever the user set explicitly.
+    private var currentReferenceOrientation: SourceImageOrientation {
+        guard mode == .hybrid, let openingReferenceURL else { return .none }
+        return SourceImageOrientationResolver.resolve(url: openingReferenceURL)
     }
 
     private func effectiveResolutionText(width: Int, height: Int) -> String {
@@ -889,7 +953,11 @@ private struct ProjectSettingsEditor: View {
                 HStack(spacing: 16) {
                     Picker("Preset", selection: binding(
                         get: { project.settings.resolvedPreset.rawValue },
-                        set: { raw, settings in settings.applyPreset(GenerationPreset(rawValue: raw) ?? .standard) }
+                        set: { raw, settings in
+                            let next = GenerationPreset(rawValue: raw) ?? .standard
+                            seedCustomDimensionsIfEnteringCustom(next: next, settings: &settings)
+                            settings.applyPreset(next)
+                        }
                     )) {
                         ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
                     }
@@ -902,6 +970,11 @@ private struct ProjectSettingsEditor: View {
                     Toggle("Audio", isOn: binding(
                         get: { project.settings.resolvedAudioEnabled },
                         set: { value, settings in
+                            // markCustom() freezes the current width/height as
+                            // an explicit choice, so the oriented size has to be
+                            // materialized first — otherwise toggling Audio on a
+                            // portrait project silently rewrites it to landscape.
+                            seedCustomDimensionsIfEnteringCustom(next: .custom, settings: &settings)
                             settings.audioEnabled = value
                             settings.markCustom()
                         }
@@ -972,6 +1045,29 @@ private struct ProjectSettingsEditor: View {
         updated.touch()
         store.save(updated)
         onChanged()
+    }
+
+    /// Materializes the preset's oriented size into the project before it
+    /// becomes Custom. Custom keeps whatever dimensions it holds, so the size
+    /// the project was actually generating at has to be written down at the
+    /// moment it stops being derived — otherwise the stored landscape default
+    /// silently wins over a portrait Opening Reference.
+    private func seedCustomDimensionsIfEnteringCustom(
+        next: GenerationPreset,
+        settings: inout ProjectSettings
+    ) {
+        let previous = settings.resolvedPreset
+        guard next == .custom, previous != .custom else { return }
+        let orientation = FilmProjectResolutionOrientationResolver.resolve(
+            project: project, store: store)
+        guard let dimensions = GenerationSettingsResolver.orientedPresetDimensions(
+            preset: previous,
+            orientation: orientation,
+            modelID: settings.modelID,
+            audioEnabled: settings.resolvedAudioEnabled
+        ) else { return }
+        settings.width = dimensions.width
+        settings.height = dimensions.height
     }
 
     private func binding<Value>(

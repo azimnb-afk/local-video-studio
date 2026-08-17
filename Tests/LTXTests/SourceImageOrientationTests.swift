@@ -272,6 +272,106 @@ func runSourceImageOrientationTests(_ t: TestKit) {
         t.checkEqual(GenerationModelResolver.backend(for: custom.modelId), .ltx2MLX,
                      "P: Custom MLX model routes to ltx2MLX")
     }
+
+    // MARK: - Custom preset inherits the oriented preset size
+    //
+    // Custom keeps whatever dimensions it is given (the `.advanced` early
+    // return in GenerationSettingsResolver.resolve), which is correct: an
+    // explicit user size must win over automatic orientation. The bug was that
+    // the Auto Movie sheet *entered* Custom carrying a hardcoded 768x512
+    // landscape default, so a user who only toggled Audio silently converted a
+    // portrait Opening Reference into a landscape movie. These pin the seed
+    // that the sheet now carries across that transition.
+    t.suite("Custom preset seeding follows source orientation") {
+        func seeded(
+            preset: GenerationPreset,
+            orientation: SourceImageOrientation,
+            modelID: String = LTXModelCatalog.defaultModelID,
+            audioEnabled: Bool = true
+        ) -> (width: Int, height: Int)? {
+            GenerationSettingsResolver.orientedPresetDimensions(
+                preset: preset, orientation: orientation, modelID: modelID,
+                audioEnabled: audioEnabled, engine: engine, snapshot: memory)
+        }
+
+        // PORTRAIT SOURCE + AUTO PRESET -> portrait
+        if let p = seeded(preset: .standard, orientation: .portrait) {
+            t.check(p.height > p.width,
+                    "portrait source seeds a portrait Custom size (\(p.width)x\(p.height))")
+        } else {
+            t.check(false, "standard preset must yield seed dimensions for a portrait source")
+        }
+
+        // LANDSCAPE SOURCE + AUTO PRESET -> landscape (no regression)
+        if let l = seeded(preset: .standard, orientation: .landscape) {
+            t.check(l.width > l.height,
+                    "landscape source seeds a landscape Custom size (\(l.width)x\(l.height))")
+        } else {
+            t.check(false, "standard preset must yield seed dimensions for a landscape source")
+        }
+
+        // The two orientations are the same canvas, transposed.
+        if let p = seeded(preset: .standard, orientation: .portrait),
+           let l = seeded(preset: .standard, orientation: .landscape) {
+            t.checkEqual(p.width, l.height, "portrait width equals landscape height")
+            t.checkEqual(p.height, l.width, "portrait height equals landscape width")
+        }
+
+        // No source image: the preset's own landscape base is kept.
+        if let n = seeded(preset: .standard, orientation: .none) {
+            t.check(n.width >= n.height, "no orientation keeps the preset's own base size")
+        }
+
+        // Every non-custom preset participates, not just Standard.
+        for preset in [GenerationPreset.quickPreview, .standard, .highQuality] {
+            if let p = seeded(preset: preset, orientation: .portrait) {
+                t.check(p.height > p.width,
+                        "\(preset.displayName) seeds portrait for a portrait source")
+            } else {
+                t.check(false, "\(preset.displayName) must yield seed dimensions")
+            }
+        }
+
+        // Custom has no preset size to inherit, so it must not invent one.
+        t.check(seeded(preset: .custom, orientation: .portrait) == nil,
+                "Custom yields no seed (its size is the user's explicit choice)")
+
+        // PORTRAIT SOURCE + LTX-2.5 -> portrait, same as LTX-2.3.
+        let ltx25 = seeded(preset: .standard, orientation: .portrait,
+                           modelID: ModelRegistry.customModelID)
+        let ltx23 = seeded(preset: .standard, orientation: .portrait,
+                           modelID: LTXModelCatalog.defaultModelID)
+        if let ltx25, let ltx23 {
+            t.checkEqual(ltx25.width, ltx23.width, "LTX-2.5 seeds the same portrait width")
+            t.checkEqual(ltx25.height, ltx23.height, "LTX-2.5 seeds the same portrait height")
+            t.check(ltx25.height > ltx25.width, "LTX-2.5 portrait source seeds portrait")
+        } else {
+            t.check(false, "both models must yield seed dimensions")
+        }
+
+        // Audio OFF is what forces Custom in the sheet; it must not itself
+        // change the orientation of the seed.
+        if let on = seeded(preset: .standard, orientation: .portrait, audioEnabled: true),
+           let off = seeded(preset: .standard, orientation: .portrait, audioEnabled: false) {
+            t.check(on.height > on.width && off.height > off.width,
+                    "Audio ON and OFF both seed portrait for a portrait source")
+        }
+
+        // An explicit Custom size is never re-derived: resolve() must return it
+        // untouched even when the source is portrait.
+        var explicit = GenerationParameters.default
+        explicit.width = 768
+        explicit.height = 512
+        if let kept = try? resolve(request(
+            source: portrait, preset: .custom, parameters: explicit)) {
+            t.checkEqual(kept.parameters.width, 768,
+                         "explicit Custom width survives a portrait source")
+            t.checkEqual(kept.parameters.height, 512,
+                         "explicit Custom height survives a portrait source")
+        } else {
+            t.check(false, "custom request must resolve")
+        }
+    }
 }
 
 /// Small optional unwrap helper for the dependency-free test executable.

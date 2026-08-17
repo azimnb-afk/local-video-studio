@@ -236,6 +236,39 @@ enum GenerationSettingsResolver {
         }
     }
 
+    /// The size a preset actually generates at for a given source orientation.
+    ///
+    /// Custom deliberately keeps whatever dimensions the user typed (see the
+    /// `.advanced` early return in `resolve`), which means a UI that drops the
+    /// project onto Custom has to carry the oriented size across that
+    /// transition itself — otherwise a portrait Opening Reference silently
+    /// becomes a landscape movie. This resolves through the same
+    /// `resolve(request:engine:snapshot:)` path the real generation uses, so
+    /// the orientation rule has exactly one implementation.
+    ///
+    /// Returns `nil` for `.custom`, which has no preset size to inherit.
+    static func orientedPresetDimensions(
+        preset: GenerationPreset,
+        orientation: SourceImageOrientation,
+        modelID: String,
+        audioEnabled: Bool,
+        engine: AutoQualityEngine = AutoQualityEngine(),
+        snapshot: MemorySnapshot = MemoryMonitor.shared.snapshot()
+    ) -> (width: Int, height: Int)? {
+        guard preset != .custom else { return nil }
+        let request = GenerationRequest(
+            prompt: "Preset dimension preflight",
+            presetResolutionOrientation: orientation,
+            disableAudio: !audioEnabled,
+            modelId: modelID,
+            qualityMode: preset.qualityMode.rawValue,
+            preset: preset.rawValue
+        )
+        let resolved = resolveForPreflight(request: request, engine: engine, snapshot: snapshot)
+        guard resolved.profile != nil else { return nil }
+        return (resolved.request.parameters.width, resolved.request.parameters.height)
+    }
+
     static func resolve(
         request: GenerationRequest,
         engine: AutoQualityEngine,

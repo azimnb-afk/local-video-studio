@@ -372,6 +372,75 @@ func runSourceImageOrientationTests(_ t: TestKit) {
             t.check(false, "custom request must resolve")
         }
     }
+
+    // MARK: - Portrait survives all the way to the child command
+    //
+    // The bug was only visible in the finished MP4, so the contract worth
+    // pinning is the whole chain, not just the resolver: a portrait reference
+    // has to still be portrait in the actual --width/--height handed to the
+    // runtime. This walks orientation -> seeded size -> request -> argv.
+    t.suite("Portrait reaches the LTX-2.5 child command") {
+        func childArguments(
+            orientation: SourceImageOrientation,
+            preset: GenerationPreset,
+            explicit: (width: Int, height: Int)? = nil
+        ) -> [String] {
+            var parameters = GenerationParameters.default
+            if let explicit {
+                parameters.width = explicit.width
+                parameters.height = explicit.height
+            } else if let seeded = GenerationSettingsResolver.orientedPresetDimensions(
+                preset: preset, orientation: orientation,
+                modelID: ModelRegistry.customModelID, audioEnabled: false,
+                engine: engine, snapshot: memory) {
+                // What the sheet now writes into the project when it becomes Custom.
+                parameters.width = seeded.width
+                parameters.height = seeded.height
+            }
+            let request = GenerationRequest(
+                prompt: "Portrait chain",
+                sourceImagePath: portrait.path,
+                presetResolutionOrientation: orientation,
+                disableAudio: true,
+                modelId: ModelRegistry.customModelID,
+                parameters: parameters,
+                qualityMode: GenerationPreset.custom.qualityMode.rawValue,
+                preset: GenerationPreset.custom.rawValue)
+            let resolved = (try? resolve(request)) ?? request
+            return LTX2MLXBackend.arguments(
+                request: resolved, modelDirectory: "/models/ltx25",
+                outputPath: "/out/shot.mp4", seed: 7,
+                width: resolved.parameters.width, height: resolved.parameters.height)
+        }
+
+        func value(_ args: [String], after flag: String) -> String? {
+            guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+            return args[i + 1]
+        }
+
+        let portraitArgs = childArguments(orientation: .portrait, preset: .standard)
+        t.checkEqual(value(portraitArgs, after: "--width"), "512",
+                     "portrait reference yields a portrait --width")
+        t.checkEqual(value(portraitArgs, after: "--height"), "768",
+                     "portrait reference yields a portrait --height")
+        t.check(portraitArgs.contains("--distilled"), "portrait run still uses --distilled")
+        t.check(portraitArgs.contains("--no-audio"), "Audio OFF still reaches the runtime")
+
+        let landscapeArgs = childArguments(orientation: .landscape, preset: .standard)
+        t.checkEqual(value(landscapeArgs, after: "--width"), "768",
+                     "landscape reference still yields a landscape --width")
+        t.checkEqual(value(landscapeArgs, after: "--height"), "512",
+                     "landscape reference still yields a landscape --height")
+
+        // An explicit size the user typed is handed over untouched, even
+        // against a portrait source.
+        let explicitArgs = childArguments(
+            orientation: .portrait, preset: .custom, explicit: (768, 512))
+        t.checkEqual(value(explicitArgs, after: "--width"), "768",
+                     "explicit landscape width survives to the child command")
+        t.checkEqual(value(explicitArgs, after: "--height"), "512",
+                     "explicit landscape height survives to the child command")
+    }
 }
 
 /// Small optional unwrap helper for the dependency-free test executable.

@@ -373,6 +373,102 @@ func runSourceImageOrientationTests(_ t: TestKit) {
         }
     }
 
+    // MARK: - A real Auto Movie project inherits its Opening Reference's shape
+    //
+    // This is the reported scenario end to end at the project layer: a real
+    // FilmProject whose Opening Reference is a portrait file on disk, taken
+    // through the same Custom freeze the Audio toggle performs.
+    t.suite("Auto Movie Opening Reference decides the project canvas") {
+        let storeRoot = root.appendingPathComponent("automovie-store", isDirectory: true)
+        try? FileManager.default.createDirectory(at: storeRoot, withIntermediateDirectories: true)
+        let store = FilmProjectStore(projectsDirectory: storeRoot)
+
+        func makeAutoMovie(referencing image: URL) -> FilmProject? {
+            var project = FilmProject(title: "Orientation Auto Movie")
+            project.workflowMode = AutoMovieRunCoordinator.autoMovieWorkflowMode
+            store.save(project)
+            guard let destination = store.managedProjectAssetURL(
+                projectID: project.id,
+                relativePath: "Assets/OpeningReference/opening.png"
+            ) else { return nil }
+            try? FileManager.default.createDirectory(
+                at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? FileManager.default.copyItem(at: image, to: destination)
+            project.openingReferenceImage = OpeningReferenceImage(
+                projectRelativePath: "Assets/OpeningReference/opening.png",
+                originalFilename: "opening.png", mimeType: "image/png", fileSizeBytes: 1)
+            store.save(project)
+            return project
+        }
+
+        if let portraitProject = makeAutoMovie(referencing: portrait) {
+            let orientation = FilmProjectResolutionOrientationResolver.resolve(
+                project: portraitProject, store: store)
+            t.checkEqual(orientation, .portrait,
+                         "a portrait Opening Reference makes the project portrait")
+
+            // Now perform the freeze the Audio toggle performs.
+            var settings = portraitProject.settings
+            settings.modelID = ModelRegistry.customModelID
+            settings.applyPreset(.standard)
+            settings.materializeOrientedSizeBeforeCustom(orientation: orientation)
+            settings.audioEnabled = false
+            settings.markCustom()
+            t.checkEqual(settings.width, 512, "Auto Movie Shot 1 canvas width stays portrait")
+            t.checkEqual(settings.height, 768, "Auto Movie Shot 1 canvas height stays portrait")
+
+            // And that canvas is what the runtime is actually told to render.
+            var parameters = GenerationParameters.default
+            parameters.width = settings.width
+            parameters.height = settings.height
+            let shotRequest = GenerationRequest(
+                prompt: "Shot 1",
+                sourceImagePath: portrait.path,
+                presetResolutionOrientation: orientation,
+                disableAudio: true,
+                modelId: settings.modelID,
+                parameters: parameters,
+                qualityMode: settings.qualityMode,
+                preset: settings.resolvedPreset.rawValue,
+                generationSource: "hybrid")
+            let resolvedShot = (try? resolve(shotRequest)) ?? shotRequest
+            let args = LTX2MLXBackend.arguments(
+                request: resolvedShot, modelDirectory: "/models/ltx25",
+                outputPath: "/out/shot1.mp4", seed: 3,
+                width: resolvedShot.parameters.width,
+                height: resolvedShot.parameters.height)
+            if let wi = args.firstIndex(of: "--width"), let hi = args.firstIndex(of: "--height") {
+                t.checkEqual(args[wi + 1], "512", "Auto Movie Shot 1 child --width is portrait")
+                t.checkEqual(args[hi + 1], "768", "Auto Movie Shot 1 child --height is portrait")
+            } else {
+                t.check(false, "child command must carry --width/--height")
+            }
+            t.check(args.contains("--image"), "Auto Movie Shot 1 still passes its reference image")
+        } else {
+            t.check(false, "portrait Auto Movie fixture must build")
+        }
+
+        // A landscape Opening Reference must still yield a landscape project.
+        if let landscapeProject = makeAutoMovie(referencing: landscape) {
+            let orientation = FilmProjectResolutionOrientationResolver.resolve(
+                project: landscapeProject, store: store)
+            t.checkEqual(orientation, .landscape,
+                         "a landscape Opening Reference makes the project landscape")
+            var settings = landscapeProject.settings
+            // Same model as the portrait case: Auto Quality resolves a profile
+            // per model, so comparing orientations across different models
+            // would be comparing two different canvases.
+            settings.modelID = ModelRegistry.customModelID
+            settings.applyPreset(.standard)
+            settings.materializeOrientedSizeBeforeCustom(orientation: orientation)
+            settings.markCustom()
+            t.checkEqual(settings.width, 768, "landscape Auto Movie keeps landscape width")
+            t.checkEqual(settings.height, 512, "landscape Auto Movie keeps landscape height")
+        } else {
+            t.check(false, "landscape Auto Movie fixture must build")
+        }
+    }
+
     // MARK: - Switching an existing project to Custom keeps its canvas
     t.suite("Project settings keep their orientation when frozen to Custom") {
         func project(preset: GenerationPreset) -> ProjectSettings {

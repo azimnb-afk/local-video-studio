@@ -1056,18 +1056,11 @@ private struct ProjectSettingsEditor: View {
         next: GenerationPreset,
         settings: inout ProjectSettings
     ) {
-        let previous = settings.resolvedPreset
-        guard next == .custom, previous != .custom else { return }
-        let orientation = FilmProjectResolutionOrientationResolver.resolve(
-            project: project, store: store)
-        guard let dimensions = GenerationSettingsResolver.orientedPresetDimensions(
-            preset: previous,
-            orientation: orientation,
-            modelID: settings.modelID,
-            audioEnabled: settings.resolvedAudioEnabled
-        ) else { return }
-        settings.width = dimensions.width
-        settings.height = dimensions.height
+        guard next == .custom else { return }
+        settings.materializeOrientedSizeBeforeCustom(
+            orientation: FilmProjectResolutionOrientationResolver.resolve(
+                project: project, store: store)
+        )
     }
 
     private func binding<Value>(

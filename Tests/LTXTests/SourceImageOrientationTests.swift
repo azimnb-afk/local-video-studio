@@ -373,6 +373,56 @@ func runSourceImageOrientationTests(_ t: TestKit) {
         }
     }
 
+    // MARK: - Switching an existing project to Custom keeps its canvas
+    t.suite("Project settings keep their orientation when frozen to Custom") {
+        func project(preset: GenerationPreset) -> ProjectSettings {
+            var settings = ProjectSettings()
+            settings.modelID = ModelRegistry.customModelID
+            settings.applyPreset(preset)
+            return settings
+        }
+
+        // The exact sequence a user hit: portrait Opening Reference, then the
+        // Audio toggle, which calls markCustom().
+        var portraitProject = project(preset: .standard)
+        t.checkEqual(portraitProject.width, 768, "stored preset base starts landscape")
+        portraitProject.materializeOrientedSizeBeforeCustom(orientation: .portrait)
+        portraitProject.audioEnabled = false
+        portraitProject.markCustom()
+        t.checkEqual(portraitProject.width, 512, "portrait project keeps portrait width through Audio OFF")
+        t.checkEqual(portraitProject.height, 768, "portrait project keeps portrait height through Audio OFF")
+        t.checkEqual(portraitProject.resolvedPreset, .custom, "project is Custom afterwards")
+
+        // Landscape must be untouched by the same sequence.
+        var landscapeProject = project(preset: .standard)
+        landscapeProject.materializeOrientedSizeBeforeCustom(orientation: .landscape)
+        landscapeProject.markCustom()
+        t.checkEqual(landscapeProject.width, 768, "landscape project stays landscape width")
+        t.checkEqual(landscapeProject.height, 512, "landscape project stays landscape height")
+
+        // No reference: the preset's own base is kept.
+        var plainProject = project(preset: .standard)
+        plainProject.materializeOrientedSizeBeforeCustom(orientation: .none)
+        t.checkEqual(plainProject.width, 768, "no orientation keeps the preset base width")
+        t.checkEqual(plainProject.height, 512, "no orientation keeps the preset base height")
+
+        // Already Custom: an explicit size is never re-derived.
+        var explicitProject = project(preset: .custom)
+        explicitProject.width = 640
+        explicitProject.height = 384
+        explicitProject.materializeOrientedSizeBeforeCustom(orientation: .portrait)
+        t.checkEqual(explicitProject.width, 640, "explicit Custom width is never re-derived")
+        t.checkEqual(explicitProject.height, 384, "explicit Custom height is never re-derived")
+
+        // High Quality carries its own (larger) canvas across the freeze.
+        var hqProject = project(preset: .highQuality)
+        let hqBase = (hqProject.width, hqProject.height)
+        hqProject.materializeOrientedSizeBeforeCustom(orientation: .portrait)
+        hqProject.markCustom()
+        t.checkEqual(hqProject.width, min(hqBase.0, hqBase.1), "High Quality portrait width is the short side")
+        t.checkEqual(hqProject.height, max(hqBase.0, hqBase.1), "High Quality portrait height is the long side")
+    }
+
     // MARK: - Portrait survives all the way to the child command
     //
     // The bug was only visible in the finished MP4, so the contract worth

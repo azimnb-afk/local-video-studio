@@ -900,6 +900,31 @@ struct ProjectSettings: Codable, Equatable {
     mutating func markCustom() {
         applyPreset(.custom)
     }
+
+    /// Writes down the size this project is *actually* generating at, before it
+    /// becomes an explicit Custom size.
+    ///
+    /// Custom keeps whatever dimensions it holds so an explicit user size beats
+    /// automatic orientation. That makes the switch onto Custom lossy: the
+    /// stored `width`/`height` are the preset's landscape base, while the real
+    /// canvas is that base oriented to the source image. Freezing without
+    /// resolving first silently turns a portrait project landscape, which is
+    /// what a user hit by only toggling Audio.
+    ///
+    /// No-op when already Custom (nothing left to derive) and when the preset
+    /// has no oriented size to offer.
+    mutating func materializeOrientedSizeBeforeCustom(orientation: SourceImageOrientation) {
+        let previous = resolvedPreset
+        guard previous != .custom else { return }
+        guard let dimensions = GenerationSettingsResolver.orientedPresetDimensions(
+            preset: previous,
+            orientation: orientation,
+            modelID: modelID,
+            audioEnabled: resolvedAudioEnabled
+        ) else { return }
+        width = dimensions.width
+        height = dimensions.height
+    }
 }
 
 enum GenerationJobState: String, Codable {

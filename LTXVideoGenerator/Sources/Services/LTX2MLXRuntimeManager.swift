@@ -7,6 +7,20 @@ public struct LTX2MLXRuntimeManifest: Codable, Equatable, Sendable {
 
     // Runtime source history, most recent first:
     //
+    // ead83e2 -> 11a0d33: the official LTX-2.5 combined VAE stores both halves
+    // under encoder./decoder. prefixes, but ImageConditioner filtered by the
+    // LTX-2.3 "vae_encoder." prefix — matching 0 of the file's 170 keys — and
+    // loaded with strict=False, so the video VAE *encoder* silently kept its
+    // random initialization. Text-to-video never touches the encoder and stayed
+    // correct; every image-conditioned generation (One Shot with a starting
+    // image, Auto Movie Shot 1, every continuity shot) encoded its reference
+    // through noise and produced a valid MP4 of brown mush. The encoder now
+    // mirrors the decoder's loader and uses strict=True, so an unmatched
+    // checkpoint fails instead of running on noise — see
+    // ltx25_official_video_vae_encoder_v1, required below. The previous export
+    // stays reachable as tag v0.9.0-preview.4-runtime so already-shipped
+    // Preview.4 installs keep working.
+    //
     // cbded94 -> ead83e2: azimnb-afk/ltx-2-mlx was rebuilt as a clean,
     // single-commit source export ("Initial Local Video Studio runtime
     // export") to remove private developer paths and internal branding
@@ -52,29 +66,21 @@ public struct LTX2MLXRuntimeManifest: Codable, Equatable, Sendable {
     // syntax (#subdirectory=...), mirroring the editable dev-override path.
     // Verified against the real public repo with no developer overrides.
     public static let pinnedRepoURL: String = "https://github.com/azimnb-afk/ltx-2-mlx.git"
-    public static let pinnedSourceRevision: String = "ead83e2"
+    public static let pinnedSourceRevision: String = "11a0d33"
 
-    // NOTE (next preview): "ltx25_official_video_vae_encoder_v1" is probed
-    // below but is deliberately NOT required yet. The published runtime
-    // (ead83e2) loads the official combined VAE's *encoder* half with a
-    // prefix that matches none of its keys, under strict=False — leaving a
-    // randomly-initialized encoder, so every image-conditioned generation
-    // (One Shot with a starting image, Auto Movie Shot 1, every continuity
-    // shot) decodes to noise. The runtime-side fix exists in this repo's
-    // sibling ltx-2-mlx checkout but is not published yet, and requiring a
-    // capability no reachable runtime can satisfy would report the shipped
-    // Preview.4 as permanently outdated while "Install Runtime" reinstalls
-    // the very revision that fails the check — breaking text-to-video too,
-    // with no way out. So this gate and the pinnedSourceRevision bump must
-    // flip together, atomically, as the first step of publishing the fixed
-    // runtime. Until then the capability is reported but not enforced.
+    // ltx25_official_video_vae_encoder_v1 is required as of the 11a0d33 pin.
+    // The pin and this entry move together on purpose: requiring a capability
+    // that the pinned runtime does not provide would mark every install
+    // permanently outdated, and pinning a runtime without the capability
+    // would silently restore the corrupted image-conditioning path.
     public static let requiredCapabilities: [String] = [
         "ltx25_gguf",
         "gguf_block_streaming_v1",
         "audio_decode_v2",
         "video_decoder_weights_v2",
         "ltx25_official_video_vae_v1",
-        "ltx25_audio_toggle_v1"
+        "ltx25_audio_toggle_v1",
+        "ltx25_official_video_vae_encoder_v1"
     ]
 
     public var schemaVersion: Int

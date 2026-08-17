@@ -8,11 +8,11 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
             schemaVersion: 1,
             runtime: "ltx-2-mlx",
             runtimeVersion: "0.2.0-preview4",
-            sourceRevision: "ead83e2",
-            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "video_decoder_weights_v2", "ltx25_official_video_vae_v1", "ltx25_audio_toggle_v1"]
+            sourceRevision: "11a0d33",
+            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "video_decoder_weights_v2", "ltx25_official_video_vae_v1", "ltx25_audio_toggle_v1", "ltx25_official_video_vae_encoder_v1"]
         )
         t.check(validManifest.isCompatible, "Complete manifest must be compatible")
-        t.checkEqual(LTX2MLXRuntimeManifest.pinnedSourceRevision, "ead83e2", "Pinned revision matches the clean public runtime export (privacy-sanitized history)")
+        t.checkEqual(LTX2MLXRuntimeManifest.pinnedSourceRevision, "11a0d33", "Pinned revision matches the Preview.5 public runtime export (image-conditioning fix)")
         t.checkEqual(LTX2MLXRuntimeManifest.pinnedRepoURL, "https://github.com/azimnb-afk/ltx-2-mlx.git", "Runtime source points at the user-owned public fork")
         t.checkEqual(validManifest.missingCapabilities, [], "No missing capabilities on full manifest")
 
@@ -22,7 +22,7 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
             runtime: "ltx-2-mlx",
             runtimeVersion: "0.2.0-preview4",
             sourceRevision: "a0bb232",
-            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "video_decoder_weights_v2", "ltx25_official_video_vae_v1", "ltx25_audio_toggle_v1"]
+            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "video_decoder_weights_v2", "ltx25_official_video_vae_v1", "ltx25_audio_toggle_v1", "ltx25_official_video_vae_encoder_v1"]
         )
         t.check(!missingAudio.isCompatible, "Manifest missing audio_decode_v2 must not be compatible")
         t.checkEqual(missingAudio.missingCapabilities, ["audio_decode_v2"], "Missing audio_decode_v2 correctly identified")
@@ -33,7 +33,7 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
             runtime: "ltx-2-mlx",
             runtimeVersion: "0.1.0",
             sourceRevision: "1111111",
-            capabilities: ["ltx25_gguf", "audio_decode_v2", "video_decoder_weights_v2", "ltx25_official_video_vae_v1", "ltx25_audio_toggle_v1"]
+            capabilities: ["ltx25_gguf", "audio_decode_v2", "video_decoder_weights_v2", "ltx25_official_video_vae_v1", "ltx25_audio_toggle_v1", "ltx25_official_video_vae_encoder_v1"]
         )
         t.check(!missingStreaming.isCompatible, "Manifest missing gguf_block_streaming_v1 must not be compatible")
         t.checkEqual(missingStreaming.missingCapabilities, ["gguf_block_streaming_v1"], "Missing gguf_block_streaming_v1 correctly identified")
@@ -46,7 +46,7 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
             runtime: "ltx-2-mlx",
             runtimeVersion: "0.2.0-preview4",
             sourceRevision: "c49bcc1",
-            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "ltx25_official_video_vae_v1", "ltx25_audio_toggle_v1"]
+            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "ltx25_official_video_vae_v1", "ltx25_audio_toggle_v1", "ltx25_official_video_vae_encoder_v1"]
         )
         t.check(!missingVideoDecoderFix.isCompatible,
                 "A runtime without the VideoDecoder strict-loading fix must not be compatible")
@@ -62,7 +62,7 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
             runtime: "ltx-2-mlx",
             runtimeVersion: "0.2.0-preview4",
             sourceRevision: "9c5819b",
-            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "video_decoder_weights_v2", "ltx25_audio_toggle_v1"]
+            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "video_decoder_weights_v2", "ltx25_audio_toggle_v1", "ltx25_official_video_vae_encoder_v1"]
         )
         t.check(!missingOfficialVAESupport.isCompatible,
                 "A runtime without official LTX-2.5 Video VAE support must not be compatible")
@@ -78,7 +78,7 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
             runtime: "ltx-2-mlx",
             runtimeVersion: "0.2.0-preview4",
             sourceRevision: "a99a9c7",
-            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "video_decoder_weights_v2", "ltx25_official_video_vae_v1"]
+            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "video_decoder_weights_v2", "ltx25_official_video_vae_v1", "ltx25_official_video_vae_encoder_v1"]
         )
         t.check(!missingAudioToggleSupport.isCompatible,
                 "A runtime without the Generate Audio toggle fix must not be compatible")
@@ -138,31 +138,29 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
         t.check(LTX2MLXRuntimeManifest.requiredCapabilities.contains("ltx25_official_video_vae_v1"), "Runtime requires ltx25_official_video_vae_v1 capability")
         t.check(LTX2MLXRuntimeManifest.requiredCapabilities.contains("ltx25_audio_toggle_v1"), "Runtime requires ltx25_audio_toggle_v1 capability")
 
-        // MARK: - G. Official Video VAE *encoder* capability (next-preview gate)
+        // MARK: - G. Official Video VAE *encoder* capability (Preview.5 gate)
         //
-        // The published runtime loads the official combined VAE's encoder half
-        // with a prefix matching none of its keys, under strict=False, leaving
-        // a randomly-initialized encoder — so every image-conditioned
-        // generation decodes to noise while text-to-video stays fine. The fix
-        // is written but unpublished, so this capability is deliberately
-        // probed-but-not-required: requiring it now would mark the shipped
-        // build permanently outdated with no reachable runtime that satisfies
-        // it. This test pins that deferral so the gate is flipped on purpose,
-        // together with the pin bump, rather than drifting in unnoticed.
-        t.check(!LTX2MLXRuntimeManifest.requiredCapabilities.contains("ltx25_official_video_vae_encoder_v1"),
-                "Encoder capability stays un-required until the fixed runtime is published")
+        // A runtime without the encoder fix loads the official combined VAE's
+        // encoder half with a prefix matching none of its keys, under
+        // strict=False, leaving a randomly-initialized encoder — so every
+        // image-conditioned generation decodes to noise while text-to-video
+        // stays fine. That is exactly the failure a capability gate exists to
+        // catch, so it must fail closed rather than silently corrupt output.
+        t.check(LTX2MLXRuntimeManifest.requiredCapabilities.contains("ltx25_official_video_vae_encoder_v1"),
+                "Runtime requires ltx25_official_video_vae_encoder_v1 capability")
 
-        // Once it *is* required, a runtime lacking it must fail closed rather
-        // than silently producing corrupted image-conditioned output.
         let missingEncoderFix = LTX2MLXRuntimeManifest(
             schemaVersion: 1,
             runtime: "ltx-2-mlx",
             runtimeVersion: "0.2.0-preview4",
             sourceRevision: "ead83e2",
-            capabilities: LTX2MLXRuntimeManifest.requiredCapabilities
-                + ["ltx25_official_video_vae_encoder_v1"]
+            capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2",
+                           "video_decoder_weights_v2", "ltx25_official_video_vae_v1",
+                           "ltx25_audio_toggle_v1"]
         )
-        t.check(missingEncoderFix.isCompatible,
-                "A runtime that also reports the encoder fix stays compatible")
+        t.check(!missingEncoderFix.isCompatible,
+                "A runtime without the official VAE encoder fix must not be compatible")
+        t.checkEqual(missingEncoderFix.missingCapabilities, ["ltx25_official_video_vae_encoder_v1"],
+                     "Missing ltx25_official_video_vae_encoder_v1 correctly identified")
     }
 }

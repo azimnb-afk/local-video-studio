@@ -739,6 +739,11 @@ final class StoryboardDirector {
             ? nil
             : DirectorModelProfile.detect(modelIdentifier: lastProviderModel)?.displayName
         project.directorPlanningDurationSeconds = planningDurationSeconds
+        // Reproducibility/debugging only, matching directorProfile's scope:
+        // absent for Basic Director, since it never talks to Ollama at all.
+        project.directorEndpointSnapshot = providerName == "template"
+            ? nil
+            : OllamaDirectorEnvironmentClient.configuredEndpoint().absoluteString
         project.storyBible = StoryBible(
             logline: draft.logline,
             synopsis: draft.synopsis ?? "",

@@ -977,6 +977,11 @@ struct FilmProject: Codable, Equatable, Identifiable {
     /// JSON + Text Protocol + Basic Fallback attempts combined). Absent for
     /// projects planned before this field existed.
     var directorPlanningDurationSeconds: Double?
+    /// The Ollama endpoint this plan's Local AI provider was configured to
+    /// use (e.g. "http://127.0.0.1:11434"), for reproducibility/debugging
+    /// only — never used to change planning behavior. Absent for Basic
+    /// Director plans and for projects planned before this field existed.
+    var directorEndpointSnapshot: String?
     var settings: ProjectSettings = ProjectSettings()
     var storyBible: StoryBible = StoryBible()
     var characterBible: CharacterBible = CharacterBible()
@@ -1030,7 +1035,7 @@ struct FilmProject: Codable, Equatable, Identifiable {
         case schemaVersion, id, title, createdAt, updatedAt, workflowMode,
              directorProvider, directorModel, planningMode, fallbackReason,
              requestedDirectorMode, effectiveDirectorMode, directorProtocol,
-             directorProfile, directorPlanningDurationSeconds, settings,
+             directorProfile, directorPlanningDurationSeconds, directorEndpointSnapshot, settings,
              storyBible, characterBible, shots, jobs,
              lastAssemblySignature, assembledMoviePath, assembledAt,
              continuityChainEnabled, characterAnchor, openingReferenceImage,
@@ -1055,6 +1060,7 @@ struct FilmProject: Codable, Equatable, Identifiable {
         effectiveDirectorMode = try container.decodeIfPresent(String.self, forKey: .effectiveDirectorMode)
         directorProfile = try container.decodeIfPresent(String.self, forKey: .directorProfile)
         directorPlanningDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .directorPlanningDurationSeconds)
+        directorEndpointSnapshot = try container.decodeIfPresent(String.self, forKey: .directorEndpointSnapshot)
         settings = try container.decodeIfPresent(ProjectSettings.self, forKey: .settings) ?? ProjectSettings()
         storyBible = try container.decodeIfPresent(StoryBible.self, forKey: .storyBible) ?? StoryBible()
         characterBible = try container.decodeIfPresent(CharacterBible.self, forKey: .characterBible) ?? CharacterBible()

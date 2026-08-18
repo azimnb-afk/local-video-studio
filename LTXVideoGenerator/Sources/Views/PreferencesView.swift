@@ -812,12 +812,15 @@ struct PreferencesView: View {
 private struct DirectorPreferencesView: View {
     @AppStorage(DirectorMode.userDefaultsKey) private var modeRaw = DirectorMode.auto.rawValue
     @AppStorage(DirectorEnvironmentService.modelUserDefaultsKey) private var directorModel = ""
+    @AppStorage(OllamaDirectorEnvironmentClient.endpointUserDefaultsKey) private var endpointRaw = ""
 
     @State private var snapshot = DirectorSetupSnapshot.checking(mode: .auto)
     @State private var isRefreshing = false
     @State private var isTesting = false
     @State private var testResult: (success: Bool, message: String)?
     @State private var showAdvanced = false
+    @State private var endpointDraft = ""
+    @State private var endpointError: String?
 
     private let environment = DirectorEnvironmentService()
 
@@ -864,6 +867,22 @@ private struct DirectorPreferencesView: View {
                 }
 
                 if mode != .basic {
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField("Ollama Endpoint", text: $endpointDraft)
+                            .onChange(of: endpointDraft) { _, newValue in
+                                applyEndpointDraft(newValue)
+                            }
+                        if let endpointError {
+                            Label(endpointError, systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                        BilingualSettingDescription(
+                            english: "Local AI Director connects to an Ollama server. The default is the Ollama server running on this Mac.",
+                            japanese: "Local AI DirectorはOllamaサーバーに接続します。既定値はこのMac上で動作するOllamaサーバーです。"
+                        )
+                    }
+
                     Picker("Director Model", selection: modelSelection) {
                         if snapshot.installedModels.isEmpty {
                             Text("No installed models").tag("")
@@ -897,7 +916,7 @@ private struct DirectorPreferencesView: View {
 
             DisclosureGroup("Advanced", isExpanded: $showAdvanced) {
                 VStack(alignment: .leading, spacing: 6) {
-                    LabeledContent("Endpoint", value: OllamaDirectorEnvironmentClient.endpoint.absoluteString)
+                    LabeledContent("Endpoint", value: OllamaDirectorEnvironmentClient.configuredEndpoint().absoluteString)
                     LabeledContent("Technical Status", value: snapshot.technicalStatus)
                     LabeledContent("Installed Models", value: "\(snapshot.installedModels.count)")
                 }
@@ -907,7 +926,14 @@ private struct DirectorPreferencesView: View {
             }
         }
         .formStyle(.grouped)
-        .task { await refresh() }
+        .task {
+            if endpointDraft.isEmpty {
+                endpointDraft = endpointRaw.isEmpty
+                    ? OllamaDirectorEnvironmentClient.defaultEndpoint.absoluteString
+                    : endpointRaw
+            }
+            await refresh()
+        }
         .onChange(of: modeRaw) { _, _ in
             testResult = nil
             Task { await refresh() }
@@ -915,6 +941,24 @@ private struct DirectorPreferencesView: View {
         .onChange(of: directorModel) { _, _ in
             testResult = nil
             Task { await refresh() }
+        }
+    }
+
+    /// Validates on every keystroke but only ever persists (and refreshes
+    /// against) a value that passed validation — an invalid draft shows
+    /// `endpointError` and leaves the last-known-good endpoint untouched
+    /// rather than silently falling back to the default.
+    private func applyEndpointDraft(_ newValue: String) {
+        do {
+            let validated = try DirectorEndpointValidator.validate(newValue)
+            endpointError = nil
+            guard endpointRaw != validated.absoluteString else { return }
+            endpointRaw = validated.absoluteString
+            testResult = nil
+            Task { await refresh() }
+        } catch {
+            endpointError = (error as? DirectorEndpointValidator.ValidationError)?.errorDescription
+                ?? error.localizedDescription
         }
     }
 

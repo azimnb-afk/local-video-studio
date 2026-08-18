@@ -96,6 +96,7 @@
 		AA00021C /* LowRAMMLXAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00021D; };
 		AA00021E /* DirectorProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00021F; };
 		AA0009B3 /* DirectorModelProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009B4; };
+		AA0009B5 /* ExactDialogueReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009B6; };
 		AA000220 /* PromptCompiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000221; };
 		AA000222 /* LocalDirector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000223; };
 		AA000224 /* ContinuityEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000225; };
@@ -214,6 +215,7 @@
 		AA00021D /* LowRAMMLXAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LowRAMMLXAdapter.swift; sourceTree = "<group>"; };
 		AA00021F /* DirectorProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectorProvider.swift; sourceTree = "<group>"; };
 		AA0009B4 /* DirectorModelProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectorModelProfile.swift; sourceTree = "<group>"; };
+		AA0009B6 /* ExactDialogueReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExactDialogueReconciler.swift; sourceTree = "<group>"; };
 		AA000221 /* PromptCompiler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptCompiler.swift; sourceTree = "<group>"; };
 		AA000223 /* LocalDirector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDirector.swift; sourceTree = "<group>"; };
 		AA000225 /* ContinuityEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityEngine.swift; sourceTree = "<group>"; };
@@ -377,6 +379,7 @@
 				AA00021D /* LowRAMMLXAdapter.swift */,
 				AA00021F /* DirectorProvider.swift */,
 				AA0009B4 /* DirectorModelProfile.swift */,
+				AA0009B6 /* ExactDialogueReconciler.swift */,
 				AA000221 /* PromptCompiler.swift */,
 				AA000223 /* LocalDirector.swift */,
 				AA000225 /* ContinuityEngine.swift */,
@@ -594,6 +597,7 @@
 				AA00021C /* LowRAMMLXAdapter.swift in Sources */,
 				AA00021E /* DirectorProvider.swift in Sources */,
 				AA0009B3 /* DirectorModelProfile.swift in Sources */,
+				AA0009B5 /* ExactDialogueReconciler.swift in Sources */,
 				AA000220 /* PromptCompiler.swift in Sources */,
 				AA000222 /* LocalDirector.swift in Sources */,
 				AA000224 /* ContinuityEngine.swift in Sources */,

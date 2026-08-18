@@ -701,6 +701,14 @@ final class StoryboardDirector {
         progressCallback?(.applying, "Applying storyboard…")
         var draft = rawDraft
 
+        // The Director (Structured JSON or Text Protocol — both converge to
+        // this same draft type) may relay the user's explicit quoted
+        // dialogue with different punctuation, translation, or paraphrase.
+        // The brief's exact wording is authoritative; this only replaces
+        // dialogue text when a clear structural correspondence exists and
+        // never changes camera/action/duration/continuity fields.
+        draft.shots = ExactDialogueReconciler.reconcile(shots: draft.shots, brief: brief)
+
         // Auto Movie steers the plan toward shots this profile actually renders
         // before anything is compiled, so the prompt, the camera fields and the
         // persisted plan all describe the same effective shot. Storyboard and

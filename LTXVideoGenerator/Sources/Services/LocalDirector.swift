@@ -93,7 +93,11 @@ final class LocalDirector {
             }
             guard await provider.isAvailable() else { continue }
             do {
-                let plan = try await planWithProvider(provider, brief: brief, handle: handle)
+                var plan = try await planWithProvider(provider, brief: brief, handle: handle)
+                // The brief's exact quoted dialogue is authoritative over
+                // whatever punctuation/translation/paraphrase the model
+                // relayed it with; see ExactDialogueReconciler.
+                plan.dialogue = ExactDialogueReconciler.reconcile(dialogueLines: plan.dialogue, brief: brief)
                 await provider.terminate()
                 return (plan, provider.name)
             } catch {

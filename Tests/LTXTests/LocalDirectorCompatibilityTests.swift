@@ -148,6 +148,122 @@ func runLocalDirectorCompatibilityTests(_ t: TestKit) {
         }
     }
 
+    // MARK: Text Protocol dialogue preservation
+
+    t.suite("Text Protocol parser — DIALOGUE field") {
+        // 1. Old-format output with no DIALOGUE line at all still parses, and
+        // no dialogue is invented for it.
+        let oldFormatDraft = TextProtocolPlanParser.parse(validTextPlan, brief: "b").draft
+        t.checkEqual(oldFormatDraft?.shots.count, 2, "pre-existing format without DIALOGUE still parses")
+        t.check(oldFormatDraft?.shots[0].dialogue == nil, "a shot with no DIALOGUE line has nil dialogue, not an invented line")
+
+        // 2. Speaker|text with explicit Japanese dialogue is preserved exactly.
+        let withDialogue = """
+        LOGLINE: A woman greets the camera.
+        SHOT 1
+        ACTION: A woman in blue enters and smiles at the camera.
+        CAMERA: Medium shot, static.
+        CONTINUITY: CUT
+        DIALOGUE: Woman|こんにちは
+        """
+        let dialogueDraft = TextProtocolPlanParser.parse(withDialogue, brief: "b").draft
+        t.checkEqual(dialogueDraft?.shots.count, 1, "shot with dialogue parses")
+        t.checkEqual(dialogueDraft?.shots[0].dialogue?.count, 1, "one dialogue line captured")
+        t.checkEqual(dialogueDraft?.shots[0].dialogue?.first?.speaker, "Woman", "speaker captured")
+        t.checkEqual(dialogueDraft?.shots[0].dialogue?.first?.text, "こんにちは",
+                     "dialogue text preserved character-for-character, not translated")
+
+        // 3. A colon (ASCII or full-width) inside the dialogue text must not
+        // be mistaken for parser syntax — keyValue already takes everything
+        // after the first "DIALOGUE:" colon verbatim.
+        let colonDraft = TextProtocolPlanParser.parse("""
+        LOGLINE: A test.
+        SHOT 1
+        ACTION: She speaks.
+        CONTINUITY: CUT
+        DIALOGUE: Woman|こんにちは：今日はいい天気ですね
+        """, brief: "b").draft
+        t.checkEqual(colonDraft?.shots[0].dialogue?.first?.text, "こんにちは：今日はいい天気ですね",
+                     "a full-width colon inside dialogue text does not truncate or break parsing")
+
+        // 4. Japanese quote characters must not be stripped or cause truncation.
+        let quoteDraft = TextProtocolPlanParser.parse("""
+        LOGLINE: A test.
+        SHOT 1
+        ACTION: She speaks.
+        CONTINUITY: CUT
+        DIALOGUE: Woman|「こんにちは」と『青い服の女性』が言う
+        """, brief: "b").draft
+        t.checkEqual(quoteDraft?.shots[0].dialogue?.first?.text, "「こんにちは」と『青い服の女性』が言う",
+                     "Japanese quote characters survive untouched")
+
+        // 5. Multiple DIALOGUE lines in one shot are preserved in order.
+        let multiDraft = TextProtocolPlanParser.parse("""
+        LOGLINE: A test.
+        SHOT 1
+        ACTION: Two people talk.
+        CONTINUITY: CUT
+        DIALOGUE: Woman|こんにちは
+        DIALOGUE: Man|元気ですか
+        """, brief: "b").draft
+        t.checkEqual(multiDraft?.shots[0].dialogue?.map(\.text), ["こんにちは", "元気ですか"],
+                     "multiple dialogue lines preserved in order")
+
+        // A DIALOGUE line with no "|" has no speaker but keeps the text.
+        let noSpeakerDraft = TextProtocolPlanParser.parse("""
+        LOGLINE: A test.
+        SHOT 1
+        ACTION: She speaks.
+        CONTINUITY: CUT
+        DIALOGUE: こんにちは
+        """, brief: "b").draft
+        t.checkEqual(noSpeakerDraft?.shots[0].dialogue?.first?.speaker, "", "no speaker is an empty string, not a crash")
+        t.checkEqual(noSpeakerDraft?.shots[0].dialogue?.first?.text, "こんにちは", "text preserved without a speaker")
+
+        // 6. A malformed/empty DIALOGUE line is skipped, not fatal to the shot.
+        let malformedDraft = TextProtocolPlanParser.parse("""
+        LOGLINE: A test.
+        SHOT 1
+        ACTION: She speaks.
+        CONTINUITY: CUT
+        DIALOGUE:
+        DIALOGUE: <exact words>
+        """, brief: "b").draft
+        t.check(malformedDraft != nil, "a shot with only malformed DIALOGUE lines still parses")
+        t.check(malformedDraft?.shots[0].dialogue == nil,
+                "empty and unfilled-placeholder DIALOGUE lines are dropped, not turned into blank dialogue")
+
+        // 10/11/12. The parsed dialogue reaches PromptCompiler through the
+        // exact same OneShotPlan path Structured JSON already uses, and
+        // descriptive action stays separate from spoken dialogue.
+        if let shot = dialogueDraft?.shots.first {
+            let plan = OneShotPlan(
+                camera: "medium shot",
+                action: shot.summary,
+                dialogue: shot.dialogue ?? [],
+                audioCues: []
+            )
+            let compiled = PromptCompiler.compile(plan: plan, options: .init(perShotAudioPolicy: .naturalProductionSoundNoMusic))
+            t.check(compiled.contains("こんにちは"), "PromptCompiler output carries the exact Text Protocol dialogue")
+            t.check(compiled.contains("Woman says:"), "dialogue is rendered as a spoken line, not folded into action")
+            t.check(compiled.contains("enters and smiles"), "descriptive action remains in English, separate from dialogue")
+        } else {
+            t.check(false, "dialogueDraft was unexpectedly nil")
+        }
+
+        // 13. A reasoning block containing a template-echoed DIALOGUE line
+        // before the real answer must not leak into the parsed plan.
+        let withEchoedDialogue = """
+        <think>
+        DIALOGUE: <speaker>|<exact words>
+        </think>
+        \(withDialogue)
+        """
+        let echoedDialogueDraft = TextProtocolPlanParser.parse(withEchoedDialogue, brief: "b").draft
+        t.checkEqual(echoedDialogueDraft?.shots[0].dialogue?.first?.text, "こんにちは",
+                     "an echoed template DIALOGUE placeholder inside a reasoning block is not parsed as real dialogue")
+    }
+
     // MARK: Capability negotiation
 
     t.suite("Local Director capability negotiation") {

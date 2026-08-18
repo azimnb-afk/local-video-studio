@@ -73,6 +73,7 @@ enum TextProtocolPlanParser {
         var currentCameraTempo: String?
         var currentPlaybackStyle: String?
         var currentContinuity: String?
+        var currentDialogue: [OneShotPlan.DialogueLine] = []
         var sawShotMarker = false
 
         func flushShot() {
@@ -80,7 +81,7 @@ enum TextProtocolPlanParser {
                 currentTitle = nil; currentAction = nil
                 currentCamera = nil; currentMotionTempo = nil
                 currentCameraTempo = nil; currentPlaybackStyle = nil
-                currentContinuity = nil
+                currentContinuity = nil; currentDialogue = []
             }
             guard let action = currentAction, isMeaningful(action) else { return }
             let camera = currentCamera.flatMap { isMeaningful($0) ? $0 : nil }
@@ -96,6 +97,10 @@ enum TextProtocolPlanParser {
             shot.cameraTempo = normalizedCameraTempo(currentCameraTempo)
             shot.playbackStyle = normalizedPlaybackStyle(currentPlaybackStyle)
             shot.continuity = normalizedContinuity(currentContinuity)
+            // Absent entirely (nil) when the shot has no spoken line, exactly
+            // like a Structured JSON shot that omits "dialogue" — never an
+            // empty-but-present array standing in for "the model said nothing".
+            shot.dialogue = currentDialogue.isEmpty ? nil : currentDialogue
             shots.append(shot)
         }
 
@@ -122,6 +127,13 @@ enum TextProtocolPlanParser {
                 currentPlaybackStyle = value
             } else if let value = keyValue(line, key: "CONTINUITY") {
                 currentContinuity = value
+            } else if let value = keyValue(line, key: "DIALOGUE") {
+                // A malformed or empty DIALOGUE line is skipped, not treated
+                // as a parse failure: losing one line is far better than
+                // discarding the whole shot or the whole plan over it.
+                if let line = dialogueLine(from: value) {
+                    currentDialogue.append(line)
+                }
             }
         }
         flushShot()
@@ -184,6 +196,29 @@ enum TextProtocolPlanParser {
             value = String(value.dropFirst()).trimmingCharacters(in: .whitespaces)
         }
         return value
+    }
+
+    /// `<speaker>|<exact words>`, or just `<exact words>` when no speaker
+    /// applies. Splits on the first "|" only, so a "|" appearing inside the
+    /// dialogue text itself stays part of the text rather than truncating
+    /// it. `keyValue` has already taken everything after the first
+    /// `DIALOGUE:` colon verbatim, so a colon (ASCII or full-width, as in
+    /// "こんにちは：今日はいい天気ですね") or Japanese quote characters inside the
+    /// dialogue text reach here untouched and are never treated as parser
+    /// syntax. Nil for an empty or placeholder-only line.
+    static func dialogueLine(from value: String) -> OneShotPlan.DialogueLine? {
+        guard isMeaningful(value) else { return nil }
+        if let separator = value.range(of: "|") {
+            let speaker = value[value.startIndex..<separator.lowerBound]
+                .trimmingCharacters(in: .whitespaces)
+            let text = value[separator.upperBound...]
+                .trimmingCharacters(in: .whitespaces)
+            guard !text.isEmpty else { return nil }
+            return OneShotPlan.DialogueLine(speaker: speaker, text: text)
+        }
+        let text = value.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return nil }
+        return OneShotPlan.DialogueLine(speaker: "", text: text)
     }
 
     /// Rejects empty values and unfilled `<...>` template placeholders.

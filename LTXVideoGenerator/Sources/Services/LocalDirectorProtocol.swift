@@ -179,6 +179,13 @@ enum DirectorPlanFormat {
     such as "slowly". Use SLOW_MOTION only when the brief explicitly requests
     slow motion. A CONTINUE shot keeps the preceding tempos unless the story
     explicitly changes them.
+    Only when a shot has a character speaking specific words the brief gave
+    you, add one line per spoken line directly after that shot's CONTINUITY:
+    DIALOGUE: <speaker>|<exact words>
+    Use the exact wording and original language the brief gave you — never
+    translate, paraphrase, or invent dialogue the brief did not request. Omit
+    the speaker and the "|" when no name applies: DIALOGUE: <exact words>. Add
+    one DIALOGUE line per spoken line, in order; add none for a silent shot.
     \(PerShotAudioPolicy.directorInstruction)
     \(CharacterContinuitySafetyPolicy.compactDirectorInstruction)
     """

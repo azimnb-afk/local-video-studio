@@ -171,9 +171,27 @@ final class LTX2MLXAdapter: VideoGenerationAdapter {
                 "Derived model '\(model.id)' has no pinned revision or local snapshot; refusing to generate."
             )
         }
-        guard let ltxModel = LTX2MLXModelCatalog.model(id: model.id) else {
-            throw LTXError.generationFailed("'\(model.id)' is not a registered ltx-2-mlx model.")
-        }
+        // LTX2MLXModelCatalog only names the small set of built-in ltx-2-mlx
+        // models (the legacy single custom-model slot, LTX-2.5 Experimental).
+        // A user-defined custom model profile (`custom_profile_<UUID>`) is not
+        // in that catalog and never will be — its identity, display name, and
+        // local path already live on `model` itself, resolved moments ago by
+        // ModelRegistry.descriptor(for:). Falling back to that descriptor
+        // instead of re-deriving from a catalog it was never registered in is
+        // what makes every custom profile generate-able through this adapter,
+        // not just the one legacy custom-model slot the catalog was written
+        // for.
+        let ltxModel = LTX2MLXModelCatalog.model(id: model.id) ?? LTXModel(
+            id: model.id,
+            repo: model.repository,
+            displayName: model.displayName,
+            downloadSize: model.estimatedModelSizeGB.map { "~\(Int($0))GB" } ?? "unknown",
+            supportsBuiltInAudio: model.capabilities.synchronizedAudio,
+            qualityWarning: nil,
+            recommendedStepsLower: 8,
+            recommendedStepsUpper: 30,
+            tips: model.runtime.verificationNotes
+        )
         return try await backend.generate(
             request: request,
             model: ltxModel,

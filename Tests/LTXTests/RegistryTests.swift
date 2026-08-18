@@ -225,6 +225,110 @@ func runRegistryTests(_ t: TestKit) {
         t.check(FeatureFlags.isEnabled(.modelRegistryV1, userDefaults: fresh), "flag can be re-enabled")
     }
 
+    t.suite("Custom profile execution boundary (adapter, not just resolver)") {
+        // Regression coverage for a real bug: GenerationModelResolver already
+        // resolved custom_profile_<UUID> correctly, but the actual execution
+        // path used by Generate/One Shot/Storyboard/Auto Movie goes through
+        // ModelRegistry -> AdapterRegistry -> LTX2MLXAdapter (gated by
+        // modelRegistryV1, which defaults ON) — a completely separate
+        // boundary that re-derived its LTXModel from LTX2MLXModelCatalog
+        // instead of the already-resolved ModelDescriptor. That catalog only
+        // ever knew the single legacy custom-model slot and LTX-2.5
+        // Experimental, so every per-profile ID hit "is not a registered
+        // ltx-2-mlx model" before it ever reached the backend. Fixture names
+        // are neutral by design — this is purely a plumbing bug, never keyed
+        // on any specific model name or path.
+        let profileSuite = "LTXTests.customProfileBoundary.\(UUID().uuidString)"
+        let profileDefaults = UserDefaults(suiteName: profileSuite)!
+        defer { profileDefaults.removePersistentDomain(forName: profileSuite) }
+
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LTXTests-custom-profile-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let profileA = CustomModelProfile(displayName: "Custom Profile A", modelPath: tmpDir.appendingPathComponent("profile-a").path)
+        let profileB = CustomModelProfile(displayName: "Custom Profile B", modelPath: tmpDir.appendingPathComponent("profile-b").path)
+        try? CustomModelProfileStore.addProfile(profileA, userDefaults: profileDefaults)
+        try? CustomModelProfileStore.addProfile(profileB, userDefaults: profileDefaults)
+
+        let registry = ModelRegistry(userDefaults: profileDefaults)
+
+        // 1 & 3. Descriptor resolves with the correct backend and its OWN local path.
+        let descriptorA = registry.descriptor(id: profileA.modelID)
+        t.checkEqual(descriptorA?.runtime.backend, "ltx-2-mlx", "custom profile A resolves to the ltx-2-mlx backend")
+        t.checkEqual(descriptorA?.localPath, profileA.modelPath, "custom profile A descriptor carries its own local path")
+
+        // 8. Multi-profile selection: each resolves to itself, never another profile.
+        let descriptorB = registry.descriptor(id: profileB.modelID)
+        t.checkEqual(descriptorB?.localPath, profileB.modelPath, "custom profile B descriptor carries its own local path, not A's")
+        t.check(descriptorA?.localPath != descriptorB?.localPath, "two custom profiles resolve to distinct local paths")
+
+        // 5. No default-backend fallback for a custom profile.
+        switch GenerationModelResolver.resolve(modelID: profileA.modelID, registry: registry, userDefaults: profileDefaults) {
+        case .runnable(let runnable):
+            t.checkEqual(runnable.backend, .ltx2MLX, "custom profile routes to ltx2MLX, never the default backend")
+        case .unsupported:
+            t.check(false, "custom profile A must be runnable")
+        }
+
+        // 6. Missing/deleted custom profile still fails closed.
+        let missingID = CustomModelProfile.idPrefix + UUID().uuidString
+        t.check(registry.descriptor(id: missingID) == nil, "an unregistered custom profile ID has no descriptor")
+        switch GenerationModelResolver.resolve(modelID: missingID, registry: registry, userDefaults: profileDefaults) {
+        case .runnable:
+            t.check(false, "an unregistered custom profile must not resolve as runnable")
+        case .unsupported(let reason):
+            t.checkEqual(reason, .unknownModel(modelID: missingID),
+                         "an unregistered custom profile is reported unknown, never silently substituted")
+        }
+
+        // 7. Built-in models keep using the fast catalog path (unaffected by the fallback).
+        let officialAdapter = AdapterRegistry()
+        let officialDescriptor = registry.descriptor(id: LTXModelCatalog.defaultModelID)!
+        t.check(officialAdapter.adapter(for: officialDescriptor) is OfficialMLXAudioAdapter,
+                "built-in LTX-2.3 model still routes through the official adapter, unaffected by this fix")
+
+        // THE CORE REGRESSION: LTX2MLXAdapter must not reject a real custom
+        // profile with "is not a registered ltx-2-mlx model" — it must get
+        // past the catalog lookup and fail (if at all) for an environment
+        // reason (missing runtime/model components in this test sandbox),
+        // never for an identity reason.
+        guard let descriptor = descriptorA else {
+            t.check(false, "custom profile A descriptor must exist for the adapter regression check")
+            return
+        }
+        let adapter = LTX2MLXAdapter()
+        t.check(adapter.supports(model: descriptor), "LTX2MLXAdapter supports a per-profile custom model, not just the legacy slot")
+
+        let request = GenerationRequest(prompt: "test prompt", modelId: profileA.modelID, userDefaults: profileDefaults)
+        // 9. Archive/project identity stays the stable profile ID even though
+        // execution will use the resolved local path, never the ID itself.
+        t.checkEqual(request.modelId, profileA.modelID, "request modelId stays the stable custom profile ID for Archive/history identity")
+        t.checkEqual(request.customModelProfileID, profileA.id, "request binds to the correct profile UUID")
+        t.checkEqual(request.customModelLocalPath, profileA.modelPath, "request carries the resolved local model path")
+
+        let sem = DispatchSemaphore(value: 0)
+        var caughtError: Error?
+        Task {
+            do {
+                _ = try await adapter.generate(
+                    request: request,
+                    model: descriptor,
+                    outputPath: tmpDir.appendingPathComponent("out.mp4").path,
+                    progressHandler: { _, _ in }
+                )
+            } catch {
+                caughtError = error
+            }
+            sem.signal()
+        }
+        sem.wait()
+        let errorDescription = caughtError.map { String(describing: $0) } ?? ""
+        t.check(!errorDescription.contains("is not a registered ltx-2-mlx model"),
+                "custom profile is no longer rejected as an unregistered ltx-2-mlx model (got: \(errorDescription.isEmpty ? "no error" : errorDescription))")
+    }
+
     t.suite("Custom Model seed configuration") {
         let customSuite = "LTXTests.customSeed.\(UUID().uuidString)"
         let customDefaults = UserDefaults(suiteName: customSuite)!

@@ -685,12 +685,14 @@ final class StoryboardDirector {
         handle: DirectorPlanningHandle? = nil,
         progressCallback: ((DirectorPlanningPhase, String) -> Void)? = nil
     ) async throws -> (project: FilmProject, violations: [ContinuityEngine.Violation], providerName: String) {
+        let planningStartedAt = Date()
         let (rawDraft, providerName) = try await self.draft(
             brief: brief, characterBible: characterBible,
             openingSceneEvidence: openingSceneEvidence,
             targetDurationSeconds: capabilityAwarePlanning ? settings.targetDurationSeconds : nil,
             handle: handle,
             progressCallback: progressCallback)
+        let planningDurationSeconds = Date().timeIntervalSince(planningStartedAt)
 
         if handle?.isCancelled == true || Task.isCancelled {
             progressCallback?(.cancelled, "Planning cancelled")
@@ -721,6 +723,11 @@ final class StoryboardDirector {
         project.effectiveDirectorMode = providerName == "template"
             ? DirectorMode.basic.rawValue
             : DirectorMode.localAI.rawValue
+        // Display-only; never influences which protocol/provider was used.
+        project.directorProfile = providerName == "template"
+            ? nil
+            : DirectorModelProfile.detect(modelIdentifier: lastProviderModel)?.displayName
+        project.directorPlanningDurationSeconds = planningDurationSeconds
         project.storyBible = StoryBible(
             logline: draft.logline,
             synopsis: draft.synopsis ?? "",

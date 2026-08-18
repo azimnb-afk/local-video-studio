@@ -929,6 +929,11 @@ private struct DirectorPreferencesView: View {
                 Label("Ready", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
                 Text(model).font(.caption).foregroundStyle(.secondary)
+                if let profile = snapshot.modelProfile, profile.family != .other {
+                    Text("Recognized as a \(profile.family.displayName) model.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         case .basicOnly:
             Label("Basic Director — Ready", systemImage: "checkmark.circle.fill")

@@ -93,6 +93,13 @@ struct DirectorSetupSnapshot: Equatable {
                               fallbackReason: nil)
     }
 
+    /// Display-only family recognition for the model that will actually plan
+    /// next (nil when no Local AI model is effective, e.g. Basic mode or an
+    /// unreachable server). Never used to change planning behavior.
+    var modelProfile: DirectorModelProfile? {
+        DirectorModelProfile.detect(modelIdentifier: effectiveModel)
+    }
+
     var userStatus: String {
         switch availability {
         case .checking: return "Checking Director availability…"

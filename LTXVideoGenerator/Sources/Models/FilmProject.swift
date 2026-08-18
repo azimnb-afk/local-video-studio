@@ -968,6 +968,15 @@ struct FilmProject: Codable, Equatable, Identifiable {
     var fallbackReason: String?
     var requestedDirectorMode: String?
     var effectiveDirectorMode: String?
+    /// Display-only recognized model family/name (e.g. "Qwen Director
+    /// (qwen3.6-claw-fast:latest)"), derived from `directorModel` at plan
+    /// time. Never influences planning; observability only. Absent for
+    /// projects planned before this field existed or for Basic Director.
+    var directorProfile: String?
+    /// Wall-clock seconds the Director spent producing this plan (Structured
+    /// JSON + Text Protocol + Basic Fallback attempts combined). Absent for
+    /// projects planned before this field existed.
+    var directorPlanningDurationSeconds: Double?
     var settings: ProjectSettings = ProjectSettings()
     var storyBible: StoryBible = StoryBible()
     var characterBible: CharacterBible = CharacterBible()
@@ -1020,7 +1029,8 @@ struct FilmProject: Codable, Equatable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, id, title, createdAt, updatedAt, workflowMode,
              directorProvider, directorModel, planningMode, fallbackReason,
-             requestedDirectorMode, effectiveDirectorMode, directorProtocol, settings,
+             requestedDirectorMode, effectiveDirectorMode, directorProtocol,
+             directorProfile, directorPlanningDurationSeconds, settings,
              storyBible, characterBible, shots, jobs,
              lastAssemblySignature, assembledMoviePath, assembledAt,
              continuityChainEnabled, characterAnchor, openingReferenceImage,
@@ -1043,6 +1053,8 @@ struct FilmProject: Codable, Equatable, Identifiable {
         fallbackReason = try container.decodeIfPresent(String.self, forKey: .fallbackReason)
         requestedDirectorMode = try container.decodeIfPresent(String.self, forKey: .requestedDirectorMode)
         effectiveDirectorMode = try container.decodeIfPresent(String.self, forKey: .effectiveDirectorMode)
+        directorProfile = try container.decodeIfPresent(String.self, forKey: .directorProfile)
+        directorPlanningDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .directorPlanningDurationSeconds)
         settings = try container.decodeIfPresent(ProjectSettings.self, forKey: .settings) ?? ProjectSettings()
         storyBible = try container.decodeIfPresent(StoryBible.self, forKey: .storyBible) ?? StoryBible()
         characterBible = try container.decodeIfPresent(CharacterBible.self, forKey: .characterBible) ?? CharacterBible()

@@ -616,7 +616,11 @@ private struct NewStoryboardSheet: View {
     private var directorStatusText: String {
         switch directorSnapshot.availability {
         case .checking: return "Checking Director availability…"
-        case .localAIReady(let model): return "Local AI Ready · \(model)"
+        case .localAIReady(let model):
+            let family = directorSnapshot.modelProfile?.family
+            return (family != nil && family != .other)
+                ? "Local AI Ready · \(model) (\(family!.displayName))"
+                : "Local AI Ready · \(model)"
         case .localAIModelMissing: return "Basic Director · Local AI model unavailable"
         case .localAIServerUnavailable: return "Basic Director · No setup required"
         case .basicOnly: return "Basic Director · No setup required"

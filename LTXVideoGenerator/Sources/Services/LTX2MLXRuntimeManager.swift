@@ -66,7 +66,7 @@ public struct LTX2MLXRuntimeManifest: Codable, Equatable, Sendable {
     // syntax (#subdirectory=...), mirroring the editable dev-override path.
     // Verified against the real public repo with no developer overrides.
     public static let pinnedRepoURL: String = "https://github.com/azimnb-afk/ltx-2-mlx.git"
-    public static let pinnedSourceRevision: String = "11a0d33"
+    public static let pinnedSourceRevision: String = "b30079e"
 
     // ltx25_official_video_vae_encoder_v1 is required as of the 11a0d33 pin.
     // The pin and this entry move together on purpose: requiring a capability

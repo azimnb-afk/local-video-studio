@@ -12,7 +12,7 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
             capabilities: ["ltx25_gguf", "gguf_block_streaming_v1", "audio_decode_v2", "video_decoder_weights_v2", "ltx25_official_video_vae_v1", "ltx25_audio_toggle_v1", "ltx25_official_video_vae_encoder_v1"]
         )
         t.check(validManifest.isCompatible, "Complete manifest must be compatible")
-        t.checkEqual(LTX2MLXRuntimeManifest.pinnedSourceRevision, "11a0d33", "Pinned revision matches the Preview.5 public runtime export (image-conditioning fix)")
+        t.checkEqual(LTX2MLXRuntimeManifest.pinnedSourceRevision, "b30079e", "Pinned revision matches the legacy checkpoint config fallback fix")
         t.checkEqual(LTX2MLXRuntimeManifest.pinnedRepoURL, "https://github.com/azimnb-afk/ltx-2-mlx.git", "Runtime source points at the user-owned public fork")
         t.checkEqual(validManifest.missingCapabilities, [], "No missing capabilities on full manifest")
 

@@ -654,23 +654,52 @@ final class CharacterSheetAnalyzer {
         "turnaround", "character turnaround", "front", "side", "back",
         "close-up", "close up", "closeup", "expressions", "expression",
         "costume details", "costume detail", "costume", "views", "view",
+        "face", "details", "detail",
         "untitled", "unknown", "n/a", "na", "none",
     ]
+
+    /// Case-folds and strips punctuation the same way for both the whole
+    /// candidate and each comma/slash-split segment, so "CHARACTER REFERENCE
+    /// SHEET:", "Character-Reference-Sheet" and "Costume Detail" all collapse
+    /// onto the keys in `sheetLabelNames`.
+    private static func foldedLabel(_ s: some StringProtocol) -> String {
+        s.lowercased()
+            .replacingOccurrences(of: "[^a-z0-9 ]", with: " ", options: .regularExpression)
+            .split(separator: " ")
+            .joined(separator: " ")
+    }
+
+    private static func isKnownSheetLabel(_ folded: String) -> Bool {
+        !folded.isEmpty
+            && (sheetLabelNames.contains(folded)
+                || sheetLabelNames.contains(folded.replacingOccurrences(of: " ", with: "")))
+    }
 
     static func sanitizedNameCandidate(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
-        // Compare on a punctuation-free, case-folded form so "CHARACTER
-        // REFERENCE SHEET:", "Character-Reference-Sheet" and the bare phrase
-        // all collapse onto the same key.
-        let folded = trimmed
-            .lowercased()
-            .replacingOccurrences(of: "[^a-z0-9 ]", with: " ", options: .regularExpression)
-            .split(separator: " ")
-            .joined(separator: " ")
+
+        let folded = foldedLabel(trimmed)
         guard !folded.isEmpty else { return "" }
-        if sheetLabelNames.contains(folded) { return "" }
-        if sheetLabelNames.contains(folded.replacingOccurrences(of: " ", with: "")) { return "" }
+        if isKnownSheetLabel(folded) { return "" }
+
+        // A vision model sometimes returns the sheet's own detected-view list
+        // instead of a name -- "Front, Side, Back, Expressions, Details" is not
+        // one label a user typed, it is several, joined the way the sheet UI
+        // joins them. No single-segment exact match catches that, so split on
+        // the same separators the sheet uses and check whether every segment
+        // is itself a known label. Two or more matching segments is required:
+        // one segment is exactly the whole-candidate case already handled
+        // above, and a single overlapping word must never cost a real name
+        // ("Reference Rita", "Back Taylor") its segment count is 1 either way.
+        let segments = trimmed
+            .split(whereSeparator: { $0 == "," || $0 == "/" })
+            .map { foldedLabel($0.trimmingCharacters(in: .whitespaces)) }
+            .filter { !$0.isEmpty }
+        if segments.count >= 2, segments.allSatisfy(isKnownSheetLabel) {
+            return ""
+        }
+
         return trimmed
     }
 

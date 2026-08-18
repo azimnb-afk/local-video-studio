@@ -153,6 +153,33 @@ func runCharacterSheetTests(_ t: TestKit) {
         let blank = BibleCharacter(id: UUID(), name: "")
         t.check(CharacterSheetFieldSelection.defaults(for: blank).name,
                 "a blank name is offered for review")
+
+        // A vision model can also return the sheet's own comma/slash-joined
+        // list of detected views instead of a single title -- a real Dev
+        // history entry showed "Front, Side, Back, Expressions, Details"
+        // become a character's name and render as
+        // "CHARACTER 1: Front, Side, Back, Expressions, Details." in the shot
+        // prompt. No single-segment exact match catches a joined list, so
+        // this must be rejected when every comma/slash-separated segment is
+        // itself a known sheet label.
+        for raw in [
+            "Front, Side, Back, Expressions, Details",
+            "Front / Side / Back",
+            "Front, Side, Back, Costume Detail",
+            "Face, Expressions, Details",
+        ] {
+            t.checkEqual(CharacterSheetAnalyzer.sanitizedNameCandidate(raw), "",
+                         "\(raw) (joined sheet labels) is rejected as a name")
+        }
+
+        // A single overlapping word must never cost a real name its identity:
+        // these have only one comma/slash-separated segment, so the joined-
+        // label guard never applies to them, and no individual word in them
+        // is an exact whole-candidate match either.
+        for raw in ["Reference Rita", "Back Taylor", "Side Alice", "Details McKenzie", "Expressions of Aya"] {
+            t.checkEqual(CharacterSheetAnalyzer.sanitizedNameCandidate(raw), raw,
+                         "\(raw) is preserved despite overlapping a sheet-label word")
+        }
     }
 
     t.suite("Vision capability and independent settings") {

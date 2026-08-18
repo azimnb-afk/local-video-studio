@@ -2,12 +2,17 @@ import Foundation
 @testable import LTXVideoGeneratorCore
 
 /// Preview.3 product policy: Auto Movie is a single continuous sequence.
-/// After Shot 1, every shot always continues from the immediately previous
-/// shot's actual final frame — never an automatic scene-change cut, never an
-/// automatic Identity Refresh substitution, never a silent independent
-/// fallback. This file is the acceptance suite for that policy (TEST A–E),
+/// After Shot 1, every shot continues from the immediately previous shot's
+/// actual final frame by default — never an automatic scene-change cut, never
+/// an automatic Identity Refresh substitution, never a silent independent
+/// fallback. This file is the acceptance suite for that default (TEST A–E),
 /// separate from `AutoMovieContinuityTests.swift`, which covers the
 /// generic Cut/Continue engine still backing manual Storyboards.
+///
+/// Since Cut-Aware Continuity, the one exception to "always continues" is an
+/// explicit `.cut` stored on the shot itself (user-chosen, or a Director plan
+/// left unpromoted by `ContinuityReconciler`) — see TEST F and
+/// `CutAwareContinuityTests.swift` for that behavior specifically.
 func runAutoMovieStrictContinuityPolicyTests(_ t: TestKit) {
 
     let fixtureA = TestFixtures.videoWithAudioA
@@ -382,11 +387,16 @@ func runAutoMovieStrictContinuityPolicyTests(_ t: TestKit) {
                 .displayedAutoMovieContinuityMode(forShotAt: 3, in: before),
             .cut,
             "the Shot Card presentation resolver preserves the historical Cut")
+        // Before Cut-Aware Continuity, a future regeneration of this shot was
+        // forced to strict Continue regardless of the stored mode, silently
+        // flipping a historically-Cut shot on regenerate. Cut-Aware Continuity
+        // fixes that: an explicit `.cut` on the shot itself is now respected
+        // for future generation too, not only for legacy display.
         t.checkEqual(
             AutoMovieRunCoordinator(store: store)
                 .autoMovieContinuityMode(forShotAt: 3, in: before),
-            .continueFromPrevious,
-            "a future new Shot 4 generation still uses preview.3 strict Continue")
+            .cut,
+            "a future new Shot 4 generation now honors the shot's own stored Cut")
         t.checkEqual(after, before, "opening/previewing the project does not mutate persisted metadata or Takes")
         t.checkEqual(try? Data(contentsOf: URL(fileURLWithPath: fixtureA)), outputBytesBefore,
                      "opening/previewing the project does not mutate the historical output")

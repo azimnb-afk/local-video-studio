@@ -16,6 +16,8 @@ final class FilmProjectStore {
         case invalidManagedAssetPath
         case unsupportedFinalBGMFormat(String)
         case invalidFinalBGMSource
+        case unsupportedNewStartFrameFormat(String)
+        case invalidNewStartFrameSource
     }
 
     let projectsDirectory: URL
@@ -119,6 +121,73 @@ final class FilmProjectStore {
     func removeManagedOpeningReference(projectID: UUID, reference: OpeningReferenceImage) {
         guard let url = managedProjectAssetURL(
             projectID: projectID, relativePath: reference.projectRelativePath) else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    /// A Cut shot's explicit New Start Frame lives beside the other
+    /// project-owned assets, one subdirectory per shot, so it survives
+    /// relaunch and is removed with the project.
+    func newStartFrameDirectory(projectID: UUID, shotID: UUID) -> URL {
+        projectsDirectory
+            .appendingPathComponent(projectID.uuidString, isDirectory: true)
+            .appendingPathComponent("Assets", isDirectory: true)
+            .appendingPathComponent("NewStartFrame", isDirectory: true)
+            .appendingPathComponent(shotID.uuidString, isDirectory: true)
+    }
+
+    /// Copies a PNG/JPG/JPEG into the project as a shot's explicit New Start
+    /// Frame — the image a Cut shot starts from instead of the previous
+    /// shot's final frame.
+    ///
+    /// Mirrors `importOpeningReferenceImage`: copy to a temporary name, then
+    /// atomically move into a UUID filename, so the external original is
+    /// never moved, renamed or persisted as an absolute path, and a failed
+    /// import cannot leave a half-written file where the shot expects an
+    /// image. Returns the project-relative path to store on
+    /// `Shot.newStartFrameRelativePath`.
+    func importNewStartFrame(
+        from sourceURL: URL,
+        projectID: UUID,
+        shotID: UUID
+    ) throws -> String {
+        let source = sourceURL.standardizedFileURL
+        let ext = source.pathExtension.lowercased()
+        guard ["png", "jpg", "jpeg"].contains(ext) else {
+            throw StoreError.unsupportedNewStartFrameFormat(ext)
+        }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: source.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else {
+            throw StoreError.invalidNewStartFrameSource
+        }
+
+        let directory = newStartFrameDirectory(projectID: projectID, shotID: shotID)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let filename = "new-start-\(UUID().uuidString).\(ext)"
+        let destination = directory.appendingPathComponent(filename)
+        let temporary = directory.appendingPathComponent(".\(UUID().uuidString).importing")
+        do {
+            try FileManager.default.copyItem(at: source, to: temporary)
+            guard !FileManager.default.fileExists(atPath: destination.path) else {
+                throw CocoaError(.fileWriteFileExists)
+            }
+            try FileManager.default.moveItem(at: temporary, to: destination)
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
+
+        return "Assets/NewStartFrame/\(shotID.uuidString)/\(filename)"
+    }
+
+    /// Removes only the project-owned copy. Replacing/clearing the New Start
+    /// Frame deletes the copy it supersedes so the directory does not
+    /// accumulate orphans; the user's original is outside this ownership
+    /// boundary and is never touched.
+    func removeManagedNewStartFrame(projectID: UUID, relativePath: String) {
+        guard let url = managedProjectAssetURL(
+            projectID: projectID, relativePath: relativePath) else { return }
         try? FileManager.default.removeItem(at: url)
     }
 

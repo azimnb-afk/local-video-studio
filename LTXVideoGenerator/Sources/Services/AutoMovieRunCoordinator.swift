@@ -120,10 +120,13 @@ final class AutoMovieRunCoordinator {
     }
 
     /// Auto Movie's own continuity policy, since preview.3: after the first
-    /// shot, every shot always continues from the immediately previous shot's
-    /// actual final frame. Auto Movie is one continuous sequence by design — a
-    /// scene, location or camera change in the Director's plan is no longer a
-    /// reason to cut. A different scene belongs in a separate Auto Movie.
+    /// shot, every shot continues from the immediately previous shot's actual
+    /// final frame — UNLESS this exact shot has been explicitly marked `cut`,
+    /// either by the user (Plan Preview) or by `ContinuityReconciler` leaving a
+    /// Director-planned cut unpromoted. Auto Movie remains one continuous
+    /// sequence by default; a plain scene/location/camera change in the
+    /// Director's plan is still not, by itself, a reason to cut — only an
+    /// explicit `.cut` on the shot is.
     ///
     /// This governs only Auto Movie's own generation and preview decisions.
     /// For any other project it defers to `resolvedContinuityMode` unchanged,
@@ -134,7 +137,7 @@ final class AutoMovieRunCoordinator {
             return resolvedContinuityMode(forShotAt: index, in: project)
         }
         guard index > 0, index < project.shots.count else { return .cut }
-        return .continueFromPrevious
+        return project.shots[index].continuityMode == .cut ? .cut : .continueFromPrevious
     }
 
     /// Continuity shown for an existing project. A completed Take is immutable

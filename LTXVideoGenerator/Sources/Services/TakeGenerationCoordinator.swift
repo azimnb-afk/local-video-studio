@@ -45,6 +45,7 @@ final class TakeGenerationCoordinator {
         case continuityImageUnavailable(UUID)
         case characterAnchorUnavailable(CharacterAnchorIssue)
         case openingReferenceUnavailable(OpeningReferenceIssue)
+        case newStartFrameUnavailable(UUID)
 
         var errorDescription: String? {
             switch self {
@@ -62,6 +63,8 @@ final class TakeGenerationCoordinator {
                 return "Character Anchor cannot be used: \(issue.message) Choose another reference or turn the anchor off."
             case .openingReferenceUnavailable(let issue):
                 return "Opening Reference Image cannot be used: \(issue.message) Choose another image or clear it."
+            case .newStartFrameUnavailable(let id):
+                return "Shot (\(id.uuidString.prefix(6))) is Cut with a New Start Frame set, but that image is missing or unreadable. Choose a New Start Frame again."
             }
         }
     }
@@ -103,6 +106,9 @@ final class TakeGenerationCoordinator {
             // may use a prepared path, but an explicit Cut never may.
             mayInheritPreviousShot = shotIndex > 0 && project.shots[shotIndex].continuityMode != .cut
         }
+        // Derived, not stored: true exactly when this shot is explicitly Cut
+        // (never for Shot 1, which has no previous shot to cut away from).
+        let isCut = !mayInheritPreviousShot && shotIndex > 0
 
         // Auto Movie's first run, Shot-card Regenerate, and bulk regeneration
         // all end here. Refresh the inherited frame at this shared boundary so
@@ -138,20 +144,25 @@ final class TakeGenerationCoordinator {
 
         // Starting image precedence:
         //   1. the shot's explicit user/CharacterBible selection
-        //   2. a frame inherited from the previous shot (continuity chain)
-        //   3. none — ordinary text-to-video
+        //   2. a Cut shot's own explicit New Start Frame (never the previous
+        //      shot's output)
+        //   3. a frame inherited from the previous shot (continuity chain)
+        //   4. a Cut shot without a New Start Frame may re-anchor identity via
+        //      the Character Anchor, same as the opening shot
+        //   5. none — ordinary text-to-video
         // A shot that is supposed to continue but has an unusable inherited
-        // frame is rejected rather than quietly rendered as text-to-video.
+        // frame is rejected rather than quietly rendered as text-to-video; the
+        // same applies to a Cut shot whose New Start Frame is set but unusable.
         var sourceImagePath: String? = nil
         // Only a frame inherited from the previous shot gets the calibrated
-        // continuity strength; an image the user chose keeps the existing
-        // exact-first-frame behaviour.
+        // continuity strength; an image the user chose (explicit selection or
+        // New Start Frame) keeps the existing exact-first-frame behaviour.
         var usesInheritedContinuityFrame = false
         var effectiveSource: LTXContinuitySource = .none
         // The optional Character Anchor sits between the two: it applies to the
-        // opening shot only, never overrides an image the user picked for that
-        // shot, and is never re-injected into a later shot, which continues to
-        // inherit from the shot before it.
+        // opening shot, or a Cut shot re-anchoring identity, never overrides an
+        // image the user picked for that shot, and is never re-injected into an
+        // ordinary continuing shot, which keeps inheriting from the shot before it.
         var usesCharacterAnchor = false
         var usesOpeningReference = false
         if let assetID = shot.startingImageReferenceAssetID {
@@ -165,6 +176,18 @@ final class TakeGenerationCoordinator {
             }
             sourceImagePath = url.path
             effectiveSource = .explicitStartingImage
+        } else if isCut,
+                  let newStartRelativePath = shot.newStartFrameRelativePath,
+                  !newStartRelativePath.isEmpty {
+            // A Cut never extracts or reuses the previous shot's final frame;
+            // this is the only image source it can inherit, and only when the
+            // user set one explicitly.
+            guard let url = store.managedProjectAssetURL(projectID: projectID, relativePath: newStartRelativePath),
+                  ContinuityFrameExtractor.isUsableImage(atPath: url.path) else {
+                throw CoordinatorError.newStartFrameUnavailable(shotID)
+            }
+            sourceImagePath = url.path
+            effectiveSource = .newStartFrame
         } else if mayInheritPreviousShot,
                   let refreshPath = shot.identityRefreshAnchorRelativePath,
                   !refreshPath.isEmpty,
@@ -200,7 +223,7 @@ final class TakeGenerationCoordinator {
             case .failure(let issue):
                 throw CoordinatorError.openingReferenceUnavailable(issue)
             }
-        } else if shotIndex == 0, project.characterAnchor.isActive {
+        } else if (shotIndex == 0 || isCut), project.characterAnchor.isActive {
             switch CharacterAnchorResolver.resolve(project: project, store: store) {
             case .resolved(let anchor):
                 sourceImagePath = anchor.fileURL.path

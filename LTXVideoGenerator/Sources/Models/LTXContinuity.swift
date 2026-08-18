@@ -16,8 +16,12 @@ enum LTXContinuitySource: String, Codable, Equatable, CaseIterable {
     case inheritedLastFrame
     /// The movie's opening reference still. First shot only.
     case openingReference
-    /// A Character Bible anchor. First shot only.
+    /// A Character Bible anchor. First shot only, or a Cut shot re-anchoring
+    /// identity when it has no explicit New Start Frame.
     case characterAnchor
+    /// A Cut shot's own explicit starting image. Never derived from the
+    /// previous shot's output.
+    case newStartFrame
     /// No image: text-to-video.
     case none
 
@@ -28,6 +32,7 @@ enum LTXContinuitySource: String, Codable, Equatable, CaseIterable {
         case .inheritedLastFrame: return "Previous shot's last frame"
         case .openingReference: return "Opening Reference"
         case .characterAnchor: return "Character Anchor"
+        case .newStartFrame: return "New Start Frame"
         case .none: return "Text to video"
         }
     }
@@ -325,7 +330,8 @@ struct LTXContinuityResolution: Equatable {
 enum LTXContinuityResolver {
 
     /// - Parameter shotIndex: position in the movie; only shot 0 can use the
-    ///   opening reference or the character anchor.
+    ///   opening reference. The character anchor is also available to any Cut
+    ///   shot, as an identity re-anchor fallback.
     static func resolve(
         shot: Shot,
         shotIndex: Int,
@@ -354,8 +360,18 @@ enum LTXContinuityResolver {
         // run coordinator; direct callers get the persisted explicit mode.
         let mayInheritPrevious = inheritsPreviousShot
             ?? (shotIndex > 0 && shot.continuityMode != .cut)
+        let isCut = !mayInheritPrevious && shotIndex > 0
 
-        // 2. A refresh anchor replaces an inherited frame that could not carry
+        // 2. A Cut shot's own explicit New Start Frame — never derived from
+        //    the previous shot's output.
+        if isCut,
+           let newStart = shot.newStartFrameRelativePath, !newStart.isEmpty {
+            resolution.source = .newStartFrame
+            resolution.effectiveStrategy = .lastFrame
+            resolution.actualRelativePath = newStart
+            return resolution
+        }
+        // 3. A refresh anchor replaces an inherited frame that could not carry
         //    the character; it is still a continuation.
         if mayInheritPrevious,
            let refresh = shot.identityRefreshAnchorRelativePath, !refresh.isEmpty {
@@ -365,7 +381,7 @@ enum LTXContinuityResolver {
             resolution.previousTakeID = shot.identityRefreshSourceTakeID
             return resolution
         }
-        // 3. The ordinary continuation.
+        // 4. The ordinary continuation.
         if mayInheritPrevious,
            let inherited = shot.continuityImageRelativePath, !inherited.isEmpty {
             resolution.source = .inheritedLastFrame
@@ -374,20 +390,21 @@ enum LTXContinuityResolver {
             resolution.previousTakeID = shot.continuitySourceTakeID
             return resolution
         }
-        // 4/5. Opening-shot-only sources.
-        if shotIndex == 0 {
-            if hasOpeningReference {
-                resolution.source = .openingReference
-                resolution.effectiveStrategy = .lastFrame
-                return resolution
-            }
-            if hasCharacterAnchor {
-                resolution.source = .characterAnchor
-                resolution.effectiveStrategy = .lastFrame
-                return resolution
-            }
+        // 5. Opening Reference — first shot only; a mid-movie Cut never reuses
+        //    the whole-movie opening still.
+        if shotIndex == 0, hasOpeningReference {
+            resolution.source = .openingReference
+            resolution.effectiveStrategy = .lastFrame
+            return resolution
         }
-        // 6. Nothing applies — text to video.
+        // 6. Character Anchor — first shot, or a Cut without a New Start
+        //    Frame re-anchoring identity.
+        if (shotIndex == 0 || isCut), hasCharacterAnchor {
+            resolution.source = .characterAnchor
+            resolution.effectiveStrategy = .lastFrame
+            return resolution
+        }
+        // 7. Nothing applies — text to video.
         return resolution
     }
 }

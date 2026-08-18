@@ -74,14 +74,14 @@ func runAutoMoviePlanPreviewTests(_ t: TestKit) {
                      "a continuing shot says what it will inherit")
         t.checkEqual(preview.rows[1].continuityIntent, "Continue",
                      "and is labelled as a continuation")
-        // Since preview.3, Auto Movie always continues from Shot 2 on — a
-        // Director-planned cut (row 3 here) no longer applies inside Auto
-        // Movie, and the preview must not disagree with what generation will
-        // actually do.
-        t.checkEqual(preview.rows[3].sourceDescription, "Previous shot's last frame",
-                     "a Director-planned cut is overridden by the Auto Movie continuity policy")
-        t.checkEqual(preview.rows[3].continuityIntent, "Continue",
-                     "the preview reports the forced Auto Movie policy, not the Director's plan")
+        // Since Cut-Aware Continuity, Auto Movie continues from Shot 2 on by
+        // default, but an explicit Cut (row 4 here) is honored — with no New
+        // Start Frame or active Character Anchor in this fixture it previews
+        // as text-to-video, matching what generation will actually do.
+        t.checkEqual(preview.rows[3].sourceDescription, "Text to video",
+                     "an explicit Cut with no New Start Frame previews as text-to-video")
+        t.checkEqual(preview.rows[3].continuityIntent, "Cut",
+                     "the preview reports the shot's own Cut, not a forced Continue")
 
         // Without an opening reference shot 1 is text-to-video.
         let noRef = AutoMoviePlanPreview.make(project: plannedProject(withOpeningReference: false))
@@ -228,7 +228,7 @@ func runAutoMoviePlanPreviewTests(_ t: TestKit) {
                      "a newly materialized Director plan remains its own baseline")
     }
 
-    t.suite("Auto Movie plan preview — Cut is no longer editable, Continue clears stale state") {
+    t.suite("Auto Movie plan preview — Cut is editable, both edits clear stale state") {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("LTXTests-continuity-edit-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -263,39 +263,52 @@ func runAutoMoviePlanPreviewTests(_ t: TestKit) {
             shotScale: "medium-close-up", angle: "high", movement: "tilt down"),
                 "Action/Camera editing still applies")
 
-        // Since preview.3, Auto Movie is a single continuous sequence: Shot 2+
-        // can never be edited to Cut, so the attempt is rejected outright and
-        // every prepared/stale field is left exactly as it was.
-        t.check(!AutoMoviePlanEditor.applyContinuityMode(
+        // Since Cut-Aware Continuity, Auto Movie Shot 2+ CAN be edited to Cut:
+        // the edit succeeds and clears every prepared/stale field that
+        // belonged to the old Continue choice, while Phase A edits and Take
+        // history remain composable/untouched.
+        t.check(AutoMoviePlanEditor.applyContinuityMode(
             project: &project, shotID: targetID, mode: .cut),
-                "Auto Movie Shot 2+ cannot be edited to Cut")
-        t.checkEqual(project.shots[1].continuityMode, .continueFromPrevious,
-                     "the rejected edit leaves Continue as the persisted effective mode")
+                "Auto Movie Shot 2+ can now be edited to Cut")
+        t.checkEqual(project.shots[1].continuityMode, .cut,
+                     "the edit persists Cut as the effective mode")
         t.checkEqual(project.shots[1].plannedContinuityMode, originalPlannedMode,
                      "the original Director mode remains provenance")
         t.checkEqual(project.shots[1].summary, "She checks the map before entering.",
-                     "the Phase A Action edit still applies despite the rejected continuity edit")
+                     "the Phase A Action edit still applies alongside the continuity edit")
         t.checkEqual(project.shots[1].camera.movement, "tilt down",
-                     "the Phase A Camera edit still applies despite the rejected continuity edit")
-        t.checkEqual(project.shots[1].continuityImageRelativePath, "Assets/Continuity/old.png",
-                     "a rejected edit leaves the prepared previous-frame path untouched")
+                     "the Phase A Camera edit still applies alongside the continuity edit")
+        t.check(project.shots[1].continuityImageRelativePath == nil,
+                "editing to Cut clears the stale prepared previous-frame path")
+        t.check(project.shots[1].identityRefreshAnchorRelativePath == nil,
+                "editing to Cut clears a stale refresh anchor too")
         t.checkEqual(project.shots[1].takes, [historicalTake],
                      "existing Take history is untouched")
+        // The Plan Preview row still shows "Continue" here: this shot already
+        // has a completed Take that really was rendered as a continuation
+        // (`historicalTake.sourceImagePath` is set), and `displayedAutoMovie
+        // ContinuityMode` deliberately keeps history immutable — see TEST F in
+        // AutoMovieStrictContinuityPolicyTests.swift. The edit to Cut is real
+        // and governs the *next* regeneration, verified via the
+        // future-facing resolver directly.
         t.checkEqual(AutoMoviePlanPreview.make(project: project).rows[1].continuityIntent, "Continue",
-                     "the preview cannot disagree with what generation will actually do")
+                     "the preview still shows this shot's completed-Take history, not the new edit")
+        t.checkEqual(
+            AutoMovieRunCoordinator(store: store).autoMovieContinuityMode(forShotAt: 1, in: project),
+            .cut,
+            "but a future regeneration will honor the edited Cut")
 
-        // Explicitly re-applying Continue is still allowed, and — unchanged
-        // from before preview.3 — still clears stale prepared state, so a
-        // user can force a fresh extraction (e.g. after a Retake upstream).
+        // Explicitly re-applying Continue after a Cut clears the (already
+        // empty) prepared state and switches the effective mode back.
         t.check(AutoMoviePlanEditor.applyContinuityMode(
             project: &project, shotID: targetID, mode: .continueFromPrevious),
-                "Continue can still be explicitly re-applied to clear stale prepared state")
+                "Continue can be explicitly re-applied after a Cut")
         t.check(project.shots[1].continuityImageRelativePath == nil,
-                "re-applying Continue clears the stale previous-frame path")
+                "re-applying Continue leaves no stale previous-frame path")
         t.check(project.shots[1].continuityBlockedReason == nil,
-                "re-applying Continue clears an obsolete continuity block")
+                "re-applying Continue leaves no obsolete continuity block")
         t.check(project.shots[1].identityRefreshAnchorRelativePath == nil,
-                "re-applying Continue clears a continuation-derived refresh anchor")
+                "re-applying Continue leaves no continuation-derived refresh anchor")
 
         store.save(project)
         let reopened = FilmProjectStore(projectsDirectory: root).project(id: project.id)!
@@ -336,7 +349,8 @@ func runAutoMoviePlanPreviewTests(_ t: TestKit) {
                      "runtime also normalizes invalid Shot 1 Continue to Cut")
 
         // Simulate a previously generated I2V Take and stale prepared paths,
-        // then attempt the no-longer-available Cut edit on Shot 2.
+        // then edit Shot 2 to Cut — now available, and expected to clear the
+        // stale prepared state while leaving Take history untouched.
         let targetID = project.shots[1].id
         let oldTake = Take(
             shotID: targetID, modelID: "m", seed: 11,
@@ -347,13 +361,13 @@ func runAutoMoviePlanPreviewTests(_ t: TestKit) {
         project.shots[1].takes = [oldTake]
         project.shots[1].continuityImageRelativePath = "Assets/Continuity/stale.png"
         project.shots[1].identityRefreshAnchorRelativePath = "Assets/IdentityRefresh/stale.png"
-        t.check(!AutoMoviePlanEditor.applyContinuityMode(
+        t.check(AutoMoviePlanEditor.applyContinuityMode(
             project: &project, shotID: targetID, mode: .cut),
-                "Auto Movie Shot 2+ cannot be edited to Cut even with stale prepared state")
-        t.checkEqual(project.shots[1].continuityMode, .continueFromPrevious,
-                     "the rejected edit leaves Continue as the effective mode")
-        t.checkEqual(project.shots[1].continuityImageRelativePath, "Assets/Continuity/stale.png",
-                     "a rejected edit does not clear existing prepared state")
+                "Auto Movie Shot 2+ can be edited to Cut even with stale prepared state")
+        t.checkEqual(project.shots[1].continuityMode, .cut,
+                     "the edit persists Cut as the effective mode")
+        t.check(project.shots[1].continuityImageRelativePath == nil,
+                "editing to Cut clears the existing stale prepared state")
         store.save(project)
         let saved = store.project(id: project.id)!
         t.checkEqual(saved.shots[1].takes, [oldTake],

@@ -58,9 +58,17 @@ func runLTXContinuityV1Tests(_ t: TestKit) {
             "the character anchor applies when there is no opening reference")
         t.checkEqual(
             LTXContinuityResolver.resolve(shot: shot(index: 2, mode: .cut), shotIndex: 2,
-                                          hasOpeningReference: true, hasCharacterAnchor: true).source,
+                                          hasOpeningReference: true, hasCharacterAnchor: false).source,
             .none,
-            "neither opening-shot source is re-injected into a later shot")
+            "Opening Reference is never re-injected into a later shot, even when Cut")
+        // Unlike Opening Reference, Character Anchor IS available to a later
+        // Cut shot — as an identity re-anchor fallback when there is no New
+        // Start Frame (Cut-Aware Continuity, Part 7).
+        t.checkEqual(
+            LTXContinuityResolver.resolve(shot: shot(index: 2, mode: .cut), shotIndex: 2,
+                                          hasOpeningReference: true, hasCharacterAnchor: true).source,
+            .characterAnchor,
+            "Character Anchor re-anchors a later Cut shot when available and no New Start Frame is set")
 
         t.checkEqual(
             LTXContinuityResolver.resolve(shot: shot(index: 0, mode: .cut), shotIndex: 0,
@@ -69,14 +77,19 @@ func runLTXContinuityV1Tests(_ t: TestKit) {
             "with no applicable source the shot is text-to-video")
     }
 
-    t.suite("LTX Continuity v1 — CUT inherits nothing") {
+    t.suite("LTX Continuity v1 — CUT inherits nothing from the previous shot") {
         // A cut must not pick up a previous refresh or continuity asset. The
         // run coordinator does not write those onto a cut shot; this pins the
-        // classification so a future change cannot leak one across.
+        // classification so a future change cannot leak one across. Character
+        // Anchor is deliberately excluded from "previous shot state" here — it
+        // is a project-level resource, and Cut-Aware Continuity explicitly
+        // allows it as a CUT identity re-anchor fallback (see next suite and
+        // `CutAwareContinuityTests.swift`), so this suite isolates the
+        // previous-shot-leak guarantee by leaving the anchor unavailable.
         let cleanCut = shot(index: 2, mode: .cut)
         let resolution = LTXContinuityResolver.resolve(
-            shot: cleanCut, shotIndex: 2, hasOpeningReference: true, hasCharacterAnchor: true)
-        t.checkEqual(resolution.source, .none, "a mid-movie cut starts from nothing")
+            shot: cleanCut, shotIndex: 2, hasOpeningReference: true, hasCharacterAnchor: false)
+        t.checkEqual(resolution.source, .none, "a mid-movie cut with no fallback available starts from nothing")
         t.checkEqual(resolution.effectiveStrategy, .none, "and performs no continuation")
         t.check(resolution.actualRelativePath == nil, "and hands LTX no image")
 
@@ -88,11 +101,22 @@ func runLTXContinuityV1Tests(_ t: TestKit) {
         staleCut.continuitySourceTakeID = UUID()
         let staleResolution = LTXContinuityResolver.resolve(
             shot: staleCut, shotIndex: 2,
-            hasOpeningReference: true, hasCharacterAnchor: true)
+            hasOpeningReference: true, hasCharacterAnchor: false)
         t.checkEqual(staleResolution.source, .none,
                      "a persisted Cut ignores stale previous-shot paths")
         t.check(staleResolution.actualRelativePath == nil,
                 "stale continuity metadata cannot leak into the resolved Cut source")
+
+        // Character Anchor IS available and the Cut has no New Start Frame:
+        // the widened fallback applies, but the stale previous-shot paths
+        // above still never leak into it.
+        let staleCutWithAnchor = LTXContinuityResolver.resolve(
+            shot: staleCut, shotIndex: 2,
+            hasOpeningReference: true, hasCharacterAnchor: true)
+        t.checkEqual(staleCutWithAnchor.source, .characterAnchor,
+                     "with a Character Anchor available, a Cut without a New Start Frame re-anchors")
+        t.check(staleCutWithAnchor.actualRelativePath == nil,
+                "the stale previous-shot paths still do not surface as the actual asset")
 
         let continuing = LTXContinuityResolver.resolve(
             shot: shot(inherited: "Assets/Continuity/c.png"), shotIndex: 1,

@@ -782,6 +782,8 @@ extension FilmProjectStore.StoreError: LocalizedError {
         case .invalidOpeningReferenceSource: return "The selected opening reference image could not be read."
         case .unsupportedFinalBGMFormat: return "Choose an MP3, WAV, M4A, or AAC file for the Final Audio BGM."
         case .invalidFinalBGMSource: return "The selected BGM file could not be read."
+        case .unsupportedNewStartFrameFormat: return "Choose a PNG, JPG, or JPEG image for the New Start Frame."
+        case .invalidNewStartFrameSource: return "The selected New Start Frame image could not be read."
         }
     }
 }

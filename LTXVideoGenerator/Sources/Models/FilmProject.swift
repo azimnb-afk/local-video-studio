@@ -689,6 +689,16 @@ struct Shot: Codable, Equatable, Identifiable {
     /// Set when a `continue` shot cannot resolve its inherited frame.
     var continuityBlockedReason: ContinuityBlockReason?
 
+    // MARK: New Start Frame (Cut only)
+
+    /// Project-relative path of an explicit starting image for this shot when
+    /// it is Cut. Distinct from `continuityImageRelativePath`: this is never
+    /// extracted from a previous take, only imported by the user, and it is
+    /// only ever consulted when this shot's effective continuity mode is
+    /// `.cut`. Absent means Cut falls back to Character Anchor re-anchoring
+    /// or, failing that, plain text-to-video — never the previous frame.
+    var newStartFrameRelativePath: String?
+
     // MARK: Capability-aware planning (Auto Movie only, both optional)
 
     /// The framing the Director asked for, when the capability pass planned a
@@ -738,6 +748,7 @@ struct Shot: Codable, Equatable, Identifiable {
         continuityImageRelativePath: String? = nil,
         continuitySourceTakeID: UUID? = nil,
         continuityBlockedReason: ContinuityBlockReason? = nil,
+        newStartFrameRelativePath: String? = nil,
         originalCameraScale: String? = nil,
         capabilityAdjustmentReason: String? = nil
     ) {
@@ -765,6 +776,7 @@ struct Shot: Codable, Equatable, Identifiable {
         self.continuityImageRelativePath = continuityImageRelativePath
         self.continuitySourceTakeID = continuitySourceTakeID
         self.continuityBlockedReason = continuityBlockedReason
+        self.newStartFrameRelativePath = newStartFrameRelativePath
         self.originalCameraScale = originalCameraScale
         self.capabilityAdjustmentReason = capabilityAdjustmentReason
     }
@@ -778,6 +790,7 @@ struct Shot: Codable, Equatable, Identifiable {
              continuityMode, plannedContinuityMode, continuityReconciliationReason,
              continuityImageRelativePath,
              continuitySourceTakeID, continuityBlockedReason,
+             newStartFrameRelativePath,
              originalCameraScale, capabilityAdjustmentReason,
              identityRefreshAnchorRelativePath, identityRefreshAnchorOrigin,
              identityRefreshAnchorSourceShotID, identityRefreshSourceTakeID,
@@ -822,6 +835,10 @@ struct Shot: Codable, Equatable, Identifiable {
             String.self, forKey: .identityRefreshNote)
         continuitySourceTakeID = try container.decodeIfPresent(UUID.self, forKey: .continuitySourceTakeID)
         continuityBlockedReason = try container.decodeIfPresent(ContinuityBlockReason.self, forKey: .continuityBlockedReason)
+        // Absent in every project written before Cut-Aware Continuity; those
+        // simply have no New Start Frame, which is correct for them.
+        newStartFrameRelativePath = try container.decodeIfPresent(
+            String.self, forKey: .newStartFrameRelativePath)
         originalCameraScale = try container.decodeIfPresent(String.self, forKey: .originalCameraScale)
         capabilityAdjustmentReason = try container.decodeIfPresent(String.self, forKey: .capabilityAdjustmentReason)
     }

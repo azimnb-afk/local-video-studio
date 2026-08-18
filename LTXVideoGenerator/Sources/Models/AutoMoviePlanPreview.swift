@@ -107,18 +107,23 @@ enum AutoMoviePlanEditor {
     /// Shot 1 can never continue, and `auto` remains Director-only rather than
     /// a user-facing third state in Phase B.
     ///
-    /// Since preview.3, Auto Movie Shot 2+ can never be edited to Cut either:
-    /// Auto Movie is a single continuous sequence by policy
-    /// (`AutoMovieRunCoordinator.autoMovieContinuityMode`), and that decision
-    /// is no longer user-editable per shot — a different scene belongs in a
-    /// separate Auto Movie. This restriction only applies to Auto Movie
-    /// projects; the Cut/Continue editor stays fully available for any other
-    /// consumer of the generic engine.
+    /// Since Cut-Aware Continuity, Auto Movie Shot 2+ can be edited to Cut:
+    /// Auto Movie remains a single continuous sequence by default
+    /// (`AutoMovieRunCoordinator.autoMovieContinuityMode` still resolves
+    /// `.continueFromPrevious` unless this exact shot is explicitly `.cut`),
+    /// but a user (or a Director plan left unpromoted by
+    /// `ContinuityReconciler`) may now mark an individual shot Cut without
+    /// starting a separate Auto Movie. A Cut shot may optionally carry its own
+    /// New Start Frame (set separately; see `FilmProjectStore.importNewStartFrame`),
+    /// falling back to Character Anchor re-anchoring or plain text-to-video —
+    /// never the previous shot's frame.
     ///
     /// Any prepared last-frame or refresh state belongs to the old choice and
     /// is invalidated. The managed pixels may remain as independent project
     /// files, but no future request can reach them through this shot. Existing
     /// Take snapshots are immutable history and are deliberately untouched.
+    /// The shot's New Start Frame, if any, is a plain user-chosen asset and is
+    /// NOT cleared by a mode toggle — it simply goes unused while not Cut.
     @discardableResult
     static func applyContinuityMode(
         project: inout FilmProject,
@@ -127,9 +132,7 @@ enum AutoMoviePlanEditor {
     ) -> Bool {
         guard mode == .cut || mode == .continueFromPrevious,
               let index = project.shots.firstIndex(where: { $0.id == shotID }),
-              index > 0 || mode == .cut,
-              project.workflowMode != AutoMovieRunCoordinator.autoMovieWorkflowMode
-                  || index == 0 || mode == .continueFromPrevious
+              index > 0 || mode == .cut
         else { return false }
 
         let shot = project.shots[index]

@@ -127,6 +127,15 @@ enum TextProtocolPlanParser {
                 currentPlaybackStyle = value
             } else if let value = keyValue(line, key: "CONTINUITY") {
                 currentContinuity = value
+            } else if let value = keyValue(line, key: "DIALOGUE_REF") {
+                // Checked before DIALOGUE: a DIALOGUE_REF line would never
+                // satisfy keyValue(_, key: "DIALOGUE") anyway, since the
+                // character right after "DIALOGUE" has to be ":" — "_REF:"
+                // fails that check — but keeping this branch first makes the
+                // non-collision explicit rather than incidental.
+                if let line = dialogueRefLine(from: value) {
+                    currentDialogue.append(line)
+                }
             } else if let value = keyValue(line, key: "DIALOGUE") {
                 // A malformed or empty DIALOGUE line is skipped, not treated
                 // as a parse failure: losing one line is far better than
@@ -219,6 +228,24 @@ enum TextProtocolPlanParser {
         let text = value.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return nil }
         return OneShotPlan.DialogueLine(speaker: "", text: text)
+    }
+
+    /// `<id>|<speaker>`, or just `<id>` when no speaker applies. `text` is
+    /// left as an empty placeholder — `ExactDialogueReconciler` resolves it
+    /// to the referenced `ExplicitDialogueSource`'s exact text afterward, the
+    /// same as it does for a Structured JSON `sourceId`. A line with no
+    /// usable ID is dropped rather than becoming a blank dialogue line.
+    static func dialogueRefLine(from value: String) -> OneShotPlan.DialogueLine? {
+        guard isMeaningful(value) else { return nil }
+        if let separator = value.range(of: "|") {
+            let id = value[value.startIndex..<separator.lowerBound].trimmingCharacters(in: .whitespaces)
+            let speaker = value[separator.upperBound...].trimmingCharacters(in: .whitespaces)
+            guard !id.isEmpty else { return nil }
+            return OneShotPlan.DialogueLine(speaker: speaker, text: "", sourceId: id)
+        }
+        let id = value.trimmingCharacters(in: .whitespaces)
+        guard !id.isEmpty else { return nil }
+        return OneShotPlan.DialogueLine(speaker: "", text: "", sourceId: id)
     }
 
     /// Rejects empty values and unfilled `<...>` template placeholders.

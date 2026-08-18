@@ -10,6 +10,13 @@ struct OneShotPlan: Codable, Equatable {
         /// an optional fallback transliteration alongside.
         var language: String?
         var romanization: String?
+        /// References an `ExplicitDialogueSource.id` (e.g. "D1") the Director
+        /// chose to place in this shot. Set only when the model referenced a
+        /// brief-supplied exact dialogue line rather than writing free text;
+        /// `ExactDialogueReconciler` resolves it to the source's exact text
+        /// before this ever reaches `PromptCompiler`. Absent for legacy
+        /// plans and for shots with no explicit source to reference.
+        var sourceId: String?
     }
 
     var camera: String              // framing + movement, e.g. "slow dolly-in, medium close-up"

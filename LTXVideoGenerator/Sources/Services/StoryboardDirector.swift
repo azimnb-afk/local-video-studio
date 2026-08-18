@@ -89,7 +89,7 @@ final class StoryboardDirector {
          "angle":"low|eye-level|high|overhead","movement":"static|pan|tilt|dolly|track|handheld",
          "motionTempo":"slow|normal|fast","cameraTempo":"static|slow|normal|fast",
          "playbackStyle":"realTime|slowMotion|fastMotion",
-         "lighting":"...","dialogue":[{"speaker":"Name","text":"line"}],"audioCues":["..."],
+         "lighting":"...","dialogue":[{"speaker":"Name","text":"line","sourceId":"D1 (optional)"}],"audioCues":["..."],
          "explicitChanges":["location=...","outfit:CharacterID=...","prop+:item"],
          "characterIDs":["exact-character-uuid"],
          "continuity":"continue|cut"}
@@ -100,7 +100,10 @@ final class StoryboardDirector {
     outfit:CharacterID=, position:CharacterID=, condition:CharacterID=,
     wet:CharacterID=, injury:CharacterID=,
     prop+:item, prop-:item, propOwner:item=Name, dialogueState=, storyState=.
-    2 to 8 shots. Keep user-provided dialogue verbatim.
+    2 to 8 shots. Keep user-provided dialogue verbatim. If EXPLICIT_DIALOGUE_SOURCES
+    lists an ID for a line's exact words, set that dialogue entry's "sourceId"
+    to that ID instead of retyping the words, and never invent an ID it did
+    not list.
     \(PerShotAudioPolicy.directorInstruction)
     \(CharacterContinuitySafetyPolicy.directorInstruction)
     Motion tempo describes how quickly the subject acts. Camera tempo describes

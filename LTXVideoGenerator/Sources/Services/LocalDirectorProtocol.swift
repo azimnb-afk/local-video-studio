@@ -61,9 +61,10 @@ enum DirectorPlanFormat {
     ) -> String {
         let evidenceBlock = formatSceneEvidence(openingSceneEvidence, characterBible: characterBible)
         let durationBlock = formatDurationIntent(targetDurationSeconds)
+        let dialogueSourcesBlock = explicitDialogueSourcesBlock(for: brief)
         switch planProtocol {
         case .structuredJSON:
-            return "\(durationBlock)\(evidenceBlock)BRIEF: \(brief)"
+            return "\(durationBlock)\(evidenceBlock)\(dialogueSourcesBlock)BRIEF: \(brief)"
         case .textProtocol:
             // Measured: models that ignore a format described in the system
             // prompt will still fill in a template presented in the user turn,
@@ -71,7 +72,7 @@ enum DirectorPlanFormat {
             return """
             \(textProtocolTemplate)
 
-            \(durationBlock)\(evidenceBlock)BRIEF: \(brief)
+            \(durationBlock)\(evidenceBlock)\(dialogueSourcesBlock)BRIEF: \(brief)
             """
         }
     }
@@ -84,6 +85,7 @@ enum DirectorPlanFormat {
                              targetDurationSeconds: Double? = nil) -> String {
         let evidenceBlock = formatSceneEvidence(openingSceneEvidence, characterBible: characterBible)
         let durationBlock = formatDurationIntent(targetDurationSeconds)
+        let dialogueSourcesBlock = explicitDialogueSourcesBlock(for: brief)
         switch planProtocol {
         case .structuredJSON:
             return """
@@ -91,7 +93,7 @@ enum DirectorPlanFormat {
             Respond again with ONLY the JSON object described in the system prompt.
             \(PerShotAudioPolicy.directorInstruction)
             \(CharacterContinuitySafetyPolicy.compactDirectorInstruction)
-            \(durationBlock)\(evidenceBlock)BRIEF: \(brief)
+            \(durationBlock)\(evidenceBlock)\(dialogueSourcesBlock)BRIEF: \(brief)
             """
         case .textProtocol:
             return """
@@ -99,9 +101,31 @@ enum DirectorPlanFormat {
 
             \(textProtocolTemplate)
 
-            \(durationBlock)\(evidenceBlock)BRIEF: \(brief)
+            \(durationBlock)\(evidenceBlock)\(dialogueSourcesBlock)BRIEF: \(brief)
             """
         }
+    }
+
+    /// Shared by both protocols: when the brief contains explicit spoken
+    /// dialogue, the Director is told about the exact source text and its
+    /// stable ID rather than being left to relay it in free text. The
+    /// application resolves the ID back to the exact source afterward
+    /// (`ExactDialogueReconciler`), so the model's job here is only to
+    /// decide placement, never to be the source of truth for the words.
+    private static func explicitDialogueSourcesBlock(for brief: String) -> String {
+        let sources = ExactDialogueReconciler.extractExplicitDialogueSources(from: brief)
+        guard !sources.isEmpty else { return "" }
+        let lines = sources.map { "\($0.id): \($0.text)" }.joined(separator: "\n")
+        return """
+        EXPLICIT_DIALOGUE_SOURCES
+        The brief already contains these exact spoken lines. Do not rewrite,
+        translate, or paraphrase them — the application restores the exact
+        text automatically. When a shot's speaker says one of these lines,
+        reference it by its ID exactly as given below. Never invent an ID
+        that is not listed here.
+        \(lines)
+
+        """
     }
 
     /// Shared by both local protocols so Structured JSON and Text Protocol
@@ -180,12 +204,19 @@ enum DirectorPlanFormat {
     slow motion. A CONTINUE shot keeps the preceding tempos unless the story
     explicitly changes them.
     Only when a shot has a character speaking specific words the brief gave
-    you, add one line per spoken line directly after that shot's CONTINUITY:
+    you, add one line per spoken line directly after that shot's CONTINUITY.
+    If EXPLICIT_DIALOGUE_SOURCES lists an ID for these exact words, reference
+    it instead of retyping the words:
+    DIALOGUE_REF: <id>|<speaker>
+    Omit the speaker and the "|" when no name applies: DIALOGUE_REF: <id>.
+    Never invent an ID that EXPLICIT_DIALOGUE_SOURCES did not list.
+    For any other spoken line not listed there, write it out directly:
     DIALOGUE: <speaker>|<exact words>
     Use the exact wording and original language the brief gave you — never
     translate, paraphrase, or invent dialogue the brief did not request. Omit
     the speaker and the "|" when no name applies: DIALOGUE: <exact words>. Add
-    one DIALOGUE line per spoken line, in order; add none for a silent shot.
+    one DIALOGUE or DIALOGUE_REF line per spoken line, in order; add none for
+    a silent shot.
     \(PerShotAudioPolicy.directorInstruction)
     \(CharacterContinuitySafetyPolicy.compactDirectorInstruction)
     """

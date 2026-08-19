@@ -1057,6 +1057,269 @@ if CommandLine.arguments.count > 2, CommandLine.arguments[1] == "--capability-pl
     exit(0)
 }
 
+// Auto Movie V2 storage-recovery + final real A/B acceptance probes.
+// All use V3AcceptanceHarness (isolated store/history/output — never touches
+// Personal/Dev app data) and the real Auto Movie enqueue path
+// (AutoMovieRunCoordinator.advance -> GenerationService.addBatch).
+//
+//   swift run LTXTests --v3-probe
+//   swift run LTXTests --v3-longshot
+//   swift run LTXTests --v3-automovie legacy|new
+let v3ModelID = LTXModelCatalog.defaultModelID
+let v3Brief = "A young woman walks along a beach, the wind moving her hair. She stops, turns toward the camera, and gives a small smile. About 30 seconds, cinematic."
+let v3OldSystemPrompt = """
+You are a film production team (director, screenwriter, cinematographer,
+continuity supervisor) planning a short film as a sequence of concise,
+continuous shots. When the user provides a TOTAL MOVIE DURATION TARGET,
+treat it as authoritative for the sum of all shots. Respond with ONLY a JSON object:
+{
+  "logline": "one sentence",
+  "synopsis": "short paragraph",
+  "setting": "where/when",
+  "tone": "mood",
+  "initialState": {"location":"...","timeOfDay":"...","weather":"...","lighting":"...",
+                   "characterOutfit":{"CharacterID":"outfit"},"characterPosition":{},"characterCondition":{},
+                   "props":[],"propOwner":{},"wetness":{},"injuries":{},"dialogueState":"","storyState":""},
+  "shots": [
+    {"title":"...","summary":"present-tense visible action","durationSeconds":5,
+     "shotScale":"extreme-wide|wide|medium-wide|medium|medium-close-up|close-up|extreme-close-up",
+     "angle":"low|eye-level|high|overhead","movement":"static|pan|tilt|dolly|track|handheld",
+     "motionTempo":"slow|normal|fast","cameraTempo":"static|slow|normal|fast",
+     "playbackStyle":"realTime|slowMotion|fastMotion",
+     "lighting":"...","dialogue":[{"speaker":"Name","text":"line","sourceId":"D1 (optional)"}],"audioCues":["..."],
+     "explicitChanges":["location=...","outfit:CharacterID=...","prop+:item"],
+     "characterIDs":["exact-character-uuid"],
+     "continuity":"continue|cut"}
+  ]
+}
+Vary shot scale/angle/movement between consecutive shots. explicitChanges
+uses only these directives: location=, timeOfDay=, weather=, lighting=,
+outfit:CharacterID=, position:CharacterID=, condition:CharacterID=,
+wet:CharacterID=, injury:CharacterID=,
+prop+:item, prop-:item, propOwner:item=Name, dialogueState=, storyState=.
+2 to 8 shots. Keep user-provided dialogue verbatim. If EXPLICIT_DIALOGUE_SOURCES
+lists an ID for a line's exact words, set that dialogue entry's "sourceId"
+to that ID instead of retyping the words, and never invent an ID it did
+not list.
+\(PerShotAudioPolicy.directorInstruction)
+\(CharacterContinuitySafetyPolicy.directorInstruction)
+Motion tempo describes how quickly the subject acts. Camera tempo describes
+camera pacing independently. Playback style is realTime unless the brief
+explicitly asks for slow motion, fast motion, or time-lapse. Words such as
+"slowly opens the door" describe a slow real-time action, not slow-motion
+playback. A continuing shot inherits the preceding shot's motion, camera,
+and playback tempo unless the story explicitly changes one of them. A cut
+does not by itself imply slow motion.
+Set "continuity":"continue" only when the shot is a direct physical
+continuation of the previous one: same location, same active characters, no
+time jump, one unbroken action. Use "cut" for a location change, a time
+jump, a new establishing shot, a different character, or any intentional
+cinematic cut. When unsure, use "cut". The first shot is always "cut".
+
+Every shot must advance the story to a NEW visible state. Never restate the
+previous shot's action in different words: "walks toward the door", then
+"keeps walking toward the door", then "continues approaching the door" is
+wrong. Each summary describes what newly happens in that shot — approaching,
+then arriving, then reaching for the handle, then stepping through.
+
+Continuing shots keep the same character, clothing, place, light and props,
+but they do NOT keep the same framing. Let the camera change with the beat:
+an establishing view can give way to a closer one as the action tightens.
+Choose one primary camera idea per shot from static, slow push-in, pull-back,
+tracking, dolly, pan, tilt or handheld follow. A static camera is correct for
+dialogue, a held reaction or a deliberately still composition — use it
+because the beat calls for it, not as a default for every shot.
+
+When the story moves somewhere genuinely new, such as outside to inside, use
+"cut" and open the new place with its own establishing shot. Story
+progression matters more than keeping an unbroken visual chain.
+
+Do not mark every shot "cut". If a shot happens in the same place, with the
+same character, at the same moment in time as the shot before it, it MUST be
+"continue" — even when the framing changes completely, and even when it is a
+tight insert such as a hand on a lock. Only use "cut" when the place, the
+time or the active character actually changes. Marking a whole scene as cuts
+makes each shot regenerate a different-looking person and set, which is
+wrong. Worked example for "a woman walks to a library, opens the door and
+steps inside":
+  shot 1 "cut"      — wide, she crosses the courtyard (the first shot always cuts)
+  shot 2 "continue" — medium, she arrives at the doors and reaches for the handle
+  shot 3 "continue" — close, the handle turns and the door begins to open
+  shot 4 "cut"      — interior establishing shot as she steps inside
+"""
+
+func v3OllamaGenerate(system: String, prompt: String) async throws -> String {
+    let model = UserDefaults.standard.string(forKey: "directorOllamaModel") ?? "qwen3.6-35b-uncensored:q4kp"
+    var request = URLRequest(url: URL(string: "http://127.0.0.1:11434/api/generate")!)
+    request.httpMethod = "POST"
+    request.timeoutInterval = 300
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: [
+        "model": model, "system": system, "prompt": prompt,
+        "stream": false, "think": false, "options": ["num_predict": 4096], "format": "json",
+    ])
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+        throw NSError(domain: "ollama", code: 1, userInfo: [NSLocalizedDescriptionKey: "HTTP error"])
+    }
+    let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+    return (json?["response"] as? String) ?? (json?["thinking"] as? String) ?? ""
+}
+
+// Quick sanity probe: confirms the official model + 4-bit text encoder
+// combination produces on-topic output with NO new download (both already
+// locally cached), before committing to longer real generations.
+//   swift run LTXTests --v3-probe
+if CommandLine.arguments.contains("--v3-probe") {
+    Task { @MainActor in
+        print("=== V3 PROBE: \(v3ModelID) + gemma3_12b_4bit, minimal frame count ===")
+        let env = V3AcceptanceHarness.makeEnvironment(label: "probe")
+        var project = FilmProject(title: "V3 Probe")
+        project.workflowMode = AutoMovieRunCoordinator.autoMovieWorkflowMode
+        project.continuityChainEnabled = true
+        project.settings = ProjectSettings(
+            modelID: v3ModelID, textEncoderID: "gemma3_12b_4bit",
+            width: 768, height: 512, fps: 24)
+        var shot = Shot(index: 0, title: "Probe", summary: "A woman walks on a beach.")
+        shot.compiledPrompt = "A woman walks on a beach."
+        shot.durationSeconds = 1
+        shot.continuityMode = .cut
+        project.shots = [shot]
+        env.store.save(project)
+        let result = await V3AcceptanceHarness.generateNextShot(env: env, projectID: project.id, label: "PROBE")
+        V3AcceptanceHarness.restoreOutputDir(env)
+        print("probe result: path=\(result.videoPath ?? "nil") seconds=\(String(format: "%.1f", result.seconds))")
+        print("evidence dir: \(env.tmpDir.path)")
+        exit(result.videoPath != nil ? 0 : 1)
+    }
+    RunLoop.main.run()
+}
+
+// Long-Shot Experiment (mandatory): same character/action, A = two ~4s
+// segments chained by real Continue (Last-Frame Continuity), B = one ~9s
+// continuous shot. Real generation through the true Auto Movie path.
+//   swift run LTXTests --v3-longshot
+if CommandLine.arguments.contains("--v3-longshot") {
+    Task { @MainActor in
+        print("=== V3 LONG-SHOT EXPERIMENT: segmented (~4s x2) vs continuous (~9s) ===")
+        let basePrompt = "A young woman in a blue jacket walks along a sandy beach at golden hour, the wind moving her hair."
+
+        print("\n--- Variant A: two ~4s segments, real Continue handoff ---")
+        let envA = V3AcceptanceHarness.makeEnvironment(label: "longshotA")
+        var projectA = FilmProject(title: "Long-Shot A (segmented)")
+        projectA.workflowMode = AutoMovieRunCoordinator.autoMovieWorkflowMode
+        projectA.continuityChainEnabled = true
+        projectA.settings = ProjectSettings(modelID: v3ModelID, textEncoderID: "gemma3_12b_4bit", width: 768, height: 512, fps: 24)
+        var a1 = Shot(index: 0, title: "Walk 1", summary: basePrompt + " She walks at a relaxed, steady pace.")
+        a1.compiledPrompt = a1.summary
+        a1.durationSeconds = 4
+        a1.continuityMode = .cut
+        var a2 = Shot(index: 1, title: "Walk 2", summary: "The woman continues walking, gradually slows, and comes to a natural stop.")
+        a2.compiledPrompt = a2.summary
+        a2.durationSeconds = 4
+        a2.continuityMode = .continueFromPrevious
+        projectA.shots = [a1, a2]
+        envA.store.save(projectA)
+        let a1Result = await V3AcceptanceHarness.generateNextShot(env: envA, projectID: projectA.id, label: "A1 (~4s, T2V)")
+        let a2Result = await V3AcceptanceHarness.generateNextShot(env: envA, projectID: projectA.id, label: "A2 (~4s, I2V continue)")
+        V3AcceptanceHarness.restoreOutputDir(envA)
+
+        print("\n--- Variant B: one ~9s continuous shot ---")
+        let envB = V3AcceptanceHarness.makeEnvironment(label: "longshotB")
+        var projectB = FilmProject(title: "Long-Shot B (continuous)")
+        projectB.workflowMode = AutoMovieRunCoordinator.autoMovieWorkflowMode
+        projectB.continuityChainEnabled = true
+        projectB.settings = ProjectSettings(modelID: v3ModelID, textEncoderID: "gemma3_12b_4bit", width: 768, height: 512, fps: 24)
+        let plan = OneShotPlan(
+            camera: "medium wide shot", action: basePrompt + " She walks at a relaxed pace, gradually slows, and comes to a natural stop.",
+            motion: "natural, continuous motion",
+            endState: "standing still, facing slightly toward the camera"
+        )
+        var b1 = Shot(index: 0, title: "Walk (continuous)", summary: plan.action)
+        b1.compiledPrompt = PromptCompiler.compile(plan: plan, options: .init(perShotAudioPolicy: .naturalProductionSoundNoMusic))
+        b1.durationSeconds = 9
+        b1.continuityMode = .cut
+        projectB.shots = [b1]
+        envB.store.save(projectB)
+        let bResult = await V3AcceptanceHarness.generateNextShot(env: envB, projectID: projectB.id, label: "B (~9s, T2V)")
+        V3AcceptanceHarness.restoreOutputDir(envB)
+
+        print("\n=== TIMING SUMMARY ===")
+        print("A1: \(String(format: "%.1f", a1Result.seconds))s -> \(a1Result.videoPath ?? "FAILED")")
+        print("A2: \(String(format: "%.1f", a2Result.seconds))s -> \(a2Result.videoPath ?? "FAILED")")
+        print("A total: \(String(format: "%.1f", a1Result.seconds + a2Result.seconds))s, 1 continuity handoff")
+        print("B: \(String(format: "%.1f", bResult.seconds))s -> \(bResult.videoPath ?? "FAILED")")
+        print("B total: \(String(format: "%.1f", bResult.seconds))s, 0 continuity handoffs")
+        print("\nEvidence: \(envA.tmpDir.path)  |  \(envB.tmpDir.path)")
+        exit(0)
+    }
+    RunLoop.main.run()
+}
+
+// Full Auto Movie video A/B (Phase 7): same brief, legacy materialization
+// (reconstructed from the old code, see V3AcceptanceHarness.makeLegacyProject)
+// vs the real current pipeline. Renders the first 2 shots of each through the
+// true production path for a genuine, if partial, visual comparison.
+//   swift run LTXTests --v3-automovie legacy
+//   swift run LTXTests --v3-automovie new
+if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--v3-automovie" {
+    let variant = CommandLine.arguments[2]
+    Task { @MainActor in
+        print("=== V3 FULL AUTO MOVIE A/B: \(variant) ===")
+        let env = V3AcceptanceHarness.makeEnvironment(label: "automovie-\(variant)")
+        var project: FilmProject
+
+        if variant == "legacy" {
+            print("Calling Ollama with the OLD (pre-V2) system prompt...")
+            let response = try await v3OllamaGenerate(system: v3OldSystemPrompt, prompt: """
+            TOTAL MOVIE DURATION TARGET
+            Plan the complete movie to approximately 30.0 seconds total.
+            This is the sum across all shots, not the duration of each shot.
+            Choose the shot count and per-shot durations so their total is close to this target.
+
+            BRIEF: \(v3Brief)
+            """)
+            guard let draft = StoryboardDirector.parseDraft(from: response) else {
+                print("FAILED: could not parse legacy Director response"); exit(1)
+            }
+            project = V3AcceptanceHarness.makeLegacyProject(
+                draft: draft, modelID: v3ModelID, targetDurationSeconds: 30.0)
+        } else {
+            print("Calling the real current HybridProjectCoordinator (NEW pipeline)...")
+            let settings = ProjectSettings(
+                modelID: v3ModelID, textEncoderID: "gemma3_12b_4bit",
+                width: 768, height: 512, fps: 24, targetDurationSeconds: 30.0)
+            let coordinator = HybridProjectCoordinator()
+            let (newProject, violations, providerName) = try await coordinator.makeProject(
+                title: "New A/B", brief: v3Brief, settings: settings)
+            print("Director provider: \(providerName), violations: \(violations.count)")
+            for v in violations { print("  [\(v.severity.rawValue)] \(v.message)") }
+            project = newProject
+        }
+
+        print("\n" + V3AcceptanceHarness.summarize(project, label: variant.uppercased()))
+        env.store.save(project)
+
+        let renderCount = min(2, project.shots.count)
+        print("\nRendering first \(renderCount) shot(s) through the real production path...")
+        var results: [(String?, Double)] = []
+        for i in 0..<renderCount {
+            let r = await V3AcceptanceHarness.generateNextShot(
+                env: env, projectID: project.id, label: "\(variant.uppercased()) shot \(i + 1)")
+            results.append(r)
+        }
+        V3AcceptanceHarness.restoreOutputDir(env)
+
+        print("\n=== \(variant.uppercased()) RESULT ===")
+        for (i, r) in results.enumerated() {
+            print("shot \(i + 1): \(String(format: "%.1f", r.1))s -> \(r.0 ?? "FAILED")")
+        }
+        print("Evidence: \(env.tmpDir.path)")
+        exit(0)
+    }
+    RunLoop.main.run()
+}
+
 let t = TestKit.shared
 
 t.suite("Catalog") {

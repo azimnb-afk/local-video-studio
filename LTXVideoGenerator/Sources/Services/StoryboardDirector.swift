@@ -1328,7 +1328,12 @@ final class HybridProjectCoordinator {
         for index in project.shots.indices {
             CharacterPromptPipeline.recompilePlan(project: &project, shotIndex: index)
         }
-        violations.append(contentsOf: ContinuityEngine.monotonyWarnings(shots: project.shots))
+        // Not re-run here: director.makeProject() above already appended
+        // monotonyWarnings for these shots, and nothing between there and
+        // here (duration normalization, continuity reconciliation, prompt
+        // recompilation) touches shotScale/angle/movement — so a second call
+        // would only repeat the same messages. Confirmed duplicated in real
+        // Auto Movie planning output before this fix.
         return (project, violations, providerName)
     }
 }

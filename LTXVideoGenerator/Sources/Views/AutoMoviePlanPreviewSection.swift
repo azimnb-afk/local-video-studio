@@ -196,6 +196,13 @@ private struct AutoMoviePlanPreviewRow: View {
                     Text("Shot \(row.number)").font(.caption.bold())
                     Text(row.approximateDurationText)
                         .font(.caption2).foregroundStyle(.secondary)
+                    if !row.purposeLabel.isEmpty {
+                        Text(row.purposeLabel)
+                            .font(.caption2)
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
                     Button(isEditing ? "Cancel" : "Edit") {
                         if isEditing {
@@ -246,6 +253,12 @@ private struct AutoMoviePlanPreviewRow: View {
                     Text(row.action)
                         .font(.caption)
                         .lineLimit(2)
+                    if !row.endStateText.isEmpty {
+                        Text("Ends: \(row.endStateText)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                     if row.isGenerated {
                         Text("Edits apply to future takes; existing takes are unchanged.")
                             .font(.caption2)

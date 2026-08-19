@@ -187,6 +187,11 @@ enum PromptCompiler {
         if let motion = plan.motion, !motion.isEmpty {
             sentences.append(formatMotionSentence(motion))
         }
+        if let endState = plan.endState?.trimmingCharacters(in: .whitespacesAndNewlines), !endState.isEmpty {
+            // Stated once, plainly: this is where the continuous action lands,
+            // not a second description competing with the action sentence.
+            sentences.append("By the end of the shot: \(endState)")
+        }
         if let lighting = plan.lighting, !lighting.isEmpty {
             sentences.append(formatLightingSentence(lighting))
         }
@@ -350,7 +355,8 @@ enum CharacterPromptPipeline {
                     language: $0.language, romanization: $0.romanization)
             },
             audioCues: shot.audio.sfx,
-            durationIntentSeconds: shot.durationSeconds
+            durationIntentSeconds: shot.durationSeconds,
+            endState: shot.endStateSummary
         )
         let options = PromptCompiler.Options(
             japaneseHandling: JapaneseDialogueHandling(rawValue: project.settings.japaneseHandling) ?? .native,

@@ -586,6 +586,50 @@ enum ShotContinuityMode: String, Codable, CaseIterable {
     }
 }
 
+/// Why a planned shot exists, independent of its camera/duration/continuity
+/// fields. Auto Movie Quality V1: knowing a shot's purpose is what lets
+/// duration and camera planning be purposeful instead of arbitrary — an
+/// ESTABLISH shot and a REACTION shot want different things from both.
+///
+/// Deliberately not surfaced as primary UI vocabulary yet (Plan Preview shows
+/// a short human summary derived from it, not the raw case name); this is
+/// planning-internal taxonomy the Director and the deterministic planners
+/// share, matching how `ShotContinuityMode`/`CameraPlan` already work.
+enum ShotPurpose: String, Codable, CaseIterable, Equatable {
+    /// Opens a scene/location; camera tends to be static, pan, or slow dolly.
+    case establish
+    /// Subtle acting carries the shot — a pause, a look, a small change in
+    /// expression. Wants a locked or slow push-in camera, more time.
+    case performance
+    /// Physical action/movement is the content. Tracking or lateral follow.
+    case action
+    /// A response to something that just happened. Close/medium, restrained
+    /// camera so the reaction itself stays legible.
+    case reaction
+    /// A close, specific detail (an object, a hand, a small gesture).
+    case detail
+    /// Connective tissue between beats; usually brief.
+    case transition
+    /// A visual reveal — a new character, place, or object coming into view.
+    case reveal
+    /// A character is speaking; duration should respect the line's length.
+    case dialogue
+
+    /// Short, human phrase for Plan Preview — not the raw case name.
+    var shortLabel: String {
+        switch self {
+        case .establish: return "Establishing"
+        case .performance: return "Performance"
+        case .action: return "Action"
+        case .reaction: return "Reaction"
+        case .detail: return "Detail"
+        case .transition: return "Transition"
+        case .reveal: return "Reveal"
+        case .dialogue: return "Dialogue"
+        }
+    }
+}
+
 /// Why a shot cannot currently generate because its continuity input is
 /// unavailable. Continuity is never silently downgraded to plain text-to-video.
 enum ContinuityBlockReason: String, Codable, Error {
@@ -707,6 +751,30 @@ struct Shot: Codable, Equatable, Identifiable {
     /// Why the effective plan differs from the planned one.
     var capabilityAdjustmentReason: String?
 
+    // MARK: Quality V1 (Auto Movie adaptive planning, all optional/additive —
+    // absent in projects created before the feature existed, matching every
+    // other continuity-chain/capability field above)
+
+    /// Why this shot exists. Nil for projects planned before this existed, or
+    /// for manual Storyboard shots where purpose inference was not run.
+    var shotPurpose: ShotPurpose?
+    /// Visible action-beat count the adaptive duration planner measured for
+    /// this shot's final (post-merge/split) summary — kept for Plan Preview
+    /// and for the validator, so both read the same number the planner used
+    /// rather than recomputing it and risking drift.
+    var actionBeatCount: Int?
+    /// Filmmaking-knowledge entry IDs consulted while planning this shot, for
+    /// diagnostics only (never shown as raw IDs in default UI, never a path).
+    var consultedKnowledgeIDs: [String] = []
+    /// Short phrase for the physical/emotional state this shot ends in
+    /// (Director-authored, or nil when none was given — never fabricated).
+    /// This shot's own end state is the next shot's start state: state
+    /// propagation between shots already happens structurally through
+    /// `continuityBefore`/`explicitChanges`/`ContinuityEngine`; this field is
+    /// the short human-readable summary of that same chain, kept for Plan
+    /// Preview and for the compiled prompt's closing sentence.
+    var endStateSummary: String?
+
     var selectedTake: Take? {
         guard let selectedTakeID else { return nil }
         return takes.first { $0.id == selectedTakeID }
@@ -750,7 +818,11 @@ struct Shot: Codable, Equatable, Identifiable {
         continuityBlockedReason: ContinuityBlockReason? = nil,
         newStartFrameRelativePath: String? = nil,
         originalCameraScale: String? = nil,
-        capabilityAdjustmentReason: String? = nil
+        capabilityAdjustmentReason: String? = nil,
+        shotPurpose: ShotPurpose? = nil,
+        actionBeatCount: Int? = nil,
+        consultedKnowledgeIDs: [String] = [],
+        endStateSummary: String? = nil
     ) {
         self.id = id
         self.index = index
@@ -779,6 +851,10 @@ struct Shot: Codable, Equatable, Identifiable {
         self.newStartFrameRelativePath = newStartFrameRelativePath
         self.originalCameraScale = originalCameraScale
         self.capabilityAdjustmentReason = capabilityAdjustmentReason
+        self.shotPurpose = shotPurpose
+        self.actionBeatCount = actionBeatCount
+        self.consultedKnowledgeIDs = consultedKnowledgeIDs
+        self.endStateSummary = endStateSummary
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -794,7 +870,8 @@ struct Shot: Codable, Equatable, Identifiable {
              originalCameraScale, capabilityAdjustmentReason,
              identityRefreshAnchorRelativePath, identityRefreshAnchorOrigin,
              identityRefreshAnchorSourceShotID, identityRefreshSourceTakeID,
-             identityRefreshNote
+             identityRefreshNote,
+             shotPurpose, actionBeatCount, consultedKnowledgeIDs, endStateSummary
     }
 
     init(from decoder: Decoder) throws {
@@ -841,6 +918,13 @@ struct Shot: Codable, Equatable, Identifiable {
             String.self, forKey: .newStartFrameRelativePath)
         originalCameraScale = try container.decodeIfPresent(String.self, forKey: .originalCameraScale)
         capabilityAdjustmentReason = try container.decodeIfPresent(String.self, forKey: .capabilityAdjustmentReason)
+        // Absent in every project planned before Quality V1; those simply
+        // have no purpose/beat-count/knowledge metadata, which is correct
+        // for them (see the field doc comments above).
+        shotPurpose = try container.decodeIfPresent(ShotPurpose.self, forKey: .shotPurpose)
+        actionBeatCount = try container.decodeIfPresent(Int.self, forKey: .actionBeatCount)
+        consultedKnowledgeIDs = try container.decodeIfPresent([String].self, forKey: .consultedKnowledgeIDs) ?? []
+        endStateSummary = try container.decodeIfPresent(String.self, forKey: .endStateSummary)
     }
 }
 

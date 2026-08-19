@@ -24,6 +24,11 @@ struct AutoMoviePlanPreview: Equatable {
         /// True once this shot has a completed take, so the preview can say
         /// what is already done rather than implying everything is pending.
         var isGenerated: Bool
+        /// Short human phrase ("Performance", "Reaction", ...), empty when no
+        /// purpose was resolved (kept out of older previews' assumptions).
+        var purposeLabel: String = ""
+        /// Director-authored ending state, empty when none was given.
+        var endStateText: String = ""
 
         /// "~5 sec" — never a frame-exact claim.
         var approximateDurationText: String {
@@ -79,7 +84,9 @@ struct AutoMoviePlanPreview: Equatable {
                 cameraMovement: shot.camera.movement,
                 sourceDescription: source,
                 continuityIntent: effectiveMode.displayName,
-                isGenerated: shot.takes.contains { $0.status == .completed }
+                isGenerated: shot.takes.contains { $0.status == .completed },
+                purposeLabel: shot.shotPurpose?.shortLabel ?? "",
+                endStateText: shot.endStateSummary ?? ""
             )
         }
         return preview

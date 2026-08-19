@@ -73,6 +73,8 @@ enum TextProtocolPlanParser {
         var currentCameraTempo: String?
         var currentPlaybackStyle: String?
         var currentContinuity: String?
+        var currentPurpose: String?
+        var currentEndState: String?
         var currentDialogue: [OneShotPlan.DialogueLine] = []
         var sawShotMarker = false
 
@@ -81,7 +83,9 @@ enum TextProtocolPlanParser {
                 currentTitle = nil; currentAction = nil
                 currentCamera = nil; currentMotionTempo = nil
                 currentCameraTempo = nil; currentPlaybackStyle = nil
-                currentContinuity = nil; currentDialogue = []
+                currentContinuity = nil; currentPurpose = nil
+                currentEndState = nil
+                currentDialogue = []
             }
             guard let action = currentAction, isMeaningful(action) else { return }
             let camera = currentCamera.flatMap { isMeaningful($0) ? $0 : nil }
@@ -97,6 +101,8 @@ enum TextProtocolPlanParser {
             shot.cameraTempo = normalizedCameraTempo(currentCameraTempo)
             shot.playbackStyle = normalizedPlaybackStyle(currentPlaybackStyle)
             shot.continuity = normalizedContinuity(currentContinuity)
+            shot.purpose = normalizedPurpose(currentPurpose)
+            shot.endState = currentEndState.flatMap { isMeaningful($0) ? $0 : nil }
             // Absent entirely (nil) when the shot has no spoken line, exactly
             // like a Structured JSON shot that omits "dialogue" — never an
             // empty-but-present array standing in for "the model said nothing".
@@ -127,6 +133,10 @@ enum TextProtocolPlanParser {
                 currentPlaybackStyle = value
             } else if let value = keyValue(line, key: "CONTINUITY") {
                 currentContinuity = value
+            } else if let value = keyValue(line, key: "PURPOSE") {
+                currentPurpose = value
+            } else if let value = keyValue(line, key: "END_STATE") {
+                currentEndState = value
             } else if let value = keyValue(line, key: "DIALOGUE_REF") {
                 // Checked before DIALOGUE: a DIALOGUE_REF line would never
                 // satisfy keyValue(_, key: "DIALOGUE") anyway, since the
@@ -272,6 +282,13 @@ enum TextProtocolPlanParser {
 
     static func normalizedCameraTempo(_ raw: String?) -> String? {
         normalizedEnumToken(raw, allowed: CameraTempo.allCases.map(\.rawValue))
+    }
+
+    /// Unrecognized or absent text yields nil rather than a guess:
+    /// `AutoMoviePurposePlanner.resolvePurpose` already provides a
+    /// deterministic fallback for that case from the shot's own text.
+    static func normalizedPurpose(_ raw: String?) -> String? {
+        normalizedEnumToken(raw, allowed: ShotPurpose.allCases.map(\.rawValue))
     }
 
     static func normalizedPlaybackStyle(_ raw: String?) -> String? {

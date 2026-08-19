@@ -62,9 +62,10 @@ enum DirectorPlanFormat {
         let evidenceBlock = formatSceneEvidence(openingSceneEvidence, characterBible: characterBible)
         let durationBlock = formatDurationIntent(targetDurationSeconds)
         let dialogueSourcesBlock = explicitDialogueSourcesBlock(for: brief)
+        let knowledgeBlock = knowledgeBlock(for: brief)
         switch planProtocol {
         case .structuredJSON:
-            return "\(durationBlock)\(evidenceBlock)\(dialogueSourcesBlock)BRIEF: \(brief)"
+            return "\(durationBlock)\(evidenceBlock)\(dialogueSourcesBlock)\(knowledgeBlock)BRIEF: \(brief)"
         case .textProtocol:
             // Measured: models that ignore a format described in the system
             // prompt will still fill in a template presented in the user turn,
@@ -72,7 +73,7 @@ enum DirectorPlanFormat {
             return """
             \(textProtocolTemplate)
 
-            \(durationBlock)\(evidenceBlock)\(dialogueSourcesBlock)BRIEF: \(brief)
+            \(durationBlock)\(evidenceBlock)\(dialogueSourcesBlock)\(knowledgeBlock)BRIEF: \(brief)
             """
         }
     }
@@ -86,6 +87,7 @@ enum DirectorPlanFormat {
         let evidenceBlock = formatSceneEvidence(openingSceneEvidence, characterBible: characterBible)
         let durationBlock = formatDurationIntent(targetDurationSeconds)
         let dialogueSourcesBlock = explicitDialogueSourcesBlock(for: brief)
+        let knowledgeBlock = knowledgeBlock(for: brief)
         switch planProtocol {
         case .structuredJSON:
             return """
@@ -93,7 +95,7 @@ enum DirectorPlanFormat {
             Respond again with ONLY the JSON object described in the system prompt.
             \(PerShotAudioPolicy.directorInstruction)
             \(CharacterContinuitySafetyPolicy.compactDirectorInstruction)
-            \(durationBlock)\(evidenceBlock)\(dialogueSourcesBlock)BRIEF: \(brief)
+            \(durationBlock)\(evidenceBlock)\(dialogueSourcesBlock)\(knowledgeBlock)BRIEF: \(brief)
             """
         case .textProtocol:
             return """
@@ -101,7 +103,7 @@ enum DirectorPlanFormat {
 
             \(textProtocolTemplate)
 
-            \(durationBlock)\(evidenceBlock)\(dialogueSourcesBlock)BRIEF: \(brief)
+            \(durationBlock)\(evidenceBlock)\(dialogueSourcesBlock)\(knowledgeBlock)BRIEF: \(brief)
             """
         }
     }
@@ -123,6 +125,24 @@ enum DirectorPlanFormat {
         text automatically. When a shot's speaker says one of these lines,
         reference it by its ID exactly as given below. Never invent an ID
         that is not listed here.
+        \(lines)
+
+        """
+    }
+
+    /// Shared by both protocols: a few short, locally retrieved filmmaking
+    /// notes relevant to this brief, given to the Director as background
+    /// judgment rather than as instructions to quote or follow blindly.
+    /// Empty when nothing in the brief matches any entry — a normal,
+    /// expected outcome (see `AutoMovieKnowledgeBase.retrieve(for:)`), not a
+    /// degraded state, so no fallback text is needed here.
+    private static func knowledgeBlock(for brief: String) -> String {
+        let entries = AutoMovieKnowledgeBase.retrieve(for: brief)
+        guard !entries.isEmpty else { return "" }
+        let lines = entries.map { "- \($0.guidance)" }.joined(separator: "\n")
+        return """
+        FILMMAKING NOTES
+        Background judgment for this brief, not rules to quote or follow blindly:
         \(lines)
 
         """
@@ -178,6 +198,8 @@ enum DirectorPlanFormat {
     LOGLINE: <one sentence>
     SHOT 1
     ACTION: <what happens>
+    PURPOSE: <establish, performance, action, reaction, detail, transition, reveal, or dialogue>
+    END_STATE: <short phrase: physical/emotional state at the end of the shot>
     CAMERA: <shot scale and movement>
     MOTION_TEMPO: <SLOW, NORMAL, or FAST>
     CAMERA_TEMPO: <STATIC, SLOW, NORMAL, or FAST>
@@ -185,6 +207,8 @@ enum DirectorPlanFormat {
     CONTINUITY: CUT
     SHOT 2
     ACTION: <what happens>
+    PURPOSE: <establish, performance, action, reaction, detail, transition, reveal, or dialogue>
+    END_STATE: <short phrase: physical/emotional state at the end of the shot>
     CAMERA: <shot scale and movement>
     MOTION_TEMPO: <SLOW, NORMAL, or FAST>
     CAMERA_TEMPO: <STATIC, SLOW, NORMAL, or FAST>
@@ -192,13 +216,25 @@ enum DirectorPlanFormat {
     CONTINUITY: CONTINUE
     SHOT 3
     ACTION: <what happens>
+    PURPOSE: <establish, performance, action, reaction, detail, transition, reveal, or dialogue>
+    END_STATE: <short phrase: physical/emotional state at the end of the shot>
     CAMERA: <shot scale and movement>
     MOTION_TEMPO: <SLOW, NORMAL, or FAST>
     CAMERA_TEMPO: <STATIC, SLOW, NORMAL, or FAST>
     PLAYBACK_STYLE: <REAL_TIME, SLOW_MOTION, or FAST_MOTION>
     CONTINUITY: CONTINUE
 
-    Plan 3 to 5 shots. CONTINUITY must be exactly CUT or CONTINUE.
+    Plan 3 to 5 shots. CONTINUITY must be exactly CUT or CONTINUE. PURPOSE
+    states why the shot exists — pick the single best-fitting word from the
+    list shown. One continuous shot should carry one behavioral arc: when a
+    moment truly needs several distinct actions, give it several shots rather
+    than packing them into one. For a shot longer than a brief detail, write
+    ACTION as one continuous arc — how it begins, how it develops, how it
+    ends — instead of a single static instant, and give END_STATE the state
+    that arc lands on. Prefer a duration that matches what the shot needs (a
+    brief detail or insert, an ordinary action or performance that needs room
+    to read, or a longer continuous action or dialogue exchange) over
+    dividing the total evenly.
     Keep REAL_TIME for ordinary actions, including actions described with words
     such as "slowly". Use SLOW_MOTION only when the brief explicitly requests
     slow motion. A CONTINUE shot keeps the preceding tempos unless the story

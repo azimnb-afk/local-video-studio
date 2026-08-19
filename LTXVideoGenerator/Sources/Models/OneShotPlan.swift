@@ -27,6 +27,11 @@ struct OneShotPlan: Codable, Equatable {
     var dialogue: [DialogueLine] = []
     var audioCues: [String] = []    // foley/sfx/ambience — no per-shot BGM
     var durationIntentSeconds: Double?
+    /// Short phrase for the physical/emotional state this shot ends in, e.g.
+    /// "standing still, facing the camera, smiling". Optional: absence means
+    /// no explicit ending state was authored, not that the shot has none —
+    /// `PromptCompiler` only adds an ending-state sentence when this is set.
+    var endState: String?
 
     /// Validation: a usable plan needs at least camera + action.
     var validationErrors: [String] {

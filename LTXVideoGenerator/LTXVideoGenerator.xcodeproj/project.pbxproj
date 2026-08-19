@@ -102,6 +102,10 @@
 		AA000222 /* LocalDirector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000223; };
 		AA000224 /* ContinuityEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000225; };
 		AA000226 /* StoryboardDirector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000227; };
+		AA0009C2 /* AutoMovieKnowledgeBase.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009C1; };
+		AA0009C4 /* AutoMoviePurposePlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009C3; };
+		AA0009C6 /* ShotPlanValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009C5; };
+		AA0009C8 /* ShotOutcomeEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009C7; };
 		AA000228 /* FinalAssemblyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000229; };
 		AA000308 /* LocalDirectorProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000309; };
 		AA00030A /* TextProtocolPlanParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00030B; };
@@ -222,6 +226,10 @@
 		AA000223 /* LocalDirector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDirector.swift; sourceTree = "<group>"; };
 		AA000225 /* ContinuityEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityEngine.swift; sourceTree = "<group>"; };
 		AA000227 /* StoryboardDirector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryboardDirector.swift; sourceTree = "<group>"; };
+		AA0009C1 /* AutoMovieKnowledgeBase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoMovieKnowledgeBase.swift; sourceTree = "<group>"; };
+		AA0009C3 /* AutoMoviePurposePlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoMoviePurposePlanner.swift; sourceTree = "<group>"; };
+		AA0009C5 /* ShotPlanValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotPlanValidator.swift; sourceTree = "<group>"; };
+		AA0009C7 /* ShotOutcomeEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotOutcomeEvaluator.swift; sourceTree = "<group>"; };
 		AA000229 /* FinalAssemblyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalAssemblyService.swift; sourceTree = "<group>"; };
 		AA000309 /* LocalDirectorProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDirectorProtocol.swift; sourceTree = "<group>"; };
 		AA00030B /* TextProtocolPlanParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextProtocolPlanParser.swift; sourceTree = "<group>"; };
@@ -387,6 +395,10 @@
 				AA000223 /* LocalDirector.swift */,
 				AA000225 /* ContinuityEngine.swift */,
 				AA000227 /* StoryboardDirector.swift */,
+				AA0009C1 /* AutoMovieKnowledgeBase.swift */,
+				AA0009C3 /* AutoMoviePurposePlanner.swift */,
+				AA0009C5 /* ShotPlanValidator.swift */,
+				AA0009C7 /* ShotOutcomeEvaluator.swift */,
 				AA000229 /* FinalAssemblyService.swift */,
 				AA000309 /* LocalDirectorProtocol.swift */,
 				AA00030B /* TextProtocolPlanParser.swift */,
@@ -606,6 +618,10 @@
 				AA000222 /* LocalDirector.swift in Sources */,
 				AA000224 /* ContinuityEngine.swift in Sources */,
 				AA000226 /* StoryboardDirector.swift in Sources */,
+				AA0009C2 /* AutoMovieKnowledgeBase.swift in Sources */,
+				AA0009C4 /* AutoMoviePurposePlanner.swift in Sources */,
+				AA0009C6 /* ShotPlanValidator.swift in Sources */,
+				AA0009C8 /* ShotOutcomeEvaluator.swift in Sources */,
 				AA000228 /* FinalAssemblyService.swift in Sources */,
 				AA000308 /* LocalDirectorProtocol.swift in Sources */,
 				AA00030A /* TextProtocolPlanParser.swift in Sources */,

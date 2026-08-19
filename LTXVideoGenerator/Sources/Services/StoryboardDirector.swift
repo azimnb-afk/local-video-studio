@@ -50,6 +50,20 @@ final class StoryboardDirector {
         var dialogue: [OneShotPlan.DialogueLine]?
         var audioCues: [String]?
         var explicitChanges: [String]?
+        /// Why this shot exists: establish|performance|action|reaction|detail|
+        /// transition|reveal|dialogue. Optional and advisory — an absent or
+        /// unrecognized value falls back to deterministic inference
+        /// (`AutoMoviePurposePlanner.infer`), so older plans and the no-LLM
+        /// Basic Template (which never sets this) are unaffected.
+        var purpose: String?
+        /// Short phrase for the physical/emotional state this shot ends in
+        /// (e.g. "standing still, facing the camera, smiling"). Optional and
+        /// advisory: absent means no explicit ending state was authored, not
+        /// that the shot has none. `PromptCompiler` only adds an ending-state
+        /// sentence when this is present; the next shot's actual continuity
+        /// state still comes from `explicitChanges`/`ContinuityEngine`, not
+        /// from parsing this free text.
+        var endState: String?
         /// Local AI should return stable UUID strings. String is used at the
         /// transport boundary so unknown IDs/names can be repaired safely.
         var characterIDs: [String]?
@@ -85,6 +99,8 @@ final class StoryboardDirector {
                        "props":[],"propOwner":{},"wetness":{},"injuries":{},"dialogueState":"","storyState":""},
       "shots": [
         {"title":"...","summary":"present-tense visible action","durationSeconds":5,
+         "purpose":"establish|performance|action|reaction|detail|transition|reveal|dialogue",
+         "endState":"short phrase: physical/emotional state at the end of the shot",
          "shotScale":"extreme-wide|wide|medium-wide|medium|medium-close-up|close-up|extreme-close-up",
          "angle":"low|eye-level|high|overhead","movement":"static|pan|tilt|dolly|track|handheld",
          "motionTempo":"slow|normal|fast","cameraTempo":"static|slow|normal|fast",
@@ -104,6 +120,27 @@ final class StoryboardDirector {
     lists an ID for a line's exact words, set that dialogue entry's "sourceId"
     to that ID instead of retyping the words, and never invent an ID it did
     not list.
+    "purpose" states why the shot exists, not what it looks like — pick the
+    one that best matches the shot's actual job in the sequence.
+    Prefer fewer, longer shots over many short ones when one continuous
+    behavioral arc can carry a beat — for example "walks, slows, and comes to
+    a stop" is one shot, not three. A shot asking for several unrelated
+    actions (walk, then sit, then pick something up, then wave) should become
+    more than one shot instead of one shot with everything packed in.
+    durationSeconds should reflect what the shot actually needs: roughly 3
+    seconds for a brief detail or insert, 5 to 8 seconds for an ordinary
+    action or performance beat, up to about 10 seconds for one continuous
+    action or a dialogue line that needs the time. The app fits your total
+    to the requested movie length afterward, so state the duration each shot
+    genuinely wants rather than dividing the total evenly.
+    For a shot longer than a brief detail, write "summary" as one continuous
+    arc rather than a single static instant: how it begins, how it develops,
+    how it ends — for example "she walks at a relaxed pace, gradually slows,
+    and comes to a natural stop" instead of just "she walks". "endState"
+    then names the state that arc lands on. Keep the arc to ONE line of
+    development: a shot that needs several distinct beats to reach its
+    ending should become more than one shot instead of one shot narrating
+    all of them.
     \(PerShotAudioPolicy.directorInstruction)
     \(CharacterContinuitySafetyPolicy.directorInstruction)
     Motion tempo describes how quickly the subject acts. Camera tempo describes
@@ -434,6 +471,7 @@ final class StoryboardDirector {
             if var draft = parsed.draft {
                 let repair = Self.repairSemantics(draft, brief: brief)
                 draft = repair.draft
+                draft = Self.repairOverloadedShots(draft).draft
                 let issues = Self.validate(draft)
                 if issues.isEmpty { return draft }
                 lastFailure = issues.joined(separator: ", ")
@@ -572,11 +610,87 @@ final class StoryboardDirector {
                 changed = true
             }
             if let duration = draft.shots[index].durationSeconds, duration < 1 || duration > 10 {
-                draft.shots[index].durationSeconds = min(6, max(1, duration))
+                // Matches validate()'s accepted [1,10] range (previously
+                // clamped to [1,6] here, silently discarding a Director's
+                // longer duration intent before the adaptive planner ever
+                // saw it — see AutoMovieDurationPlanner.normalize).
+                draft.shots[index].durationSeconds = min(10, max(1, duration))
                 changed = true
             }
         }
         return (draft, changed)
+    }
+
+    /// Structural repair for a shot that packs too many independent actions
+    /// into one beat (`CapabilityAwareShotPlanner.visibleBeatCount` at or
+    /// above its established `maxVisibleBeats` threshold — the same signal
+    /// already used elsewhere to flag an overloaded shot). Splits ONLY the
+    /// offending shot into two consecutive shots at its middle clause
+    /// boundary, rather than asking the model to try again, so this can
+    /// never loop: each shot is visited exactly once and a produced half is
+    /// never itself re-split, since there is only one pass.
+    /// Internal, not private — matches `TextProtocolPlanParser`'s pattern of
+    /// keeping deterministic, side-effect-free helpers directly testable.
+    static func repairOverloadedShots(_ input: StoryboardDraft) -> (draft: StoryboardDraft, changed: Bool) {
+        var result: [ShotPlanDraft] = []
+        var changed = false
+        for shot in input.shots {
+            // Leave room under validate()'s 12-shot cap; an already-full
+            // draft keeps its overloaded shot rather than failing outright.
+            guard result.count < 11,
+                  CapabilityAwareShotPlanner.visibleBeatCount(in: shot.summary)
+                      >= CapabilityAwareShotPlanner.maxVisibleBeats,
+                  let halves = splitOverloadedShot(shot) else {
+                result.append(shot)
+                continue
+            }
+            result.append(halves.first)
+            result.append(halves.second)
+            changed = true
+        }
+        guard changed else { return (input, false) }
+        var draft = input
+        draft.shots = result
+        return (draft, true)
+    }
+
+    /// Splits at the middle clause boundary of `summary`. Camera, characters
+    /// and audio stay identical on both halves — varying them without a real
+    /// signal to base the choice on would be a guess, not a repair. State
+    /// that only makes sense once (explicitChanges, endState, dialogue) moves
+    /// to whichever half it actually completes on. Nil when the summary has
+    /// no clause separator to split on.
+    private static func splitOverloadedShot(
+        _ shot: ShotPlanDraft
+    ) -> (first: ShotPlanDraft, second: ShotPlanDraft)? {
+        let clauses = shot.summary
+            .components(separatedBy: CharacterSet(charactersIn: ".;,"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.rangeOfCharacter(from: .letters) != nil }
+        guard clauses.count >= 2 else { return nil }
+        let mid = clauses.count / 2
+        let firstHalf = clauses[..<mid].joined(separator: ", ")
+        let secondHalf = clauses[mid...].joined(separator: ", ")
+        guard !firstHalf.isEmpty, !secondHalf.isEmpty else { return nil }
+
+        let halfDuration = max(1, (shot.durationSeconds ?? 6) / 2)
+
+        var first = shot
+        first.summary = firstHalf
+        first.durationSeconds = halfDuration
+        first.endState = nil
+        first.explicitChanges = nil
+
+        var second = shot
+        second.title = shot.title.isEmpty ? shot.title : "\(shot.title) (cont.)"
+        second.summary = secondHalf
+        second.durationSeconds = halfDuration
+        // The same beat continuing, regardless of what the original shot's
+        // own continuity was — that value stays on the first half above.
+        second.continuity = "continue"
+        second.dialogue = nil
+
+        return (first, second)
     }
 
     private static func normalizeSchema(_ source: [String: Any], brief: String) -> [String: Any] {
@@ -769,13 +883,26 @@ final class StoryboardDirector {
 
         for (index, shotDraft) in draft.shots.enumerated() {
             var shot = Shot(index: index, title: shotDraft.title, summary: shotDraft.summary)
-            shot.durationSeconds = min(6, max(1, shotDraft.durationSeconds ?? 5))
+            // [1,10] matches validate()'s accepted range. This value is the
+            // Director's stated intent; for Auto Movie it is one input (not
+            // the final answer) to AutoMovieDurationPlanner.normalize below,
+            // which fits the whole movie's shots to the requested length.
+            shot.durationSeconds = min(10, max(1, shotDraft.durationSeconds ?? 5))
             // The first shot has nothing to continue from. Unknown or missing
             // planner values fall back to `auto`, which the run coordinator
             // resolves deterministically (and conservatively) at generation time.
             shot.continuityMode = index == 0
                 ? .cut
                 : ShotContinuityMode(rawValue: (shotDraft.continuity ?? "").lowercased()) ?? .auto
+            shot.shotPurpose = AutoMoviePurposePlanner.resolvePurpose(
+                stated: shotDraft.purpose,
+                summary: shotDraft.summary,
+                dialogue: shotDraft.dialogue ?? [],
+                isFirstShot: index == 0,
+                isCut: shot.continuityMode == .cut
+            )
+            let trimmedEndState = shotDraft.endState?.trimmingCharacters(in: .whitespacesAndNewlines)
+            shot.endStateSummary = (trimmedEndState?.isEmpty ?? true) ? nil : trimmedEndState
             let motionProfile = MotionTempoPlanningPolicy.resolve(
                 draft: shotDraft,
                 brief: brief,
@@ -785,10 +912,17 @@ final class StoryboardDirector {
             shot.motionTempo = motionProfile.motionTempo
             shot.cameraTempo = motionProfile.cameraTempo
             shot.playbackStyle = motionProfile.playbackStyle
+            let plannedMovement = shotDraft.movement ?? "static"
             shot.camera = CameraPlan(
                 shotScale: shotDraft.shotScale ?? "medium",
                 angle: shotDraft.angle ?? "eye-level",
-                movement: shotDraft.movement ?? "static"
+                // Auto Movie only: nudge a generic default movement toward one
+                // that supports the shot's purpose. Manual Storyboard keeps
+                // the Director's/user's exact choice, matching how
+                // CapabilityAwareShotPlanner is already scoped below.
+                movement: capabilityAwarePlanning
+                    ? AutoMoviePurposePlanner.nudgedMovement(current: plannedMovement, purpose: shot.shotPurpose ?? .action)
+                    : plannedMovement
             )
             shot.audio = AudioPlan(
                 dialogue: (shotDraft.dialogue ?? []).map {
@@ -845,7 +979,8 @@ final class StoryboardDirector {
                 lighting: shotDraft.lighting ?? nextState.lighting,
                 dialogue: (shotDraft.dialogue ?? []),
                 audioCues: shotDraft.audioCues ?? [],
-                durationIntentSeconds: shot.durationSeconds
+                durationIntentSeconds: shot.durationSeconds,
+                endState: shot.endStateSummary
             )
             let context = ContinuityEngine.promptContext(for: nextState, bible: bible)
             let compiled = PromptCompiler.compile(
@@ -874,6 +1009,7 @@ final class StoryboardDirector {
 
         CharacterPromptPipeline.recompile(project: &project)
         violations.append(contentsOf: ContinuityEngine.monotonyWarnings(shots: project.shots))
+        violations.append(contentsOf: ShotPlanValidator.validate(shots: project.shots, brief: brief))
         progressCallback?(.completed, "Plan ready")
         return (project, violations, providerName)
     }

@@ -93,10 +93,13 @@ func runRegistryTests(_ t: TestKit) {
         let registry = ModelRegistry(userDefaults: defaults)
         FeatureFlags.disableAll(userDefaults: defaults)
         let defaultAvailable = registry.selectableModels(customModelsEnabled: false)
-        t.checkEqual(defaultAvailable.count, LTXModelCatalog.all.count + 1, "flags OFF → official models + LTX-2.5 experimental")
+        t.checkEqual(defaultAvailable.count, LTXModelCatalog.all.count + 2,
+                     "flags OFF → official models + built-in experimental renderers")
+        t.check(defaultAvailable.contains { $0.id == MiniMaxH3Configuration.modelID },
+                "flags OFF → built-in MiniMax H3 remains visible")
         
         FeatureFlags.set(.customModelsV1, enabled: true, userDefaults: defaults)
-        t.checkEqual(registry.selectableModels(customModelsEnabled: true).count, LTXModelCatalog.all.count + 2,
+        t.checkEqual(registry.selectableModels(customModelsEnabled: true).count, LTXModelCatalog.all.count + 3,
                      "customModels ON → custom model visible")
         FeatureFlags.disableAll(userDefaults: defaults)
     }

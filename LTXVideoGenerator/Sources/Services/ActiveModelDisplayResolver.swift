@@ -39,6 +39,29 @@ enum ActiveModelDisplayResolver {
             )
         }
 
+        if effectiveID == MiniMaxH3Configuration.modelID {
+            let raw = userDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessStateKey)
+            let state = raw.flatMap(MiniMaxH3RuntimeState.init(rawValue:)) ?? .notConfigured
+            let ready = state == .ready
+            let status: String
+            switch state {
+            case .notConfigured: status = "Not Configured"
+            case .notRunning: status = "Not Running"
+            case .starting: status = "Starting"
+            case .ready: status = "Ready"
+            case .wrongModel: status = "Wrong Model"
+            case .broken: status = "Broken"
+            }
+            return DisplayInfo(
+                modelID: effectiveID,
+                displayName: MiniMaxH3Configuration.displayName,
+                backendBadge: "H3 · Experimental",
+                isCustom: false,
+                isReady: ready,
+                statusText: status
+            )
+        }
+
         if let profile = CustomModelProfileStore.profile(forModelID: effectiveID, userDefaults: userDefaults) {
             let runtimeReadiness = LTX2MLXRuntime.runtimeReadiness(userDefaults: userDefaults)
             let modelReadiness = CustomModelProfileStore.readiness(for: profile, userDefaults: userDefaults)

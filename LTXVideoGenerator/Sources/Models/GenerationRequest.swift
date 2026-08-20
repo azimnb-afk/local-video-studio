@@ -231,6 +231,15 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
     var customModelSourceMode: String? // Frozen source mode ("huggingFace" or "local") at request creation time
     var customModelProfileID: UUID?    // Bound custom model profile UUID if generated with a profile
     var customModelDisplayNameSnapshot: String? // Snapshot of profile display name at creation time
+    /// Frozen MiniMax H3 renderer configuration. Queue execution must not
+    /// re-read mutable Preferences and accidentally run a different server.
+    var minimaxH3ModelDirectory: String?
+    var minimaxH3RuntimeExecutablePath: String?
+    var minimaxH3Endpoint: String?
+    /// Effective H3 timing selected at queue preflight.
+    var minimaxH3ChainWindows: Int?
+    var minimaxH3ExpectedFrames: Int?
+    var minimaxH3RequestedDurationSeconds: Double?
     var brief: String?                 // Original user brief before prompt compilation
     var filmProjectID: UUID?
     var shotID: UUID?
@@ -282,6 +291,12 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         customModelSourceMode: String? = nil,
         customModelProfileID: UUID? = nil,
         customModelDisplayNameSnapshot: String? = nil,
+        minimaxH3ModelDirectory: String? = nil,
+        minimaxH3RuntimeExecutablePath: String? = nil,
+        minimaxH3Endpoint: String? = nil,
+        minimaxH3ChainWindows: Int? = nil,
+        minimaxH3ExpectedFrames: Int? = nil,
+        minimaxH3RequestedDurationSeconds: Double? = nil,
         filmProjectID: UUID? = nil,
         shotID: UUID? = nil,
         takeID: UUID? = nil,
@@ -316,6 +331,20 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         self.filmProjectID = filmProjectID
         self.shotID = shotID
         self.takeID = takeID
+        self.minimaxH3ChainWindows = minimaxH3ChainWindows
+        self.minimaxH3ExpectedFrames = minimaxH3ExpectedFrames
+        self.minimaxH3RequestedDurationSeconds = minimaxH3RequestedDurationSeconds
+
+        if modelId == MiniMaxH3Configuration.modelID {
+            let snapshot = MiniMaxH3Configuration.Snapshot.current(userDefaults: userDefaults)
+            self.minimaxH3ModelDirectory = minimaxH3ModelDirectory ?? snapshot.modelDirectory
+            self.minimaxH3RuntimeExecutablePath = minimaxH3RuntimeExecutablePath ?? snapshot.runtimeExecutablePath
+            self.minimaxH3Endpoint = minimaxH3Endpoint ?? snapshot.endpoint
+        } else {
+            self.minimaxH3ModelDirectory = minimaxH3ModelDirectory
+            self.minimaxH3RuntimeExecutablePath = minimaxH3RuntimeExecutablePath
+            self.minimaxH3Endpoint = minimaxH3Endpoint
+        }
 
         if let profile = CustomModelProfileStore.profile(forModelID: modelId, userDefaults: userDefaults) {
             self.customModelProfileID = profile.id
@@ -384,6 +413,12 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         case customModelSourceMode
         case customModelProfileID
         case customModelDisplayNameSnapshot
+        case minimaxH3ModelDirectory
+        case minimaxH3RuntimeExecutablePath
+        case minimaxH3Endpoint
+        case minimaxH3ChainWindows
+        case minimaxH3ExpectedFrames
+        case minimaxH3RequestedDurationSeconds
         case filmProjectID
         case shotID
         case takeID
@@ -422,6 +457,14 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         customModelSourceMode = try container.decodeIfPresent(String.self, forKey: .customModelSourceMode)
         customModelProfileID = try container.decodeIfPresent(UUID.self, forKey: .customModelProfileID)
         customModelDisplayNameSnapshot = try container.decodeIfPresent(String.self, forKey: .customModelDisplayNameSnapshot)
+        minimaxH3ModelDirectory = try container.decodeIfPresent(String.self, forKey: .minimaxH3ModelDirectory)
+        minimaxH3RuntimeExecutablePath = try container.decodeIfPresent(
+            String.self, forKey: .minimaxH3RuntimeExecutablePath)
+        minimaxH3Endpoint = try container.decodeIfPresent(String.self, forKey: .minimaxH3Endpoint)
+        minimaxH3ChainWindows = try container.decodeIfPresent(Int.self, forKey: .minimaxH3ChainWindows)
+        minimaxH3ExpectedFrames = try container.decodeIfPresent(Int.self, forKey: .minimaxH3ExpectedFrames)
+        minimaxH3RequestedDurationSeconds = try container.decodeIfPresent(
+            Double.self, forKey: .minimaxH3RequestedDurationSeconds)
         filmProjectID = try container.decodeIfPresent(UUID.self, forKey: .filmProjectID)
         shotID = try container.decodeIfPresent(UUID.self, forKey: .shotID)
         takeID = try container.decodeIfPresent(UUID.self, forKey: .takeID)

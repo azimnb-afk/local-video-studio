@@ -67,13 +67,25 @@ struct PromptInputView: View {
     }
 
     private var selectedModel: LTXModel {
-        LTXModelCatalog.resolvedModel(id: selectedModelID)
+        if case .runnable(let runnable) = GenerationModelResolver.resolve(modelID: selectedModelID) {
+            return runnable.model
+        }
+        return LTXModelCatalog.defaultModel
     }
 
     /// This is the same resolution used for the queue. It intentionally does
     /// not mutate the user's Custom fields: selecting a preset is sufficient
     /// to make its effective profile visible to preflight UI.
     private var preflightSettings: ResolvedGenerationSettings {
+        if selectedModelID == MiniMaxH3Configuration.modelID {
+            let request = makeGenerationRequest(parameters: parameters)
+            let resolved = (try? MiniMaxH3DurationPolicy.applying(to: request)) ?? request
+            return ResolvedGenerationSettings(
+                request: resolved,
+                profile: nil,
+                attemptLadder: [],
+                reason: "MiniMax H3 experimental timing policy")
+        }
         guard autoQualityEnabled else {
             return ResolvedGenerationSettings(
                 request: makeGenerationRequest(parameters: parameters),
@@ -143,6 +155,10 @@ struct PromptInputView: View {
         GenerationPreset(rawValue: presetRaw) ?? .standard
     }
 
+    private var isMiniMaxH3Selected: Bool {
+        selectedModelID == MiniMaxH3Configuration.modelID
+    }
+
     private var qualityModeRaw: String { selectedPreset.qualityMode.rawValue }
 
     /// Non-nil when the 64-px floor will change the requested dimensions.
@@ -155,10 +171,14 @@ struct PromptInputView: View {
     }
 
     private var qualityOverridesParameters: Bool {
-        autoQualityEnabled && selectedPreset != .custom
+        !isMiniMaxH3Selected && autoQualityEnabled && selectedPreset != .custom
     }
 
     private var resolutionSummary: String {
+        if isMiniMaxH3Selected {
+            let effective = effectiveParametersForPreflight
+            return "H3 fixed MVP · \(effective.width)×\(effective.height) · \(effective.fps) fps · \(effective.numInferenceSteps) steps · chain \(preflightSettings.request.minimaxH3ChainWindows ?? 1)"
+        }
         if let profile = preflightSettings.profile {
             let effective = effectiveParametersForPreflight
             return "\(selectedPreset.displayName) → \(profile.id): \(effective.width)×\(effective.height), \(effective.numFrames) frames, \(effective.numInferenceSteps) steps"
@@ -246,8 +266,18 @@ struct PromptInputView: View {
                     .foregroundStyle(.secondary)
             }
             
-            // Gemma Prompt Enhancement
-            DisclosureGroup(isExpanded: $showPromptEnhancement) {
+            // Gemma Prompt Enhancement is an LTX-side feature. H3 performs
+            // renderer-specific structural compilation without invoking it.
+            if isMiniMaxH3Selected {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(.secondary)
+                    Text("MiniMax H3 uses its renderer-specific prompt compiler. LTX/Gemma Prompt Enhancement is not used.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                DisclosureGroup(isExpanded: $showPromptEnhancement) {
                 VStack(alignment: .leading, spacing: 12) {
                     if !enableGemmaPromptEnhancement {
                         Text("Turn on in Settings to use prompt rewriting.")
@@ -303,6 +333,7 @@ struct PromptInputView: View {
                 Label("Prompt Enhancement", systemImage: "sparkles")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                }
             }
             
             // Image-to-Video section
@@ -369,19 +400,25 @@ struct PromptInputView: View {
                     
                     if sourceImagePath != nil {
                         Divider()
-                        
-                        ParameterSlider(
-                            title: "Image Strength",
-                            value: $parameters.imageStrength,
-                            range: 0.0...1.0,
-                            step: 0.05,
-                            icon: "photo.fill",
-                            format: "%.2f"
-                        )
-                        
-                        Text("How strongly the source image influences generation. 1.0 = exact first frame, lower = more creative freedom.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+
+                        if isMiniMaxH3Selected {
+                            Text("MiniMax H3 uses this image as one exact first-frame input. Image Strength is not supported by the current H3 model pack.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ParameterSlider(
+                                title: "Image Strength",
+                                value: $parameters.imageStrength,
+                                range: 0.0...1.0,
+                                step: 0.05,
+                                icon: "photo.fill",
+                                format: "%.2f"
+                            )
+
+                            Text("How strongly the source image influences generation. 1.0 = exact first frame, lower = more creative freedom.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .padding(.top, 8)
@@ -399,21 +436,23 @@ struct PromptInputView: View {
                 }
             }
             
-            // Negative prompt toggle
-            DisclosureGroup(isExpanded: $showNegativePrompt) {
-                TextEditor(text: $negativePrompt)
-                    .font(.body)
-                    .frame(height: 60)
-                    .scrollContentBackground(.hidden)
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color(nsColor: .controlBackgroundColor))
-                    )
-            } label: {
-                Label("Negative Prompt", systemImage: "minus.circle")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            // The proven H3 API has no negative-prompt field.
+            if !isMiniMaxH3Selected {
+                DisclosureGroup(isExpanded: $showNegativePrompt) {
+                    TextEditor(text: $negativePrompt)
+                        .font(.body)
+                        .frame(height: 60)
+                        .scrollContentBackground(.hidden)
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(nsColor: .controlBackgroundColor))
+                        )
+                } label: {
+                    Label("Negative Prompt", systemImage: "minus.circle")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
             
             // Audio included banner for unified model
@@ -430,7 +469,9 @@ struct PromptInputView: View {
                         .font(.caption.bold())
                         
                         Text(disableAudio
-                            ? "Audio generation is disabled. Video will be silent (faster)."
+                            ? (selectedModelID == MiniMaxH3Configuration.modelID
+                                ? "Audio will be omitted from the saved MP4. The current H3 runtime still returns audio internally."
+                                : "Audio generation is disabled. Video will be silent (faster).")
                             : "Synchronized audio will be generated automatically.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -636,7 +677,7 @@ struct PromptInputView: View {
                         .fixedSize()
                         .help("Select active generation model from the registry.")
                     }
-                    if autoQualityEnabled {
+                    if autoQualityEnabled && !isMiniMaxH3Selected {
                         Picker("Preset", selection: $presetRaw) {
                             ForEach(GenerationPreset.allCases) { preset in
                                 Text(preset.displayName).tag(preset.rawValue)
@@ -645,10 +686,14 @@ struct PromptInputView: View {
                         .pickerStyle(.menu)
                         .fixedSize()
                         .help(selectedPreset.summary)
+                    } else if isMiniMaxH3Selected {
+                        Text(resolutionSummary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                     Spacer()
                     // Requested vs effective resolution (64-px alignment is never silent).
-                    if effectiveResolutionNote != nil || qualityOverridesParameters {
+                    if !isMiniMaxH3Selected && (effectiveResolutionNote != nil || qualityOverridesParameters) {
                         Text(resolutionSummary)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -777,6 +822,7 @@ struct PromptInputView: View {
                 disableAudio = false
             }
             dismissedHeavyEncoderComboHint = false
+            Task { await DependencyHealthManager.shared.refresh() }
         }
         .onChange(of: selectedTextEncoderID) { _, _ in
             dismissedHeavyEncoderComboHint = false
@@ -802,6 +848,17 @@ struct PromptInputView: View {
         previewError = nil
         enhancedPreview = nil
         do {
+            if selectedModelID == MiniMaxH3Configuration.modelID {
+                await MainActor.run {
+                    enhancedPreview = MiniMaxH3PromptCompiler.compile(
+                        rendererNeutralPrompt: prompt,
+                        isImageToVideo: sourceImagePath != nil)
+                    previewStatusMessage = "MiniMax H3 renderer-specific prompt"
+                    showEnhancedPreview = true
+                    isPreviewing = false
+                }
+                return
+            }
             let enhanced = try await LTXBridge.shared.previewEnhancedPrompt(
                 prompt: prompt,
                 modelRepo: selectedModel.repo,

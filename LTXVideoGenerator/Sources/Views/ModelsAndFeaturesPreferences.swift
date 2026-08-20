@@ -19,6 +19,8 @@ struct ModelsAndFeaturesPreferences: View {
 
     var body: some View {
         Form {
+            MiniMaxH3RuntimePreferenceView()
+
             Section("LTX-2.5 Runtime") {
                 LTX2MLXRuntimePreferenceView(manager: runtimeManager)
             }
@@ -88,7 +90,7 @@ struct ModelsAndFeaturesPreferences: View {
             Section("Compatibility Lab") {
                 let lab = CompatibilityLab.shared
                 let labModels = ModelRegistry.shared.descriptors.values
-                    .filter { !$0.isOfficial }
+                    .filter { !$0.isOfficial && $0.id != MiniMaxH3Configuration.modelID }
                     .sorted { $0.id < $1.id }
                 if labModels.isEmpty {
                     Text("No custom models registered.")
@@ -257,6 +259,151 @@ struct ModelsAndFeaturesPreferences: View {
             return "~" + path.dropFirst(home.count)
         }
         return path
+    }
+}
+
+private struct MiniMaxH3RuntimePreferenceView: View {
+    @AppStorage(MiniMaxH3Configuration.modelDirectoryKey) private var modelDirectory = ""
+    @AppStorage(MiniMaxH3Configuration.runtimeExecutablePathKey) private var runtimeExecutable = ""
+    @AppStorage(MiniMaxH3Configuration.endpointKey) private var endpoint = MiniMaxH3Configuration.defaultEndpoint
+    @State private var status = MiniMaxH3RuntimeStatus(
+        state: .notConfigured,
+        ownership: nil,
+        detail: "Readiness has not been checked.",
+        loadedModelID: nil)
+    @State private var isChecking = false
+
+    var body: some View {
+        Section("MiniMax H3 (Experimental)") {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("H3 Model Directory")
+                    .font(.caption.bold())
+                HStack {
+                    TextField("Select the local H3 model directory", text: $modelDirectory)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Choose…", action: chooseModelDirectory)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("mlx-serve Executable")
+                    .font(.caption.bold())
+                HStack {
+                    TextField("Select the mlx-serve executable", text: $runtimeExecutable)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Choose…", action: chooseRuntime)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Local Endpoint")
+                    .font(.caption.bold())
+                TextField(MiniMaxH3Configuration.defaultEndpoint, text: $endpoint)
+                    .textFieldStyle(.roundedBorder)
+                Text("Localhost only. The app never binds H3 to 0.0.0.0.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 8, height: 8)
+                Text(statusLabel)
+                    .font(.caption.bold())
+                if let ownership = status.ownership {
+                    Text(ownership == .externallyRunning ? "External server (reused)" : "App-owned server")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button {
+                    Task { await checkReadiness() }
+                } label: {
+                    if isChecking { ProgressView().controlSize(.small) }
+                    Text("Check Readiness")
+                }
+                .disabled(isChecking)
+            }
+            Text(status.detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            BilingualSettingDescription(
+                english: "Experimental specialized second renderer for local T2V/I2V, native audio, last-frame continuation, and chained windows. REF2VA and Motion Context are not supported. Existing external compatible servers are reused and never stopped by the app.",
+                japanese: "ローカルT2V/I2V・ネイティブ音声・最終フレーム継続・連結ウィンドウ向けの実験的な第2レンダラーです。REF2VAとMotion Contextには非対応です。既存の互換外部サーバーは再利用し、アプリから停止しません。"
+            )
+        }
+        .onAppear { Task { await checkReadiness() } }
+        .onChange(of: modelDirectory) { _, _ in configurationChanged() }
+        .onChange(of: runtimeExecutable) { _, _ in configurationChanged() }
+        .onChange(of: endpoint) { _, _ in configurationChanged() }
+    }
+
+    private var statusLabel: String {
+        switch status.state {
+        case .notConfigured: return "Not Configured"
+        case .notRunning: return "Not Running"
+        case .starting: return "Starting"
+        case .ready: return "Ready"
+        case .wrongModel: return "Wrong Model"
+        case .broken: return "Broken"
+        }
+    }
+
+    private var statusColor: Color {
+        switch status.state {
+        case .ready: return .green
+        case .starting, .notRunning, .notConfigured: return .orange
+        case .wrongModel, .broken: return .red
+        }
+    }
+
+    private func configurationChanged() {
+        UserDefaults.standard.set(
+            MiniMaxH3RuntimeState.notConfigured.rawValue,
+            forKey: MiniMaxH3Configuration.lastReadinessStateKey)
+        Task { await DependencyHealthManager.shared.refresh() }
+    }
+
+    @MainActor
+    private func checkReadiness() async {
+        isChecking = true
+        let snapshot = MiniMaxH3Configuration.Snapshot(
+            modelDirectory: modelDirectory.isEmpty ? nil : modelDirectory,
+            runtimeExecutablePath: runtimeExecutable.isEmpty ? nil : runtimeExecutable,
+            endpoint: endpoint)
+        status = await MiniMaxH3RuntimeManager.shared.status(snapshot: snapshot)
+        UserDefaults.standard.set(
+            status.state.rawValue,
+            forKey: MiniMaxH3Configuration.lastReadinessStateKey)
+        UserDefaults.standard.set(
+            status.detail,
+            forKey: MiniMaxH3Configuration.lastReadinessDetailKey)
+        isChecking = false
+        await DependencyHealthManager.shared.refresh()
+    }
+
+    private func chooseModelDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Select H3 Model"
+        if panel.runModal() == .OK, let url = panel.url {
+            modelDirectory = url.path
+        }
+    }
+
+    private func chooseRuntime() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Select mlx-serve"
+        if panel.runModal() == .OK, let url = panel.url {
+            runtimeExecutable = url.path
+        }
     }
 }
 

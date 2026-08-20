@@ -69,6 +69,20 @@ enum GenerationModelResolver {
         if let runnable = LTXModelCatalog.model(id: modelID) {
             return .runnable(RunnableModel(model: runnable, backend: .mlxVideoWithAudio))
         }
+        if modelID == MiniMaxH3Configuration.modelID,
+           let descriptor = registry.descriptor(id: modelID) {
+            let runnable = LTXModel(
+                id: descriptor.id,
+                repo: descriptor.repository,
+                displayName: descriptor.displayName,
+                downloadSize: descriptor.estimatedModelSizeGB.map { "~\(Int($0))GB" } ?? "local",
+                supportsBuiltInAudio: descriptor.capabilities.synchronizedAudio,
+                qualityWarning: "Experimental specialized renderer.",
+                recommendedStepsLower: 8,
+                recommendedStepsUpper: 8,
+                tips: descriptor.runtime.verificationNotes)
+            return .runnable(RunnableModel(model: runnable, backend: .minimaxH3))
+        }
         if let runnable = LTX25ModelCatalog.model(id: modelID) {
             return .runnable(RunnableModel(model: runnable, backend: .ltx2MLX))
         }

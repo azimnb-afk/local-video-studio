@@ -361,7 +361,14 @@ enum CharacterPromptPipeline {
         let options = PromptCompiler.Options(
             japaneseHandling: JapaneseDialogueHandling(rawValue: project.settings.japaneseHandling) ?? .native,
             perShotAudioPolicy: .naturalProductionSoundNoMusic)
-        let compiled = PromptCompiler.compile(plan: plan, options: options)
+        let compiled = project.settings.modelID == MiniMaxH3Configuration.modelID
+            ? MiniMaxH3PromptCompiler.compile(
+                plan: plan,
+                isImageToVideo: shot.continuityMode == .continueFromPrevious
+                    || shot.startingImageReferenceAssetID != nil,
+                japaneseHandling: options.japaneseHandling,
+                perShotAudioPolicy: options.perShotAudioPolicy)
+            : PromptCompiler.compile(plan: plan, options: options)
         let context = ContinuityEngine.promptContext(for: snapshot, bible: project.characterBible)
         shot.baseCompiledPrompt = context.isEmpty ? compiled : context + " " + compiled
         project.shots[shotIndex] = shot

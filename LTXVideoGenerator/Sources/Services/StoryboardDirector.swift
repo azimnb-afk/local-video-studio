@@ -995,12 +995,22 @@ final class StoryboardDirector {
                 endState: shot.endStateSummary
             )
             let context = ContinuityEngine.promptContext(for: nextState, bible: bible)
-            let compiled = PromptCompiler.compile(
-                plan: plan,
-                options: PromptCompiler.Options(
+            let compiled: String
+            if project.settings.modelID == MiniMaxH3Configuration.modelID {
+                compiled = MiniMaxH3PromptCompiler.compile(
+                    plan: plan,
+                    isImageToVideo: shot.continuityMode == .continueFromPrevious
+                        || shot.startingImageReferenceAssetID != nil,
                     japaneseHandling: japaneseHandling,
                     perShotAudioPolicy: .naturalProductionSoundNoMusic)
-            )
+            } else {
+                compiled = PromptCompiler.compile(
+                    plan: plan,
+                    options: PromptCompiler.Options(
+                        japaneseHandling: japaneseHandling,
+                        perShotAudioPolicy: .naturalProductionSoundNoMusic)
+                )
+            }
             shot.baseCompiledPrompt = context.isEmpty ? compiled : context + " " + compiled
             shot.compiledPrompt = shot.baseCompiledPrompt ?? compiled
 

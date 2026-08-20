@@ -961,7 +961,9 @@ struct ProjectSettings: Codable, Equatable {
     /// Codable defaults above remain stable for legacy project migration.
     static func usingCurrentSelections(userDefaults: UserDefaults = .standard) -> ProjectSettings {
         var settings = ProjectSettings()
-        settings.modelID = LTXModelCatalog.selectedModel(userDefaults: userDefaults).id
+        let selectedID = userDefaults.string(forKey: LTXModelCatalog.selectedModelIDKey)
+        settings.modelID = selectedID.flatMap { ModelRegistry.shared.descriptor(id: $0)?.id }
+            ?? LTXModelCatalog.defaultModelID
         settings.textEncoderID = LTXTextEncoderCatalog.selectedTextEncoder(userDefaults: userDefaults).id
         return settings
     }

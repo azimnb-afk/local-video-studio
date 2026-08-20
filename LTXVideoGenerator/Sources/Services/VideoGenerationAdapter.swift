@@ -205,6 +205,48 @@ final class LTX2MLXAdapter: VideoGenerationAdapter {
     }
 }
 
+/// Stable MiniMax H3 descriptor → dedicated HTTP backend. The resolved
+/// descriptor is passed through intact; no legacy LTX catalog is consulted.
+final class MiniMaxH3Adapter: VideoGenerationAdapter {
+    private let backend: MiniMaxH3Backend
+
+    init(backend: MiniMaxH3Backend = MiniMaxH3Backend()) {
+        self.backend = backend
+    }
+
+    func supports(model: ModelDescriptor) -> Bool {
+        model.id == MiniMaxH3Configuration.modelID
+            && model.runtime.backend == GenerationBackendKind.minimaxH3.rawValue
+    }
+
+    func generate(
+        request: GenerationRequest,
+        model: ModelDescriptor,
+        outputPath: String,
+        progressHandler: @escaping (Double, String) -> Void
+    ) async throws -> (videoPath: String, seed: Int, enhancedPrompt: String?) {
+        guard model.runtime.verified else {
+            throw LTXError.generationFailed(
+                ModelPolicyError.modelUnverified(modelID: model.id).userMessage)
+        }
+        do {
+            return try await backend.generate(
+                request: request,
+                model: model,
+                outputPath: outputPath,
+                progressHandler: progressHandler)
+        } catch MiniMaxH3Error.cancelled {
+            // Normalize renderer-local cancellation into the queue's existing
+            // cancellation contract. Do not add an H3-only terminal state.
+            throw LTXError.cancelled
+        }
+    }
+
+    func cancelActiveGeneration() {
+        ProcessCancellationTracker.shared.cancel()
+    }
+}
+
 /// Picks the adapter for a descriptor. Order matters: first match wins.
 final class AdapterRegistry {
     static let shared = AdapterRegistry()
@@ -212,7 +254,12 @@ final class AdapterRegistry {
     private(set) var adapters: [VideoGenerationAdapter]
 
     init(adapters: [VideoGenerationAdapter]? = nil) {
-        self.adapters = adapters ?? [OfficialMLXAudioAdapter(), DerivedModelAdapter(), LTX2MLXAdapter()]
+        self.adapters = adapters ?? [
+            OfficialMLXAudioAdapter(),
+            DerivedModelAdapter(),
+            LTX2MLXAdapter(),
+            MiniMaxH3Adapter(),
+        ]
     }
 
     func register(_ adapter: VideoGenerationAdapter) {

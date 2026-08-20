@@ -44,7 +44,10 @@ struct PreferencesView: View {
     @State private var showResetConfirm = false
 
     private var selectedModel: LTXModel {
-        LTXModelCatalog.resolvedModel(id: selectedModelID)
+        if case .runnable(let runnable) = GenerationModelResolver.resolve(modelID: selectedModelID) {
+            return runnable.model
+        }
+        return LTXModelCatalog.defaultModel
     }
 
     private var selectedTextEncoder: LTXTextEncoder {
@@ -263,8 +266,8 @@ struct PreferencesView: View {
                 
                 Section("Model") {
                     Picker("Model", selection: $selectedModelID) {
-                        ForEach(LTXModelCatalog.all) { model in
-                            Text("\(model.displayName) (\(model.downloadSize))").tag(model.id)
+                        ForEach(ModelRegistry.shared.selectableModels()) { model in
+                            Text(model.displayName).tag(model.id)
                         }
                     }
                     .pickerStyle(.menu)
@@ -275,10 +278,17 @@ struct PreferencesView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(selectedModel.displayName)
                                 .font(.caption.bold())
-                            BilingualSettingDescription(
-                                english: "Uses \(selectedModel.repo) (\(selectedModel.downloadSize) download). Model cached in ~/.cache/huggingface/",
-                                japanese: "\(selectedModel.repo)を使用します（ダウンロード容量: \(selectedModel.downloadSize)）。Modelは~/.cache/huggingface/に保存されます。"
-                            )
+                            if selectedModelID == MiniMaxH3Configuration.modelID {
+                                BilingualSettingDescription(
+                                    english: "Uses the separately configured local mlx-serve runtime and H3 model directory. No model is downloaded by this selection.",
+                                    japanese: "個別設定したローカルmlx-serveランタイムとH3モデルフォルダを使用します。この選択によるモデルの自動ダウンロードはありません。"
+                                )
+                            } else {
+                                BilingualSettingDescription(
+                                    english: "Uses \(selectedModel.repo) (\(selectedModel.downloadSize) download). Model cached in ~/.cache/huggingface/",
+                                    japanese: "\(selectedModel.repo)を使用します（ダウンロード容量: \(selectedModel.downloadSize)）。Modelは~/.cache/huggingface/に保存されます。"
+                                )
+                            }
                         }
                     }
                     .padding(.vertical, 4)
@@ -299,41 +309,61 @@ struct PreferencesView: View {
                         CustomLTX2MLXRuntimeSection(executablePath: $ltx2mlxExecutablePath)
                     }
 
-                    Picker("Text Encoder", selection: $selectedTextEncoderID) {
-                        ForEach(LTXTextEncoderCatalog.all) { textEncoder in
-                            Text("\(textEncoder.displayName) (\(textEncoder.downloadSize))").tag(textEncoder.id)
-                        }
-                    }
-                    .pickerStyle(.menu)
-
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "textformat.abc")
-                            .foregroundStyle(.blue)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(selectedTextEncoder.displayName)
-                                .font(.caption.bold())
+                    if selectedModelID == MiniMaxH3Configuration.modelID {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "textformat.abc")
+                                .foregroundStyle(.secondary)
                             BilingualSettingDescription(
-                                english: "Uses \(selectedTextEncoder.repo) for generation prompt encoding.",
-                                japanese: "生成プロンプトのエンコードに\(selectedTextEncoder.repo)を使用します。"
+                                english: "MiniMax H3 uses the text encoder bundled in its separately configured model pack. The LTX Text Encoder setting is not used.",
+                                japanese: "MiniMax H3は個別設定したmodel pack内蔵のtext encoderを使用します。LTX Text Encoder設定は使用されません。"
                             )
-                            if let tips = selectedTextEncoder.tips,
-                               let japaneseTips = selectedTextEncoderJapaneseTips {
-                                BilingualSettingDescription(
-                                    english: tips,
-                                    japanese: japaneseTips
-                                )
+                        }
+                        .padding(.vertical, 4)
+                    } else {
+                        Picker("LTX Text Encoder", selection: $selectedTextEncoderID) {
+                            ForEach(LTXTextEncoderCatalog.all) { textEncoder in
+                                Text("\(textEncoder.displayName) (\(textEncoder.downloadSize))").tag(textEncoder.id)
                             }
                         }
-                    }
-                    .padding(.vertical, 4)
-
-                    if let qualityWarning = selectedTextEncoder.qualityWarning {
                         HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                            Text(qualityWarning)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            Image(systemName: "textformat.abc")
+                                .foregroundStyle(.blue)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(selectedTextEncoder.displayName)
+                                    .font(.caption.bold())
+                                BilingualSettingDescription(
+                                    english: "Uses \(selectedTextEncoder.repo) for generation prompt encoding.",
+                                    japanese: "生成プロンプトのエンコードに\(selectedTextEncoder.repo)を使用します。"
+                                )
+                                if let tips = selectedTextEncoder.tips,
+                                   let japaneseTips = selectedTextEncoderJapaneseTips {
+                                    BilingualSettingDescription(english: tips, japanese: japaneseTips)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+
+                        if let qualityWarning = selectedTextEncoder.qualityWarning {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                Text(qualityWarning)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        if selectedTextEncoderID == "custom" {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Custom text encoder repo (Hugging Face id)")
+                                    .font(.caption.bold())
+                                TextField("e.g. mlx-community/gemma-3-12b-it-4bit", text: $customTextEncoderRepo)
+                                    .textFieldStyle(.roundedBorder)
+                                BilingualSettingDescription(
+                                    english: "The app does not download weights until you run a generation. Use any MLX-compatible Gemma repo your Python environment supports.",
+                                    japanese: "生成を実行するまでweightsはダウンロードされません。現在のPython環境が対応するMLX互換Gemma repoを指定してください。"
+                                )
+                            }
                         }
                     }
 
@@ -348,25 +378,12 @@ struct PreferencesView: View {
                         Image(systemName: "info.circle")
                             .foregroundStyle(.secondary)
                         BilingualSettingDescription(
-                            english: "Applies only to the official LTX-2.3 / LTX-2 Unified models above. A custom LTX-2 MLX profile (including LTX-2.5) uses its own text encoder, resolved by the ltx-2-mlx runtime itself — this setting has no effect on it.",
-                            japanese: "この設定は上記の公式LTX-2.3 / LTX-2 Unifiedモデルにのみ適用されます。カスタムLTX-2 MLXプロファイル（LTX-2.5を含む）は独自のText Encoderをltx-2-mlxランタイム自身が解決するため、この設定は影響しません。"
+                            english: "Applies only to official LTX-2.3 / LTX-2 Unified models. LTX-2.5/custom profiles and MiniMax H3 resolve text internally; this setting has no effect on them.",
+                            japanese: "公式LTX-2.3 / LTX-2 Unifiedモデルにのみ適用されます。LTX-2.5・カスタムプロファイル・MiniMax H3は内部でテキスト処理を解決するため、この設定は影響しません。"
                         )
                     }
                     .padding(.vertical, 2)
 
-                    if selectedTextEncoderID == "custom" {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Custom text encoder repo (Hugging Face id)")
-                                .font(.caption.bold())
-                            TextField("e.g. mlx-community/gemma-3-12b-it-4bit", text: $customTextEncoderRepo)
-                                .textFieldStyle(.roundedBorder)
-                            BilingualSettingDescription(
-                                english: "The app does not download weights until you run a generation. Use any MLX-compatible Gemma repo your Python environment supports.",
-                                japanese: "生成を実行するまでweightsはダウンロードされません。現在のPython環境が対応するMLX互換Gemma repoを指定してください。"
-                            )
-                        }
-                    }
-                    
                     Toggle("Auto-load model on startup", isOn: $autoLoadModel)
                 }
                 .onChange(of: selectedModelID) { _, _ in

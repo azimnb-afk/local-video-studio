@@ -96,11 +96,16 @@ struct RootView: View {
                 
                 guard !hasCheckedPython else { return }
                 hasCheckedPython = true
+
+                let usesMiniMaxH3 = GenerationModelResolver.backend(
+                    for: UserDefaults.standard.string(forKey: LTXModelCatalog.selectedModelIDKey)
+                ) == .minimaxH3
                 
                 await healthManager.refresh()
                 if !healthManager.canStartGeneration {
                     healthManager.showSetupWizard = true
-                } else if let savedPath = UserDefaults.standard.string(forKey: "pythonPath") {
+                } else if !usesMiniMaxH3,
+                          let savedPath = UserDefaults.standard.string(forKey: "pythonPath") {
                     let result = await PythonEnvironment.shared.validateWithSubprocess(path: savedPath, automaticInstallAndUpgrade: false)
                     if result.success, let details = result.details {
                         PythonEnvironment.shared.configureForPythonKit(details: details)

@@ -290,7 +290,9 @@ final class TakeGenerationCoordinator {
                 requestedWidth: params.width,
                 requestedHeight: params.height,
                 fps: params.fps,
-                requestedDuration: Double(params.numFrames) / Double(params.fps),
+                requestedDuration: settings.modelID == MiniMaxH3Configuration.modelID
+                    ? (targetDuration ?? Double(params.numFrames) / Double(params.fps))
+                    : Double(params.numFrames) / Double(params.fps),
                 targetDurationSeconds: targetDuration,
                 status: .queued,
                 startingImageReferenceAssetID: shot.startingImageReferenceAssetID,
@@ -409,7 +411,7 @@ final class TakeGenerationCoordinator {
         take.generationStartedAt = startedAt
         take.generationCompletedAt = nil
         take.generationTime = nil
-        take.generationRuntimeDiagnostics = GenerationRuntimeDiagnostics(
+        var runtime = GenerationRuntimeDiagnostics(
             status: .running,
             startedAt: startedAt,
             finishedAt: nil,
@@ -434,6 +436,9 @@ final class TakeGenerationCoordinator {
             outputExists: false,
             outputMetadataReadable: nil
         )
+        runtime.effectiveFrameCount = request.minimaxH3ExpectedFrames
+        runtime.effectiveChainWindows = request.minimaxH3ChainWindows
+        take.generationRuntimeDiagnostics = runtime
         project.shots[shotIndex].takes[takeIndex] = take
         for jobIndex in project.jobs.indices where project.jobs[jobIndex].takeID == takeID {
             project.jobs[jobIndex].state = .running
@@ -494,7 +499,7 @@ final class TakeGenerationCoordinator {
         if let mediaInfo {
             take.audioMetadata = mediaInfo
         }
-        take.generationRuntimeDiagnostics = GenerationRuntimeDiagnostics(
+        var runtime = GenerationRuntimeDiagnostics(
             status: .succeeded,
             startedAt: startedAt,
             finishedAt: finalizedAt,
@@ -519,6 +524,11 @@ final class TakeGenerationCoordinator {
             outputExists: outputExists,
             outputMetadataReadable: actualMetadataWasRead
         )
+        runtime.effectiveFrameCount = result.effectiveFrameCount
+            ?? previousRuntime?.effectiveFrameCount
+        runtime.effectiveChainWindows = result.effectiveChainWindows
+            ?? previousRuntime?.effectiveChainWindows
+        take.generationRuntimeDiagnostics = runtime
         project.shots[shotIndex].takes[takeIndex] = take
         for jobIndex in project.jobs.indices where project.jobs[jobIndex].takeID == takeID {
             project.jobs[jobIndex].state = .completed
@@ -579,7 +589,7 @@ final class TakeGenerationCoordinator {
         take.generationStartedAt = startedAt
         take.generationCompletedAt = finalizedAt
         take.generationTime = elapsed
-        take.generationRuntimeDiagnostics = GenerationRuntimeDiagnostics(
+        var runtime = GenerationRuntimeDiagnostics(
             status: .failed,
             startedAt: startedAt,
             finishedAt: finalizedAt,
@@ -604,6 +614,11 @@ final class TakeGenerationCoordinator {
             outputExists: outputExists,
             outputMetadataReadable: outputExists ? mediaInfo != nil : false
         )
+        runtime.effectiveFrameCount = previousRuntime?.effectiveFrameCount
+            ?? request.minimaxH3ExpectedFrames
+        runtime.effectiveChainWindows = previousRuntime?.effectiveChainWindows
+            ?? request.minimaxH3ChainWindows
+        take.generationRuntimeDiagnostics = runtime
         project.shots[shotIndex].takes[takeIndex] = take
         for jobIndex in project.jobs.indices where project.jobs[jobIndex].takeID == takeID {
             project.jobs[jobIndex].state = .failed

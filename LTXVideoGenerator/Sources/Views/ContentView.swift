@@ -308,6 +308,23 @@ private struct OneShotView: View {
     private var preset: GenerationPreset { GenerationPreset(rawValue: presetRaw) ?? .standard }
 
     private var resolutionSummary: String {
+        if modelID == MiniMaxH3Configuration.modelID {
+            let request = GenerationRequest(
+                prompt: brief,
+                sourceImagePath: storedStartingImagePath.isEmpty ? nil : storedStartingImagePath,
+                disableAudio: !audioEnabled,
+                modelId: modelID,
+                textEncoderId: textEncoderID,
+                parameters: parameters,
+                qualityMode: preset.qualityMode.rawValue,
+                preset: preset.rawValue,
+                targetDurationSeconds: targetDuration,
+                generationSource: "oneShot")
+            if let resolved = try? MiniMaxH3DurationPolicy.applying(to: request) {
+                return "Experimental H3 · Effective 512×288 · 8 steps · chain \(resolved.minimaxH3ChainWindows ?? 1) · \(resolved.minimaxH3ExpectedFrames ?? resolved.parameters.numFrames) frames"
+            }
+            return "Experimental H3 · Supported duration: up to \(String(format: "%.2f", MiniMaxH3DurationPolicy.maximumDurationSeconds))s"
+        }
         guard preset != .custom else {
             return "Custom: \(parameters.width)×\(parameters.height), \(parameters.numFrames) frames, \(parameters.fps) fps, \(parameters.numInferenceSteps) steps"
         }
@@ -354,15 +371,20 @@ private struct OneShotView: View {
                     )
                 startingImageSection
                 HStack(spacing: 16) {
-                    Picker("Preset", selection: $presetRaw) {
-                        ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
+                    if modelID != MiniMaxH3Configuration.modelID {
+                        Picker("Preset", selection: $presetRaw) {
+                            ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
+                        }
                     }
                     Picker("Model", selection: $modelID) {
                         ForEach(ModelRegistry.shared.selectableModels()) { Text($0.displayName).tag($0.id) }
                     }
                     HStack {
                         Text("Target Duration")
-                        Stepper("\(targetDuration, specifier: "%.0f")s", value: $targetDuration, in: 1...10)
+                        Stepper(
+                            "\(targetDuration, specifier: "%.0f")s",
+                            value: $targetDuration,
+                            in: 1...(modelID == MiniMaxH3Configuration.modelID ? 9 : 10))
                     }
                     Toggle("Audio", isOn: $audioEnabled)
                     Spacer()
@@ -407,6 +429,9 @@ private struct OneShotView: View {
         }
         .onChange(of: audioEnabled) { old, new in
             if old != new { presetRaw = GenerationPreset.custom.rawValue }
+        }
+        .onChange(of: modelID) { _, _ in
+            Task { await DependencyHealthManager.shared.refresh() }
         }
         .onAppear(perform: refreshStartingImage)
     }
@@ -601,6 +626,10 @@ struct ModelStatusView: View {
             generationServiceLoaded: generationService.isModelLoaded
         )
     }
+
+    private var usesPersistentH3Server: Bool {
+        selectedModelID == MiniMaxH3Configuration.modelID
+    }
     
     var body: some View {
         VStack(spacing: 8) {
@@ -628,7 +657,7 @@ struct ModelStatusView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                if !displayInfo.isCustom {
+                if !displayInfo.isCustom && !usesPersistentH3Server {
                     if !generationService.isModelLoaded {
                         Button("Load") {
                             Task { await generationService.loadModel() }
@@ -645,7 +674,8 @@ struct ModelStatusView: View {
                 }
             }
 
-            if !displayInfo.isCustom && generationService.isModelLoaded {
+            if !displayInfo.isCustom && !usesPersistentH3Server
+                && generationService.isModelLoaded {
                 Text("Model files are downloaded on first generation if cache is missing.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
@@ -768,6 +798,7 @@ struct GenerateView: View {
     @Binding var parameters: GenerationParameters
     var onSubmissionQueued: () -> Void = {}
     @AppStorage("generationPreset") private var presetRaw = GenerationPreset.standard.rawValue
+    @AppStorage(LTXModelCatalog.selectedModelIDKey) private var selectedModelID = LTXModelCatalog.defaultModelID
     
     var body: some View {
         VStack(spacing: 0) {
@@ -810,7 +841,9 @@ struct GenerateView: View {
     
     private var parametersPanel: some View {
         Group {
-            if presetRaw == GenerationPreset.custom.rawValue {
+            if selectedModelID == MiniMaxH3Configuration.modelID {
+                miniMaxH3ParametersPanel
+            } else if presetRaw == GenerationPreset.custom.rawValue {
                 ParametersView(parameters: $parameters)
             } else {
                 VStack(alignment: .leading, spacing: 12) {
@@ -830,6 +863,54 @@ struct GenerateView: View {
         }
         .frame(width: 300)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var miniMaxH3ParametersPanel: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("MiniMax H3 (Experimental)", systemImage: "film.stack")
+                .font(.headline)
+            Text("Fixed MVP execution: 512×288 · 24 fps · 8 steps. Duration maps deterministically to the proven frame/chain ladder.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Divider()
+            Stepper(
+                "Requested Duration: \(Double(parameters.numFrames) / 24.0, specifier: "%.1f")s",
+                value: Binding(
+                    get: { Double(parameters.numFrames) / 24.0 },
+                    set: { parameters.numFrames = max(1, Int(($0 * 24.0).rounded())) }
+                ),
+                in: 1.0...9.5,
+                step: 0.5)
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Seed", systemImage: "dice")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    TextField("Random", value: $parameters.seed, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                    Button {
+                        parameters.seed = Int.random(in: 0..<Int(Int32.max))
+                    } label: {
+                        Image(systemName: "dice.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    if parameters.seed != nil {
+                        Button {
+                            parameters.seed = nil
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
+            Text("Unsupported LTX controls are intentionally hidden. Actual returned frames, duration, resolution, and audio state are recorded in Video Archive.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding()
     }
 }
 

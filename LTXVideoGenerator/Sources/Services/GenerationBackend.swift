@@ -13,11 +13,14 @@ enum GenerationBackendKind: String, Codable, Equatable, CaseIterable {
     case mlxVideoWithAudio
     /// Pure-MLX LTX-2 port (github.com/dgrauet/ltx-2-mlx). Runs custom MLX models.
     case ltx2MLX
+    /// Local mlx-serve HTTP runtime for the MiniMax H3 FL2VA model pack.
+    case minimaxH3
 
     var displayName: String {
         switch self {
         case .mlxVideoWithAudio: return "mlx-video-with-audio"
         case .ltx2MLX: return "ltx-2-mlx"
+        case .minimaxH3: return "MiniMax H3 / mlx-serve"
         }
     }
 }

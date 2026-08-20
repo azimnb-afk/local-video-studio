@@ -96,6 +96,22 @@ public class DefaultModelChecker: ModelChecking {
         guard let model = ModelRegistry.shared.descriptor(id: modelID) else {
             return .invalid("Selected model '\(modelID)' is not registered.")
         }
+
+        if modelID == MiniMaxH3Configuration.modelID {
+            let status = await MiniMaxH3RuntimeManager.shared.status(
+                snapshot: .current(userDefaults: .standard))
+            UserDefaults.standard.set(
+                status.state.rawValue,
+                forKey: MiniMaxH3Configuration.lastReadinessStateKey)
+            UserDefaults.standard.set(
+                status.detail,
+                forKey: MiniMaxH3Configuration.lastReadinessDetailKey)
+            switch status.state {
+            case .ready: return .ready
+            case .notConfigured, .notRunning, .starting: return .missing(status.detail)
+            case .wrongModel, .broken: return .invalid(status.detail)
+            }
+        }
         
         if model.runtime.backend == "ltx-2-mlx" {
             let readiness = LTX2MLXRuntime.modelReadiness(repository: model.repository)
@@ -114,6 +130,11 @@ public class DefaultModelChecker: ModelChecking {
     }
     
     public func checkTextEncoder() async -> SetupStatus {
+        let modelID = UserDefaults.standard.string(forKey: LTXModelCatalog.selectedModelIDKey)
+            ?? LTXModelCatalog.defaultModelID
+        if modelID == MiniMaxH3Configuration.modelID {
+            return .ready
+        }
         let encoderID = UserDefaults.standard.string(forKey: LTXTextEncoderCatalog.selectedTextEncoderIDKey) ?? LTXTextEncoderCatalog.defaultTextEncoderID
         let encoder = LTXTextEncoderCatalog.resolvedTextEncoder(id: encoderID)
         

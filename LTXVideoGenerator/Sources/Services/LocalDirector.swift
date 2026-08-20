@@ -178,14 +178,23 @@ final class LocalDirector {
         // Strict English renderer action validation gate
         try RenderLanguageValidator.validateRendererAction(plan.action)
 
-        let compiled = PromptCompiler.compile(
-            plan: plan,
-            options: PromptCompiler.Options(
+        let compiled: String
+        if base.modelId == MiniMaxH3Configuration.modelID {
+            compiled = MiniMaxH3PromptCompiler.compile(
+                plan: plan,
                 isImageToVideo: base.isImageToVideo,
                 japaneseHandling: japaneseHandling,
-                perShotAudioPolicy: .naturalProductionSoundNoMusic
+                perShotAudioPolicy: .naturalProductionSoundNoMusic)
+        } else {
+            compiled = PromptCompiler.compile(
+                plan: plan,
+                options: PromptCompiler.Options(
+                    isImageToVideo: base.isImageToVideo,
+                    japaneseHandling: japaneseHandling,
+                    perShotAudioPolicy: .naturalProductionSoundNoMusic
+                )
             )
-        )
+        }
         var params = base.parameters
         let customParameters = GenerationPreset.resolving(
             presetRaw: base.preset,
@@ -223,6 +232,12 @@ final class LocalDirector {
             customModelsEnabled: base.customModelsEnabled,
             customModelLocalPath: base.customModelLocalPath,
             customModelSourceMode: base.customModelSourceMode,
+            minimaxH3ModelDirectory: base.minimaxH3ModelDirectory,
+            minimaxH3RuntimeExecutablePath: base.minimaxH3RuntimeExecutablePath,
+            minimaxH3Endpoint: base.minimaxH3Endpoint,
+            minimaxH3ChainWindows: base.minimaxH3ChainWindows,
+            minimaxH3ExpectedFrames: base.minimaxH3ExpectedFrames,
+            minimaxH3RequestedDurationSeconds: base.minimaxH3RequestedDurationSeconds,
             filmProjectID: base.filmProjectID,
             shotID: base.shotID,
             takeID: base.takeID

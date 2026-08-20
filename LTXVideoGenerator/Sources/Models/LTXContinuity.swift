@@ -220,6 +220,10 @@ struct GenerationRuntimeDiagnostics: Codable, Equatable {
     var outputFilename: String?
     var outputExists: Bool
     var outputMetadataReadable: Bool?
+    /// Renderer-specific effective timing. Optional for every legacy Take and
+    /// every backend that does not use chained windows.
+    var effectiveFrameCount: Int? = nil
+    var effectiveChainWindows: Int? = nil
 }
 
 /// Pure helpers shared by the runtime recorder and its tests. They deliberately
@@ -241,6 +245,7 @@ enum GenerationRuntimeFailureClassifier {
     static func stage(for error: Error) -> GenerationFailureStage {
         let message = error.localizedDescription.lowercased()
         if message.contains("unable to prepare the starting image")
+            || message.contains("could not prepare the starting image")
             || message.contains("source image preparation") {
             return .sourcePreparation
         }

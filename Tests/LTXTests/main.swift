@@ -1,6 +1,23 @@
 import Foundation
 @testable import LTXVideoGeneratorCore
 
+// Real MiniMax H3 acceptance through the production service/registry/adapter
+// path. All evidence is isolated under /tmp; no Personal or Dev app data.
+//   swift run LTXTests --h3-acceptance normal
+//   swift run LTXTests --h3-acceptance i2v /absolute/source.png
+//   swift run LTXTests --h3-acceptance oneshot
+//   swift run LTXTests --h3-acceptance automovie /absolute/source.png
+//   swift run LTXTests --h3-acceptance long /absolute/source.png
+if CommandLine.arguments.count >= 3,
+   CommandLine.arguments[1] == "--h3-acceptance" {
+    let mode = CommandLine.arguments[2]
+    let source = CommandLine.arguments.count >= 4 ? CommandLine.arguments[3] : nil
+    Task { @MainActor in
+        exit(await MiniMaxH3AcceptanceHarness.run(mode: mode, sourceImagePath: source))
+    }
+    RunLoop.main.run()
+}
+
 // CLI probe for real local Director model
 //   swift run LTXTests --probe-director-model <model-name>
 if CommandLine.arguments.count == 3,
@@ -1556,6 +1573,7 @@ runCharacterAnchorExtractionTests(t)
 runLTX25ModelSupportTests(t)
 runCustomModelProfileTests(t)
 runLTX2MLXRuntimeManagerTests(t)
+runMiniMaxH3Tests(t)
 runShotPlanValidatorTests(t)
 runQualityHardeningTests(t)
 if CommandLine.arguments.contains("--probe-director-cancellation-acceptance") {

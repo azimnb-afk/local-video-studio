@@ -46,7 +46,7 @@ public enum SetupRequirement: String, CaseIterable, Hashable {
         switch self {
         case .python: return "Python Environment"
         case .ffmpeg: return "FFmpeg"
-        case .videoModel: return "LTX Video Model"
+        case .videoModel: return "Video Model"
         case .textEncoder: return "Text Encoder"
         case .localDirector: return "Local Director (Ollama)"
         case .vision: return "Character Sheet Analysis"
@@ -131,12 +131,20 @@ public class DependencyHealthManager: ObservableObject {
     
     public func refresh() async {
         isChecking = true
+
+        let usesH3 = GenerationModelResolver.backend(
+            for: UserDefaults.standard.string(forKey: LTXModelCatalog.selectedModelIDKey)
+        ) == .minimaxH3
         
         // Timeout each task to 10 seconds to avoid permanent spinners
-        async let pythonTask = runWithTimeout(seconds: 15) { await self.pythonChecker.check() } ?? .invalid("Python check timed out")
+        async let pythonTask = usesH3
+            ? SetupStatus.ready
+            : (runWithTimeout(seconds: 15) { await self.pythonChecker.check() } ?? .invalid("Python check timed out"))
         async let ffmpegTask = runWithTimeout(seconds: 5) { await self.ffmpegChecker.check() } ?? .invalid("FFmpeg check timed out")
         async let videoModelTask = runWithTimeout(seconds: 5) { await self.modelChecker.checkVideoModel() } ?? .invalid("Model check timed out")
-        async let textEncoderTask = runWithTimeout(seconds: 5) { await self.modelChecker.checkTextEncoder() } ?? .invalid("Encoder check timed out")
+        async let textEncoderTask = usesH3
+            ? SetupStatus.ready
+            : (runWithTimeout(seconds: 5) { await self.modelChecker.checkTextEncoder() } ?? .invalid("Encoder check timed out"))
         async let directorTask = runWithTimeout(seconds: 5) { await self.optionalServiceChecker.checkLocalDirector() } ?? .missing("Ollama check timed out")
         async let visionTask = runWithTimeout(seconds: 5) { await self.optionalServiceChecker.checkVision() } ?? .missing("Vision check timed out")
         

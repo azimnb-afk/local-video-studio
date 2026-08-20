@@ -132,6 +132,9 @@
 		AA00031A /* PromptSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00031B; };
 		AA000322 /* CustomModelProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000323; };
 		AA000324 /* LTX2MLXRuntimeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000325; };
+		AA000326 /* MiniMaxH3Runtime.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000327; };
+		AA000328 /* MiniMaxH3Policy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000329; };
+		AA00032A /* MiniMaxH3Backend.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00032B; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -259,6 +262,9 @@
 		AA00031B /* PromptSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptSanitizer.swift; sourceTree = "<group>"; };
 		AA000323 /* CustomModelProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomModelProfile.swift; sourceTree = "<group>"; };
 		AA000325 /* LTX2MLXRuntimeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LTX2MLXRuntimeManager.swift; sourceTree = "<group>"; };
+		AA000327 /* MiniMaxH3Runtime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniMaxH3Runtime.swift; sourceTree = "<group>"; };
+		AA000329 /* MiniMaxH3Policy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniMaxH3Policy.swift; sourceTree = "<group>"; };
+		AA00032B /* MiniMaxH3Backend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniMaxH3Backend.swift; sourceTree = "<group>"; };
 		AA000030 /* LTXVideoGenerator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LTXVideoGenerator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -422,6 +428,9 @@
 				AA000255 /* FFmpegDetector.swift */,
 				AA000315 /* ActiveModelDisplayResolver.swift */,
 				AA000325 /* LTX2MLXRuntimeManager.swift */,
+				AA000327 /* MiniMaxH3Runtime.swift */,
+				AA000329 /* MiniMaxH3Policy.swift */,
+				AA00032B /* MiniMaxH3Backend.swift */,
 				AA000317 /* RenderLanguageValidator.swift */,
 				AA000319 /* RenderTextNormalizer.swift */,
 				AA00031B /* PromptSanitizer.swift */,
@@ -651,6 +660,9 @@
 				AA00031A /* PromptSanitizer.swift in Sources */,
 				AA000322 /* CustomModelProfile.swift in Sources */,
 				AA000324 /* LTX2MLXRuntimeManager.swift in Sources */,
+				AA000326 /* MiniMaxH3Runtime.swift in Sources */,
+				AA000328 /* MiniMaxH3Policy.swift in Sources */,
+				AA00032A /* MiniMaxH3Backend.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

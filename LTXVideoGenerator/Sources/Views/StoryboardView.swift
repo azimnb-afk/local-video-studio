@@ -381,7 +381,8 @@ private struct NewStoryboardSheet: View {
     @State private var title = ""
     @State private var brief = ""
     @State private var presetRaw = GenerationPreset.standard.rawValue
-    @State private var modelID = LTXModelCatalog.selectedModel().id
+    @State private var modelID = UserDefaults.standard.string(
+        forKey: LTXModelCatalog.selectedModelIDKey) ?? LTXModelCatalog.defaultModelID
     @State private var audioEnabled = true
     @State private var targetDuration = 20.0
     @State private var generateFirstPass = true
@@ -427,8 +428,14 @@ private struct NewStoryboardSheet: View {
                 generationActive: generationService.isProcessing || isCreating
             )
             HStack {
-                Picker("Preset", selection: $presetRaw) {
-                    ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
+                if modelID != MiniMaxH3Configuration.modelID {
+                    Picker("Preset", selection: $presetRaw) {
+                        ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
+                    }
+                } else {
+                    Text("H3 fixed MVP · 512×288 · 24 fps · 8 steps")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 Picker("Model", selection: $modelID) {
                     ForEach(ModelRegistry.shared.selectableModels()) { Text($0.displayName).tag($0.id) }
@@ -441,7 +448,7 @@ private struct NewStoryboardSheet: View {
                         // default here would silently turn a portrait Opening
                         // Reference into a landscape movie, which is exactly what
                         // the user did not ask for by touching the Audio toggle.
-                        if old != new {
+                        if old != new && modelID != MiniMaxH3Configuration.modelID {
                             seedCustomDimensionsFromCurrentPreset()
                             presetRaw = GenerationPreset.custom.rawValue
                         }
@@ -458,7 +465,8 @@ private struct NewStoryboardSheet: View {
                 // canvas, as long as the user has not picked a size themselves.
                 if presetRaw == GenerationPreset.custom.rawValue { reseedCustomDimensions() }
             }
-            if presetRaw == GenerationPreset.custom.rawValue {
+            if presetRaw == GenerationPreset.custom.rawValue
+                && modelID != MiniMaxH3Configuration.modelID {
                 HStack {
                     Picker("Width", selection: $width) {
                         ForEach([320, 512, 640, 768, 896, 1024], id: \.self) { Text("\($0)").tag($0) }
@@ -955,15 +963,17 @@ private struct ProjectSettingsEditor: View {
         DisclosureGroup("Project Settings", isExpanded: $expanded) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 16) {
-                    Picker("Preset", selection: binding(
-                        get: { project.settings.resolvedPreset.rawValue },
-                        set: { raw, settings in
-                            let next = GenerationPreset(rawValue: raw) ?? .standard
-                            seedCustomDimensionsIfEnteringCustom(next: next, settings: &settings)
-                            settings.applyPreset(next)
+                    if project.settings.modelID != MiniMaxH3Configuration.modelID {
+                        Picker("Preset", selection: binding(
+                            get: { project.settings.resolvedPreset.rawValue },
+                            set: { raw, settings in
+                                let next = GenerationPreset(rawValue: raw) ?? .standard
+                                seedCustomDimensionsIfEnteringCustom(next: next, settings: &settings)
+                                settings.applyPreset(next)
+                            }
+                        )) {
+                            ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
                         }
-                    )) {
-                        ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
                     }
                     Picker("Model", selection: binding(
                         get: { project.settings.modelID },
@@ -978,18 +988,23 @@ private struct ProjectSettingsEditor: View {
                             // an explicit choice, so the oriented size has to be
                             // materialized first — otherwise toggling Audio on a
                             // portrait project silently rewrites it to landscape.
-                            seedCustomDimensionsIfEnteringCustom(next: .custom, settings: &settings)
                             settings.audioEnabled = value
-                            settings.markCustom()
+                            if settings.modelID != MiniMaxH3Configuration.modelID {
+                                seedCustomDimensionsIfEnteringCustom(next: .custom, settings: &settings)
+                                settings.markCustom()
+                            }
                         }
                     ))
                     Spacer()
                 }
-                Text(project.settings.resolvedPreset.summary)
+                Text(project.settings.modelID == MiniMaxH3Configuration.modelID
+                     ? "Experimental H3 uses its fixed renderer-specific timing and resolution policy."
+                     : project.settings.resolvedPreset.summary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                if project.settings.resolvedPreset == .custom {
+                if project.settings.resolvedPreset == .custom
+                    && project.settings.modelID != MiniMaxH3Configuration.modelID {
                     HStack(spacing: 12) {
                         Picker("Width", selection: customBinding(\.width)) {
                             ForEach([320, 512, 640, 768, 896, 1024], id: \.self) { Text("\($0)").tag($0) }
@@ -1015,6 +1030,9 @@ private struct ProjectSettingsEditor: View {
 
     private var resolutionSummary: String {
         let settings = project.settings
+        if settings.modelID == MiniMaxH3Configuration.modelID {
+            return "H3 Effective 512×288 · 24 fps · 8 steps · up to \(String(format: "%.2f", MiniMaxH3DurationPolicy.maximumDurationSeconds))s per shot → Actual shown per completed Take"
+        }
         if settings.resolvedPreset == .custom {
             let effectiveWidth = (settings.width / 64) * 64
             let effectiveHeight = (settings.height / 64) * 64
@@ -2585,6 +2603,13 @@ private struct TakeRow: View {
                         }
                         if let videoFacts = runtimeVideoFacts(runtime) {
                             Text("Video: \(videoFacts)")
+                        }
+                        if let frames = runtime.effectiveFrameCount {
+                            let chain = runtime.effectiveChainWindows.map { " · chain \($0)" } ?? ""
+                            Text("H3 effective timing: \(frames) frames\(chain)")
+                        }
+                        if let backendKind = runtime.backendKind {
+                            Text("Renderer: \(GenerationBackendKind(rawValue: backendKind)?.displayName ?? backendKind)")
                         }
                         Text("Backend: \(runtime.backendResult.displayName)\(runtime.backendExitCode.map { " · exit \($0)" } ?? "")")
                         if let stage = runtime.failureStage {

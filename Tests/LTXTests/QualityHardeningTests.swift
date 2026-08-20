@@ -135,4 +135,33 @@ func runQualityHardeningTests(_ t: TestKit) {
         t.checkEqual(afterOutfit?.characterOutfit["Elena"], "red leather jacket",
                      "G: a known compound key (outfit:) still applies exactly as before")
     }
+
+    t.suite("Quality hardening H — Process.terminationReason distinguishes signal kills") {
+        // Confirms the Foundation API LTX2MLXBackend's improved error message
+        // now relies on: a process killed by an uncaught signal reports
+        // .uncaughtSignal with terminationStatus as the raw signal number —
+        // not the same shape as an ordinary non-zero exit. Verified directly
+        // against a real subprocess (no LTX runtime involved) so this proves
+        // the assumption itself, independent of any bundle-identity-gated
+        // model resolution.
+        let killed = Process()
+        killed.executableURL = URL(fileURLWithPath: "/bin/sh")
+        killed.arguments = ["-c", "kill -9 $$"]
+        try? killed.run()
+        killed.waitUntilExit()
+        t.checkEqual(killed.terminationReason, .uncaughtSignal,
+                     "H: a process killed by SIGKILL reports .uncaughtSignal")
+        t.checkEqual(killed.terminationStatus, 9,
+                     "H: terminationStatus is the raw signal number (9), not 128+9, for .uncaughtSignal")
+
+        let normalExit = Process()
+        normalExit.executableURL = URL(fileURLWithPath: "/bin/sh")
+        normalExit.arguments = ["-c", "exit 9"]
+        try? normalExit.run()
+        normalExit.waitUntilExit()
+        t.checkEqual(normalExit.terminationReason, .exit,
+                     "H: an ordinary `exit 9` reports .exit, not .uncaughtSignal")
+        t.checkEqual(normalExit.terminationStatus, 9,
+                     "H: same terminationStatus (9) as the signal case — .terminationReason is the only way to tell them apart")
+    }
 }

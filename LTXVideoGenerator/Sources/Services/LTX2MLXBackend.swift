@@ -239,10 +239,25 @@ struct LTX2MLXBackend {
                     lock.lock()
                     let detail = tail.suffix(12).joined(separator: "\n")
                     lock.unlock()
-                    continuation.resume(throwing: LTXError.generationFailed(
-                        "\(GenerationBackendKind.ltx2MLX.displayName) exited with code "
-                        + "\(finished.terminationStatus).\n\(detail)"
-                    ))
+                    // .uncaughtSignal means the OS killed the process — the
+                    // reported terminationStatus is the raw signal number
+                    // (confirmed via a direct reproduction: signal 9/SIGKILL,
+                    // consistent with a memory/swap exhaustion kill, not the
+                    // tool's own Python exit code). Distinguishing this from
+                    // an ordinary non-zero exit is worth a clearer message;
+                    // it is not evidence of an application bug on its own.
+                    let message: String
+                    if finished.terminationReason == .uncaughtSignal {
+                        message = "\(GenerationBackendKind.ltx2MLX.displayName) was terminated by the "
+                            + "system (signal \(finished.terminationStatus)). This commonly indicates "
+                            + "memory or swap pressure — try a lower resolution/frame count, close other "
+                            + "memory-heavy apps, or free up disk space (swap capacity is disk-backed)."
+                            + "\n\(detail)"
+                    } else {
+                        message = "\(GenerationBackendKind.ltx2MLX.displayName) exited with code "
+                            + "\(finished.terminationStatus).\n\(detail)"
+                    }
+                    continuation.resume(throwing: LTXError.generationFailed(message))
                 }
             }
 

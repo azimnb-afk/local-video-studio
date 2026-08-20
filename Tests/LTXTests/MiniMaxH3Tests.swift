@@ -149,13 +149,14 @@ func runMiniMaxH3Tests(_ t: TestKit) {
 
         transport.healthObject = ["status": "bad"]
         status = h3Await { await manager.status(snapshot: snapshot, transport: transport) }
-        t.checkEqual(status.state, .broken, "unhealthy server fails closed")
+        t.checkEqual(status.state, .failed, "unhealthy server fails closed")
 
         let args = MiniMaxH3RuntimeManager.serverArguments(modelDirectory: "/model", port: 11235)
         t.check(args.contains("127.0.0.1"), "app-owned server binds explicit loopback")
         t.check(!args.contains("0.0.0.0"), "app-owned server never binds all interfaces")
         t.check(args.contains("/model"), "server launch receives model directory")
         t.check(args.contains("11235"), "server launch receives configured port")
+        t.check(args.contains("--skip-mem-preflight"), "accepted staged H3 model launch bypasses the generic aggregate preflight")
         manager.stopOwnedServer()
         transport.healthObject = ["status": "ok"]
         transport.modelEntries = [[
@@ -165,6 +166,83 @@ func runMiniMaxH3Tests(_ t: TestKit) {
         ]]
         status = h3Await { await manager.status(snapshot: snapshot, transport: transport) }
         t.checkEqual(status.ownership, .externallyRunning, "stopping app-owned state never claims or stops external server")
+    }
+
+    t.suite("MiniMax H3 Managed Runtime Installation") {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MiniMaxH3ManagedRuntimeTests-\(UUID().uuidString)", isDirectory: true)
+        let source = root.appendingPathComponent("source", isDirectory: true)
+        let managedRoot = root.appendingPathComponent("managed", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: source.appendingPathComponent("lib"), withIntermediateDirectories: true)
+
+        var executable = Data([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01])
+        executable.append(Data(repeating: 0, count: 64))
+        executable.append(Data("mlx-serve 26.8.9".utf8))
+        let executableURL = source.appendingPathComponent("mlx-serve")
+        try executable.write(to: executableURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
+        try Data("MIT License\nPermission is hereby granted, free of charge\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions".utf8)
+            .write(to: source.appendingPathComponent("LICENSE"))
+        try Data("mlx-serve\nthird-party software attributions".utf8)
+            .write(to: source.appendingPathComponent("NOTICE"))
+        try Data("Apache License\nVersion 2.0".utf8)
+            .write(to: source.appendingPathComponent("LICENSE-APACHE-2.0"))
+        for relative in [
+            "lib/libmlx.dylib", "lib/libmlxc.dylib", "lib/libllama.dylib",
+            "lib/libwebp.dylib", "lib/libsharpyuv.dylib", "lib/mlx.metallib",
+        ] {
+            try Data([1, 2, 3]).write(to: source.appendingPathComponent(relative))
+        }
+
+        let manager = MiniMaxH3ManagedRuntimeManager(runtimesDirectory: managedRoot)
+        t.checkEqual(manager.evaluateStatus(), .notInstalled, "fresh Dev-style runtime root starts Not Installed")
+        let inspected = try manager.inspectBundle(at: source)
+        t.checkEqual(inspected.runtimeVersion, "26.8.9", "runtime version is read from the native binary")
+        t.checkEqual(inspected.architecture, "arm64", "only the native arm64 bundle is accepted")
+        t.checkEqual(inspected.licenseClassification, .bundleAllowed, "complete MIT/NOTICE/Apache files classify BUNDLE_ALLOWED")
+
+        let installed = h3Await { try? await manager.install(from: source) }
+        t.check(installed != nil, "existing local runtime bundle installs without a download")
+        t.check(FileManager.default.fileExists(atPath: executableURL.path), "source runtime remains in place after managed install")
+        t.check(FileManager.default.fileExists(atPath: manager.managedExecutableURL.path), "managed executable copy exists")
+        t.check(FileManager.default.fileExists(atPath: manager.manifestURL.path), "managed runtime manifest exists")
+        if case .ready(let path, let manifest) = manager.evaluateStatus() {
+            t.checkEqual(path, manager.managedExecutableURL.path, "Ready resolves the canonical managed executable")
+            t.checkEqual(manifest.executableSHA256, inspected.executableSHA256, "manifest freezes executable integrity")
+            t.checkEqual(manifest.licenseClassification, .bundleAllowed, "manifest preserves license classification")
+        } else {
+            t.check(false, "verified managed runtime must evaluate Ready")
+        }
+
+        var tamperedExecutable = try Data(contentsOf: manager.managedExecutableURL)
+        tamperedExecutable.append(0xff)
+        try tamperedExecutable.write(to: manager.managedExecutableURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: manager.managedExecutableURL.path)
+        if case .broken(let reason) = manager.evaluateStatus() {
+            t.check(!reason.isEmpty, "post-install executable mutation is detected and explained")
+        } else {
+            t.check(false, "tampered managed executable must evaluate Broken")
+        }
+
+        let legacyRoot = root.appendingPathComponent("legacy", isDirectory: true)
+        let legacyManager = MiniMaxH3ManagedRuntimeManager(runtimesDirectory: legacyRoot)
+        try FileManager.default.createDirectory(
+            at: legacyManager.managedRuntimeDirectory, withIntermediateDirectories: true)
+        try executable.write(to: legacyManager.managedExecutableURL)
+        if case .updateRequired = legacyManager.evaluateStatus() {
+            t.check(true, "runtime without the verified manifest evaluates Update Required")
+        } else {
+            t.check(false, "legacy runtime without manifest must not be treated Ready")
+        }
+
+        t.checkEqual(
+            MiniMaxH3ManagedRuntimeManager.classifyLicense(
+                license: "unclassified", notice: "", apacheLicense: ""),
+            .unknown,
+            "ambiguous license material remains UNKNOWN")
     }
 
     t.suite("MiniMax H3 Duration / Frames") {

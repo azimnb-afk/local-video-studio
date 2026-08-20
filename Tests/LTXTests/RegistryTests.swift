@@ -133,6 +133,14 @@ func runRegistryTests(_ t: TestKit) {
         t.checkEqual(AppStorageDirectory.personalFolderName, "LocalVideoStudio", "personal folder name defined")
         t.checkEqual(AppStorageDirectory.devFolderName, "LocalVideoStudioDev", "dev folder name defined")
         t.check(!AppStorageDirectory.root.path.isEmpty, "AppStorageDirectory root is valid")
+        if let isolatedRoot = ProcessInfo.processInfo.environment[
+            AppStorageDirectory.testRootEnvironmentKey
+        ] {
+            t.checkEqual(
+                AppStorageDirectory.root.standardizedFileURL.path,
+                URL(fileURLWithPath: isolatedRoot).standardizedFileURL.path,
+                "bundle-less test executable uses the isolated storage override")
+        }
         t.check(!AppStorageDirectory.keychainService.isEmpty, "keychain service name is valid")
     }
 

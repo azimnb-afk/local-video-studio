@@ -109,7 +109,7 @@ public class DefaultModelChecker: ModelChecking {
             switch status.state {
             case .ready: return .ready
             case .notConfigured, .notRunning, .starting: return .missing(status.detail)
-            case .wrongModel, .broken: return .invalid(status.detail)
+            case .wrongModel, .failed, .broken: return .invalid(status.detail)
             }
         }
         

@@ -46,11 +46,11 @@ enum ActiveModelDisplayResolver {
             let status: String
             switch state {
             case .notConfigured: status = "Not Configured"
-            case .notRunning: status = "Not Running"
+            case .notRunning: status = "Stopped"
             case .starting: status = "Starting"
             case .ready: status = "Ready"
             case .wrongModel: status = "Wrong Model"
-            case .broken: status = "Broken"
+            case .failed, .broken: status = "Failed"
             }
             return DisplayInfo(
                 modelID: effectiveID,

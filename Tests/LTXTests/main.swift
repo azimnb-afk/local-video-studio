@@ -1,6 +1,70 @@
 import Foundation
 @testable import LTXVideoGeneratorCore
 
+// The SPM executable has no bundle ID and would otherwise resolve the
+// Personal profile. Isolate every CLI acceptance/unit-test singleton that
+// consults AppStorageDirectory (quality history, Director diagnostics, etc.).
+let ltxTestsStorageRoot = FileManager.default.temporaryDirectory
+    .appendingPathComponent(
+        "LTXTests-AppStorage-\(ProcessInfo.processInfo.processIdentifier)",
+        isDirectory: true)
+setenv(AppStorageDirectory.testRootEnvironmentKey, ltxTestsStorageRoot.path, 1)
+
+// Fresh Dev-profile managed-runtime acceptance. This intentionally requires
+// explicit existing local paths and performs no download:
+//   swift run LTXTests --h3-managed-acceptance <runtime-bundle> <model-dir> <source-image> [endpoint]
+if CommandLine.arguments.count >= 5,
+   CommandLine.arguments[1] == "--h3-managed-acceptance" {
+    let endpoint = CommandLine.arguments.count >= 6
+        ? CommandLine.arguments[5]
+        : "http://127.0.0.1:11236"
+    Task { @MainActor in
+        exit(await MiniMaxH3AcceptanceHarness.runManagedRuntimeAcceptance(
+            sourceBundlePath: CommandLine.arguments[2],
+            modelDirectory: CommandLine.arguments[3],
+            sourceImagePath: CommandLine.arguments[4],
+            endpoint: endpoint))
+    }
+    RunLoop.main.run()
+}
+
+// Starts the installed managed runtime once, performs the controlled chain=4
+// continuation and corrected Opening Reference Auto Movie, then stops only
+// that app-owned process:
+//   swift run LTXTests --h3-managed-stabilization-suite <model-dir> <take-a-last-frame> <opening-image>
+if CommandLine.arguments.count == 5,
+   CommandLine.arguments[1] == "--h3-managed-stabilization-suite" {
+    Task { @MainActor in
+        exit(await MiniMaxH3AcceptanceHarness.runManagedStabilizationSuite(
+            modelDirectory: CommandLine.arguments[2],
+            continuationSourcePath: CommandLine.arguments[3],
+            openingSourcePath: CommandLine.arguments[4]))
+    }
+    RunLoop.main.run()
+}
+
+// Fixed source/seed quality root-cause matrix. Six short real generations:
+// P1/P2/P3 for T2V and I2V, all 512x288, 56 frames, 8 steps, seed 42.
+if CommandLine.arguments.count == 3,
+   CommandLine.arguments[1] == "--h3-quality-matrix" {
+    Task { @MainActor in
+        exit(await MiniMaxH3AcceptanceHarness.runQualityMatrix(
+            sourceImagePath: CommandLine.arguments[2]))
+    }
+    RunLoop.main.run()
+}
+
+// One exact direct-HTTP parity request using the complete prompt emitted by
+// the production H3 compiler for Matrix P3-I2V.
+if CommandLine.arguments.count == 3,
+   CommandLine.arguments[1] == "--h3-standalone-parity" {
+    Task { @MainActor in
+        exit(await MiniMaxH3AcceptanceHarness.runStandaloneParity(
+            sourceImagePath: CommandLine.arguments[2]))
+    }
+    RunLoop.main.run()
+}
+
 // Real MiniMax H3 acceptance through the production service/registry/adapter
 // path. All evidence is isolated under /tmp; no Personal or Dev app data.
 //   swift run LTXTests --h3-acceptance normal
@@ -1580,4 +1644,5 @@ if CommandLine.arguments.contains("--probe-director-cancellation-acceptance") {
     runRealDirectorPlanningCancellationAcceptanceProbe(t)
 }
 
+try? FileManager.default.removeItem(at: ltxTestsStorageRoot)
 t.finish()

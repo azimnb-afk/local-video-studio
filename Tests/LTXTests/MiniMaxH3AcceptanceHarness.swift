@@ -8,6 +8,66 @@ import Foundation
 enum MiniMaxH3AcceptanceHarness {
     private static let endpoint = MiniMaxH3Configuration.defaultEndpoint
 
+    @MainActor
+    static func runManagedStabilizationSuite(
+        modelDirectory: String,
+        continuationSourcePath: String,
+        openingSourcePath: String
+    ) async -> Int32 {
+        // `swift run` has no app bundle identifier, so the acceptance harness
+        // must name the Dev profile explicitly rather than falling back to or
+        // mutating the user's Personal runtime directory.
+        let devRuntimes = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(
+                "Library/Application Support/LocalVideoStudioDev/Runtimes",
+                isDirectory: true)
+        let managed = MiniMaxH3ManagedRuntimeManager(runtimesDirectory: devRuntimes)
+        guard let executablePath = managed.readyExecutablePath else {
+            print("FAILED: the Dev profile has no Ready managed mlx-serve runtime")
+            return 2
+        }
+        let snapshot = MiniMaxH3Configuration.Snapshot(
+            modelDirectory: modelDirectory,
+            runtimeExecutablePath: executablePath,
+            endpoint: endpoint)
+        do {
+            let existing = await MiniMaxH3RuntimeManager.shared.status(snapshot: snapshot)
+            let ready = existing.isReady ? existing : try await MiniMaxH3RuntimeManager.shared
+                .ensureReady(snapshot: snapshot) { progress, step in
+                    print("SERVER_PROGRESS=\(String(format: "%.2f", progress)) \(step)")
+                }
+            guard ready.isReady,
+                  ready.loadedModelID == MiniMaxH3Configuration.expectedServerModelID else {
+                print("FAILED: server did not reach exact-model Ready")
+                MiniMaxH3RuntimeManager.shared.stopOwnedServer()
+                return 1
+            }
+            let ownsServer = ready.ownership == .appOwned
+            print("MANAGED_SUITE_SERVER=Ready \(ready.ownership?.rawValue ?? "unknown")")
+            defer {
+                if ownsServer {
+                    MiniMaxH3RuntimeManager.shared.stopOwnedServer()
+                    print("MANAGED_SUITE_SERVER=Stopped appOwned only")
+                } else {
+                    print("MANAGED_SUITE_SERVER=Preserved externallyRunning")
+                }
+            }
+
+            let continuation = await run(
+                mode: "long", sourceImagePath: continuationSourcePath)
+            guard continuation == 0 else { return continuation }
+            let autoMovie = await run(
+                mode: "automovie", sourceImagePath: openingSourcePath)
+            guard autoMovie == 0 else { return autoMovie }
+            print("MANAGED_STABILIZATION_SUITE=PASS")
+            return 0
+        } catch {
+            MiniMaxH3RuntimeManager.shared.stopOwnedServer()
+            print("FAILED: \(error.localizedDescription)")
+            return 1
+        }
+    }
+
     private struct DefaultsSnapshot {
         let endpoint: Any?
 
@@ -24,6 +84,294 @@ enum MiniMaxH3AcceptanceHarness {
             } else {
                 UserDefaults.standard.removeObject(forKey: MiniMaxH3Configuration.endpointKey)
             }
+        }
+    }
+
+    @MainActor
+    static func runManagedRuntimeAcceptance(
+        sourceBundlePath: String,
+        modelDirectory: String,
+        sourceImagePath: String,
+        endpoint: String
+    ) async -> Int32 {
+        let sourceBundle = URL(fileURLWithPath: sourceBundlePath, isDirectory: true)
+        let sourceImage: String
+        do { sourceImage = try validatedSource(sourceImagePath) }
+        catch {
+            print("FAILED: \(error.localizedDescription)")
+            return 2
+        }
+        var modelIsDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(
+            atPath: modelDirectory, isDirectory: &modelIsDirectory),
+              modelIsDirectory.boolValue,
+              MiniMaxH3Configuration.endpointURL(endpoint) != nil else {
+            print("FAILED: model directory or local endpoint is invalid")
+            return 2
+        }
+
+        let devRuntimes = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/LocalVideoStudioDev/Runtimes", isDirectory: true)
+        let managed = MiniMaxH3ManagedRuntimeManager(runtimesDirectory: devRuntimes)
+        print("DEV_MANAGED_ROOT=\(devRuntimes.path)")
+        print("INSTALL_INITIAL_STATE=\(managedStatusName(managed.evaluateStatus()))")
+        guard managed.evaluateStatus() == .notInstalled else {
+            print("FAILED: fresh-install acceptance requires the Dev managed mlx-serve directory to be absent")
+            return 2
+        }
+
+        do {
+            let sourceManifest = try managed.inspectBundle(at: sourceBundle)
+            print("SOURCE_RUNTIME_VERSION=\(sourceManifest.runtimeVersion)")
+            print("SOURCE_ARCHITECTURE=\(sourceManifest.architecture)")
+            print("LICENSE_CLASSIFICATION=\(sourceManifest.licenseClassification.rawValue)")
+            print("SOURCE_EXECUTABLE_SHA256=\(sourceManifest.executableSHA256)")
+            let installed = try await managed.install(from: sourceBundle) { progress, step in
+                print("INSTALL_PROGRESS=\(String(format: "%.2f", progress)) \(step)")
+            }
+            guard case .ready(let executablePath, let reopenedManifest) = managed.evaluateStatus(),
+                  reopenedManifest.executableSHA256 == sourceManifest.executableSHA256,
+                  installed.executableSHA256 == sourceManifest.executableSHA256 else {
+                print("FAILED: managed runtime did not reopen Ready with source parity")
+                return 1
+            }
+            print("INSTALL_FINAL_STATE=Ready")
+            print("MANAGED_EXECUTABLE=\(executablePath)")
+            print("MANAGED_EXECUTABLE_SHA256=\(reopenedManifest.executableSHA256)")
+            print("SOURCE_PRESERVED=\(FileManager.default.fileExists(atPath: sourceBundle.path) ? "YES" : "NO")")
+
+            let snapshot = MiniMaxH3Configuration.Snapshot(
+                modelDirectory: modelDirectory,
+                runtimeExecutablePath: executablePath,
+                endpoint: endpoint)
+            let ready = try await MiniMaxH3RuntimeManager.shared.ensureReady(snapshot: snapshot) {
+                progress, step in print("SERVER_PROGRESS=\(String(format: "%.2f", progress)) \(step)")
+            }
+            guard ready.isReady,
+                  ready.loadedModelID == MiniMaxH3Configuration.expectedServerModelID,
+                  ready.ownership == .appOwned else {
+                print("FAILED: managed server did not reach exact-model app-owned Ready")
+                MiniMaxH3RuntimeManager.shared.stopOwnedServer()
+                return 1
+            }
+            print("APP_START=PASS")
+            print("SERVER_OWNERSHIP=appOwned")
+            print("HEALTH=PASS")
+            print("MODEL_READY=\(ready.loadedModelID ?? "none")")
+            let generationResult = try await runDirect(
+                label: "h3-managed-runtime",
+                sourceImagePath: sourceImage,
+                duration: 0.9,
+                generationSource: "generate",
+                expectedChain: 1,
+                modelDirectory: modelDirectory,
+                runtimeExecutablePath: executablePath,
+                endpoint: endpoint,
+                seed: 4242)
+            MiniMaxH3RuntimeManager.shared.stopOwnedServer()
+            let stopped = await MiniMaxH3RuntimeManager.shared.status(snapshot: snapshot)
+            print("APP_OWNED_STOP_STATE=\(stopped.state.rawValue)")
+            print("STOP_POLICY=APP_OWNED_ONLY")
+            return generationResult
+        } catch {
+            MiniMaxH3RuntimeManager.shared.stopOwnedServer()
+            print("FAILED: \(error.localizedDescription)")
+            return 1
+        }
+    }
+
+    private static func managedStatusName(_ status: MiniMaxH3ManagedRuntimeStatus) -> String {
+        switch status {
+        case .notInstalled: return "Not Installed"
+        case .installing: return "Installing"
+        case .ready: return "Ready"
+        case .updateRequired: return "Update Required"
+        case .broken: return "Broken"
+        }
+    }
+
+    @MainActor
+    static func runQualityMatrix(sourceImagePath: String) async -> Int32 {
+        let source: String
+        do { source = try validatedSource(sourceImagePath) }
+        catch {
+            print("FAILED: \(error.localizedDescription)")
+            return 2
+        }
+        let runtime = await MiniMaxH3RuntimeManager.shared.status(
+            snapshot: MiniMaxH3Configuration.Snapshot(
+                modelDirectory: nil,
+                runtimeExecutablePath: nil,
+                endpoint: MiniMaxH3Configuration.defaultEndpoint))
+        guard runtime.isReady,
+              runtime.loadedModelID == MiniMaxH3Configuration.expectedServerModelID else {
+            print("FAILED: exact-model H3 server is not ready for quality matrix")
+            return 2
+        }
+
+        do {
+            let prepared = try ImageConditioningPreparer(
+                cacheDirectory: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("h3-quality-prep-\(UUID().uuidString)"))
+                .prepare(
+                    sourceURL: URL(fileURLWithPath: source),
+                    targetWidth: 512,
+                    targetHeight: 288)
+            print("MATRIX_SOURCE=\(source)")
+            print("SOURCE_PREPARATION=\(prepared.mode.rawValue)")
+            print("SOURCE_GEOMETRY=\(prepared.geometry.sourceWidth)x\(prepared.geometry.sourceHeight)->\(prepared.geometry.targetWidth)x\(prepared.geometry.targetHeight)")
+            print("SOURCE_BYTES_REUSED=\(prepared.preparedURL.standardizedFileURL == URL(fileURLWithPath: source).standardizedFileURL ? "YES" : "NO")")
+
+            let plan = OneShotPlan(
+                camera: "static medium close-up",
+                action: "The same young man wearing glasses and a dark jacket slowly turns toward the camera",
+                acting: "He maintains a calm expression and relaxed posture",
+                motion: "one subtle, natural head movement",
+                lighting: "soft studio light",
+                dialogue: [],
+                audioCues: ["quiet room tone"],
+                durationIntentSeconds: 2.3,
+                endState: "he faces the camera and comes to a natural stop")
+            let prompts: [(String, String, String)] = [
+                (
+                    "P1",
+                    "One young man wearing glasses and a dark jacket makes one small natural head movement in a softly lit studio. Static camera. Single subject.",
+                    "The same young man wearing glasses and a dark jacket makes one small natural head movement. Static camera. Single subject. His appearance remains consistent."
+                ),
+                (
+                    "P2",
+                    MiniMaxH3PromptCompiler.compile(
+                        plan: plan,
+                        isImageToVideo: false,
+                        perShotAudioPolicy: .naturalProductionSoundNoMusic),
+                    MiniMaxH3PromptCompiler.compile(
+                        plan: plan,
+                        isImageToVideo: true,
+                        perShotAudioPolicy: .naturalProductionSoundNoMusic)
+                ),
+                (
+                    "P3",
+                    "A cinematic medium close-up of one young man wearing round glasses and a dark jacket in a softly lit studio. He makes a small natural head movement and settles into a calm neutral pose. Static camera, single subject, coherent anatomy, stable face, no cuts, no hand gestures.",
+                    "The man looks toward the camera, gives a subtle smile, and makes a small head movement. Static camera, single subject, simple ambient motion, no hand gestures."
+                ),
+            ]
+            for (name, t2vPrompt, i2vPrompt) in prompts {
+                print("MATRIX_CASE=\(name)-T2V")
+                print("MATRIX_PROMPT=\(t2vPrompt)")
+                guard try await runDirect(
+                    label: "h3-matrix-\(name.lowercased())-t2v",
+                    sourceImagePath: nil,
+                    duration: 2.3,
+                    generationSource: "generate",
+                    expectedChain: 1,
+                    seed: 42,
+                    prompt: t2vPrompt) == 0 else { return 1 }
+                print("MATRIX_CASE=\(name)-I2V")
+                print("MATRIX_PROMPT=\(i2vPrompt)")
+                guard try await runDirect(
+                    label: "h3-matrix-\(name.lowercased())-i2v",
+                    sourceImagePath: source,
+                    duration: 2.3,
+                    generationSource: "generate",
+                    expectedChain: 1,
+                    seed: 42,
+                    prompt: i2vPrompt) == 0 else { return 1 }
+            }
+            print("QUALITY_MATRIX=PASS")
+            return 0
+        } catch {
+            print("FAILED: \(error.localizedDescription)")
+            return 1
+        }
+    }
+
+    @MainActor
+    static func runStandaloneParity(sourceImagePath: String) async -> Int32 {
+        do {
+            let source = try validatedSource(sourceImagePath)
+            let inputPrompt = "The man looks toward the camera, gives a subtle smile, and makes a small head movement. Static camera, single subject, simple ambient motion, no hand gestures."
+            let actualPrompt = MiniMaxH3PromptCompiler.compile(
+                rendererNeutralPrompt: inputPrompt, isImageToVideo: true)
+            let sourceData = try Data(contentsOf: URL(fileURLWithPath: source), options: .mappedIfSafe)
+            var parameters = GenerationParameters.default
+            parameters.width = 512
+            parameters.height = 288
+            parameters.fps = 24
+            parameters.numFrames = 56
+            parameters.numInferenceSteps = 8
+            parameters.seed = 42
+            let request = GenerationRequest(
+                prompt: inputPrompt,
+                sourceImagePath: source,
+                disableAudio: false,
+                modelId: MiniMaxH3Configuration.modelID,
+                parameters: parameters,
+                minimaxH3Endpoint: MiniMaxH3Configuration.defaultEndpoint)
+            let payload = MiniMaxH3Backend.makePayload(
+                request: request,
+                prompt: actualPrompt,
+                sourceImageData: sourceData,
+                seed: 42)
+            var urlRequest = URLRequest(
+                url: URL(string: "http://127.0.0.1:11235/v1/video/generations")!)
+            urlRequest.httpMethod = "POST"
+            urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            urlRequest.httpBody = try JSONEncoder().encode(payload)
+            urlRequest.timeoutInterval = 3_600
+
+            print("PARITY_PROMPT=\(actualPrompt)")
+            print("PARITY_SOURCE=\(source)")
+            print("PARITY_PARAMETERS=512x288 frames=56 fps=24 steps=8 seed=42 chain=1")
+            let started = Date()
+            let (responseData, response) = try await MiniMaxH3URLSessionTransport()
+                .data(for: urlRequest)
+            guard (200..<300).contains(response.statusCode) else {
+                print("FAILED: standalone parity HTTP \(response.statusCode)")
+                return 1
+            }
+
+            let root = URL(fileURLWithPath: "/private/tmp/h3_standalone_exact_parity", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            let rgb = root.appendingPathComponent("frames.rgb")
+            let pcm = root.appendingPathComponent("audio.pcm")
+            let output = root.appendingPathComponent("p3_i2v_exact.mp4")
+            let metadata = try MiniMaxH3Backend.decodeAndWrite(
+                responseData: responseData,
+                rgbURL: rgb,
+                pcmURL: pcm,
+                includeAudio: true)
+            guard let ffmpeg = FFmpegDetector.findFFmpeg() else {
+                print("FAILED: ffmpeg unavailable")
+                return 1
+            }
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: ffmpeg)
+            process.arguments = MiniMaxH3Backend.muxArguments(
+                rgbPath: rgb.path,
+                pcmPath: pcm.path,
+                outputPath: output.path,
+                metadata: metadata)
+            let errors = Pipe()
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = errors
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0,
+                  FileManager.default.fileExists(atPath: output.path) else {
+                let detail = String(
+                    data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                print("FAILED: standalone parity mux \(detail.suffix(500))")
+                return 1
+            }
+            try? FileManager.default.removeItem(at: rgb)
+            try? FileManager.default.removeItem(at: pcm)
+            print("PARITY_ELAPSED=\(String(format: "%.3f", Date().timeIntervalSince(started)))")
+            print("PARITY_OUTPUT=\(output.path)")
+            print("PARITY_ACTUAL=\(metadata.width)x\(metadata.height) frames=\(metadata.frames) fps=\(metadata.fps)")
+            return 0
+        } catch {
+            print("FAILED: \(error.localizedDescription)")
+            return 1
         }
     }
 
@@ -84,7 +432,12 @@ enum MiniMaxH3AcceptanceHarness {
         sourceImagePath: String?,
         duration: Double,
         generationSource: String,
-        expectedChain: Int
+        expectedChain: Int,
+        modelDirectory: String? = nil,
+        runtimeExecutablePath: String? = nil,
+        endpoint: String = MiniMaxH3Configuration.defaultEndpoint,
+        seed: Int = 4242,
+        prompt: String? = nil
     ) async throws -> Int32 {
         let env = V3AcceptanceHarness.makeEnvironment(label: label)
         defer { V3AcceptanceHarness.restoreOutputDir(env) }
@@ -97,12 +450,12 @@ enum MiniMaxH3AcceptanceHarness {
         parameters.fps = 24
         parameters.numFrames = PromptCompiler.frameCount(forSeconds: duration, fps: 24)
         parameters.numInferenceSteps = 30
-        parameters.seed = 4242
+        parameters.seed = seed
 
         let request = GenerationRequest(
-            prompt: sourceImagePath == nil
+            prompt: prompt ?? (sourceImagePath == nil
                 ? "A young man wearing glasses and a dark jacket stands in a softly lit studio. He slowly turns toward the camera while maintaining a relaxed posture. The camera remains still."
-                : "The same young man wearing glasses and a dark jacket slowly turns toward the camera while maintaining a relaxed posture. The camera remains still. His face, clothing, hairstyle, background, and lighting remain consistent throughout the shot.",
+                : "The same young man wearing glasses and a dark jacket slowly turns toward the camera while maintaining a relaxed posture. The camera remains still. His face, clothing, hairstyle, background, and lighting remain consistent throughout the shot."),
             sourceImagePath: sourceImagePath,
             disableAudio: false,
             modelId: MiniMaxH3Configuration.modelID,
@@ -111,6 +464,8 @@ enum MiniMaxH3AcceptanceHarness {
             preset: GenerationPreset.standard.rawValue,
             targetDurationSeconds: duration,
             generationSource: generationSource,
+            minimaxH3ModelDirectory: modelDirectory,
+            minimaxH3RuntimeExecutablePath: runtimeExecutablePath,
             minimaxH3Endpoint: endpoint)
 
         print("PRODUCTION_PATH=GenerationService->ModelRegistry->AdapterRegistry->MiniMaxH3Adapter->MiniMaxH3Backend")
@@ -242,10 +597,12 @@ enum MiniMaxH3AcceptanceHarness {
         }
         guard firstTake.modelID == MiniMaxH3Configuration.modelID,
               secondTake.modelID == MiniMaxH3Configuration.modelID,
+              firstTake.generationSourceDiagnostics?.effectiveSource == .openingReference,
+              firstTake.sourceImagePath != nil,
               secondTake.generationSourceDiagnostics?.effectiveSource == .inheritedLastFrame,
               secondTake.generationSourceDiagnostics?.continuitySourceTakeID == firstTake.id,
               secondTake.sourceImagePath != nil else {
-            print("FAILED: H3 Continue did not inherit Shot 1's selected final frame")
+            print("FAILED: H3 Opening Reference / Continue source provenance is incorrect")
             return 1
         }
 
@@ -262,6 +619,7 @@ enum MiniMaxH3AcceptanceHarness {
 
         print("SHOT_1_OUTPUT=\(outputs[0])")
         print("SHOT_1_CHAIN=\(firstTake.generationRuntimeDiagnostics?.effectiveChainWindows ?? -1)")
+        print("SHOT_1_SOURCE=\(firstTake.generationSourceDiagnostics?.effectiveSource.rawValue ?? "none")")
         print("SHOT_2_OUTPUT=\(outputs[1])")
         print("SHOT_2_CHAIN=\(secondTake.generationRuntimeDiagnostics?.effectiveChainWindows ?? -1)")
         print("SHOT_2_SOURCE=\(secondTake.generationSourceDiagnostics?.effectiveSource.rawValue ?? "none")")

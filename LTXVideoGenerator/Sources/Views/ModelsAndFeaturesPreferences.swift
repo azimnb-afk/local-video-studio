@@ -272,6 +272,10 @@ private struct MiniMaxH3RuntimePreferenceView: View {
         detail: "Readiness has not been checked.",
         loadedModelID: nil)
     @State private var isChecking = false
+    @State private var managedStatus: MiniMaxH3ManagedRuntimeStatus = .notInstalled
+    @State private var installProgress = 0.0
+    @State private var installStep = ""
+    @State private var installError: String?
 
     var body: some View {
         Section("MiniMax H3 (Experimental)") {
@@ -286,12 +290,61 @@ private struct MiniMaxH3RuntimePreferenceView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("mlx-serve Executable")
+                Text("Managed mlx-serve Runtime")
                     .font(.caption.bold())
                 HStack {
-                    TextField("Select the mlx-serve executable", text: $runtimeExecutable)
+                    Circle()
+                        .fill(managedStatusColor)
+                        .frame(width: 8, height: 8)
+                    Text(managedStatusLabel)
+                        .font(.caption.bold())
+                    Spacer()
+                    Button(managedInstallButtonLabel, action: chooseManagedRuntimeBundle)
+                        .disabled(isInstallingManagedRuntime)
+                }
+                if case .installing(let progress, let step) = managedStatus {
+                    ProgressView(value: progress, total: 1.0)
+                    Text(step)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else if !installStep.isEmpty {
+                    Text(installStep)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                if let installError {
+                    Text(installError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+                if let managedStatusDetail {
+                    Text(managedStatusDetail)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                if let managedPath = managedStatus.executablePath {
+                    Text(managedPath)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                Text("Installs an existing local bundle by copying it into this app profile. The source bundle is not moved or deleted. No runtime or model is downloaded.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("mlx-serve Executable Override")
+                    .font(.caption.bold())
+                HStack {
+                    TextField("Managed runtime is used when this is empty", text: $runtimeExecutable)
                         .textFieldStyle(.roundedBorder)
-                    Button("Choose…", action: chooseRuntime)
+                    Button("Choose External…", action: chooseRuntime)
+                    if !runtimeExecutable.isEmpty {
+                        Button("Use Managed") {
+                            runtimeExecutable = ""
+                        }
+                    }
                 }
             }
 
@@ -334,7 +387,10 @@ private struct MiniMaxH3RuntimePreferenceView: View {
                 japanese: "ローカルT2V/I2V・ネイティブ音声・最終フレーム継続・連結ウィンドウ向けの実験的な第2レンダラーです。REF2VAとMotion Contextには非対応です。既存の互換外部サーバーは再利用し、アプリから停止しません。"
             )
         }
-        .onAppear { Task { await checkReadiness() } }
+        .onAppear {
+            managedStatus = MiniMaxH3ManagedRuntimeManager.shared.evaluateStatus()
+            Task { await checkReadiness() }
+        }
         .onChange(of: modelDirectory) { _, _ in configurationChanged() }
         .onChange(of: runtimeExecutable) { _, _ in configurationChanged() }
         .onChange(of: endpoint) { _, _ in configurationChanged() }
@@ -343,11 +399,11 @@ private struct MiniMaxH3RuntimePreferenceView: View {
     private var statusLabel: String {
         switch status.state {
         case .notConfigured: return "Not Configured"
-        case .notRunning: return "Not Running"
+        case .notRunning: return "Stopped"
         case .starting: return "Starting"
         case .ready: return "Ready"
         case .wrongModel: return "Wrong Model"
-        case .broken: return "Broken"
+        case .failed, .broken: return "Failed"
         }
     }
 
@@ -355,7 +411,47 @@ private struct MiniMaxH3RuntimePreferenceView: View {
         switch status.state {
         case .ready: return .green
         case .starting, .notRunning, .notConfigured: return .orange
-        case .wrongModel, .broken: return .red
+        case .wrongModel, .failed, .broken: return .red
+        }
+    }
+
+    private var isInstallingManagedRuntime: Bool {
+        if case .installing = managedStatus { return true }
+        return false
+    }
+
+    private var managedStatusLabel: String {
+        switch managedStatus {
+        case .notInstalled: return "Not Installed"
+        case .installing: return "Installing"
+        case .ready(_, let manifest): return "Ready · v\(manifest.runtimeVersion)"
+        case .updateRequired: return "Update Required"
+        case .broken: return "Broken"
+        }
+    }
+
+    private var managedStatusColor: Color {
+        switch managedStatus {
+        case .ready: return .green
+        case .installing, .updateRequired: return .orange
+        case .notInstalled: return .secondary
+        case .broken: return .red
+        }
+    }
+
+    private var managedStatusDetail: String? {
+        switch managedStatus {
+        case .updateRequired(let reason), .broken(let reason): return reason
+        case .notInstalled, .installing, .ready: return nil
+        }
+    }
+
+    private var managedInstallButtonLabel: String {
+        switch managedStatus {
+        case .notInstalled: return "Install Existing Bundle…"
+        case .ready: return "Reinstall…"
+        case .installing: return "Installing…"
+        case .updateRequired, .broken: return "Repair from Bundle…"
         }
     }
 
@@ -403,6 +499,45 @@ private struct MiniMaxH3RuntimePreferenceView: View {
         panel.prompt = "Select mlx-serve"
         if panel.runModal() == .OK, let url = panel.url {
             runtimeExecutable = url.path
+        }
+    }
+
+    private func chooseManagedRuntimeBundle() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Install Runtime Bundle"
+        guard panel.runModal() == .OK, let source = panel.url else { return }
+        installError = nil
+        installProgress = 0.05
+        installStep = "Validating local runtime bundle"
+        managedStatus = .installing(progress: installProgress, step: installStep)
+        Task {
+            do {
+                let manifest = try await MiniMaxH3ManagedRuntimeManager.shared.install(
+                    from: source
+                ) { progress, step in
+                    Task { @MainActor in
+                        installProgress = progress
+                        installStep = step
+                        managedStatus = .installing(progress: progress, step: step)
+                    }
+                }
+                await MainActor.run {
+                    runtimeExecutable = ""
+                    managedStatus = .ready(
+                        executablePath: MiniMaxH3ManagedRuntimeManager.shared.managedExecutableURL.path,
+                        manifest: manifest)
+                    installStep = "Installed from local bundle. License classification: \(manifest.licenseClassification.rawValue)."
+                }
+                await checkReadiness()
+            } catch {
+                await MainActor.run {
+                    installError = error.localizedDescription
+                    managedStatus = MiniMaxH3ManagedRuntimeManager.shared.evaluateStatus()
+                }
+            }
         }
     }
 }

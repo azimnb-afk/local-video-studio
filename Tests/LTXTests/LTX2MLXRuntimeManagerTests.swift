@@ -125,7 +125,10 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
 
         // MARK: - E. Managed runtime path isolation & self-containment contracts
         let managedExec = manager.managedExecutableURL.path
-        t.check(managedExec.contains("LocalVideoStudio"), "Managed executable must reside inside AppStorageDirectory")
+        let managedRoot = AppStorageDirectory.runtimesDirectory.standardizedFileURL.path + "/"
+        t.check(
+            URL(fileURLWithPath: managedExec).standardizedFileURL.path.hasPrefix(managedRoot),
+            "Managed executable must reside inside AppStorageDirectory")
         t.check(!managedExec.contains("ltx23appdev"), "Managed executable must never point to developer checkout")
         t.check(!managedExec.contains("ltx-2-mlx-ltx25-poc"), "Managed executable must never point to PoC repository")
 

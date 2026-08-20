@@ -6,6 +6,7 @@ public enum AppStorageDirectory {
     public static let legacyFolderName = "LTXVideoGenerator"
     public static let personalFolderName = "LocalVideoStudio"
     public static let devFolderName = "LocalVideoStudioDev"
+    static let testRootEnvironmentKey = "LOCAL_VIDEO_STUDIO_TEST_STORAGE_ROOT"
 
     /// The appropriate folder name based on the current bundle identifier.
     public static var folderName: String {
@@ -19,6 +20,19 @@ public enum AppStorageDirectory {
 
     /// Root Application Support directory for the current application profile.
     public static var root: URL {
+        // Command-line test products have no bundle identifier. They must opt
+        // into an explicit isolated root instead of being mistaken for the
+        // Personal app. Real Personal/Dev app bundles always ignore this.
+        if (Bundle.main.bundleIdentifier ?? "").isEmpty,
+           let override = ProcessInfo.processInfo.environment[testRootEnvironmentKey],
+           !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let url = URL(fileURLWithPath: override, isDirectory: true)
+            if !FileManager.default.fileExists(atPath: url.path) {
+                try? FileManager.default.createDirectory(
+                    at: url, withIntermediateDirectories: true)
+            }
+            return url
+        }
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let targetURL = appSupport.appendingPathComponent(folderName, isDirectory: true)
 

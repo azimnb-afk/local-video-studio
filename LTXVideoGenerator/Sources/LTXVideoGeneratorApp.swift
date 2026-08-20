@@ -1,4 +1,14 @@
+import AppKit
 import SwiftUI
+
+final class LocalVideoStudioAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillTerminate(_ notification: Notification) {
+        // Only a process launched and tracked by this app instance is stopped.
+        // A compatible mlx-serve found at the endpoint remains externally
+        // owned and is never terminated here.
+        MiniMaxH3RuntimeManager.shared.stopOwnedServer()
+    }
+}
 
 // SPM_BUILD: the CLT/SPM harness builds these sources as a library for
 // compile-checking and unit tests; the @main entry point only exists in the
@@ -7,6 +17,7 @@ import SwiftUI
 @main
 #endif
 struct LTXVideoGeneratorApp: App {
+    @NSApplicationDelegateAdaptor(LocalVideoStudioAppDelegate.self) private var appDelegate
     
     init() {
         // Don't configure Python here - defer until after subprocess validation

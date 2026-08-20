@@ -102,6 +102,40 @@ enum AutoMoviePurposePlanner {
         return supportive.first ?? current
     }
 
+    /// A real Auto Movie run planned meaningful shot scale and movement
+    /// variety per shot but every shot stayed at "eye-level" angle — the
+    /// purpose planner nudges movement but had no equivalent for angle at
+    /// all. Deliberately narrow: only Establish and Reveal ever move away
+    /// from eye-level, and only to "high" — a classic, safe choice for
+    /// opening a place or pulling back to show one. Every other purpose is
+    /// left at eye-level on purpose (Performance/Reaction/Dialogue read best
+    /// close to eye-level; this is not "vary every angle for its own sake").
+    static func purposefulAngle(for purpose: ShotPurpose) -> [String] {
+        switch purpose {
+        // "eye-level" deliberately not listed here: it is the one value
+        // nudgedAngle treats as generic-default-eligible, so including it as
+        // a "supportive" option for these two purposes would make the nudge
+        // a no-op (current already "supported" -> never replaced).
+        case .establish: return ["high"]
+        case .reveal: return ["high"]
+        case .performance, .action, .reaction, .detail, .transition, .dialogue: return ["eye-level"]
+        }
+    }
+
+    /// Same restraint as `nudgedMovement`: only replaces the one generic
+    /// default ("eye-level"), and only for the two purposes above — low,
+    /// high or overhead the Director/user actually wrote is never touched,
+    /// satisfying the same "never overwrite a specific, meaningful choice"
+    /// rule `nudgedMovement` already follows.
+    static func nudgedAngle(current: String, purpose: ShotPurpose) -> String {
+        let genericDefault = "eye-level"
+        let normalized = current.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalized == genericDefault else { return current }
+        let supportive = purposefulAngle(for: purpose)
+        guard !supportive.contains(normalized) else { return current }
+        return supportive.first ?? current
+    }
+
     // MARK: - Keyword tables (English + light Japanese coverage, matching the
     // style already used by CapabilityAwareShotPlanner/CharacterContinuitySafetyPolicy)
 

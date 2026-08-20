@@ -84,7 +84,12 @@ func runCharacterAnchorExtractionTests(_ t: TestKit) {
         t.check(openingProject.openingReferenceImage != nil && openingProject.characterAnchor.isActive, "Both opening reference and character anchor are configured")
 
         // MARK: - I. Strict continuity Shot 2+ regression
-        let coordinator = HybridProjectCoordinator()
+        // Explicit deterministic provider — see the identical note in
+        // CharacterContinuitySafetyTests.swift: HybridProjectCoordinator()'s
+        // default StoryboardDirector() can reach a real local Ollama
+        // endpoint in a dev environment that has one configured.
+        let coordinator = HybridProjectCoordinator(
+            director: StoryboardDirector(providers: [TemplateStoryboardProvider()]))
         let settings = ProjectSettings(targetDurationSeconds: 12)
 
         let sem = DispatchSemaphore(value: 0)

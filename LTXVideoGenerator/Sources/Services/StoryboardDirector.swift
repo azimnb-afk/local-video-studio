@@ -880,6 +880,13 @@ final class StoryboardDirector {
         )
         var previousMotionProfile: MotionTempoProfile?
         let japaneseHandling = JapaneseDialogueHandling(rawValue: settings.japaneseHandling) ?? .native
+        // Same deterministic call DirectorPlanFormat's knowledgeBlock(for:)
+        // already makes on this brief when building the Director's prompt —
+        // recorded here so the plan that was actually informed by these
+        // entries says so, rather than leaving consultedKnowledgeIDs (which
+        // exists and is persisted) permanently empty. Diagnostic only: never
+        // read by prompt compilation or generation.
+        let consultedKnowledgeIDs = AutoMovieKnowledgeBase.retrieve(for: brief).map(\.id)
 
         for (index, shotDraft) in draft.shots.enumerated() {
             var shot = Shot(index: index, title: shotDraft.title, summary: shotDraft.summary)
@@ -903,6 +910,7 @@ final class StoryboardDirector {
             )
             let trimmedEndState = shotDraft.endState?.trimmingCharacters(in: .whitespacesAndNewlines)
             shot.endStateSummary = (trimmedEndState?.isEmpty ?? true) ? nil : trimmedEndState
+            shot.consultedKnowledgeIDs = consultedKnowledgeIDs
             let motionProfile = MotionTempoPlanningPolicy.resolve(
                 draft: shotDraft,
                 brief: brief,
@@ -913,13 +921,17 @@ final class StoryboardDirector {
             shot.cameraTempo = motionProfile.cameraTempo
             shot.playbackStyle = motionProfile.playbackStyle
             let plannedMovement = shotDraft.movement ?? "static"
+            let plannedAngle = shotDraft.angle ?? "eye-level"
             shot.camera = CameraPlan(
                 shotScale: shotDraft.shotScale ?? "medium",
-                angle: shotDraft.angle ?? "eye-level",
-                // Auto Movie only: nudge a generic default movement toward one
-                // that supports the shot's purpose. Manual Storyboard keeps
-                // the Director's/user's exact choice, matching how
-                // CapabilityAwareShotPlanner is already scoped below.
+                // Auto Movie only: nudge a generic default angle/movement
+                // toward one that supports the shot's purpose. Manual
+                // Storyboard keeps the Director's/user's exact choice,
+                // matching how CapabilityAwareShotPlanner is already scoped
+                // below.
+                angle: capabilityAwarePlanning
+                    ? AutoMoviePurposePlanner.nudgedAngle(current: plannedAngle, purpose: shot.shotPurpose ?? .action)
+                    : plannedAngle,
                 movement: capabilityAwarePlanning
                     ? AutoMoviePurposePlanner.nudgedMovement(current: plannedMovement, purpose: shot.shotPurpose ?? .action)
                     : plannedMovement

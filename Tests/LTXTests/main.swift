@@ -1442,6 +1442,54 @@ if CommandLine.arguments.contains("--v4-full") {
     RunLoop.main.run()
 }
 
+// V2.1 quality-hardening real short acceptance: 2-3 shots, one CONTINUE
+// transition, through the real production path. Same known-good renderer,
+// no new download. Checks appearance-preservation text, camera plan, and
+// consultedKnowledgeIDs actually reach a real generation, not just plan-only.
+//   swift run LTXTests --v5-short
+if CommandLine.arguments.contains("--v5-short") {
+    Task { @MainActor in
+        print("=== V5 SHORT ACCEPTANCE: 2-3 shots, real production path ===")
+        let brief = "A man in a gray jacket walks slowly through a quiet park. He stops near a bench and looks around. About 12 seconds, one continuous scene, stable clothing."
+        let env = V3AcceptanceHarness.makeEnvironment(label: "short-acceptance")
+        let settings = ProjectSettings(
+            modelID: v3ModelID, textEncoderID: "gemma3_12b_4bit",
+            width: 768, height: 512, fps: 24, targetDurationSeconds: 12.0)
+        let coordinator = HybridProjectCoordinator()
+        let (project, violations, providerName) = try await coordinator.makeProject(
+            title: "V5 Short Acceptance", brief: brief, settings: settings)
+        v4PrintPlan(project, violations: violations, providerName: providerName)
+        env.store.save(project)
+
+        print("\nGenerating ALL \(project.shots.count) shots through the real production path...")
+        var perShot: [(videoPath: String?, seconds: Double)] = []
+        for i in 0..<project.shots.count {
+            let r = await V3AcceptanceHarness.generateNextShot(
+                env: env, projectID: project.id, label: "SHOT \(i + 1)/\(project.shots.count)")
+            perShot.append(r)
+            if r.videoPath == nil { break }
+        }
+        V3AcceptanceHarness.restoreOutputDir(env)
+
+        guard perShot.allSatisfy({ $0.videoPath != nil }), perShot.count == project.shots.count else {
+            print("\nFAILED: not all shots completed."); exit(1)
+        }
+        env.coordinator.autoSelectUnambiguousTakes(projectID: project.id)
+        guard let finalProject = env.store.project(id: project.id) else {
+            print("FAILED: project vanished from store"); exit(1)
+        }
+        print("\n=== APPEARANCE / CAMERA / KNOWLEDGE EVIDENCE ===")
+        for (i, s) in finalProject.shots.enumerated() {
+            print("shot \(i + 1): continuity=\(s.continuityMode?.rawValue ?? "-") " +
+                  "angle=\(s.camera.angle) movement=\(s.camera.movement) " +
+                  "knowledgeIDs=\(s.consultedKnowledgeIDs)")
+            print("  prompt: \(s.compiledPrompt.prefix(220))")
+        }
+        exit(0)
+    }
+    RunLoop.main.run()
+}
+
 let t = TestKit.shared
 
 t.suite("Catalog") {
@@ -1509,6 +1557,7 @@ runLTX25ModelSupportTests(t)
 runCustomModelProfileTests(t)
 runLTX2MLXRuntimeManagerTests(t)
 runShotPlanValidatorTests(t)
+runQualityHardeningTests(t)
 if CommandLine.arguments.contains("--probe-director-cancellation-acceptance") {
     runRealDirectorPlanningCancellationAcceptanceProbe(t)
 }

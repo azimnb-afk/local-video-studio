@@ -101,7 +101,14 @@ func runCharacterContinuitySafetyTests(_ t: TestKit) {
         t.check(compiled.count < 300, "Compiled character context remains concise (\(compiled.count) chars)")
 
         // MARK: - H. Auto Movie strict continuity regression & manual Storyboard preservation
-        let coordinator = HybridProjectCoordinator()
+        // Explicit deterministic provider: HybridProjectCoordinator()'s default
+        // StoryboardDirector() can reach a real local Ollama endpoint in a dev
+        // environment that has one configured, making shots.count and
+        // continuityMode depend on live LLM sampling instead of this test's
+        // own logic. Real-Director acceptance belongs in the explicit
+        // --v3-*/--v4-* probes, not here.
+        let coordinator = HybridProjectCoordinator(
+            director: StoryboardDirector(providers: [TemplateStoryboardProvider()]))
         let settings = ProjectSettings(targetDurationSeconds: 15)
 
         let sem = DispatchSemaphore(value: 0)

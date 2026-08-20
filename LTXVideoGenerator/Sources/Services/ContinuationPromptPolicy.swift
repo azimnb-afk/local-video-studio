@@ -45,6 +45,16 @@ enum ContinuationPromptPolicy {
     static let continuityStatement =
         "The same subject and the existing visual state continue from the input frame."
 
+    /// Added only when nothing about any tracked character changed this shot.
+    /// Deliberately generic — it does not restate specific costume text (that
+    /// is exactly what D-071/D-072 showed fights the image) — it only asks the
+    /// renderer to keep going rather than treat the new shot as a fresh,
+    /// ungrounded description. A single short sentence regardless of how many
+    /// characters are tracked, matching the "minimum state needed" scope this
+    /// policy already keeps everywhere else.
+    static let unchangedAppearanceStatement =
+        "Clothing and appearance remain unchanged from the previous shot."
+
     /// Builds the character context for a CONTINUE shot.
     ///
     /// - Parameters:
@@ -52,15 +62,17 @@ enum ContinuationPromptPolicy {
     ///   - after: character state once this shot's explicit changes are applied.
     ///
     /// Only fields that actually differ between the two are described. A shot
-    /// that changes nothing about the character contributes no appearance text
-    /// at all; a shot that genuinely changes the costume still says so, because
-    /// suppressing a real story beat would be its own bug.
+    /// that changes nothing about the character contributes no costume-specific
+    /// text at all — only `unchangedAppearanceStatement` — while a shot that
+    /// genuinely changes the costume still says so, because suppressing a real
+    /// story beat would be its own bug.
     static func changeFocusedContext(
         before: [ContinuityEngine.ResolvedCharacterState],
         after: [ContinuityEngine.ResolvedCharacterState]
     ) -> String {
         guard !after.isEmpty else { return "" }
         var parts = [continuityStatement]
+        var anyExplicitChange = false
 
         for state in after {
             let previous = before.first { $0.id == state.id }
@@ -83,7 +95,17 @@ enum ContinuationPromptPolicy {
 
             if !changes.isEmpty {
                 parts.append("\(state.name) \(changes.joined(separator: ", ")).")
+                anyExplicitChange = true
             }
+        }
+        // A real generation was observed drifting costume across several
+        // unchanged CONTINUE shots with nothing in the prompt anchoring
+        // appearance at all — the continuity statement alone reads as a claim
+        // about identity/motion, not clothing. This single generic line
+        // closes that gap without reintroducing D-071's fight-the-image
+        // failure mode.
+        if !anyExplicitChange {
+            parts.append(unchangedAppearanceStatement)
         }
         return parts.joined(separator: " ")
     }

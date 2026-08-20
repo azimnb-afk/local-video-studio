@@ -1320,6 +1320,128 @@ if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--v3-automovie
     RunLoop.main.run()
 }
 
+// Final complete-movie quality gate: plan-only inspection, full real
+// generation of every planned shot, real take auto-selection, and real
+// FinalAssemblyService export — closing the "only rendered shot 1-2" gap
+// left by --v3-automovie.
+//   swift run LTXTests --v4-plan
+//   swift run LTXTests --v4-plan2
+//   swift run LTXTests --v4-full
+let v4Brief = "A woman walks slowly along a beach. She gradually slows down and comes to a stop. She looks toward the camera and gives a restrained smile. The sequence ends with a calm environmental reveal of the sunset over the water. About 28 seconds, cinematic, one continuous scene."
+let v4SecondBrief = "A man runs across a rooftop, leaps over a gap between buildings, and lands hard, then looks back the way he came, breathing heavily. About 28 seconds, cinematic."
+
+func v4PrintPlan(_ project: FilmProject, violations: [ContinuityEngine.Violation], providerName: String) {
+    print("Director provider: \(providerName)")
+    print("SHOT_COUNT: \(project.shots.count)")
+    var total = 0.0
+    for (i, s) in project.shots.enumerated() {
+        total += s.durationSeconds
+        print("shot \(i + 1):")
+        print("  duration=\(String(format: "%.1f", s.durationSeconds))s")
+        print("  purpose=\(s.shotPurpose?.shortLabel ?? "-")")
+        print("  continuity=\(s.continuityMode?.rawValue ?? "-")")
+        print("  camera: scale=\(s.camera.shotScale) angle=\(s.camera.angle) movement=\(s.camera.movement)")
+        print("  actionArc(summary)=\"\(s.summary)\"")
+        print("  endState=\(s.endStateSummary ?? "-")")
+        print("  knowledgeIDs=\(s.consultedKnowledgeIDs)")
+    }
+    print("TOTAL=\(String(format: "%.1f", total))s")
+    print("VIOLATIONS (\(violations.count)):")
+    for v in violations { print("  [\(v.severity.rawValue)] \(v.message)") }
+}
+
+if CommandLine.arguments.contains("--v4-plan") || CommandLine.arguments.contains("--v4-plan2") {
+    let isSecond = CommandLine.arguments.contains("--v4-plan2")
+    Task { @MainActor in
+        print("=== V4 PLAN ONLY (\(isSecond ? "second/generalization brief" : "primary brief")) ===")
+        let brief = isSecond ? v4SecondBrief : v4Brief
+        print("brief: \(brief)")
+        let settings = ProjectSettings(
+            modelID: v3ModelID, textEncoderID: "gemma3_12b_4bit",
+            width: 768, height: 512, fps: 24, targetDurationSeconds: 28.0)
+        let coordinator = HybridProjectCoordinator()
+        do {
+            let (project, violations, providerName) = try await coordinator.makeProject(
+                title: isSecond ? "V4 Plan 2" : "V4 Plan", brief: brief, settings: settings)
+            v4PrintPlan(project, violations: violations, providerName: providerName)
+        } catch {
+            print("FAILED: \(error)")
+            exit(1)
+        }
+        exit(0)
+    }
+    RunLoop.main.run()
+}
+
+if CommandLine.arguments.contains("--v4-full") {
+    Task { @MainActor in
+        print("=== V4 COMPLETE REAL AUTO MOVIE: plan -> generate all shots -> assemble ===")
+        let env = V3AcceptanceHarness.makeEnvironment(label: "full-movie")
+        let settings = ProjectSettings(
+            modelID: v3ModelID, textEncoderID: "gemma3_12b_4bit",
+            width: 768, height: 512, fps: 24, targetDurationSeconds: 28.0)
+        let coordinator = HybridProjectCoordinator()
+        let (project, violations, providerName) = try await coordinator.makeProject(
+            title: "V4 Full Movie", brief: v4Brief, settings: settings)
+        v4PrintPlan(project, violations: violations, providerName: providerName)
+        env.store.save(project)
+
+        print("\nGenerating ALL \(project.shots.count) shots through the real production path...")
+        var perShot: [(videoPath: String?, seconds: Double)] = []
+        for i in 0..<project.shots.count {
+            let r = await V3AcceptanceHarness.generateNextShot(
+                env: env, projectID: project.id, label: "SHOT \(i + 1)/\(project.shots.count)")
+            perShot.append(r)
+            if r.videoPath == nil {
+                print("STOPPING: shot \(i + 1) failed to generate.")
+                break
+            }
+        }
+        V3AcceptanceHarness.restoreOutputDir(env)
+
+        guard perShot.allSatisfy({ $0.videoPath != nil }), perShot.count == project.shots.count else {
+            print("\nFAILED: not all shots completed (\(perShot.filter { $0.videoPath != nil }.count)/\(project.shots.count)).")
+            exit(1)
+        }
+
+        env.coordinator.autoSelectUnambiguousTakes(projectID: project.id)
+        guard let finalProject = env.store.project(id: project.id) else {
+            print("FAILED: project vanished from store"); exit(1)
+        }
+
+        print("\n=== CONTINUITY EVIDENCE ===")
+        for (i, s) in finalProject.shots.enumerated() {
+            let take = s.selectedTake
+            print("shot \(i + 1): continuity=\(s.continuityMode?.rawValue ?? "-") " +
+                  "selectedTakeID=\(s.selectedTakeID?.uuidString.prefix(8) ?? "nil") " +
+                  "continuitySourceTakeID=\(s.continuitySourceTakeID?.uuidString.prefix(8) ?? "nil") " +
+                  "outputExists=\(take?.outputPath.map { FileManager.default.fileExists(atPath: $0) } ?? false)")
+        }
+        let handoffs = finalProject.shots.filter { $0.continuityMode == .continueFromPrevious }.count
+        let cuts = finalProject.shots.filter { $0.continuityMode == .cut }.count
+        print("HANDOFF_COUNT=\(handoffs) CUT_COUNT=\(cuts)")
+
+        print("\n=== FINAL ASSEMBLY (real FinalAssemblyService) ===")
+        let assemblyOutputDir = env.tmpDir.appendingPathComponent("Final", isDirectory: true)
+        try? FileManager.default.createDirectory(at: assemblyOutputDir, withIntermediateDirectories: true)
+        let finalPath = assemblyOutputDir.appendingPathComponent("final_movie.mp4").path
+        do {
+            let info = try FinalAssemblyService.assemble(
+                project: finalProject, outputPath: finalPath, store: env.store)
+            print("ASSEMBLY OK -> \(finalPath)")
+            print("duration=\(info.durationSeconds ?? -1) width=\(info.width ?? -1) height=\(info.height ?? -1) " +
+                  "fps=\(info.fps ?? -1) videoCodec=\(info.videoCodec ?? "-") audioCodec=\(info.audioCodec ?? "-")")
+        } catch {
+            print("ASSEMBLY FAILED: \(error)")
+            exit(1)
+        }
+        print("\nEvidence dir: \(env.tmpDir.path)")
+        print("Final movie: \(finalPath)")
+        exit(0)
+    }
+    RunLoop.main.run()
+}
+
 let t = TestKit.shared
 
 t.suite("Catalog") {

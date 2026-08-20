@@ -337,6 +337,23 @@ struct PreferencesView: View {
                         }
                     }
 
+                    // This setting only reaches LTXBridge (LTX-2.3 / LTX-2
+                    // Unified). A custom LTX-2 MLX profile — including any
+                    // LTX-2.5 model — runs on the separate ltx-2-mlx managed
+                    // runtime above, which resolves its own text encoder
+                    // internally and never reads this choice. Stated plainly
+                    // rather than left implicit, since the two sections sit
+                    // right next to each other on this screen.
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "info.circle")
+                            .foregroundStyle(.secondary)
+                        BilingualSettingDescription(
+                            english: "Applies only to the official LTX-2.3 / LTX-2 Unified models above. A custom LTX-2 MLX profile (including LTX-2.5) uses its own text encoder, resolved by the ltx-2-mlx runtime itself — this setting has no effect on it.",
+                            japanese: "この設定は上記の公式LTX-2.3 / LTX-2 Unifiedモデルにのみ適用されます。カスタムLTX-2 MLXプロファイル（LTX-2.5を含む）は独自のText Encoderをltx-2-mlxランタイム自身が解決するため、この設定は影響しません。"
+                        )
+                    }
+                    .padding(.vertical, 2)
+
                     if selectedTextEncoderID == "custom" {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Custom text encoder repo (Hugging Face id)")

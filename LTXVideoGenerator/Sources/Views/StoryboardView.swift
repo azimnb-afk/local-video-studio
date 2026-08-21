@@ -491,6 +491,13 @@ private struct NewStoryboardSheet: View {
                     Text("Opening Reference Image (Optional)").font(.subheadline.bold())
                     OpeningReferencePicker(selection: $openingReferenceURL, compact: true)
                     OpeningReferenceExplanation()
+                    if let recommendation = MiniMaxH3ProductPolicy.recommendation(
+                        modelID: modelID,
+                        context: .autoMovie,
+                        hasImage: openingReferenceURL != nil
+                    ) {
+                        MiniMaxH3ImageGroundingRecommendationView(recommendation: recommendation)
+                    }
                 }
                 .disabled(isCreating)
                 Stepper("Target Duration: \(targetDuration, specifier: "%.0f")s", value: $targetDuration, in: 5...60, step: 5)

@@ -482,6 +482,13 @@ private struct OneShotView: View {
             Text("Optional visual anchor for the first frame. It guides image-conditioned generation and does not guarantee character identity.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            if let recommendation = MiniMaxH3ProductPolicy.recommendation(
+                modelID: modelID,
+                context: .oneShot,
+                hasImage: !storedStartingImagePath.isEmpty
+            ) {
+                MiniMaxH3ImageGroundingRecommendationView(recommendation: recommendation)
+            }
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))

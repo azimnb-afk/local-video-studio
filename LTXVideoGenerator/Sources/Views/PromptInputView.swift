@@ -335,6 +335,14 @@ struct PromptInputView: View {
                     .foregroundStyle(.secondary)
                 }
             }
+
+            if let recommendation = MiniMaxH3ProductPolicy.recommendation(
+                modelID: selectedModelID,
+                context: .normalGenerate,
+                hasImage: sourceImagePath != nil
+            ) {
+                MiniMaxH3ImageGroundingRecommendationView(recommendation: recommendation)
+            }
             
             // Image-to-Video section
             DisclosureGroup(isExpanded: $showImageToVideo) {

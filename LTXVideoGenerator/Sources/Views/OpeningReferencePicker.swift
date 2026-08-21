@@ -1,5 +1,28 @@
 import SwiftUI
 
+/// Compact, non-blocking guidance shown only while H3 has no image anchor.
+/// The policy is intentionally outside submission/generation code.
+struct MiniMaxH3ImageGroundingRecommendationView: View {
+    let recommendation: MiniMaxH3ImageGroundingRecommendation
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "photo.badge.plus")
+                .foregroundStyle(.blue)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(recommendation.title)
+                    .font(.caption.bold())
+                Text(recommendation.english)
+                Text(recommendation.japanese)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// Choose / Replace / Clear for an opening reference image, over a plain file
 /// URL rather than a project.
 ///

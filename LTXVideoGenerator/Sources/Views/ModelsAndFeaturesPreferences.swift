@@ -383,8 +383,8 @@ private struct MiniMaxH3RuntimePreferenceView: View {
                 .foregroundStyle(.secondary)
 
             BilingualSettingDescription(
-                english: "Experimental specialized second renderer for local T2V/I2V, native audio, last-frame continuation, and chained windows. REF2VA and Motion Context are not supported. Existing external compatible servers are reused and never stopped by the app.",
-                japanese: "ローカルT2V/I2V・ネイティブ音声・最終フレーム継続・連結ウィンドウ向けの実験的な第2レンダラーです。REF2VAとMotion Contextには非対応です。既存の互換外部サーバーは再利用し、アプリから停止しません。"
+                english: "Experimental local renderer with native audio. Best results use a Starting Image or Opening Reference; text-only generation remains available but may be less consistent. Continued shots can use the previous final frame, and longer sequences may gradually drift. REF2VA and Motion Context are not supported.",
+                japanese: "ネイティブ音声に対応する実験的なローカルレンダラーです。開始画像またはOpening Referenceの使用を推奨します。テキストのみでも生成できますが、一貫性が低下する場合があります。継続Shotでは直前の最終フレームを利用でき、長いシーケンスでは徐々にドリフトする可能性があります。REF2VAとMotion Contextには非対応です。"
             )
         }
         .onAppear {

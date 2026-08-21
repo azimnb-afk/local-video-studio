@@ -14,6 +14,49 @@ struct MiniMaxH3Capabilities: Equatable {
     var contextLoop = false
 }
 
+enum MiniMaxH3ImageGroundingContext: Equatable {
+    case normalGenerate
+    case oneShot
+    case autoMovie
+}
+
+struct MiniMaxH3ImageGroundingRecommendation: Equatable {
+    let title: String
+    let english: String
+    let japanese: String
+}
+
+/// User-facing policy derived from the frozen H3 acceptance evidence. This is
+/// deliberately presentation-only: it neither mutates GenerationRequest nor
+/// changes whether a text-only request can be submitted.
+enum MiniMaxH3ProductPolicy {
+    static let isExperimental = true
+    static let modelDescription =
+        "Experimental. Best results with a starting image. Text-only generation may be less consistent. Continued shots can use the previous final frame; longer sequences may gradually drift."
+    static let modelDescriptionJapanese =
+        "実験的機能です。開始画像を使うとより良い結果が期待できます。テキストだけの生成は一貫性が低くなる場合があり、長い連続シーンでは徐々に見た目が変化することがあります。"
+
+    static func recommendation(
+        modelID: String,
+        context: MiniMaxH3ImageGroundingContext,
+        hasImage: Bool
+    ) -> MiniMaxH3ImageGroundingRecommendation? {
+        guard modelID == MiniMaxH3Configuration.modelID, !hasImage else { return nil }
+        switch context {
+        case .normalGenerate, .oneShot:
+            return MiniMaxH3ImageGroundingRecommendation(
+                title: "Recommended for H3",
+                english: "Add a Starting Image for better subject consistency. Text-only generation remains available.",
+                japanese: "被写体の一貫性を高めるには開始画像の追加を推奨します。画像なしでも生成できます。")
+        case .autoMovie:
+            return MiniMaxH3ImageGroundingRecommendation(
+                title: "Recommended for H3",
+                english: "Add an Opening Reference for better character or subject consistency. Text-only generation remains available.",
+                japanese: "人物や被写体の一貫性を高めるにはOpening Referenceの追加を推奨します。画像なしでも生成できます。")
+        }
+    }
+}
+
 struct MiniMaxH3FramePlan: Equatable, Codable {
     let requestedDurationSeconds: Double
     /// Frames requested per runtime window. Chained requests use the proven

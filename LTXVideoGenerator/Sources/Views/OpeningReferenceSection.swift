@@ -93,6 +93,13 @@ struct OpeningReferenceSection: View {
             }
 
             OpeningReferenceExplanation()
+            if let recommendation = MiniMaxH3ProductPolicy.recommendation(
+                modelID: project.settings.modelID,
+                context: .autoMovie,
+                hasImage: reference != nil
+            ) {
+                MiniMaxH3ImageGroundingRecommendationView(recommendation: recommendation)
+            }
             if reference != nil && project.characterAnchor.isActive {
                 Text("Both are set: the opening reference image is used for the first shot, and the Character Anchor is not.")
                     .font(.caption2)

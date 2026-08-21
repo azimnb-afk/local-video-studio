@@ -132,6 +132,50 @@ func runRegistryTests(_ t: TestKit) {
         t.checkEqual(AppStorageDirectory.legacyFolderName, "LTXVideoGenerator", "legacy folder name preserved")
         t.checkEqual(AppStorageDirectory.personalFolderName, "LocalVideoStudio", "personal folder name defined")
         t.checkEqual(AppStorageDirectory.devFolderName, "LocalVideoStudioDev", "dev folder name defined")
+        t.checkEqual(AppStorageDirectory.profile(bundleIdentifier: "com.localvideostudio"), .personal,
+                     "Personal bundle resolves only to Personal profile")
+        t.checkEqual(AppStorageDirectory.profile(bundleIdentifier: "com.localvideostudio.dev"), .development,
+                     "Dev bundle resolves only to Dev profile")
+        t.checkEqual(AppStorageDirectory.profile(bundleIdentifier: nil), .bundleless,
+                     "missing bundle identity resolves to isolated bundle-less profile")
+
+        let fakeSupport = URL(fileURLWithPath: "/Users/test/Library/Application Support", isDirectory: true)
+        let fakeTemporary = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+        let personalRoot = AppStorageDirectory.resolvedRootURL(
+            bundleIdentifier: "com.localvideostudio",
+            environment: [:],
+            applicationSupportDirectory: fakeSupport,
+            temporaryDirectory: fakeTemporary,
+            processIdentifier: 42)
+        let devRoot = AppStorageDirectory.resolvedRootURL(
+            bundleIdentifier: "com.localvideostudio.dev",
+            environment: [:],
+            applicationSupportDirectory: fakeSupport,
+            temporaryDirectory: fakeTemporary,
+            processIdentifier: 42)
+        let fallbackRoot = AppStorageDirectory.resolvedRootURL(
+            bundleIdentifier: nil,
+            environment: [:],
+            applicationSupportDirectory: fakeSupport,
+            temporaryDirectory: fakeTemporary,
+            processIdentifier: 42)
+        let explicitTestRoot = AppStorageDirectory.resolvedRootURL(
+            bundleIdentifier: nil,
+            environment: [AppStorageDirectory.testRootEnvironmentKey: "/tmp/explicit-ltx-tests"],
+            applicationSupportDirectory: fakeSupport,
+            temporaryDirectory: fakeTemporary,
+            processIdentifier: 42)
+        t.checkEqual(personalRoot.path, fakeSupport.appendingPathComponent("LocalVideoStudio").path,
+                     "Personal bundle retains the Personal Application Support root")
+        t.checkEqual(devRoot.path, fakeSupport.appendingPathComponent("LocalVideoStudioDev").path,
+                     "Dev bundle retains the isolated Dev Application Support root")
+        t.checkEqual(fallbackRoot.path, "/private/tmp/LocalVideoStudio-Bundleless-42",
+                     "bundle-less process without an override fails safe to PID-scoped temporary storage")
+        t.check(!fallbackRoot.path.contains("Application Support/LocalVideoStudio"),
+                "bundle-less fallback cannot resolve into Personal Application Support")
+        t.checkEqual(explicitTestRoot.path, "/tmp/explicit-ltx-tests",
+                     "explicit test storage remains authoritative for bundle-less tests")
+
         t.check(!AppStorageDirectory.root.path.isEmpty, "AppStorageDirectory root is valid")
         if let isolatedRoot = ProcessInfo.processInfo.environment[
             AppStorageDirectory.testRootEnvironmentKey
@@ -141,7 +185,17 @@ func runRegistryTests(_ t: TestKit) {
                 URL(fileURLWithPath: isolatedRoot).standardizedFileURL.path,
                 "bundle-less test executable uses the isolated storage override")
         }
-        t.check(!AppStorageDirectory.keychainService.isEmpty, "keychain service name is valid")
+        t.checkEqual(
+            AppStorageDirectory.keychainServiceName(
+                bundleIdentifier: "com.localvideostudio.dev", processIdentifier: 42),
+            AppStorageDirectory.devServiceName,
+            "Dev bundle uses only the Dev Keychain namespace")
+        let bundlelessKeychain = AppStorageDirectory.keychainServiceName(
+            bundleIdentifier: nil, processIdentifier: 42)
+        t.check(bundlelessKeychain.hasPrefix(AppStorageDirectory.bundlelessServiceNamePrefix),
+                "bundle-less process uses an isolated Keychain namespace")
+        t.check(bundlelessKeychain != AppStorageDirectory.personalServiceName,
+                "bundle-less process can never use the Personal Keychain service")
     }
 
     t.suite("Codable migration") {

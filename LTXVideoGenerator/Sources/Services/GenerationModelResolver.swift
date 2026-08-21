@@ -77,7 +77,7 @@ enum GenerationModelResolver {
                 displayName: descriptor.displayName,
                 downloadSize: descriptor.estimatedModelSizeGB.map { "~\(Int($0))GB" } ?? "local",
                 supportsBuiltInAudio: descriptor.capabilities.synchronizedAudio,
-                qualityWarning: "Experimental specialized renderer.",
+                qualityWarning: MiniMaxH3ProductPolicy.modelDescription,
                 recommendedStepsLower: 8,
                 recommendedStepsUpper: 8,
                 tips: descriptor.runtime.verificationNotes)

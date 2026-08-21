@@ -117,6 +117,72 @@ func runMiniMaxH3Tests(_ t: TestKit) {
         t.check(capabilities.chainWindows, "chain_windows capability is explicit")
     }
 
+    t.suite("MiniMax H3 Product Guidance") {
+        t.check(MiniMaxH3ProductPolicy.isExperimental,
+                "H3 product role remains explicitly Experimental")
+        t.check(MiniMaxH3ProductPolicy.modelDescription.contains("Best results with a starting image"),
+                "model description recommends image grounding")
+        t.check(MiniMaxH3ProductPolicy.modelDescription.contains("Text-only generation may be less consistent"),
+                "model description states the measured T2V limitation without calling it broken")
+        t.check(MiniMaxH3ProductPolicy.modelDescription.contains("longer sequences may gradually drift"),
+                "model description states the measured long-continuation limitation")
+
+        let generate = MiniMaxH3ProductPolicy.recommendation(
+            modelID: MiniMaxH3Configuration.modelID,
+            context: .normalGenerate,
+            hasImage: false)
+        let oneShot = MiniMaxH3ProductPolicy.recommendation(
+            modelID: MiniMaxH3Configuration.modelID,
+            context: .oneShot,
+            hasImage: false)
+        let autoMovie = MiniMaxH3ProductPolicy.recommendation(
+            modelID: MiniMaxH3Configuration.modelID,
+            context: .autoMovie,
+            hasImage: false)
+        t.check(generate?.english.contains("Starting Image") == true,
+                "Normal Generate recommends a Starting Image for H3")
+        t.check(oneShot?.english.contains("Starting Image") == true,
+                "One Shot recommends a Starting Image for H3")
+        t.check(autoMovie?.english.contains("Opening Reference") == true,
+                "Auto Movie recommends an Opening Reference for H3")
+        t.check(generate?.english.contains("remains available") == true,
+                "H3 recommendation explicitly remains non-blocking")
+        t.check(MiniMaxH3ProductPolicy.recommendation(
+            modelID: MiniMaxH3Configuration.modelID,
+            context: .normalGenerate,
+            hasImage: true) == nil,
+                "recommendation disappears after a Starting Image is supplied")
+        t.check(MiniMaxH3ProductPolicy.recommendation(
+            modelID: MiniMaxH3Configuration.modelID,
+            context: .autoMovie,
+            hasImage: true) == nil,
+                "recommendation disappears after an Opening Reference is supplied")
+        t.check(MiniMaxH3ProductPolicy.recommendation(
+            modelID: LTXModelCatalog.defaultModelID,
+            context: .normalGenerate,
+            hasImage: false) == nil,
+                "LTX never receives H3-specific recommendation copy")
+
+        let h3TextOnly = GenerationRequest(
+            prompt: "A subject walks through a quiet room.",
+            sourceImagePath: nil,
+            modelId: MiniMaxH3Configuration.modelID)
+        t.check(!h3TextOnly.isImageToVideo,
+                "H3 request with no image remains valid text-to-video")
+        t.check(GenerationSubmissionPolicy.canSubmit(
+            prompt: h3TextOnly.prompt, isPreparing: false, blockingError: nil),
+                "H3 guidance does not block text-only submission")
+        t.check(!h3TextOnly.prompt.contains("Recommended for H3"),
+                "product recommendation is not injected into the generation prompt")
+
+        let ltxRequest = GenerationRequest(
+            prompt: "An LTX scene remains unchanged.",
+            sourceImagePath: nil,
+            modelId: LTXModelCatalog.defaultModelID)
+        t.checkEqual(ltxRequest.prompt, "An LTX scene remains unchanged.",
+                     "LTX prompt is unchanged by H3 product guidance")
+    }
+
     t.suite("MiniMax H3 Local Runtime Readiness") {
         t.check(MiniMaxH3Configuration.endpointURL("http://127.0.0.1:11235") != nil, "default localhost endpoint accepted")
         t.check(MiniMaxH3Configuration.endpointURL("http://localhost:11235") != nil, "localhost endpoint accepted")

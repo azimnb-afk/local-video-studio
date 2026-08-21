@@ -640,9 +640,14 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
     private var ownedEndpoint: String?
     private var ownedModelDirectory: String?
     private let fileManager: FileManager
+    private let managedRuntimeManager: MiniMaxH3ManagedRuntimeManager
 
-    init(fileManager: FileManager = .default) {
+    init(
+        fileManager: FileManager = .default,
+        managedRuntimeManager: MiniMaxH3ManagedRuntimeManager = .shared
+    ) {
         self.fileManager = fileManager
+        self.managedRuntimeManager = managedRuntimeManager
     }
 
     func status(
@@ -722,10 +727,7 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
         guard MiniMaxH3Configuration.endpointURL(snapshot.endpoint) != nil else {
             throw MiniMaxH3Error.invalidEndpoint
         }
-        guard let runtime = snapshot.runtimeExecutablePath,
-              fileManager.isExecutableFile(atPath: runtime) else {
-            throw MiniMaxH3Error.runtimeNotConfigured("Select an executable mlx-serve runtime.")
-        }
+        let runtime = try resolveRuntimeExecutable(configuredPath: snapshot.runtimeExecutablePath)
         guard let model = snapshot.modelDirectory,
               directoryExists(model) else {
             throw MiniMaxH3Error.runtimeNotConfigured("Select the local MiniMax H3 model directory.")
@@ -756,6 +758,40 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
         }
         stopOwnedServer()
         throw MiniMaxH3Error.runtimeStartFailed("Timed out while loading the configured model.")
+    }
+
+    /// A configured/Advanced executable path is authoritative when present and
+    /// valid. Otherwise this is the single place every H3 workflow (Normal
+    /// Generate, One Shot, Auto Movie) falls back to the managed runtime
+    /// installed via Settings → Models & Features → MiniMax H3, so none of
+    /// them can drift onto a stale or workflow-specific readiness check.
+    func resolveRuntimeExecutable(configuredPath: String?) throws -> String {
+        if let configuredPath, fileManager.isExecutableFile(atPath: configuredPath) {
+            return configuredPath
+        }
+        let managedStatus = managedRuntimeManager.evaluateStatus()
+        if case .ready(let executablePath, _) = managedStatus,
+           fileManager.isExecutableFile(atPath: executablePath) {
+            return executablePath
+        }
+        let settingsPath = "Install it from Settings → Models & Features → MiniMax H3."
+        switch managedStatus {
+        case .notInstalled:
+            throw MiniMaxH3Error.runtimeNotConfigured(
+                "Its runtime is not installed. \(settingsPath)")
+        case .installing:
+            throw MiniMaxH3Error.runtimeNotConfigured(
+                "Its runtime is still installing. Wait for it to finish in Settings → Models & Features → MiniMax H3.")
+        case .updateRequired(let reason):
+            throw MiniMaxH3Error.runtimeNotConfigured(
+                "\(reason) Update it from Settings → Models & Features → MiniMax H3.")
+        case .broken(let reason):
+            throw MiniMaxH3Error.runtimeNotConfigured(
+                "\(reason) Repair it from Settings → Models & Features → MiniMax H3.")
+        case .ready:
+            throw MiniMaxH3Error.runtimeNotConfigured(
+                "Its runtime is unavailable. Repair it from Settings → Models & Features → MiniMax H3.")
+        }
     }
 
     func stopOwnedServer() {

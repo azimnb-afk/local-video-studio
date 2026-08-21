@@ -360,6 +360,132 @@ func runMiniMaxH3Tests(_ t: TestKit) {
             "ambiguous license material remains UNKNOWN")
     }
 
+    t.suite("MiniMax H3 Canonical Runtime Resolution") {
+        // resolveRuntimeExecutable is the single place Normal Generate, One
+        // Shot, and Auto Movie all resolve H3 runtime readiness through (via
+        // MiniMaxH3Backend's single ensureReady call site), so exercising it
+        // here covers all three workflows uniformly.
+        func writeValidRuntimeBundle(at source: URL) throws {
+            try FileManager.default.createDirectory(
+                at: source.appendingPathComponent("lib"), withIntermediateDirectories: true)
+            var executable = Data([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01])
+            executable.append(Data(repeating: 0, count: 64))
+            executable.append(Data("mlx-serve 26.8.9".utf8))
+            let executableURL = source.appendingPathComponent("mlx-serve")
+            try executable.write(to: executableURL)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
+            try Data("MIT License\nPermission is hereby granted, free of charge\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions".utf8)
+                .write(to: source.appendingPathComponent("LICENSE"))
+            try Data("mlx-serve\nthird-party software attributions".utf8)
+                .write(to: source.appendingPathComponent("NOTICE"))
+            try Data("Apache License\nVersion 2.0".utf8)
+                .write(to: source.appendingPathComponent("LICENSE-APACHE-2.0"))
+            let nativeStub = Data([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01])
+                + Data(repeating: 0, count: 64)
+            for relative in [
+                "lib/libmlx.dylib", "lib/libmlxc.dylib", "lib/libjaccl.dylib",
+                "lib/libllama.dylib", "lib/libwebp.dylib", "lib/libsharpyuv.dylib",
+            ] {
+                try nativeStub.write(to: source.appendingPathComponent(relative))
+            }
+            try Data([1, 2, 3]).write(to: source.appendingPathComponent("lib/mlx.metallib"))
+        }
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MiniMaxH3ResolverTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // H3 One Shot + runtime missing: no manual executable selection is
+        // offered or required; the user gets Install guidance instead of the
+        // obsolete developer-oriented message.
+        let notInstalled = MiniMaxH3ManagedRuntimeManager(
+            runtimesDirectory: root.appendingPathComponent("not-installed", isDirectory: true))
+        let notInstalledRuntimeManager = MiniMaxH3RuntimeManager(managedRuntimeManager: notInstalled)
+        do {
+            _ = try notInstalledRuntimeManager.resolveRuntimeExecutable(configuredPath: nil)
+            t.check(false, "missing managed runtime must not silently resolve")
+        } catch let error as MiniMaxH3Error {
+            let message = error.localizedDescription
+            t.check(message.contains("Settings"), "Not Installed guidance points to Settings")
+            t.check(message.contains("Models & Features"), "Not Installed guidance names the exact menu")
+            t.check(!message.contains("Select an executable"), "obsolete developer-oriented wording is gone")
+        }
+
+        // H3 One Shot + runtime ready: a Ready managed runtime resolves
+        // automatically with zero manual path selection.
+        let readySource = root.appendingPathComponent("ready-source", isDirectory: true)
+        try writeValidRuntimeBundle(at: readySource)
+        let readyManaged = MiniMaxH3ManagedRuntimeManager(
+            runtimesDirectory: root.appendingPathComponent("ready-managed", isDirectory: true),
+            bundledRuntimeDirectory: readySource)
+        let installedManifest = h3Await { try? await readyManaged.installBundled() }
+        t.check(installedManifest != nil, "fixture managed runtime installs cleanly")
+        let readyRuntimeManager = MiniMaxH3RuntimeManager(managedRuntimeManager: readyManaged)
+        let resolvedManagedPath = try readyRuntimeManager.resolveRuntimeExecutable(configuredPath: nil)
+        t.checkEqual(
+            resolvedManagedPath, readyManaged.managedExecutableURL.path,
+            "Ready managed runtime resolves automatically without a manual path")
+
+        // H3 One Shot + compatible external server: an explicit Advanced
+        // override remains authoritative even when a managed runtime is Ready.
+        let overrideSource = root.appendingPathComponent("override", isDirectory: true)
+        try writeValidRuntimeBundle(at: overrideSource)
+        let overridePath = overrideSource.appendingPathComponent("mlx-serve").path
+        let overrideResolved = try readyRuntimeManager.resolveRuntimeExecutable(configuredPath: overridePath)
+        t.checkEqual(
+            overrideResolved, overridePath,
+            "an explicit Advanced executable path wins over the managed runtime")
+
+        // A stale/removed Advanced override must not block generation when a
+        // managed runtime is Ready — it falls back rather than failing.
+        let staleResolved = try readyRuntimeManager.resolveRuntimeExecutable(
+            configuredPath: root.appendingPathComponent("does-not-exist").path)
+        t.checkEqual(
+            staleResolved, readyManaged.managedExecutableURL.path,
+            "a stale Advanced override falls back to the Ready managed runtime")
+
+        // H3 One Shot + runtime broken: distinct Repair guidance, never the
+        // generic "select an executable" message.
+        var tampered = try Data(contentsOf: readyManaged.managedExecutableURL)
+        tampered.append(0xff)
+        try tampered.write(to: readyManaged.managedExecutableURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: readyManaged.managedExecutableURL.path)
+        do {
+            _ = try readyRuntimeManager.resolveRuntimeExecutable(configuredPath: nil)
+            t.check(false, "a Broken managed runtime must not silently resolve")
+        } catch let error as MiniMaxH3Error {
+            let message = error.localizedDescription
+            t.check(message.contains("Repair"), "Broken guidance offers Repair, not Select")
+            t.check(message.contains("Settings"), "Broken guidance points to Settings")
+            t.check(!message.contains("Select an executable"), "obsolete developer-oriented wording is gone")
+        }
+
+        // Managed runtime predates the verified manifest format: Update
+        // Required is distinct from both Not Installed and Broken.
+        let legacyManaged = MiniMaxH3ManagedRuntimeManager(
+            runtimesDirectory: root.appendingPathComponent("legacy", isDirectory: true))
+        try FileManager.default.createDirectory(
+            at: legacyManaged.managedRuntimeDirectory, withIntermediateDirectories: true)
+        let legacySource = root.appendingPathComponent("legacy-source", isDirectory: true)
+        try writeValidRuntimeBundle(at: legacySource)
+        try FileManager.default.copyItem(
+            at: legacySource.appendingPathComponent("mlx-serve"),
+            to: legacyManaged.managedExecutableURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: legacyManaged.managedExecutableURL.path)
+        let legacyRuntimeManager = MiniMaxH3RuntimeManager(managedRuntimeManager: legacyManaged)
+        do {
+            _ = try legacyRuntimeManager.resolveRuntimeExecutable(configuredPath: nil)
+            t.check(false, "an Update Required managed runtime must not silently resolve")
+        } catch let error as MiniMaxH3Error {
+            let message = error.localizedDescription
+            t.check(message.contains("Update"), "Update Required guidance is distinct wording")
+            t.check(message.contains("Settings"), "Update Required guidance points to Settings")
+        }
+    }
+
     t.suite("MiniMax H3 Shipping Payload Contract") {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

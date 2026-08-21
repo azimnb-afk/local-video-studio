@@ -639,15 +639,34 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
     private var ownedProcess: Process?
     private var ownedEndpoint: String?
     private var ownedModelDirectory: String?
+    private var ownedStderrTail: String = ""
     private let fileManager: FileManager
     private let managedRuntimeManager: MiniMaxH3ManagedRuntimeManager
+    private let userDefaults: UserDefaults
 
     init(
         fileManager: FileManager = .default,
-        managedRuntimeManager: MiniMaxH3ManagedRuntimeManager = .shared
+        managedRuntimeManager: MiniMaxH3ManagedRuntimeManager = .shared,
+        userDefaults: UserDefaults = .standard
     ) {
         self.fileManager = fileManager
         self.managedRuntimeManager = managedRuntimeManager
+        self.userDefaults = userDefaults
+    }
+
+    /// Keeps the sidebar's persisted snapshot (ActiveModelDisplayResolver)
+    /// in sync with what a real generation attempt is actually doing.
+    /// Settings' own checkReadiness() writes the same keys when the user
+    /// opens Preferences; this is the generation-time counterpart so the
+    /// user sees the real Stopped -> Starting -> Ready/Failed transition
+    /// instead of a stale snapshot from the last time Settings was opened.
+    private func recordReadiness(state: MiniMaxH3RuntimeState, detail: String) {
+        userDefaults.set(state.rawValue, forKey: MiniMaxH3Configuration.lastReadinessStateKey)
+        userDefaults.set(detail, forKey: MiniMaxH3Configuration.lastReadinessDetailKey)
+    }
+
+    private func recordReadiness(_ status: MiniMaxH3RuntimeStatus) {
+        recordReadiness(state: status.state, detail: status.detail)
     }
 
     func status(
@@ -712,9 +731,11 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
 
     func ensureReady(
         snapshot: MiniMaxH3Configuration.Snapshot,
+        transport: MiniMaxH3HTTPTransport = MiniMaxH3URLSessionTransport(timeout: 8),
         progress: @escaping (Double, String) -> Void = { _, _ in }
     ) async throws -> MiniMaxH3RuntimeStatus {
-        let initial = await status(snapshot: snapshot)
+        let initial = await status(snapshot: snapshot, transport: transport)
+        recordReadiness(initial)
         if initial.isReady { return initial }
         if initial.state == .wrongModel {
             throw MiniMaxH3Error.wrongModel(
@@ -728,28 +749,40 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
             throw MiniMaxH3Error.invalidEndpoint
         }
         let runtime = try resolveRuntimeExecutable(configuredPath: snapshot.runtimeExecutablePath)
-        guard let model = snapshot.modelDirectory,
-              directoryExists(model) else {
-            throw MiniMaxH3Error.runtimeNotConfigured("Select the local MiniMax H3 model directory.")
-        }
+        let model = try resolveModelDirectory(snapshot.modelDirectory)
 
-        try startOwnedServer(runtime: runtime, model: model, endpoint: snapshot.endpoint)
+        recordReadiness(state: .starting, detail: "Starting the MiniMax H3 local server…")
+        do {
+            try startOwnedServer(runtime: runtime, model: model, endpoint: snapshot.endpoint)
+        } catch let error as MiniMaxH3Error {
+            recordReadiness(state: .failed, detail: error.localizedDescription)
+            throw error
+        }
         progress(0.01, "Starting the MiniMax H3 local server…")
 
         do {
             for _ in 0..<300 {
                 try Task.checkCancellation()
                 try await Task.sleep(nanoseconds: 1_000_000_000)
-                let current = await status(snapshot: snapshot)
-                if current.isReady { return current }
+                let current = await status(snapshot: snapshot, transport: transport)
+                if current.isReady {
+                    recordReadiness(current)
+                    return current
+                }
                 if current.state == .wrongModel {
                     stopOwnedServer()
+                    recordReadiness(current)
                     throw MiniMaxH3Error.wrongModel(
                         expected: MiniMaxH3Configuration.expectedServerModelID,
                         actual: current.loadedModelID)
                 }
                 if !ownedServerIsRunning {
-                    throw MiniMaxH3Error.runtimeStartFailed("The mlx-serve process exited before becoming ready.")
+                    let tail = recentStderrTail
+                    let detail = tail.isEmpty
+                        ? "The mlx-serve process exited before becoming ready."
+                        : "The mlx-serve process exited before becoming ready: \(tail)"
+                    recordReadiness(state: .failed, detail: detail)
+                    throw MiniMaxH3Error.runtimeStartFailed(detail)
                 }
             }
         } catch is CancellationError {
@@ -757,7 +790,39 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
             throw MiniMaxH3Error.cancelled
         }
         stopOwnedServer()
+        recordReadiness(state: .failed, detail: "Timed out while loading the configured model.")
         throw MiniMaxH3Error.runtimeStartFailed("Timed out while loading the configured model.")
+    }
+
+    /// Users pick a folder in a file picker, and the natural choice is often
+    /// the *container* folder rather than the exact model pack inside it —
+    /// exactly the folder layout every real H3 model download produces. If
+    /// the configured directory itself isn't a valid pack, look one level
+    /// deep for the single subdirectory that is, instead of silently
+    /// reporting "Configured" and only failing once mlx-serve exits with
+    /// FileNotFound at server start.
+    func resolveModelDirectory(_ path: String?) throws -> String {
+        guard let path, directoryExists(path) else {
+            throw MiniMaxH3Error.runtimeNotConfigured("Select the local MiniMax H3 model directory.")
+        }
+        if Self.directoryHasModelFiles(path, fileManager: fileManager) {
+            return path
+        }
+        if let entries = try? fileManager.contentsOfDirectory(atPath: path) {
+            for entry in entries.sorted() {
+                let candidate = (path as NSString).appendingPathComponent(entry)
+                guard directoryExists(candidate),
+                      Self.directoryHasModelFiles(candidate, fileManager: fileManager) else { continue }
+                return candidate
+            }
+        }
+        throw MiniMaxH3Error.runtimeNotConfigured(
+            "The selected folder does not contain the MiniMax H3 model files (config.json). "
+                + "Choose the exact \(MiniMaxH3Configuration.expectedServerModelID) folder.")
+    }
+
+    private static func directoryHasModelFiles(_ path: String, fileManager: FileManager) -> Bool {
+        fileManager.fileExists(atPath: (path as NSString).appendingPathComponent("config.json"))
     }
 
     /// A configured/Advanced executable path is authoritative when present and
@@ -804,12 +869,23 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
         if let process, process.isRunning {
             process.terminate()
         }
+        (process?.standardError as? Pipe)?.fileHandleForReading.readabilityHandler = nil
     }
 
     private var ownedServerIsRunning: Bool {
         lock.lock()
         defer { lock.unlock() }
         return ownedProcess?.isRunning == true
+    }
+
+    /// The most recent stderr output from the owned server, bounded so a
+    /// long-running successful server never accumulates unbounded memory —
+    /// only enough to explain a startup failure (Phase 9: preserve enough to
+    /// be actionable, never dump giant raw logs into the normal UI).
+    private var recentStderrTail: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return ownedStderrTail.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func ownership(for endpoint: String) -> MiniMaxH3ServerOwnership {
@@ -827,7 +903,8 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
         process.executableURL = URL(fileURLWithPath: runtime)
         process.arguments = Self.serverArguments(modelDirectory: model, port: port)
         process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        let stderrPipe = Pipe()
+        process.standardError = stderrPipe
         lock.lock()
         if let existing = ownedProcess, existing.isRunning {
             let sameConfiguration = ownedEndpoint == endpoint && ownedModelDirectory == model
@@ -836,10 +913,26 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
             throw MiniMaxH3Error.runtimeStartFailed(
                 "Another app-owned H3 server is already running with a different endpoint or model.")
         }
+        ownedStderrTail = ""
+        // Drain continuously (never leave the pipe unread — a verbose
+        // subprocess would otherwise block on write() once the OS pipe
+        // buffer fills) while keeping only a bounded tail in memory.
+        stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            guard let self else { return }
+            self.lock.lock()
+            self.ownedStderrTail += text
+            if self.ownedStderrTail.utf8.count > 4_096 {
+                self.ownedStderrTail = String(self.ownedStderrTail.suffix(4_096))
+            }
+            self.lock.unlock()
+        }
         do {
             try process.run()
         } catch {
             lock.unlock()
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
             throw MiniMaxH3Error.runtimeStartFailed(error.localizedDescription)
         }
         ownedProcess = process

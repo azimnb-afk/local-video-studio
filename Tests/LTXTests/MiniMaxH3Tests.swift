@@ -1,6 +1,8 @@
 import Foundation
 @testable import LTXVideoGeneratorCore
 
+private struct H3FakeConnectionFailure: Error {}
+
 private final class H3FakeTransport: MiniMaxH3HTTPTransport {
     var healthStatus = 200
     var healthObject: [String: Any] = ["status": "ok"]
@@ -10,8 +12,14 @@ private final class H3FakeTransport: MiniMaxH3HTTPTransport {
         "loaded": true,
         "state": "ready",
     ]]
+    /// Simulates "nothing is listening at this endpoint" — the real
+    /// URLSessionTransport throws when the connection is refused; the
+    /// managed-runtime failure tests need that same catch-branch behavior
+    /// without a real socket.
+    var shouldThrowConnectionFailure = false
 
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        if shouldThrowConnectionFailure { throw H3FakeConnectionFailure() }
         let path = request.url?.path ?? ""
         let object: Any
         let status: Int
@@ -484,6 +492,161 @@ func runMiniMaxH3Tests(_ t: TestKit) {
             t.check(message.contains("Update"), "Update Required guidance is distinct wording")
             t.check(message.contains("Settings"), "Update Required guidance points to Settings")
         }
+    }
+
+    t.suite("MiniMax H3 Model Directory Resolution") {
+        // Reproduces the reported bug: a user-chosen H3 model folder is
+        // naturally the *container* folder (what a folder picker shows by
+        // default), not the concrete model pack one level inside it — real
+        // MiniMax-H3 downloads land exactly this way. The old flat
+        // directoryExists() check accepted the container folder as
+        // "Configured" and only failed once mlx-serve exited with
+        // FileNotFound at server start.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MiniMaxH3ModelDirTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = MiniMaxH3RuntimeManager()
+
+        // A directory that directly contains config.json resolves as-is.
+        let concretePack = root.appendingPathComponent("concrete", isDirectory: true)
+        try FileManager.default.createDirectory(at: concretePack, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: concretePack.appendingPathComponent("config.json"))
+        let resolvedConcrete = try manager.resolveModelDirectory(concretePack.path)
+        t.checkEqual(resolvedConcrete, concretePack.path, "a directory with config.json resolves directly")
+
+        // A container folder with the real pack one level inside resolves to
+        // the concrete subfolder, not the container itself.
+        let container = root.appendingPathComponent("container", isDirectory: true)
+        let nestedPack = container.appendingPathComponent(
+            MiniMaxH3Configuration.expectedServerModelID, isDirectory: true)
+        try FileManager.default.createDirectory(at: nestedPack, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: nestedPack.appendingPathComponent("config.json"))
+        let resolvedNested = try manager.resolveModelDirectory(container.path)
+        t.checkEqual(resolvedNested, nestedPack.path,
+                     "a container folder resolves to its concrete model pack subfolder")
+
+        // A folder with no valid pack anywhere in it (or one level deep)
+        // must fail with a distinct, actionable message — never silently
+        // report Configured and defer the failure to server startup.
+        let empty = root.appendingPathComponent("empty", isDirectory: true)
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        do {
+            _ = try manager.resolveModelDirectory(empty.path)
+            t.check(false, "a folder with no model files anywhere must not silently resolve")
+        } catch let error as MiniMaxH3Error {
+            let message = error.localizedDescription
+            t.check(message.contains("config.json"), "model-missing guidance names the concrete signal checked")
+            t.check(message.contains(MiniMaxH3Configuration.expectedServerModelID),
+                    "model-missing guidance names the exact expected model folder")
+        }
+
+        // Nil / nonexistent path keeps the original, distinct "not
+        // configured" message — never confused with the runtime message.
+        do {
+            _ = try manager.resolveModelDirectory(nil)
+            t.check(false, "a missing model directory must not silently resolve")
+        } catch let error as MiniMaxH3Error {
+            if case .runtimeNotConfigured(let detail) = error {
+                t.checkEqual(detail, "Select the local MiniMax H3 model directory.",
+                             "unset model directory keeps its original distinct message")
+            } else {
+                t.check(false, "expected runtimeNotConfigured for a missing model directory")
+            }
+        }
+    }
+
+    t.suite("MiniMax H3 Server Status Lifecycle — ensureReady") {
+        // Every H3 workflow calls ensureReady() through MiniMaxH3Backend's
+        // single call site, and its final state is written to the same
+        // UserDefaults keys (minimaxH3LastReadinessState/Detail) the sidebar
+        // (ActiveModelDisplayResolver) reads on every redraw. This proves
+        // the sidebar actually sees Stopped -> Starting -> Ready/Failed
+        // during a real generation attempt, not a stale Settings-only
+        // snapshot — and that a process that exits before Ready surfaces
+        // its stderr instead of the old bare "exited before becoming ready."
+        func writeFakeRuntime(at url: URL, script: String) throws {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(script.utf8).write(to: url)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        }
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MiniMaxH3EnsureReadyTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let modelDir = root.appendingPathComponent("model", isDirectory: true)
+        try FileManager.default.createDirectory(at: modelDir, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: modelDir.appendingPathComponent("config.json"))
+
+        let testSuiteName = "test.h3.ensureready.\(UUID().uuidString)"
+        let tempDefaults = UserDefaults(suiteName: testSuiteName)!
+        defer { tempDefaults.removePersistentDomain(forName: testSuiteName) }
+
+        // CASE: the process exits immediately with a diagnostic on stderr —
+        // the exact shape of the real "mlx-serve exited before becoming
+        // ready" incident (reproduced manually against the real managed
+        // binary with a wrong model path: "error: FileNotFound").
+        let crashingRuntime = root.appendingPathComponent("crashing-mlx-serve")
+        try writeFakeRuntime(
+            at: crashingRuntime,
+            script: "#!/bin/sh\necho 'error: FileNotFound' >&2\nexit 1\n")
+
+        let crashManager = MiniMaxH3RuntimeManager(userDefaults: tempDefaults)
+        let crashTransport = H3FakeTransport()
+        crashTransport.shouldThrowConnectionFailure = true // nothing is ever listening
+        let crashSnapshot = MiniMaxH3Configuration.Snapshot(
+            modelDirectory: modelDir.path,
+            runtimeExecutablePath: crashingRuntime.path,
+            endpoint: "http://127.0.0.1:19981")
+
+        var capturedStartingState: String?
+        var thrownDetail: String?
+        h3Await {
+            do {
+                _ = try await crashManager.ensureReady(
+                    snapshot: crashSnapshot,
+                    transport: crashTransport,
+                    progress: { _, _ in
+                        if capturedStartingState == nil {
+                            capturedStartingState = tempDefaults.string(
+                                forKey: MiniMaxH3Configuration.lastReadinessStateKey)
+                        }
+                    })
+            } catch {
+                thrownDetail = error.localizedDescription
+            }
+        }
+
+        t.checkEqual(capturedStartingState, MiniMaxH3RuntimeState.starting.rawValue,
+                     "the sidebar's persisted state reaches Starting before the process is judged")
+        t.check(thrownDetail?.contains("error: FileNotFound") == true,
+                "process-exit failure preserves the real stderr instead of a bare generic message")
+        t.checkEqual(
+            tempDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessStateKey),
+            MiniMaxH3RuntimeState.failed.rawValue,
+            "a start failure is surfaced as Failed, never left silently as Stopped")
+        t.check(
+            tempDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessDetailKey)?
+                .contains("error: FileNotFound") == true,
+            "the persisted detail the sidebar reads also carries the real stderr")
+
+        // CASE: a compatible server is already healthy — no process needs to
+        // start, and the sidebar snapshot still ends at Ready.
+        let readyManager = MiniMaxH3RuntimeManager(userDefaults: tempDefaults)
+        let readyTransport = H3FakeTransport()
+        let readySnapshot = MiniMaxH3Configuration.Snapshot(
+            modelDirectory: modelDir.path,
+            runtimeExecutablePath: crashingRuntime.path,
+            endpoint: "http://127.0.0.1:19982")
+        let readyResult = h3Await {
+            try? await readyManager.ensureReady(snapshot: readySnapshot, transport: readyTransport)
+        }
+        t.check(readyResult?.isReady == true, "an already-healthy compatible server resolves Ready")
+        t.checkEqual(
+            tempDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessStateKey),
+            MiniMaxH3RuntimeState.ready.rawValue,
+            "the sidebar's persisted state reaches Ready, matching real generation readiness")
     }
 
     t.suite("MiniMax H3 Shipping Payload Contract") {

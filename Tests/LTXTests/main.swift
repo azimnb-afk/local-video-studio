@@ -10,6 +10,26 @@ let ltxTestsStorageRoot = FileManager.default.temporaryDirectory
         isDirectory: true)
 setenv(AppStorageDirectory.testRootEnvironmentKey, ltxTestsStorageRoot.path, 1)
 
+// Shipping-equivalent Personal first-run acceptance. Discovers the runtime
+// inside a built Personal app, installs it into an isolated Personal-shaped
+// Application Support tree, starts an app-owned server on 11237, and performs
+// one short real I2V without using the pre-existing external 11235 server:
+//   swift run LTXTests --h3-packaged-personal-acceptance <app> <model-dir> <source-image> [endpoint]
+if CommandLine.arguments.count >= 5,
+   CommandLine.arguments[1] == "--h3-packaged-personal-acceptance" {
+    let endpoint = CommandLine.arguments.count >= 6
+        ? CommandLine.arguments[5]
+        : MiniMaxH3Configuration.personalManagedEndpoint
+    Task { @MainActor in
+        exit(await MiniMaxH3AcceptanceHarness.runPackagedPersonalAcceptance(
+            appPath: CommandLine.arguments[2],
+            modelDirectory: CommandLine.arguments[3],
+            sourceImagePath: CommandLine.arguments[4],
+            endpoint: endpoint))
+    }
+    RunLoop.main.run()
+}
+
 // Fresh Dev-profile managed-runtime acceptance. This intentionally requires
 // explicit existing local paths and performs no download:
 //   swift run LTXTests --h3-managed-acceptance <runtime-bundle> <model-dir> <source-image> [endpoint]

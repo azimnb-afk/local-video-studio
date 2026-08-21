@@ -82,6 +82,9 @@ if [ ! -d "${CANONICAL_APP}" ]; then
     exit 1
 fi
 
+echo "==> Embedding and ad-hoc signing the verified MiniMax H3 runtime payload..."
+"${SCRIPT_DIR}/embed-minimax-h3-runtime.sh" "${CANONICAL_APP}" "-" local
+
 echo ""
 echo "=============================================================================="
 echo "CANONICAL DEVELOPMENT APP:"

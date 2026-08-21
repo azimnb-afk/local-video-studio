@@ -85,6 +85,9 @@ if [ ! -d "${BUILT_APP}" ]; then
     exit 1
 fi
 
+echo "==> Embedding and ad-hoc signing the verified MiniMax H3 runtime payload..."
+"${SCRIPT_DIR}/embed-minimax-h3-runtime.sh" "${BUILT_APP}" "-" local
+
 # Defensive path verification
 if [ -z "${TARGET_APP:-}" ] || [ "${TARGET_APP}" = "/" ] || [ "${TARGET_APP}" = "${HOME}" ] || [ "${TARGET_APP}" != "${HOME}/Applications/Local Video Studio.app" ]; then
     echo "Error: Refusing to replace invalid or unsafe TARGET_APP path: '${TARGET_APP}'" >&2

@@ -46,6 +46,8 @@ require_distribution_credentials() {
         fail "CODE_SIGN_IDENTITY was not found among valid code-signing identities."
     [[ "${CODE_SIGN_IDENTITY}" == *"Developer ID Application"* ]] || \
         fail "CODE_SIGN_IDENTITY must name a Developer ID Application identity."
+    [ -n "${MINIMAX_H3_RUNTIME_PAYLOAD_SOURCE:-}" ] || \
+        fail "Set MINIMAX_H3_RUNTIME_PAYLOAD_SOURCE to the audited mlx-serve 26.8.9 payload for distribution."
 
     if [ -n "${NOTARY_PROFILE:-}" ]; then
         return
@@ -119,10 +121,15 @@ fi
 echo "Exporting app..."
 ditto "${ARCHIVE_PATH}/Products/Applications/${APP_DISPLAY_NAME}.app" "${APP_PATH}"
 
-# Sign App
+# Embed the execution-only H3 payload after export, re-sign its Mach-O files
+# inside-out, then seal the outer app. No model files enter this build path.
 if [ "$MODE" = "distribution" ]; then
-    echo "Signing App..."
-    codesign --force --options runtime --timestamp --sign "${CODE_SIGN_IDENTITY}" "${APP_PATH}"
+    echo "Embedding and signing MiniMax H3 runtime payload..."
+    "${PROJECT_DIR}/scripts/embed-minimax-h3-runtime.sh" \
+        "${APP_PATH}" "${CODE_SIGN_IDENTITY}" distribution
+else
+    echo "Embedding and ad-hoc signing MiniMax H3 runtime payload..."
+    "${PROJECT_DIR}/scripts/embed-minimax-h3-runtime.sh" "${APP_PATH}" "-" local
 fi
 
 # Verify signature

@@ -14,7 +14,33 @@ enum MiniMaxH3Configuration {
     static let endpointKey = "minimaxH3Endpoint"
     static let lastReadinessStateKey = "minimaxH3LastReadinessState"
     static let lastReadinessDetailKey = "minimaxH3LastReadinessDetail"
-    static let defaultEndpoint = "http://127.0.0.1:11235"
+    static let externalLegacyEndpoint = "http://127.0.0.1:11235"
+    static let developmentManagedEndpoint = "http://127.0.0.1:11236"
+    static let personalManagedEndpoint = "http://127.0.0.1:11237"
+
+    /// A fresh installed app gets a profile-scoped managed port. Existing
+    /// explicit endpoint preferences remain authoritative, including the
+    /// advanced external-server endpoint on 11235.
+    static var defaultEndpoint: String {
+        defaultEndpoint(bundleIdentifier: Bundle.main.bundleIdentifier)
+    }
+
+    static func defaultEndpoint(bundleIdentifier: String?) -> String {
+        switch AppStorageDirectory.profile(bundleIdentifier: bundleIdentifier) {
+        case .personal: return personalManagedEndpoint
+        case .development: return developmentManagedEndpoint
+        case .bundleless: return externalLegacyEndpoint
+        }
+    }
+
+    /// Shipping builds place the small execution runtime here after verifying
+    /// its pinned source checksum and re-signing every Mach-O payload item.
+    /// The H3 model is deliberately never part of this resource tree.
+    static func bundledRuntimeDirectory(bundle: Bundle = .main) -> URL? {
+        bundle.resourceURL?
+            .appendingPathComponent("MiniMaxH3Runtime", isDirectory: true)
+            .appendingPathComponent("mlx-serve", isDirectory: true)
+    }
 
     struct Snapshot: Codable, Equatable {
         var modelDirectory: String?
@@ -70,6 +96,10 @@ struct MiniMaxH3ManagedRuntimeManifest: Codable, Equatable {
     var runtimeVersion: String
     var architecture: String
     var executableSHA256: String
+    /// Full required-component snapshot for newly installed runtimes. Optional
+    /// so the accepted schema-1 Dev manifest from before packaging still
+    /// decodes and remains usable; every new Install/Repair writes the map.
+    var componentSHA256: [String: String]?
     var licenseClassification: MiniMaxH3RuntimeLicenseClassification
     var installedAt: Date
 
@@ -79,6 +109,7 @@ struct MiniMaxH3ManagedRuntimeManifest: Codable, Equatable {
         runtimeVersion: String,
         architecture: String = "arm64",
         executableSHA256: String,
+        componentSHA256: [String: String]? = nil,
         licenseClassification: MiniMaxH3RuntimeLicenseClassification,
         installedAt: Date = Date()
     ) {
@@ -87,6 +118,7 @@ struct MiniMaxH3ManagedRuntimeManifest: Codable, Equatable {
         self.runtimeVersion = runtimeVersion
         self.architecture = architecture
         self.executableSHA256 = executableSHA256
+        self.componentSHA256 = componentSHA256
         self.licenseClassification = licenseClassification
         self.installedAt = installedAt
     }
@@ -139,6 +171,7 @@ final class MiniMaxH3ManagedRuntimeManager: @unchecked Sendable {
         "LICENSE-APACHE-2.0",
         "lib/libmlx.dylib",
         "lib/libmlxc.dylib",
+        "lib/libjaccl.dylib",
         "lib/libllama.dylib",
         "lib/libwebp.dylib",
         "lib/libsharpyuv.dylib",
@@ -146,13 +179,16 @@ final class MiniMaxH3ManagedRuntimeManager: @unchecked Sendable {
     ]
 
     let runtimesDirectory: URL
+    let bundledRuntimeDirectory: URL?
     private let fileManager: FileManager
 
     init(
         runtimesDirectory: URL = AppStorageDirectory.runtimesDirectory,
+        bundledRuntimeDirectory: URL? = MiniMaxH3Configuration.bundledRuntimeDirectory(),
         fileManager: FileManager = .default
     ) {
         self.runtimesDirectory = runtimesDirectory
+        self.bundledRuntimeDirectory = bundledRuntimeDirectory
         self.fileManager = fileManager
     }
 
@@ -170,6 +206,32 @@ final class MiniMaxH3ManagedRuntimeManager: @unchecked Sendable {
 
     var readyExecutablePath: String? {
         evaluateStatus().executablePath
+    }
+
+    var hasBundledRuntimePayload: Bool {
+        guard let bundledRuntimeDirectory else { return false }
+        var isDirectory: ObjCBool = false
+        return fileManager.fileExists(
+            atPath: bundledRuntimeDirectory.path, isDirectory: &isDirectory
+        ) && isDirectory.boolValue
+    }
+
+    func inspectBundledRuntime() throws -> MiniMaxH3ManagedRuntimeManifest {
+        guard let bundledRuntimeDirectory, hasBundledRuntimePayload else {
+            throw MiniMaxH3ManagedRuntimeError.missingComponent(
+                "the app's MiniMax H3 runtime payload")
+        }
+        return try inspectBundle(at: bundledRuntimeDirectory)
+    }
+
+    func installBundled(
+        progress: @escaping @Sendable (Double, String) -> Void = { _, _ in }
+    ) async throws -> MiniMaxH3ManagedRuntimeManifest {
+        guard let bundledRuntimeDirectory, hasBundledRuntimePayload else {
+            throw MiniMaxH3ManagedRuntimeError.missingComponent(
+                "the app's MiniMax H3 runtime payload")
+        }
+        return try await install(from: bundledRuntimeDirectory, progress: progress)
     }
 
     func evaluateStatus() -> MiniMaxH3ManagedRuntimeStatus {
@@ -207,6 +269,10 @@ final class MiniMaxH3ManagedRuntimeManager: @unchecked Sendable {
             guard inspected.executableSHA256 == manifest.executableSHA256 else {
                 return .broken(reason: "The managed mlx-serve executable no longer matches its installation manifest.")
             }
+            if let expectedComponents = manifest.componentSHA256,
+               inspected.componentSHA256 != expectedComponents {
+                return .broken(reason: "A managed runtime component no longer matches its installation manifest.")
+            }
             guard inspected.runtimeVersion == manifest.runtimeVersion else {
                 return .broken(reason: "The managed mlx-serve version no longer matches its installation manifest.")
             }
@@ -238,11 +304,18 @@ final class MiniMaxH3ManagedRuntimeManager: @unchecked Sendable {
             throw MiniMaxH3ManagedRuntimeError.invalidSource("Symbolic links are not accepted in a managed runtime bundle.")
         }
 
+        for relativePath in Self.requiredNativeFiles {
+            let nativeData = try Data(
+                contentsOf: sourceDirectory.appendingPathComponent(relativePath),
+                options: .mappedIfSafe)
+            guard Self.isArm64MachO(nativeData) else {
+                throw MiniMaxH3ManagedRuntimeError.invalidSource(
+                    "\(relativePath) is not a native arm64 Mach-O file.")
+            }
+        }
+
         let executableURL = sourceDirectory.appendingPathComponent("mlx-serve")
         let executableData = try Data(contentsOf: executableURL, options: .mappedIfSafe)
-        guard Self.isArm64MachO(executableData) else {
-            throw MiniMaxH3ManagedRuntimeError.unsupportedArchitecture
-        }
         guard let version = Self.embeddedVersion(in: executableData) else {
             throw MiniMaxH3ManagedRuntimeError.invalidSource("The embedded mlx-serve version could not be read.")
         }
@@ -262,9 +335,18 @@ final class MiniMaxH3ManagedRuntimeManager: @unchecked Sendable {
             throw MiniMaxH3ManagedRuntimeError.invalidSource("License and attribution files could not be classified.")
         }
 
+        var componentSHA256: [String: String] = [:]
+        for relativePath in Self.requiredFiles {
+            let data = try Data(
+                contentsOf: sourceDirectory.appendingPathComponent(relativePath),
+                options: .mappedIfSafe)
+            componentSHA256[relativePath] = Self.sha256(data)
+        }
+
         return MiniMaxH3ManagedRuntimeManifest(
             runtimeVersion: version,
             executableSHA256: Self.sha256(executableData),
+            componentSHA256: componentSHA256,
             licenseClassification: classification)
     }
 
@@ -309,7 +391,7 @@ final class MiniMaxH3ManagedRuntimeManager: @unchecked Sendable {
         }
 
         do {
-            progress(0.20, "Copying runtime into the managed Dev directory")
+            progress(0.20, "Copying runtime into this app profile")
             try fileManager.copyItem(at: sourceDirectory, to: staging)
             guard try requiredComponentsMatch(source: sourceDirectory, copy: staging) else {
                 throw MiniMaxH3ManagedRuntimeError.installationFailed(
@@ -325,8 +407,9 @@ final class MiniMaxH3ManagedRuntimeManager: @unchecked Sendable {
                 to: staging.appendingPathComponent("runtime_manifest.json"), options: .atomic)
             progress(0.80, "Verifying the managed runtime copy")
             let stagedCheck = try inspectBundle(at: staging)
-            guard stagedCheck.executableSHA256 == sourceManifest.executableSHA256 else {
-                throw MiniMaxH3ManagedRuntimeError.installationFailed("The copied executable checksum changed.")
+            guard stagedCheck.executableSHA256 == sourceManifest.executableSHA256,
+                  stagedCheck.componentSHA256 == sourceManifest.componentSHA256 else {
+                throw MiniMaxH3ManagedRuntimeError.installationFailed("A copied runtime component checksum changed.")
             }
 
             if fileManager.fileExists(atPath: managedRuntimeDirectory.path) {
@@ -437,6 +520,16 @@ final class MiniMaxH3ManagedRuntimeManager: @unchecked Sendable {
         }
         return total
     }
+
+    private static let requiredNativeFiles = [
+        "mlx-serve",
+        "lib/libmlx.dylib",
+        "lib/libmlxc.dylib",
+        "lib/libjaccl.dylib",
+        "lib/libllama.dylib",
+        "lib/libwebp.dylib",
+        "lib/libsharpyuv.dylib",
+    ]
 }
 
 enum MiniMaxH3RuntimeState: String, Codable, Equatable {

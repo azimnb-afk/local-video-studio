@@ -9,6 +9,120 @@ enum MiniMaxH3AcceptanceHarness {
     private static let endpoint = MiniMaxH3Configuration.defaultEndpoint
 
     @MainActor
+    static func runPackagedPersonalAcceptance(
+        appPath: String,
+        modelDirectory: String,
+        sourceImagePath: String,
+        endpoint: String
+    ) async -> Int32 {
+        let appURL = URL(fileURLWithPath: appPath, isDirectory: true)
+        let payload = appURL
+            .appendingPathComponent("Contents/Resources/MiniMaxH3Runtime", isDirectory: true)
+            .appendingPathComponent("mlx-serve", isDirectory: true)
+        let sourceImage: String
+        do { sourceImage = try validatedSource(sourceImagePath) }
+        catch {
+            print("FAILED: \(error.localizedDescription)")
+            return 2
+        }
+        var appIsDirectory: ObjCBool = false
+        var modelIsDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: appURL.path, isDirectory: &appIsDirectory),
+              appIsDirectory.boolValue,
+              FileManager.default.fileExists(atPath: modelDirectory, isDirectory: &modelIsDirectory),
+              modelIsDirectory.boolValue,
+              MiniMaxH3Configuration.endpointURL(endpoint) != nil else {
+            print("FAILED: Personal app, model directory, or local endpoint is invalid")
+            return 2
+        }
+
+        let isolatedRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LocalVideoStudio-PersonalFirstRun-\(UUID().uuidString)", isDirectory: true)
+        let personalSupport = isolatedRoot
+            .appendingPathComponent("Library/Application Support/LocalVideoStudio", isDirectory: true)
+        let runtimes = personalSupport.appendingPathComponent("Runtimes", isDirectory: true)
+        let manager = MiniMaxH3ManagedRuntimeManager(
+            runtimesDirectory: runtimes,
+            bundledRuntimeDirectory: payload)
+
+        print("PROFILE=Personal-equivalent isolated")
+        print("ISOLATED_PERSONAL_ROOT=\(personalSupport.path)")
+        print("EXTERNAL_11235_REQUIRED=NO")
+        print("MANAGED_ENDPOINT=\(endpoint)")
+        print("INITIAL_RUNTIME_STATE=\(managedStatusName(manager.evaluateStatus()))")
+        print("BUNDLED_PAYLOAD_DISCOVERED=\(manager.hasBundledRuntimePayload ? "YES" : "NO")")
+        guard manager.evaluateStatus() == .notInstalled,
+              manager.hasBundledRuntimePayload else {
+            print("FAILED: isolated first run must begin Not Installed with a shipping payload available")
+            return 1
+        }
+
+        do {
+            let payloadManifest = try manager.inspectBundledRuntime()
+            print("PAYLOAD_VERSION=\(payloadManifest.runtimeVersion)")
+            print("PAYLOAD_ARCH=\(payloadManifest.architecture)")
+            print("PAYLOAD_SHA256=\(payloadManifest.executableSHA256)")
+            print("PAYLOAD_LICENSE=\(payloadManifest.licenseClassification.rawValue)")
+            let installed = try await manager.installBundled { progress, step in
+                print("INSTALL_PROGRESS=\(String(format: "%.2f", progress)) \(step)")
+            }
+            guard case .ready(let executablePath, let reopened) = manager.evaluateStatus(),
+                  reopened.executableSHA256 == installed.executableSHA256,
+                  executablePath.hasPrefix(personalSupport.path) else {
+                print("FAILED: bundled runtime did not install into the isolated Personal profile")
+                return 1
+            }
+            print("INSTALL=PASS")
+            print("INSTALLED_SHA256=\(reopened.executableSHA256)")
+            print("MODEL_AUTO_DOWNLOAD=NO")
+
+            let snapshot = MiniMaxH3Configuration.Snapshot(
+                modelDirectory: modelDirectory,
+                runtimeExecutablePath: executablePath,
+                endpoint: endpoint)
+            let ready = try await MiniMaxH3RuntimeManager.shared.ensureReady(
+                snapshot: snapshot
+            ) { progress, step in
+                print("SERVER_PROGRESS=\(String(format: "%.2f", progress)) \(step)")
+            }
+            guard ready.isReady,
+                  ready.loadedModelID == MiniMaxH3Configuration.expectedServerModelID,
+                  ready.ownership == .appOwned else {
+                print("FAILED: isolated Personal server did not reach exact-model app-owned Ready")
+                MiniMaxH3RuntimeManager.shared.stopOwnedServer()
+                return 1
+            }
+            print("START=PASS")
+            print("SERVER_OWNERSHIP=appOwned")
+            print("HEALTH=PASS")
+            print("MODEL_READY=PASS")
+            print("CANCEL_CONTROL=AVAILABLE")
+
+            let generation = try await runDirect(
+                label: "h3-packaged-personal-first-run",
+                sourceImagePath: sourceImage,
+                duration: 2.3,
+                generationSource: "generate",
+                expectedChain: 1,
+                modelDirectory: modelDirectory,
+                runtimeExecutablePath: executablePath,
+                endpoint: endpoint,
+                seed: 6262)
+            MiniMaxH3RuntimeManager.shared.stopOwnedServer()
+            let stopped = await MiniMaxH3RuntimeManager.shared.status(snapshot: snapshot)
+            print("APP_OWNED_STOP_STATE=\(stopped.state.rawValue)")
+            print("STOP_POLICY=APP_OWNED_ONLY")
+            print("CLEAN_MACHINE_SIMULATION=\(generation == 0 ? "PASS" : "FAIL")")
+            print("TEMP_ACCEPTANCE_ROOT=\(isolatedRoot.path)")
+            return generation
+        } catch {
+            MiniMaxH3RuntimeManager.shared.stopOwnedServer()
+            print("FAILED: \(error.localizedDescription)")
+            return 1
+        }
+    }
+
+    @MainActor
     static func runManagedStabilizationSuite(
         modelDirectory: String,
         continuationSourcePath: String,
@@ -637,9 +751,22 @@ enum MiniMaxH3AcceptanceHarness {
         timeoutSeconds: Double
     ) async -> GenerationResult? {
         let started = Date()
+        var didPrintActivePresentation = false
         environment.generationService.addToQueue(request)
         while Date().timeIntervalSince(started) < timeoutSeconds {
             try? await Task.sleep(nanoseconds: 1_000_000_000)
+            if environment.generationService.isProcessing,
+               !didPrintActivePresentation,
+               let active = environment.generationService.currentRequest {
+                let indeterminate = MiniMaxH3ProgressPresentation.isIndeterminate(
+                    modelID: active.modelId,
+                    isCurrent: true,
+                    progress: environment.generationService.progress)
+                print("ACTIVE_PROGRESS_MODE=\(indeterminate ? "indeterminate" : "determinate")")
+                print("ACTIVE_STATUS=\(environment.generationService.statusMessage)")
+                print("ACTIVE_CANCEL_AVAILABLE=YES")
+                didPrintActivePresentation = true
+            }
             if !environment.generationService.isProcessing,
                environment.generationService.queue.isEmpty { break }
             if Int(Date().timeIntervalSince(started)) % 60 == 0 {

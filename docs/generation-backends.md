@@ -13,12 +13,13 @@ One Shot / Storyboard / Auto Movie / Regenerate / Production Queue / API v1
                               ▼
                    GenerationModelResolver          ← the only place a model
                               │                       ID picks a runtime
-              ┌───────────────┴───────────────┐
-              ▼                               ▼
-     mlx-video-with-audio                 ltx-2-mlx
-              │                               │
-              ▼                               ▼
-          LTX-2.3 (default)        Custom MLX Models (User Configured)
+              ┌───────────────┬───────────────┐
+              ▼               ▼               ▼
+     mlx-video-with-audio  ltx-2-mlx      mlx-serve
+              │               │               │
+              ▼               ▼               ▼
+          LTX-2.3       Custom MLX Models  MiniMax H3
+          (default)     (User Configured)  (Experimental)
 ```
 
 `GenerationModelResolver.resolve(modelID:)` returns either a `RunnableModel`
@@ -31,7 +32,7 @@ Routing is table-driven — `LTXModelCatalog` for the official backend,
 `CustomLTX2MLXModelCatalog` for `ltx-2-mlx`. Nothing matches on substrings of a model
 name.
 
-## Why Two Runtimes
+## Why Separate Runtimes
 
 Official LTX-2.3 models run through `mlx-video-with-audio`. Certain fine-tuned
 and distilled weights in the ecosystem use tensor naming or quantization
@@ -46,13 +47,13 @@ LTX-2.3 deliberately stays on `mlx-video-with-audio`.
 
 ## Environments
 
-The two runtimes pin different dependency versions and cannot share one
-environment:
+The LTX runtimes pin different dependency versions and cannot share one
+environment. H3 is a separate native executable:
 
-| | mlx-video-with-audio | ltx-2-mlx |
-|---|---|---|
-| Python | 3.14 | 3.11 |
-| MLX | 0.32.0 | 0.31.1 |
+| | mlx-video-with-audio | ltx-2-mlx | mlx-serve |
+|---|---|---|---|
+| Runtime | Python 3.14 | Python 3.11 | Native arm64 executable |
+| MLX | 0.32.0 | 0.31.1 | Packaged native libraries |
 
 Each is configured independently in Preferences. The `ltx-2-mlx` executable path is a user
 preference with no default, so no machine-specific path is baked into the build.
@@ -78,10 +79,12 @@ layers above the bridge do not change either way.
 
 ### MiniMax H3
 
-A different architecture, so it would be its own `GenerationBackendKind` case
-and its own backend service. What it reuses unchanged: the Director, Storyboard,
-Auto Movie, FilmProject/Take persistence, Production Queue, Continuity and Final
-Assembly. What it would need at the boundary: whatever request fields it
-genuinely requires, added when it is implemented — not speculatively now.
+MiniMax H3 uses its own `GenerationBackendKind` and local `mlx-serve` HTTP
+backend while reusing Director, Storyboard, Auto Movie, FilmProject/Take
+persistence, Production Queue, Continuity and Final Assembly. It is
+experimental and remains separate from both LTX runtimes.
 
-Neither is implemented. These are insertion points, not plans.
+The shipping app can contain the small execution runtime as a verified managed
+install payload. The large H3 model remains user-supplied and is never bundled
+or downloaded automatically. See
+[MiniMax H3 Managed Runtime Packaging](MINIMAX_H3_MANAGED_RUNTIME.md).

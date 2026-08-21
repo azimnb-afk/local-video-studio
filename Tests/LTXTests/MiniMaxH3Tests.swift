@@ -184,6 +184,18 @@ func runMiniMaxH3Tests(_ t: TestKit) {
     }
 
     t.suite("MiniMax H3 Local Runtime Readiness") {
+        t.checkEqual(
+            MiniMaxH3Configuration.defaultEndpoint(bundleIdentifier: "com.localvideostudio.personal"),
+            "http://127.0.0.1:11237",
+            "fresh Personal profile uses the isolated managed H3 port")
+        t.checkEqual(
+            MiniMaxH3Configuration.defaultEndpoint(bundleIdentifier: "com.localvideostudio.dev"),
+            "http://127.0.0.1:11236",
+            "fresh Dev profile uses the isolated managed H3 port")
+        t.checkEqual(
+            MiniMaxH3Configuration.defaultEndpoint(bundleIdentifier: nil),
+            "http://127.0.0.1:11235",
+            "bundle-less harness retains the explicit legacy external endpoint")
         t.check(MiniMaxH3Configuration.endpointURL("http://127.0.0.1:11235") != nil, "default localhost endpoint accepted")
         t.check(MiniMaxH3Configuration.endpointURL("http://localhost:11235") != nil, "localhost endpoint accepted")
         t.check(MiniMaxH3Configuration.endpointURL("http://0.0.0.0:11235") == nil, "0.0.0.0 endpoint rejected")
@@ -255,22 +267,33 @@ func runMiniMaxH3Tests(_ t: TestKit) {
             .write(to: source.appendingPathComponent("NOTICE"))
         try Data("Apache License\nVersion 2.0".utf8)
             .write(to: source.appendingPathComponent("LICENSE-APACHE-2.0"))
+        let nativeStub = Data([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01])
+            + Data(repeating: 0, count: 64)
         for relative in [
-            "lib/libmlx.dylib", "lib/libmlxc.dylib", "lib/libllama.dylib",
-            "lib/libwebp.dylib", "lib/libsharpyuv.dylib", "lib/mlx.metallib",
+            "lib/libmlx.dylib", "lib/libmlxc.dylib", "lib/libjaccl.dylib",
+            "lib/libllama.dylib", "lib/libwebp.dylib", "lib/libsharpyuv.dylib",
         ] {
-            try Data([1, 2, 3]).write(to: source.appendingPathComponent(relative))
+            try nativeStub.write(to: source.appendingPathComponent(relative))
         }
+        try Data([1, 2, 3]).write(to: source.appendingPathComponent("lib/mlx.metallib"))
 
-        let manager = MiniMaxH3ManagedRuntimeManager(runtimesDirectory: managedRoot)
+        let manager = MiniMaxH3ManagedRuntimeManager(
+            runtimesDirectory: managedRoot,
+            bundledRuntimeDirectory: source)
         t.checkEqual(manager.evaluateStatus(), .notInstalled, "fresh Dev-style runtime root starts Not Installed")
+        t.check(manager.hasBundledRuntimePayload, "shipping payload discovery sees an embedded runtime source")
         let inspected = try manager.inspectBundle(at: source)
+        let bundledInspected = try manager.inspectBundledRuntime()
+        t.checkEqual(
+            bundledInspected.executableSHA256, inspected.executableSHA256,
+            "embedded payload discovery inspects the exact accepted source")
         t.checkEqual(inspected.runtimeVersion, "26.8.9", "runtime version is read from the native binary")
         t.checkEqual(inspected.architecture, "arm64", "only the native arm64 bundle is accepted")
         t.checkEqual(inspected.licenseClassification, .bundleAllowed, "complete MIT/NOTICE/Apache files classify BUNDLE_ALLOWED")
+        t.checkEqual(inspected.componentSHA256?.count, 11, "manifest snapshots every required runtime component")
 
-        let installed = h3Await { try? await manager.install(from: source) }
-        t.check(installed != nil, "existing local runtime bundle installs without a download")
+        let installed = h3Await { try? await manager.installBundled() }
+        t.check(installed != nil, "embedded runtime payload installs without a download or file picker")
         t.check(FileManager.default.fileExists(atPath: executableURL.path), "source runtime remains in place after managed install")
         t.check(FileManager.default.fileExists(atPath: manager.managedExecutableURL.path), "managed executable copy exists")
         t.check(FileManager.default.fileExists(atPath: manager.manifestURL.path), "managed runtime manifest exists")
@@ -293,6 +316,32 @@ func runMiniMaxH3Tests(_ t: TestKit) {
             t.check(false, "tampered managed executable must evaluate Broken")
         }
 
+        let repaired = h3Await { try? await manager.installBundled() }
+        t.check(repaired != nil, "explicit Repair replaces only the broken managed runtime")
+        if case .ready = manager.evaluateStatus() {
+            t.check(true, "repaired runtime returns to Ready")
+        } else {
+            t.check(false, "repaired runtime must evaluate Ready")
+        }
+
+        let managedLibrary = manager.managedRuntimeDirectory
+            .appendingPathComponent("lib/libjaccl.dylib")
+        var tamperedLibrary = try Data(contentsOf: managedLibrary)
+        tamperedLibrary.append(0xee)
+        try tamperedLibrary.write(to: managedLibrary)
+        if case .broken(let reason) = manager.evaluateStatus() {
+            t.check(reason.contains("component"), "post-install dylib mutation is detected by component SHA")
+        } else {
+            t.check(false, "tampered managed dylib must evaluate Broken")
+        }
+
+        let missingPayloadManager = MiniMaxH3ManagedRuntimeManager(
+            runtimesDirectory: root.appendingPathComponent("missing-managed", isDirectory: true),
+            bundledRuntimeDirectory: root.appendingPathComponent("missing-payload", isDirectory: true))
+        t.check(!missingPayloadManager.hasBundledRuntimePayload, "missing shipping payload is explicit")
+        let missingInstall = h3Await { try? await missingPayloadManager.installBundled() }
+        t.check(missingInstall == nil, "missing shipping payload fails closed without a download")
+
         let legacyRoot = root.appendingPathComponent("legacy", isDirectory: true)
         let legacyManager = MiniMaxH3ManagedRuntimeManager(runtimesDirectory: legacyRoot)
         try FileManager.default.createDirectory(
@@ -309,6 +358,48 @@ func runMiniMaxH3Tests(_ t: TestKit) {
                 license: "unclassified", notice: "", apacheLicense: ""),
             .unknown,
             "ambiguous license material remains UNKNOWN")
+    }
+
+    t.suite("MiniMax H3 Shipping Payload Contract") {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let embedScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "scripts/embed-minimax-h3-runtime.sh"), encoding: .utf8)
+        let releaseScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "scripts/build-release.sh"), encoding: .utf8)
+        let devScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "scripts/build-dev-app.sh"), encoding: .utf8)
+        let personalScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "scripts/install-personal-app.sh"), encoding: .utf8)
+        let settingsSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "LTXVideoGenerator/Sources/Views/ModelsAndFeaturesPreferences.swift"),
+            encoding: .utf8)
+
+        t.check(embedScript.contains("f1cbcdf9ee4c54a23da0a3f0f9c91e5a4d1691beb366bae9eaaa9c5c8523e60a"),
+                "shipping build pins the exact accepted runtime executable SHA")
+        t.check(embedScript.contains("modelIncluded\": false"),
+                "shipping payload manifest explicitly excludes the H3 model")
+        t.check(!embedScript.contains("curl ") && !embedScript.contains("ollama pull"),
+                "runtime packaging has no hidden network or model-download path")
+        t.check(embedScript.contains("APP_SIGN_ARGS=(--force --sign \"${SIGN_IDENTITY}\")")
+                && embedScript.contains("APP_SIGN_ARGS+=(--options runtime --timestamp)"),
+                "local ad-hoc apps avoid Team-ID library validation while distribution remains hardened")
+        t.check(releaseScript.contains("MINIMAX_H3_RUNTIME_PAYLOAD_SOURCE"),
+                "distribution build requires an explicit audited payload source")
+        t.check(releaseScript.contains("embed-minimax-h3-runtime.sh")
+                && devScript.contains("embed-minimax-h3-runtime.sh")
+                && personalScript.contains("embed-minimax-h3-runtime.sh"),
+                "Dev, Personal install, and release builds share one payload mechanism")
+        t.check(settingsSource.contains("Install Runtime")
+                && settingsSource.contains("never downloaded automatically"),
+                "first-run UI separates runtime installation from user-supplied model configuration")
     }
 
     t.suite("MiniMax H3 Duration / Frames") {

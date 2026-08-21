@@ -280,17 +280,7 @@ private struct MiniMaxH3RuntimePreferenceView: View {
     var body: some View {
         Section("MiniMax H3 (Experimental)") {
             VStack(alignment: .leading, spacing: 6) {
-                Text("H3 Model Directory")
-                    .font(.caption.bold())
-                HStack {
-                    TextField("Select the local H3 model directory", text: $modelDirectory)
-                        .textFieldStyle(.roundedBorder)
-                    Button("Choose…", action: chooseModelDirectory)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Managed mlx-serve Runtime")
+                Text("Runtime")
                     .font(.caption.bold())
                 HStack {
                     Circle()
@@ -299,7 +289,7 @@ private struct MiniMaxH3RuntimePreferenceView: View {
                     Text(managedStatusLabel)
                         .font(.caption.bold())
                     Spacer()
-                    Button(managedInstallButtonLabel, action: chooseManagedRuntimeBundle)
+                    Button(managedInstallButtonLabel, action: installManagedRuntime)
                         .disabled(isInstallingManagedRuntime)
                 }
                 if case .installing(let progress, let step) = managedStatus {
@@ -328,24 +318,53 @@ private struct MiniMaxH3RuntimePreferenceView: View {
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
-                Text("Installs an existing local bundle by copying it into this app profile. The source bundle is not moved or deleted. No runtime or model is downloaded.")
+                Text(runtimeAvailabilityDescription)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("mlx-serve Executable Override")
+                Text("Model")
                     .font(.caption.bold())
                 HStack {
-                    TextField("Managed runtime is used when this is empty", text: $runtimeExecutable)
-                        .textFieldStyle(.roundedBorder)
-                    Button("Choose External…", action: chooseRuntime)
-                    if !runtimeExecutable.isEmpty {
-                        Button("Use Managed") {
-                            runtimeExecutable = ""
+                    Circle()
+                        .fill(modelDirectory.isEmpty ? Color.secondary : Color.green)
+                        .frame(width: 8, height: 8)
+                    Text(modelDirectory.isEmpty ? "Not Configured" : "Configured")
+                        .font(.caption.bold())
+                    Spacer()
+                    Button("Choose Model Folder…", action: chooseModelDirectory)
+                }
+                if !modelDirectory.isEmpty {
+                    Text(modelDirectory)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                Text("The large MiniMax H3 model is not included and is never downloaded automatically. Choose an existing local model folder.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            DisclosureGroup("Advanced External Runtime") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("mlx-serve Executable Override")
+                        .font(.caption.bold())
+                    HStack {
+                        TextField("Managed runtime is used when this is empty", text: $runtimeExecutable)
+                            .textFieldStyle(.roundedBorder)
+                        Button("Choose External…", action: chooseRuntime)
+                        if !runtimeExecutable.isEmpty {
+                            Button("Use Managed") {
+                                runtimeExecutable = ""
+                            }
                         }
                     }
+                    Text("Optional. A compatible pre-existing localhost server may still be reused and remains externally owned.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
+                .padding(.top, 4)
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -353,7 +372,7 @@ private struct MiniMaxH3RuntimePreferenceView: View {
                     .font(.caption.bold())
                 TextField(MiniMaxH3Configuration.defaultEndpoint, text: $endpoint)
                     .textFieldStyle(.roundedBorder)
-                Text("Localhost only. The app never binds H3 to 0.0.0.0.")
+                Text("Localhost only. Fresh Personal installs use 11237; Dev uses 11236. The app never binds H3 to 0.0.0.0.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -448,11 +467,24 @@ private struct MiniMaxH3RuntimePreferenceView: View {
 
     private var managedInstallButtonLabel: String {
         switch managedStatus {
-        case .notInstalled: return "Install Existing Bundle…"
-        case .ready: return "Reinstall…"
+        case .notInstalled:
+            return MiniMaxH3ManagedRuntimeManager.shared.hasBundledRuntimePayload
+                ? "Install Runtime" : "Install Existing Bundle…"
+        case .ready:
+            return MiniMaxH3ManagedRuntimeManager.shared.hasBundledRuntimePayload
+                ? "Reinstall Runtime" : "Reinstall…"
         case .installing: return "Installing…"
-        case .updateRequired, .broken: return "Repair from Bundle…"
+        case .updateRequired, .broken:
+            return MiniMaxH3ManagedRuntimeManager.shared.hasBundledRuntimePayload
+                ? "Repair Runtime" : "Repair from Bundle…"
         }
+    }
+
+    private var runtimeAvailabilityDescription: String {
+        if MiniMaxH3ManagedRuntimeManager.shared.hasBundledRuntimePayload {
+            return "The app includes the verified execution runtime. Install copies it into this profile's managed Runtime folder; no model is included or downloaded."
+        }
+        return "This development build has no embedded payload. You may install an existing local bundle; its source is copied, never moved or deleted."
     }
 
     private func configurationChanged() {
@@ -502,34 +534,48 @@ private struct MiniMaxH3RuntimePreferenceView: View {
         }
     }
 
-    private func chooseManagedRuntimeBundle() {
+    private func installManagedRuntime() {
+        if MiniMaxH3ManagedRuntimeManager.shared.hasBundledRuntimePayload {
+            beginManagedRuntimeInstallation(source: nil)
+            return
+        }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Install Runtime Bundle"
         guard panel.runModal() == .OK, let source = panel.url else { return }
+        beginManagedRuntimeInstallation(source: source)
+    }
+
+    private func beginManagedRuntimeInstallation(source: URL?) {
         installError = nil
         installProgress = 0.05
         installStep = "Validating local runtime bundle"
         managedStatus = .installing(progress: installProgress, step: installStep)
         Task {
             do {
-                let manifest = try await MiniMaxH3ManagedRuntimeManager.shared.install(
-                    from: source
-                ) { progress, step in
+                let progressHandler: @Sendable (Double, String) -> Void = { progress, step in
                     Task { @MainActor in
                         installProgress = progress
                         installStep = step
                         managedStatus = .installing(progress: progress, step: step)
                     }
                 }
+                let manifest: MiniMaxH3ManagedRuntimeManifest
+                if let source {
+                    manifest = try await MiniMaxH3ManagedRuntimeManager.shared.install(
+                        from: source, progress: progressHandler)
+                } else {
+                    manifest = try await MiniMaxH3ManagedRuntimeManager.shared.installBundled(
+                        progress: progressHandler)
+                }
                 await MainActor.run {
                     runtimeExecutable = ""
                     managedStatus = .ready(
                         executablePath: MiniMaxH3ManagedRuntimeManager.shared.managedExecutableURL.path,
                         manifest: manifest)
-                    installStep = "Installed from local bundle. License classification: \(manifest.licenseClassification.rawValue)."
+                    installStep = "Runtime installed and verified. License classification: \(manifest.licenseClassification.rawValue)."
                 }
                 await checkReadiness()
             } catch {

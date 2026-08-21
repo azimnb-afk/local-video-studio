@@ -173,19 +173,29 @@ public final class LTX2MLXRuntimeManager: ObservableObject, @unchecked Sendable 
     public init(fileManager: FileManager = .default, userDefaults: UserDefaults = .standard) {
         self.fileManager = fileManager
         self.userDefaults = userDefaults
-        // Initialize status synchronously without async dispatch
-        if let override = userDefaults.string(forKey: Self.overrideExecutableKey)?.trimmingCharacters(in: .whitespacesAndNewlines), !override.isEmpty {
+        // Fast, non-probing initial guess (no subprocess launch during app
+        // init); refreshStatus()/evaluateStatus() do the real capability
+        // probe. Priority must match evaluateStatus(): an explicit Advanced
+        // override wins, then the installed managed runtime, then the
+        // legacy General Settings path as a last resort — see evaluateStatus
+        // for why the managed runtime outranks the legacy path.
+        if let override = Self.nonEmptyValue(userDefaults.string(forKey: Self.overrideExecutableKey)) {
             self.status = .ready(executablePath: override, manifest: LTX2MLXRuntimeManifest())
-        } else if let legacy = userDefaults.string(forKey: Self.legacyExecutableKey)?.trimmingCharacters(in: .whitespacesAndNewlines), !legacy.isEmpty {
-            self.status = .ready(executablePath: legacy, manifest: LTX2MLXRuntimeManifest())
         } else {
             let managedExec = AppStorageDirectory.runtimesDirectory.appendingPathComponent("ltx-2-mlx/bin/ltx-2-mlx").path
             if fileManager.fileExists(atPath: managedExec) {
                 self.status = .ready(executablePath: managedExec, manifest: LTX2MLXRuntimeManifest())
+            } else if let legacy = Self.nonEmptyValue(userDefaults.string(forKey: Self.legacyExecutableKey)) {
+                self.status = .ready(executablePath: legacy, manifest: LTX2MLXRuntimeManifest())
             } else {
                 self.status = .notInstalled
             }
         }
+    }
+
+    private static func nonEmptyValue(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     // MARK: - Path Resolution
@@ -242,61 +252,82 @@ public final class LTX2MLXRuntimeManager: ObservableObject, @unchecked Sendable 
     }
 
     /// Pure status evaluator for testing or background calls.
+    ///
+    /// Canonical priority — the SAME order Settings display, generation
+    /// (`LTX2MLXRuntime.executablePath`/`.readiness`), and this evaluator all
+    /// resolve through:
+    ///  1. The explicit "Advanced Developer Override" path, when configured —
+    ///     a deliberate, current choice with its own Clear button in Settings.
+    ///  2. The app-managed runtime, once installed — this is exactly what
+    ///     Install/Update/Repair Runtime changes, so once present on disk it
+    ///     must outrank a bare historical path that carries no "this is
+    ///     intentional" signal.
+    ///  3. The legacy General Settings executable path, only as a last
+    ///     resort when neither of the above exists — preserves pre-managed-
+    ///     runtime setups without letting that historical value permanently
+    ///     shadow a newly installed/updated managed runtime forever.
     public func evaluateStatus(userDefaults: UserDefaults? = nil) -> LTX2MLXRuntimeStatus {
-        // 1. Check for manual / developer override first
-        if let overridePath = overrideExecutablePath(userDefaults: userDefaults) {
-            var isDir: ObjCBool = false
-            guard fileManager.fileExists(atPath: overridePath, isDirectory: &isDir), !isDir.boolValue else {
-                return .broken(reason: "Configured override executable not found at: \(overridePath)")
-            }
-            guard fileManager.isExecutableFile(atPath: overridePath) else {
-                return .broken(reason: "Configured override file is not executable: \(overridePath)")
-            }
-            // Probe override executable
-            let probe = probeCapabilities(executablePath: overridePath)
-            if probe.isCompatible {
-                return .ready(executablePath: overridePath, manifest: probe)
-            } else if !probe.missingCapabilities.isEmpty {
-                return .outdated(
-                    executablePath: overridePath,
-                    currentVersion: probe.runtimeVersion,
-                    requiredVersion: LTX2MLXRuntimeManifest.minimumRuntimeVersion,
-                    missingCapabilities: probe.missingCapabilities
-                )
-            } else {
-                // If probe returned default compatible (e.g. standalone test stub), accept as ready
-                return .ready(executablePath: overridePath, manifest: probe)
-            }
+        let defaults = userDefaults ?? self.userDefaults
+
+        if let overridePath = Self.nonEmptyValue(defaults.string(forKey: Self.overrideExecutableKey)) {
+            return evaluateExplicitPath(overridePath)
         }
 
-        // 2. Check for app-managed runtime
         let managedExec = managedExecutableURL.path
-        guard fileManager.fileExists(atPath: managedExec) else {
-            return .notInstalled
-        }
-        guard fileManager.isExecutableFile(atPath: managedExec) else {
-            return .broken(reason: "Managed runtime binary is not executable: \(managedExec)")
-        }
+        if fileManager.fileExists(atPath: managedExec) {
+            guard fileManager.isExecutableFile(atPath: managedExec) else {
+                return .broken(reason: "Managed runtime binary is not executable: \(managedExec)")
+            }
 
-        // Check manifest if available
-        var manifest: LTX2MLXRuntimeManifest?
-        if fileManager.fileExists(atPath: manifestURL.path),
-           let data = try? Data(contentsOf: manifestURL),
-           let decoded = try? JSONDecoder().decode(LTX2MLXRuntimeManifest.self, from: data) {
-            manifest = decoded
-        }
+            var manifest: LTX2MLXRuntimeManifest?
+            if fileManager.fileExists(atPath: manifestURL.path),
+               let data = try? Data(contentsOf: manifestURL),
+               let decoded = try? JSONDecoder().decode(LTX2MLXRuntimeManifest.self, from: data) {
+                manifest = decoded
+            }
 
-        // Probe capabilities
-        let probedManifest = probeCapabilities(executablePath: managedExec, fallbackManifest: manifest)
-        if probedManifest.isCompatible {
-            return .ready(executablePath: managedExec, manifest: probedManifest)
-        } else {
+            let probedManifest = probeCapabilities(executablePath: managedExec, fallbackManifest: manifest)
+            if probedManifest.isCompatible {
+                return .ready(executablePath: managedExec, manifest: probedManifest)
+            }
             return .outdated(
                 executablePath: managedExec,
                 currentVersion: probedManifest.runtimeVersion,
                 requiredVersion: LTX2MLXRuntimeManifest.minimumRuntimeVersion,
                 missingCapabilities: probedManifest.missingCapabilities
             )
+        }
+
+        if let legacyPath = Self.nonEmptyValue(defaults.string(forKey: Self.legacyExecutableKey)) {
+            return evaluateExplicitPath(legacyPath)
+        }
+
+        return .notInstalled
+    }
+
+    /// Shared probe used by both the Advanced override and the legacy
+    /// General Settings path — the two "explicit executable path" tiers.
+    private func evaluateExplicitPath(_ path: String) -> LTX2MLXRuntimeStatus {
+        var isDir: ObjCBool = false
+        guard fileManager.fileExists(atPath: path, isDirectory: &isDir), !isDir.boolValue else {
+            return .broken(reason: "Configured override executable not found at: \(path)")
+        }
+        guard fileManager.isExecutableFile(atPath: path) else {
+            return .broken(reason: "Configured override file is not executable: \(path)")
+        }
+        let probe = probeCapabilities(executablePath: path)
+        if probe.isCompatible {
+            return .ready(executablePath: path, manifest: probe)
+        } else if !probe.missingCapabilities.isEmpty {
+            return .outdated(
+                executablePath: path,
+                currentVersion: probe.runtimeVersion,
+                requiredVersion: LTX2MLXRuntimeManifest.minimumRuntimeVersion,
+                missingCapabilities: probe.missingCapabilities
+            )
+        } else {
+            // If probe returned default compatible (e.g. standalone test stub), accept as ready
+            return .ready(executablePath: path, manifest: probe)
         }
     }
 

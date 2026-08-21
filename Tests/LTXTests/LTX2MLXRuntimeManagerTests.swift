@@ -166,4 +166,112 @@ func runLTX2MLXRuntimeManagerTests(_ t: TestKit) {
         t.checkEqual(missingEncoderFix.missingCapabilities, ["ltx25_official_video_vae_encoder_v1"],
                      "Missing ltx25_official_video_vae_encoder_v1 correctly identified")
     }
+
+    t.suite("LTX-2-MLX Canonical Runtime Resolution — Update Runtime persistence") {
+        // Reproduces the reported bug: a historical "Path to the ltx-2-mlx
+        // executable" (General Settings, the legacy key) shadowed a freshly
+        // installed/updated managed runtime forever, because evaluateStatus()
+        // gave it permanent priority over the managed runtime. Every check
+        // here uses only local stub files under the process-isolated
+        // AppStorageDirectory.runtimesDirectory (bundleless test profile) —
+        // no real ltx-2-mlx, no network, no Personal mutation.
+        func writeExecutableStub(at url: URL) throws {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("#!/bin/sh\nexit 0\n".utf8).write(to: url)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        }
+
+        let testSuiteName = "test.ltx2mlx.migration.\(UUID().uuidString)"
+        let tempDefaults = UserDefaults(suiteName: testSuiteName)!
+        defer { tempDefaults.removePersistentDomain(forName: testSuiteName) }
+
+        let manager = LTX2MLXRuntimeManager(fileManager: .default, userDefaults: tempDefaults)
+        // The managed runtime directory is a real (process-isolated) path;
+        // make sure this suite starts and ends without an installed runtime
+        // there, regardless of other suites or a prior failed run.
+        try? FileManager.default.removeItem(at: manager.managedRuntimeDirectory)
+        defer { try? FileManager.default.removeItem(at: manager.managedRuntimeDirectory) }
+
+        let legacyStub = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ltx2mlx-legacy-\(UUID().uuidString)/bin/ltx-2-mlx")
+        try writeExecutableStub(at: legacyStub)
+        defer { try? FileManager.default.removeItem(at: legacyStub.deletingLastPathComponent().deletingLastPathComponent()) }
+
+        // BEFORE: only the legacy General Settings path is configured, no
+        // managed runtime installed yet — the legacy path is genuinely the
+        // only thing to resolve to, exactly like a pre-managed-runtime setup.
+        tempDefaults.set(legacyStub.path, forKey: LTX2MLXRuntimeManager.legacyExecutableKey)
+        let beforeStatus = manager.evaluateStatus()
+        t.checkEqual(beforeStatus.executablePath, legacyStub.path,
+                     "with no managed runtime installed, the legacy path is still honored")
+
+        // "Update Runtime" (installManagedRuntime, exercised here via its
+        // on-disk effect) installs into the managed directory. The legacy
+        // key is deliberately left untouched — Do NOT delete the old runtime
+        // or its stored preference.
+        try writeExecutableStub(at: manager.managedExecutableURL)
+        let compatibleManifest = LTX2MLXRuntimeManifest()
+        let encoder = JSONEncoder()
+        try encoder.encode(compatibleManifest).write(to: manager.manifestURL)
+
+        // AFTER_UPDATE: the managed runtime must now be the resolved runtime,
+        // not the still-configured legacy path.
+        let afterUpdateStatus = manager.evaluateStatus()
+        t.checkEqual(afterUpdateStatus.executablePath, manager.managedExecutableURL.path,
+                     "a freshly installed managed runtime outranks the dormant legacy path")
+        t.check(afterUpdateStatus.isReady, "managed runtime install reports Ready")
+        t.checkEqual(
+            tempDefaults.string(forKey: LTX2MLXRuntimeManager.legacyExecutableKey), legacyStub.path,
+            "the legacy preference itself is never deleted or cleared")
+        t.check(
+            FileManager.default.fileExists(atPath: legacyStub.path),
+            "the old runtime's files on disk are never deleted")
+
+        // AFTER_TAB_RELOAD: a second, independent evaluateStatus() call (as a
+        // SwiftUI view recomputing on redraw would trigger) must agree.
+        let afterTabReloadStatus = manager.evaluateStatus()
+        t.checkEqual(afterTabReloadStatus.executablePath, manager.managedExecutableURL.path,
+                     "tab reload must not resurrect the legacy path")
+        t.check(afterTabReloadStatus.isReady, "tab reload keeps the runtime Ready")
+
+        // AFTER_APP_RESTART: a brand new manager instance (same UserDefaults,
+        // same on-disk managed runtime) must agree, both for the fast
+        // non-probing init() guess and for a fresh evaluateStatus().
+        let restarted = LTX2MLXRuntimeManager(fileManager: .default, userDefaults: tempDefaults)
+        t.checkEqual(restarted.status.executablePath, manager.managedExecutableURL.path,
+                     "app restart's initial status guess resolves the managed runtime, not the legacy path")
+        let restartedStatus = restarted.evaluateStatus()
+        t.checkEqual(restartedStatus.executablePath, manager.managedExecutableURL.path,
+                     "app restart's evaluateStatus agrees with the managed runtime")
+
+        // GENERATION: the exact resolver GenerationService/LTX2MLXBackend use
+        // for Normal Generate, One Shot, Storyboard/Director, Auto Movie, and
+        // the Custom LTX profile must resolve identically — no silent
+        // fallback to the old runtime.
+        let generationPath = LTX2MLXRuntime.executablePath(userDefaults: tempDefaults, manager: manager)
+        t.checkEqual(generationPath, manager.managedExecutableURL.path,
+                     "generation resolves the same managed runtime the Settings UI reports Ready")
+        let generationReadiness = LTX2MLXRuntime.runtimeReadiness(userDefaults: tempDefaults, manager: manager)
+        t.check(generationReadiness.isReady, "generation readiness agrees with the Settings UI")
+
+        // Explicit Advanced override remains authoritative even with a Ready
+        // managed runtime and a still-configured legacy path present.
+        let overrideStub = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ltx2mlx-override-\(UUID().uuidString)/bin/ltx-2-mlx")
+        try writeExecutableStub(at: overrideStub)
+        defer { try? FileManager.default.removeItem(at: overrideStub.deletingLastPathComponent().deletingLastPathComponent()) }
+        manager.setOverrideExecutablePath(overrideStub.path)
+        let overrideStatus = manager.evaluateStatus()
+        t.checkEqual(overrideStatus.executablePath, overrideStub.path,
+                     "an explicit Advanced override outranks both the managed runtime and the legacy path")
+
+        // Clearing the override falls back to the managed runtime — never
+        // back to the dormant legacy path, since the managed runtime is
+        // still installed and Ready.
+        manager.setOverrideExecutablePath(nil)
+        let afterClearStatus = manager.evaluateStatus()
+        t.checkEqual(afterClearStatus.executablePath, manager.managedExecutableURL.path,
+                     "clearing the Advanced override falls back to the managed runtime, not the legacy path")
+    }
 }

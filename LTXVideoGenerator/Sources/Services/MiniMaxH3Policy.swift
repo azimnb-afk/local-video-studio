@@ -133,6 +133,41 @@ enum MiniMaxH3DurationPolicy {
     }
 }
 
+/// Truthful UI policy for the long-running, single-response H3 HTTP request.
+/// mlx-serve does not currently expose supported intermediate percentages to
+/// the app, so the sampling phase must stay indeterminate rather than pinning a
+/// determinate bar at the backend's initial 3% phase marker.
+enum MiniMaxH3ProgressPresentation {
+    static let requestTimeoutSeconds: TimeInterval = 3_600
+
+    static func isIndeterminate(
+        modelID: String,
+        isCurrent: Bool,
+        progress: Double
+    ) -> Bool {
+        modelID == MiniMaxH3Configuration.modelID
+            && isCurrent
+            && progress < 0.94
+    }
+
+    static func generatingMessage(for request: GenerationRequest) -> String {
+        let chain = max(1, request.minimaxH3ChainWindows ?? 1)
+        let frames = request.minimaxH3ExpectedFrames ?? request.parameters.numFrames
+        let fps = max(1, request.parameters.fps)
+        let seconds = Double(frames) / Double(fps)
+        return "Generating with MiniMax H3… · \(request.parameters.width)×\(request.parameters.height) · chain \(chain) · \(durationText(seconds)) output · \(request.parameters.numInferenceSteps) steps · long local generation"
+    }
+
+    static func elapsedText(since startedAt: Date, now: Date = Date()) -> String {
+        let totalSeconds = max(0, Int(now.timeIntervalSince(startedAt)))
+        return String(format: "Elapsed %02d:%02d", totalSeconds / 60, totalSeconds % 60)
+    }
+
+    private static func durationText(_ seconds: Double) -> String {
+        String(format: seconds.rounded() == seconds ? "%.0f s" : "%.1f s", seconds)
+    }
+}
+
 /// Renderer-specific wording over the existing neutral OneShotPlan. Planning,
 /// continuity and CharacterBible resolution remain shared with LTX.
 enum MiniMaxH3PromptCompiler {

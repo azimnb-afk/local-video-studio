@@ -10,6 +10,7 @@ class GenerationService: ObservableObject {
     @Published private(set) var statusMessage: String = ""
     @Published private(set) var isModelLoaded = false
     @Published private(set) var isProcessing = false
+    @Published private(set) var currentRequestStartedAt: Date?
     @Published var error: LTXError?
 
     /// The last film run outcome the render queue could not report. See
@@ -81,6 +82,7 @@ class GenerationService: ObservableObject {
             currentRequest = nil
         }
         isProcessing = false
+        currentRequestStartedAt = nil
         progress = 0
         statusMessage = "Generation cancelled"
     }
@@ -155,6 +157,12 @@ class GenerationService: ObservableObject {
         let selectedBackend = GenerationModelResolver.backend(for: diagnosticsRequest.modelId)
         let usesMiniMaxH3 = selectedBackend == .minimaxH3
         let executionStartedAt = Date()
+        currentRequestStartedAt = executionStartedAt
+        defer {
+            if currentRequestStartedAt == executionStartedAt {
+                currentRequestStartedAt = nil
+            }
+        }
         if FeatureFlags.isEnabled(.filmProjectV1), diagnosticsRequest.takeID != nil {
             TakeGenerationCoordinator().recordExecutionStarted(
                 request: diagnosticsRequest,
@@ -591,6 +599,7 @@ class GenerationService: ObservableObject {
         
         currentRequest = nil
         isProcessing = false
+        currentRequestStartedAt = nil
         progress = 0
         
         // Remove completed/failed/cancelled from queue

@@ -360,6 +360,59 @@ func runMiniMaxH3Tests(_ t: TestKit) {
         t.checkEqual(resolved.minimaxH3RequestedDurationSeconds, 6.0, "semantic requested duration remains separate")
     }
 
+    t.suite("MiniMax H3 Truthful Progress Presentation") {
+        var parameters = GenerationParameters.default
+        parameters.width = 512
+        parameters.height = 288
+        parameters.fps = 24
+        parameters.numFrames = 39
+        parameters.numInferenceSteps = 8
+        var request = GenerationRequest(
+            prompt: "A subject turns toward camera.",
+            modelId: MiniMaxH3Configuration.modelID,
+            parameters: parameters)
+        request.minimaxH3ChainWindows = 6
+        request.minimaxH3ExpectedFrames = 229
+
+        t.check(MiniMaxH3ProgressPresentation.isIndeterminate(
+            modelID: request.modelId, isCurrent: true, progress: 0),
+                "H3 is visibly active before the single-response HTTP request advances")
+        t.check(MiniMaxH3ProgressPresentation.isIndeterminate(
+            modelID: request.modelId, isCurrent: true, progress: 0.03),
+                "H3 sampling does not show a frozen fake 3 percent")
+        t.check(!MiniMaxH3ProgressPresentation.isIndeterminate(
+            modelID: request.modelId, isCurrent: true, progress: 0.94),
+                "H3 returns to determinate progress for the proven mux phase")
+        t.check(!MiniMaxH3ProgressPresentation.isIndeterminate(
+            modelID: LTXModelCatalog.defaultModelID, isCurrent: true, progress: 0.03),
+                "LTX progress presentation remains unchanged")
+        t.check(!MiniMaxH3ProgressPresentation.isIndeterminate(
+            modelID: request.modelId, isCurrent: false, progress: 0),
+                "waiting H3 requests are not presented as actively rendering")
+
+        let message = MiniMaxH3ProgressPresentation.generatingMessage(for: request)
+        t.check(message.contains("512×288"), "active status exposes the effective H3 canvas")
+        t.check(message.contains("chain 6"), "active status exposes the effective chain count")
+        t.check(message.contains("9.5 s output"), "active status distinguishes output duration from wall time")
+        t.check(message.contains("8 steps"), "active status exposes the effective H3 sampler steps")
+        t.check(message.contains("long local generation"), "active status sets truthful duration expectations")
+        let start = Date(timeIntervalSinceReferenceDate: 100)
+        t.checkEqual(
+            MiniMaxH3ProgressPresentation.elapsedText(
+                since: start,
+                now: Date(timeIntervalSinceReferenceDate: 225)),
+            "Elapsed 02:05",
+            "elapsed H3 time is stable and human readable")
+        t.checkEqual(
+            MiniMaxH3ProgressPresentation.elapsedText(
+                since: start,
+                now: Date(timeIntervalSinceReferenceDate: 90)),
+            "Elapsed 00:00",
+            "clock skew never displays negative elapsed time")
+        t.check(MiniMaxH3ProgressPresentation.requestTimeoutSeconds >= 24 * 60,
+                "H3 timeout remains longer than the proven 24-minute chain 6 run")
+    }
+
     t.suite("MiniMax H3 Prompt Contract") {
         let plan = OneShotPlan(
             camera: "static medium close-up",

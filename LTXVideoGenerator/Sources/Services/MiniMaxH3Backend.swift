@@ -143,9 +143,9 @@ final class MiniMaxH3Backend {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = body
-        urlRequest.timeoutInterval = 3_600
+        urlRequest.timeoutInterval = MiniMaxH3ProgressPresentation.requestTimeoutSeconds
 
-        progressHandler(0.03, "Generating with MiniMax H3 (Experimental)…")
+        progressHandler(0.03, MiniMaxH3ProgressPresentation.generatingMessage(for: request))
         try Task.checkCancellation()
         var responseData: Data
         let response: HTTPURLResponse

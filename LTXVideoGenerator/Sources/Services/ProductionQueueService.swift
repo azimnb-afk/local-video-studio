@@ -229,6 +229,19 @@ final class ProductionQueueService: ObservableObject {
         refresh()
     }
 
+    /// The compact renderer row belongs to the active production job. Routing
+    /// its stop action through this boundary cancels the current HTTP request
+    /// and drops the remaining requests from the same batch; cancelling only
+    /// `GenerationService.currentRequest` previously let later batch items run
+    /// and could leave the outer job falsely marked completed with no output.
+    func cancelActiveRenderer() {
+        if let activeJobID {
+            cancel(jobID: activeJobID)
+        } else {
+            generationService?.cancelCurrent()
+        }
+    }
+
     func retry(jobID: UUID) { coordinator.retry(jobID: jobID); refresh() }
     func remove(jobID: UUID) { coordinator.remove(jobID: jobID); refresh() }
     func moveUp(jobID: UUID) { coordinator.moveUp(jobID: jobID); refresh() }

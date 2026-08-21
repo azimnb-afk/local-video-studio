@@ -1658,6 +1658,7 @@ runLTX25ModelSupportTests(t)
 runCustomModelProfileTests(t)
 runLTX2MLXRuntimeManagerTests(t)
 runMiniMaxH3Tests(t)
+runMiniMaxH3GenerationLeaseTests(t)
 runShotPlanValidatorTests(t)
 runQualityHardeningTests(t)
 if CommandLine.arguments.contains("--probe-director-cancellation-acceptance") {

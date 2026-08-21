@@ -135,6 +135,7 @@
 		AA000326 /* MiniMaxH3Runtime.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000327; };
 		AA000328 /* MiniMaxH3Policy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000329; };
 		AA00032A /* MiniMaxH3Backend.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00032B; };
+		AA0009C9 /* MiniMaxH3GenerationLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009CA; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -265,6 +266,7 @@
 		AA000327 /* MiniMaxH3Runtime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniMaxH3Runtime.swift; sourceTree = "<group>"; };
 		AA000329 /* MiniMaxH3Policy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniMaxH3Policy.swift; sourceTree = "<group>"; };
 		AA00032B /* MiniMaxH3Backend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniMaxH3Backend.swift; sourceTree = "<group>"; };
+		AA0009CA /* MiniMaxH3GenerationLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniMaxH3GenerationLease.swift; sourceTree = "<group>"; };
 		AA000030 /* LTXVideoGenerator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LTXVideoGenerator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -431,6 +433,7 @@
 				AA000327 /* MiniMaxH3Runtime.swift */,
 				AA000329 /* MiniMaxH3Policy.swift */,
 				AA00032B /* MiniMaxH3Backend.swift */,
+				AA0009CA /* MiniMaxH3GenerationLease.swift */,
 				AA000317 /* RenderLanguageValidator.swift */,
 				AA000319 /* RenderTextNormalizer.swift */,
 				AA00031B /* PromptSanitizer.swift */,
@@ -663,6 +666,7 @@
 				AA000326 /* MiniMaxH3Runtime.swift in Sources */,
 				AA000328 /* MiniMaxH3Policy.swift in Sources */,
 				AA00032A /* MiniMaxH3Backend.swift in Sources */,
+				AA0009C9 /* MiniMaxH3GenerationLease.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

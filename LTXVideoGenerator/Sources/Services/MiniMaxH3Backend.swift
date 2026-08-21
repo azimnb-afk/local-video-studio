@@ -85,6 +85,22 @@ final class MiniMaxH3Backend {
         guard let ffmpegPath else { throw MiniMaxH3Error.ffmpegUnavailable }
         try Task.checkCancellation()
 
+        // Personal and Dev load the same multi-gigabyte quantized H3 model
+        // into this Mac's shared unified memory even though they run on
+        // different ports/profiles. A controlled test drove system free
+        // memory to ~65MB running two H3 generations at once, and a real
+        // session saw a Ready server disappear mid-request under the same
+        // condition. This machine-local lease keeps only one H3 generation
+        // (across all Local Video Studio processes) resource-heavy at a
+        // time; it never touches Personal/Dev storage or blocks anything
+        // else (LTX generation, Settings, Archive, planning, install).
+        do {
+            try MiniMaxH3GenerationLease.acquire()
+        } catch let error as MiniMaxH3GenerationLease.LeaseError {
+            throw MiniMaxH3Error.generationBusy(error.localizedDescription ?? "MiniMax H3 is busy.")
+        }
+        defer { MiniMaxH3GenerationLease.release() }
+
         let endpoint = model.runtime.endpoint ?? request.minimaxH3Endpoint
             ?? MiniMaxH3Configuration.defaultEndpoint
         let snapshot = MiniMaxH3Configuration.Snapshot(
@@ -155,7 +171,14 @@ final class MiniMaxH3Backend {
             throw MiniMaxH3Error.cancelled
         } catch {
             if Task.isCancelled { throw MiniMaxH3Error.cancelled }
-            throw MiniMaxH3Error.runtimeNotRunning(error.localizedDescription)
+            // Distinguish "the app-owned process actually crashed" (with its
+            // real termination reason/signal/stderr) from a plain
+            // network-layer failure — a Ready server does not just vanish
+            // without a cause the app itself can usually observe.
+            let detail = runtimeManager.ownedProcessCrashDetail()
+                ?? "The network connection was lost. \(error.localizedDescription)"
+            runtimeManager.recordReadiness(state: .failed, detail: detail)
+            throw MiniMaxH3Error.runtimeNotRunning(detail)
         }
         guard (200..<300).contains(response.statusCode) else {
             throw MiniMaxH3Error.requestRejected(

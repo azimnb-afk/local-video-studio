@@ -587,6 +587,7 @@ enum MiniMaxH3Error: Error, LocalizedError, Equatable {
     case runtimeNotRunning(String)
     case runtimeStartFailed(String)
     case serverUnhealthy(String)
+    case generationBusy(String)
     case wrongModel(expected: String, actual: String?)
     case requestRejected(status: Int, message: String)
     case invalidHTTPResponse
@@ -609,6 +610,7 @@ enum MiniMaxH3Error: Error, LocalizedError, Equatable {
         case .runtimeNotRunning(let detail): return "MiniMax H3 is not running. \(detail)"
         case .runtimeStartFailed(let detail): return "MiniMax H3 runtime could not start. \(detail)"
         case .serverUnhealthy(let detail): return "MiniMax H3 server is unhealthy. \(detail)"
+        case .generationBusy(let detail): return detail
         case .wrongModel(let expected, let actual):
             let found = actual ?? "none"
             return "MiniMax H3 server has the wrong model loaded (expected \(expected), found \(found))."
@@ -660,13 +662,46 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
     /// opens Preferences; this is the generation-time counterpart so the
     /// user sees the real Stopped -> Starting -> Ready/Failed transition
     /// instead of a stale snapshot from the last time Settings was opened.
-    private func recordReadiness(state: MiniMaxH3RuntimeState, detail: String) {
+    func recordReadiness(state: MiniMaxH3RuntimeState, detail: String) {
         userDefaults.set(state.rawValue, forKey: MiniMaxH3Configuration.lastReadinessStateKey)
         userDefaults.set(detail, forKey: MiniMaxH3Configuration.lastReadinessDetailKey)
     }
 
     private func recordReadiness(_ status: MiniMaxH3RuntimeStatus) {
         recordReadiness(state: status.state, detail: status.detail)
+    }
+
+    /// If this manager owns the H3 server process and it has since exited,
+    /// describes exactly why (exit code, or the specific signal — SIGKILL
+    /// and SIGTERM are named explicitly rather than folded into a generic
+    /// HTTP/network error) plus its recent stderr. Lets a generation-time
+    /// HTTP failure that happens because the owned process died report the
+    /// real cause instead of a bare "network connection was lost".
+    func ownedProcessCrashDetail() -> String? {
+        lock.lock()
+        let process = ownedProcess
+        let tail = ownedStderrTail.trimmingCharacters(in: .whitespacesAndNewlines)
+        lock.unlock()
+        guard let process, !process.isRunning else { return nil }
+        let status = process.terminationStatus
+        let cause: String
+        switch process.terminationReason {
+        case .exit:
+            cause = "exited with code \(status)"
+        case .uncaughtSignal:
+            let signalName: String
+            switch status {
+            case SIGKILL: signalName = "SIGKILL"
+            case SIGTERM: signalName = "SIGTERM"
+            case SIGABRT: signalName = "SIGABRT"
+            default: signalName = "signal \(status)"
+            }
+            cause = "was terminated by \(signalName)"
+        @unknown default:
+            cause = "terminated unexpectedly (status \(status))"
+        }
+        let stderrSuffix = tail.isEmpty ? "" : ": \(tail)"
+        return "The MiniMax H3 server process \(cause)\(stderrSuffix)"
     }
 
     func status(

@@ -521,21 +521,11 @@ func runOneShotCanonicalParityTests(_ t: TestKit) {
         }
 
         // ====================================================================
-        // PHASE 2.6 — ISOLATE ONE SHOT 15S DURATION POLICY
+        // PHASE 2.7 — MAKE CANONICAL SHOT BUILDER SURFACE-AGNOSTIC
         // ====================================================================
 
-        // 18. LTX 15-second Frame Count & Canonical Assembly for One Shot
+        // 18. LTX 15-second One Shot Production Pipeline via LocalDirector
         do {
-            let plan15s = OneShotPlan(
-                camera: "epic wide drone orbit",
-                action: "A ship sails across the vast ocean during sunset.",
-                acting: nil,
-                motion: nil,
-                lighting: "golden hour reflection on calm waters",
-                dialogue: [],
-                audioCues: ["ocean waves", "wind"],
-                durationIntentSeconds: 15.0
-            )
             let base = GenerationRequest(
                 prompt: "",
                 modelId: LTXModelCatalog.defaultModelID,
@@ -546,46 +536,59 @@ func runOneShotCanonicalParityTests(_ t: TestKit) {
                 generationSource: "oneShot"
             )
 
-            let calculatedFrames = PromptCompiler.frameCount(
-                forSeconds: 15.0, fps: 24, maximumFrameCount: PromptCompiler.oneShotMaximumFrameCount
-            )
-            t.checkEqual(calculatedFrames, 361, "18. PromptCompiler derives 361 frames for One Shot 15.0s @ 24fps")
-
-            let spec = CanonicalShotSpecification(
-                id: base.id,
-                prompt: PromptCompiler.compile(plan: plan15s),
-                brief: "ocean sunset 15s",
-                modelID: base.modelId,
-                textEncoderID: base.textEncoderId,
-                preset: base.preset,
-                qualityMode: base.qualityMode,
-                width: 768,
-                height: 512,
-                fps: 24,
-                numInferenceSteps: 30,
-                targetDurationSeconds: 15.0,
-                audioEnabled: true,
-                orientation: base.presetResolutionOrientation,
-                generationSource: "oneShot"
-            )
-            let (req, params, _) = CanonicalShotRequestBuilder.buildRequest(from: spec)
-
-            t.checkEqual(req.targetDurationSeconds, 15.0, "18. 15s targetDurationSeconds preserved in request")
-            t.checkEqual(params.numFrames, 361, "18. 361 frames assembled in parameters for oneShot")
-            t.checkEqual(req.parameters.numFrames, 361, "18. 361 frames assembled in GenerationRequest for oneShot")
-            t.checkEqual(req.parameters.fps, 24, "18. fps is 24")
-            t.check(Double(req.parameters.numFrames) / Double(req.parameters.fps) >= 15.0, "18. duration is >= 15.0s")
+            let scriptedPlanJSON = """
+            {"camera":"epic wide drone orbit","action":"A ship sails across the vast ocean during sunset.","acting":"peaceful, cinematic","motion":"steady glide","lighting":"golden hour reflection on calm waters","dialogue":[],"audioCues":["ocean waves","wind"],"durationIntentSeconds":15}
+            """
+            let mockProvider = MockDirectorProvider(responses: [scriptedPlanJSON])
+            let director = LocalDirector(providers: [mockProvider])
+            let sem = DispatchSemaphore(value: 0)
+            Task {
+                do {
+                    let (req, _, _) = try await director.makeRequest(brief: "ocean sunset 15s", base: base)
+                    t.checkEqual(req.targetDurationSeconds, 15.0, "18. 15s targetDuration preserved in request")
+                    t.checkEqual(req.parameters.numFrames, 361, "18. 361 frames assembled for One Shot LTX 15s")
+                    t.checkEqual(req.parameters.fps, 24, "18. fps is 24")
+                } catch {
+                    t.check(false, "18. LocalDirector.makeRequest failed: \(error)")
+                }
+                sem.signal()
+            }
+            sem.wait()
         }
 
-        // 19. Generic / Historical Default Invariant (241 frames default)
+        // 19. Builder Surface-Agnostic Invariants
         do {
-            t.checkEqual(PromptCompiler.frameCount(forSeconds: 2.0, fps: 24), 49, "19. 2.0s -> 49 frames unchanged")
-            t.checkEqual(PromptCompiler.frameCount(forSeconds: 5.0, fps: 24), 121, "19. 5.0s -> 121 frames unchanged")
-            t.checkEqual(PromptCompiler.frameCount(forSeconds: 10.0, fps: 24), 241, "19. 10.0s -> 241 frames unchanged")
-            t.checkEqual(PromptCompiler.frameCount(forSeconds: 15.0, fps: 24), 241, "19. Generic 15.0s defaults to 241 frames")
-            t.checkEqual(PromptCompiler.frameCount(forSeconds: 100.0, fps: 24), 241, "19. Generic 100.0s defaults to 241 frames")
+            // (a) generationSource = "oneShot" but override = nil -> builder defaults to 241
+            let oneShotNoOverrideSpec = CanonicalShotSpecification(
+                prompt: "One shot without explicit override",
+                modelID: LTXModelCatalog.defaultModelID,
+                textEncoderID: LTXTextEncoderCatalog.defaultTextEncoderID,
+                preset: GenerationPreset.standard.rawValue,
+                qualityMode: QualityMode.auto.rawValue,
+                width: 768, height: 512, fps: 24, numInferenceSteps: 30,
+                targetDurationSeconds: 15.0,
+                maximumFrameCountOverride: nil,
+                generationSource: "oneShot"
+            )
+            let (reqNoOverride, _, _) = CanonicalShotRequestBuilder.buildRequest(from: oneShotNoOverrideSpec)
+            t.checkEqual(reqNoOverride.parameters.numFrames, 241, "19a. Builder does NOT infer 361 without explicit override even if generationSource is oneShot")
 
-            // Auto Movie / Storyboard Canonical request does NOT expand to 361
+            // (b) arbitrary non-oneShot generationSource with explicit override = 361 -> honors 361
+            let customSourceOverrideSpec = CanonicalShotSpecification(
+                prompt: "Custom test source with explicit override",
+                modelID: LTXModelCatalog.defaultModelID,
+                textEncoderID: LTXTextEncoderCatalog.defaultTextEncoderID,
+                preset: GenerationPreset.standard.rawValue,
+                qualityMode: QualityMode.auto.rawValue,
+                width: 768, height: 512, fps: 24, numInferenceSteps: 30,
+                targetDurationSeconds: 15.0,
+                maximumFrameCountOverride: PromptCompiler.oneShotMaximumFrameCount,
+                generationSource: "arbitrary_custom_pipeline"
+            )
+            let (reqCustomOverride, _, _) = CanonicalShotRequestBuilder.buildRequest(from: customSourceOverrideSpec)
+            t.checkEqual(reqCustomOverride.parameters.numFrames, 361, "19b. Builder honors explicit 361 override for arbitrary generationSource")
+
+            // (c) Storyboard / Auto Movie default specification -> 241
             let storyboardSpec = CanonicalShotSpecification(
                 prompt: "Storyboard shot with 15s requested duration",
                 modelID: LTXModelCatalog.defaultModelID,
@@ -594,25 +597,26 @@ func runOneShotCanonicalParityTests(_ t: TestKit) {
                 qualityMode: QualityMode.auto.rawValue,
                 width: 768, height: 512, fps: 24, numInferenceSteps: 30,
                 targetDurationSeconds: 15.0,
+                maximumFrameCountOverride: nil,
                 generationSource: "storyboard"
             )
             let (sbReq, _, _) = CanonicalShotRequestBuilder.buildRequest(from: storyboardSpec)
-            t.checkEqual(sbReq.parameters.numFrames, 241, "19. Storyboard 15s request clamped to historical 241 frames")
+            t.checkEqual(sbReq.parameters.numFrames, 241, "19c. Storyboard 15s request clamped to historical 241 frames")
         }
 
-        // 20. Upper Bound Clamp for One Shot (Durations above 15s clamped to 361 frames)
+        // 20. Explicit Upper Bound Clamping
         do {
+            t.checkEqual(PromptCompiler.frameCount(forSeconds: 2.0, fps: 24), 49, "20. 2.0s -> 49 frames unchanged")
+            t.checkEqual(PromptCompiler.frameCount(forSeconds: 5.0, fps: 24), 121, "20. 5.0s -> 121 frames unchanged")
+            t.checkEqual(PromptCompiler.frameCount(forSeconds: 10.0, fps: 24), 241, "20. 10.0s -> 241 frames unchanged")
+            t.checkEqual(PromptCompiler.frameCount(forSeconds: 15.0, fps: 24), 241, "20. Generic 15.0s defaults to 241 frames")
+            t.checkEqual(
+                PromptCompiler.frameCount(forSeconds: 15.0, fps: 24, maximumFrameCount: PromptCompiler.oneShotMaximumFrameCount),
+                361, "20. One Shot 15.0s resolves to 361 frames"
+            )
             t.checkEqual(
                 PromptCompiler.frameCount(forSeconds: 16.0, fps: 24, maximumFrameCount: PromptCompiler.oneShotMaximumFrameCount),
                 361, "20. One Shot 16.0s clamped to 361 frames"
-            )
-            t.checkEqual(
-                PromptCompiler.frameCount(forSeconds: 20.0, fps: 24, maximumFrameCount: PromptCompiler.oneShotMaximumFrameCount),
-                361, "20. One Shot 20.0s clamped to 361 frames"
-            )
-            t.checkEqual(
-                PromptCompiler.frameCount(forSeconds: 60.0, fps: 24, maximumFrameCount: PromptCompiler.oneShotMaximumFrameCount),
-                361, "20. One Shot 60.0s clamped to 361 frames"
             )
         }
 

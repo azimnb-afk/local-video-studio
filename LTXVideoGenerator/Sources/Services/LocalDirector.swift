@@ -231,6 +231,7 @@ final class LocalDirector {
             numInferenceSteps: base.parameters.numInferenceSteps,
             targetDurationSeconds: isCustom ? nil : (base.targetDurationSeconds ?? plan.durationIntentSeconds),
             numFramesOverride: isCustom ? base.parameters.numFrames : nil,
+            maximumFrameCountOverride: base.modelId != MiniMaxH3Configuration.modelID ? PromptCompiler.oneShotMaximumFrameCount : nil,
             audioEnabled: !base.disableAudio,
             seed: base.parameters.seed,
             conditioningImage: conditioning,

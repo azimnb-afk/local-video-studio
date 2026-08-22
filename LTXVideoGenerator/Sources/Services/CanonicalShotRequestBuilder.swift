@@ -89,13 +89,9 @@ enum CanonicalShotRequestBuilder {
             qualityModeRaw: spec.qualityMode
         ) == .custom
 
-        // 3. Maximum frame count determination: One Shot LTX explicitly permits
-        // up to 361 frames (15s); all other generation contexts retain the
-        // production-wide 241-frame default.
-        let effectiveMaxFrames = spec.maximumFrameCountOverride
-            ?? ((spec.generationSource == "oneShot" && spec.modelID != MiniMaxH3Configuration.modelID)
-                ? PromptCompiler.oneShotMaximumFrameCount
-                : PromptCompiler.defaultMaximumFrameCount)
+        // 3. Maximum frame count determination: consume the explicit specification
+        // override if provided; otherwise default to the standard 241-frame ceiling.
+        let effectiveMaxFrames = spec.maximumFrameCountOverride ?? PromptCompiler.defaultMaximumFrameCount
 
         // 4. Frame count resolution
         let resolvedFrames: Int

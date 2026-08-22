@@ -1283,9 +1283,22 @@ final class HybridProjectCoordinator {
         settings: ProjectSettings,
         characterBible: CharacterBible = CharacterBible(),
         openingSceneEvidence: OpeningReferenceAppearance? = nil,
+        directorEnabled: Bool = true,
         handle: DirectorPlanningHandle? = nil,
         progressCallback: ((DirectorPlanningPhase, String) -> Void)? = nil
     ) async throws -> (project: FilmProject, violations: [ContinuityEngine.Violation], providerName: String) {
+        if !directorEnabled {
+            return try await makeDirectProject(
+                projectID: projectID,
+                title: title,
+                brief: brief,
+                settings: settings,
+                characterBible: characterBible,
+                handle: handle,
+                progressCallback: progressCallback
+            )
+        }
+
         var (project, violations, providerName) = try await director.makeProject(
             projectID: projectID, title: title, brief: brief,
             settings: settings, characterBible: characterBible,
@@ -1357,5 +1370,118 @@ final class HybridProjectCoordinator {
         // would only repeat the same messages. Confirmed duplicated in real
         // Auto Movie planning output before this fix.
         return (project, violations, providerName)
+    }
+
+    private func makeDirectProject(
+        projectID: UUID,
+        title: String,
+        brief: String,
+        settings: ProjectSettings,
+        characterBible: CharacterBible,
+        handle: DirectorPlanningHandle?,
+        progressCallback: ((DirectorPlanningPhase, String) -> Void)?
+    ) async throws -> (project: FilmProject, violations: [ContinuityEngine.Violation], providerName: String) {
+        if handle?.isCancelled == true || Task.isCancelled {
+            progressCallback?(.cancelled, "Planning cancelled")
+            throw DirectorError.cancelled
+        }
+        progressCallback?(.preparing, "Structuring movie shots…")
+
+        let plan = try StructuralMoviePlanner.plan(prompt: brief)
+
+        let target = min(60, max(5, settings.targetDurationSeconds ?? 20))
+        let effectiveMaxSecondsPerShot: Double
+        if settings.modelID == MiniMaxH3Configuration.modelID {
+            effectiveMaxSecondsPerShot = MiniMaxH3DurationPolicy.maximumDurationSeconds
+        } else {
+            effectiveMaxSecondsPerShot = Double(AutoMovieDurationPlanner.maximumFrameCount - 1) / Double(max(1, settings.fps))
+        }
+
+        try StructuralMoviePlanner.validateCapacity(
+            requestedTotalDuration: target,
+            shotCount: plan.segments.count,
+            maximumSecondsPerShot: effectiveMaxSecondsPerShot
+        )
+
+        let fps = max(1, settings.fps)
+        let frameStride = 8
+        let minimumFrameCount = AutoMovieDurationPlanner.minimumFrameCount // 25
+        let maximumFrameCount = AutoMovieDurationPlanner.maximumFrameCount // 241
+        let minimumUnits = (minimumFrameCount - 1) / frameStride
+        let maximumUnits = (maximumFrameCount - 1) / frameStride
+        let targetUnits = max(
+            minimumUnits,
+            Int((target * Double(fps) / Double(frameStride)).rounded())
+        )
+
+        let unitsPerShot = allocateEqualUnits(
+            count: plan.segments.count,
+            targetUnits: targetUnits,
+            minimumUnits: minimumUnits,
+            maximumUnits: maximumUnits
+        )
+
+        var shots: [Shot] = []
+        for (index, segment) in plan.segments.enumerated() {
+            let unit = unitsPerShot[index]
+            let frameCount = min(maximumFrameCount, max(minimumFrameCount, unit * frameStride + 1))
+            let duration = Double(frameCount - 1) / Double(fps)
+
+            var shot = Shot(index: index)
+            shot.title = "Shot \(index + 1)"
+            shot.summary = segment.literalPrompt
+            shot.compiledPrompt = segment.literalPrompt
+            shot.baseCompiledPrompt = segment.literalPrompt
+            shot.durationSeconds = duration
+            shot.plannedContinuityMode = segment.transition
+            shot.continuityMode = segment.transition
+            shot.continuityReconciliationReason = segment.structuralBoundaryReason
+            shot.camera = CameraPlan()
+            shot.takes = []
+            shot.selectedTakeID = nil
+            shots.append(shot)
+        }
+
+        if handle?.isCancelled == true || Task.isCancelled {
+            progressCallback?(.cancelled, "Planning cancelled")
+            throw DirectorError.cancelled
+        }
+
+        progressCallback?(.applying, "Applying structured shots…")
+
+        var project = FilmProject(id: projectID, title: title)
+        project.settings = settings
+        project.characterBible = characterBible
+        project.shots = shots
+        project.workflowMode = "hybrid"
+        project.directorProvider = "Direct"
+        project.planningMode = "Direct (No Director)"
+
+        return (project, [], "Direct")
+    }
+
+    private func allocateEqualUnits(
+        count: Int,
+        targetUnits: Int,
+        minimumUnits: Int,
+        maximumUnits: Int
+    ) -> [Int] {
+        guard count > 0 else { return [] }
+        guard count > 1 else {
+            return [min(maximumUnits, max(minimumUnits, targetUnits))]
+        }
+
+        let baseUnits = targetUnits / count
+        var remainder = targetUnits % count
+        var units = [Int](repeating: min(maximumUnits, max(minimumUnits, baseUnits)), count: count)
+
+        for i in 0..<count {
+            if remainder > 0 && units[i] < maximumUnits {
+                units[i] += 1
+                remainder -= 1
+            }
+        }
+
+        return units
     }
 }

@@ -327,7 +327,6 @@ func runStructuralMoviePlannerTests(_ t: TestKit) {
 
         // 30. Capacity validation does not know model IDs
         do {
-            // Evaluates pure numeric capacity for any arbitrary engine ceiling
             var arbitraryValid = false
             do {
                 try StructuralMoviePlanner.validateCapacity(
@@ -338,6 +337,174 @@ func runStructuralMoviePlannerTests(_ t: TestKit) {
                 arbitraryValid = true
             } catch {}
             t.check(arbitraryValid, "30. Capacity validation operates purely on numerical capacity without engine coupling")
+        }
+
+        // ====================================================================
+        // PHASE 3C-1.1 HARDENING TESTS
+        // ====================================================================
+
+        // 31. [CUT] followed by Shot N marker → CUT preserved
+        do {
+            let prompt = """
+            First action.
+            [CUT]
+            Shot 2:
+            Second action.
+            """
+            let plan = try? StructuralMoviePlanner.plan(prompt: prompt)
+            t.checkEqual(plan?.segments.count, 2, "31. Plan has 2 shots")
+            t.checkEqual(plan?.segments[0].transition, .cut, "31. Shot 1 is CUT")
+            t.checkEqual(plan?.segments[1].literalPrompt, "Second action.", "31. Shot 2 literal prompt matches")
+            t.checkEqual(plan?.segments[1].transition, .cut, "31. Shot 2 transition is CUT ([CUT] survived Shot 2: marker)")
+        }
+
+        // 32. [CONTINUE] followed by Shot N marker → CONTINUE preserved
+        do {
+            let prompt = """
+            First action.
+
+            [CONTINUE]
+            Shot 2:
+            Second action.
+            """
+            let plan = try? StructuralMoviePlanner.plan(prompt: prompt)
+            t.checkEqual(plan?.segments.count, 2, "32. Plan has 2 shots")
+            t.checkEqual(plan?.segments[1].literalPrompt, "Second action.", "32. Shot 2 literal prompt matches")
+            t.checkEqual(plan?.segments[1].transition, .continueFromPrevious, "32. Shot 2 transition is CONTINUE ([CONTINUE] survived Shot 2: and paragraph)")
+        }
+
+        // 33. [CONTINUE] followed by Scene N marker → explicit CONTINUE wins over Scene default
+        do {
+            let prompt = """
+            First action.
+            [CONTINUE]
+            Scene 2:
+            Second action.
+            """
+            let plan = try? StructuralMoviePlanner.plan(prompt: prompt)
+            t.checkEqual(plan?.segments.count, 2, "33. Plan has 2 shots")
+            t.checkEqual(plan?.segments[1].literalPrompt, "Second action.", "33. Shot 2 literal prompt matches")
+            t.checkEqual(plan?.segments[1].transition, .continueFromPrevious, "33. Explicit [CONTINUE] overrides Scene 2 default CUT")
+        }
+
+        // 34. Scene N without explicit transition → CUT
+        do {
+            let prompt = """
+            First action.
+            Scene 2:
+            Second action.
+            """
+            let plan = try? StructuralMoviePlanner.plan(prompt: prompt)
+            t.checkEqual(plan?.segments.count, 2, "34. Plan has 2 shots")
+            t.checkEqual(plan?.segments[1].literalPrompt, "Second action.", "34. Shot 2 literal prompt matches")
+            t.checkEqual(plan?.segments[1].transition, .cut, "34. Scene 2 without override defaults to CUT")
+        }
+
+        // 35. [CUT] followed by [CONTINUE] → last explicit marker wins
+        do {
+            let prompt = """
+            First action.
+            [CUT]
+            [CONTINUE]
+            Shot 2:
+            Second action.
+            """
+            let plan = try? StructuralMoviePlanner.plan(prompt: prompt)
+            t.checkEqual(plan?.segments.count, 2, "35. Plan has 2 shots")
+            t.checkEqual(plan?.segments[1].transition, .continueFromPrevious, "35. Last explicit marker [CONTINUE] wins")
+        }
+
+        // 36. [CONTINUE] followed by [CUT] → last explicit marker wins
+        do {
+            let prompt = """
+            First action.
+            [CONTINUE]
+            [CUT]
+            Shot 2:
+            Second action.
+            """
+            let plan = try? StructuralMoviePlanner.plan(prompt: prompt)
+            t.checkEqual(plan?.segments.count, 2, "36. Plan has 2 shots")
+            t.checkEqual(plan?.segments[1].transition, .cut, "36. Last explicit marker [CUT] wins")
+        }
+
+        // 37. Explicit marker survives blank-line / metadata combination
+        do {
+            let prompt = """
+            First action.
+
+            [CUT]
+
+            Shot 2:
+
+            Second action.
+            """
+            let plan = try? StructuralMoviePlanner.plan(prompt: prompt)
+            t.checkEqual(plan?.segments.count, 2, "37. Plan has 2 shots")
+            t.checkEqual(plan?.segments[1].transition, .cut, "37. [CUT] survives empty lines and metadata")
+        }
+
+        // 38. Pending marker is consumed exactly once
+        do {
+            let prompt = """
+            Shot 1: Action 1.
+            [CUT]
+            Shot 2: Action 2.
+            Shot 3: Action 3.
+            """
+            let plan = try? StructuralMoviePlanner.plan(prompt: prompt)
+            t.checkEqual(plan?.segments.count, 3, "38. Plan has 3 shots")
+            t.checkEqual(plan?.segments[0].transition, .cut, "38. Shot 1 is CUT")
+            t.checkEqual(plan?.segments[1].transition, .cut, "38. Shot 2 is CUT (explicit marker consumed)")
+            t.checkEqual(plan?.segments[2].transition, .continueFromPrevious, "38. Shot 3 returns to default CONTINUE (not CUT)")
+        }
+
+        // 39. Internal newline preserved
+        do {
+            let prompt = "A woman walks slowly\ntoward the old wooden door."
+            let plan = try? StructuralMoviePlanner.plan(prompt: prompt)
+            t.checkEqual(plan?.segments.count, 1, "39. Single multiline sentence produces 1 shot")
+            t.checkEqual(plan?.segments[0].literalPrompt, "A woman walks slowly\ntoward the old wooden door.", "39. Internal newline preserved verbatim")
+        }
+
+        // 40. CRLF normalizes to LF
+        do {
+            let prompt = "First line.\r\nSecond line.\r\nThird line."
+            let plan = try? StructuralMoviePlanner.plan(prompt: prompt)
+            t.checkEqual(plan?.segments.count, 3, "40. CRLF input parsed into 3 shots")
+            t.check(!plan!.segments.contains { $0.literalPrompt.contains("\r") }, "40. No carriage return \\r remaining")
+        }
+
+        // 41. Leading/trailing whitespace may be trimmed
+        do {
+            let prompt = "   \n  Walks forward.   \n   "
+            let plan = try? StructuralMoviePlanner.plan(prompt: prompt)
+            t.checkEqual(plan?.segments.count, 1, "41. Whitespace trimmed")
+            t.checkEqual(plan?.segments[0].literalPrompt, "Walks forward.", "41. Clean prompt output")
+        }
+
+        // 42. Structural marker itself removed without rewriting adjacent user text
+        do {
+            let prompt = "Shot 1: The detective enters the foggy harbor at midnight."
+            let plan = try? StructuralMoviePlanner.plan(prompt: prompt)
+            t.checkEqual(plan?.segments.count, 1, "42. 1 shot produced")
+            t.checkEqual(plan?.segments[0].literalPrompt, "The detective enters the foggy harbor at midnight.", "42. Shot 1: stripped cleanly without modifying remaining sentence")
+        }
+
+        // 43. Japanese multiline content preserved
+        do {
+            let prompt = "女性がゆっくりと\n古い木製のドアへ歩く。"
+            let plan = try? StructuralMoviePlanner.plan(prompt: prompt)
+            t.checkEqual(plan?.segments.count, 1, "43. Japanese multiline sentence produces 1 shot")
+            t.checkEqual(plan?.segments[0].literalPrompt, "女性がゆっくりと\n古い木製のドアへ歩く。", "43. Japanese internal newline preserved")
+        }
+
+        // 44. Sentinel multiline prompt exact preservation
+        do {
+            let sentinelPrompt = "DIRECT_MULTILINE_SENTINEL_88\nliteral second line."
+            let plan = try? StructuralMoviePlanner.plan(prompt: sentinelPrompt)
+            t.checkEqual(plan?.segments.count, 1, "44. Multiline sentinel produces 1 shot")
+            t.checkEqual(plan?.segments[0].literalPrompt, "DIRECT_MULTILINE_SENTINEL_88\nliteral second line.", "44. Multiline sentinel preserved exactly")
         }
     }
 }

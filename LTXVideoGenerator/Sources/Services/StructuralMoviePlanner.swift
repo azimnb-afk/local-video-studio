@@ -53,29 +53,38 @@ enum StructuralMoviePlanner {
             var lines: [String]
             var explicitTransition: ShotContinuityMode?
             var isNewParagraph: Bool
+            var isSceneBoundary: Bool
             var structuralReason: String?
         }
 
         var blocks: [IntermediateBlock] = []
         var currentBlockLines: [String] = []
-        var currentExplicitTransition: ShotContinuityMode?
-        var currentStructuralReason: String?
-        var nextBlockIsNewParagraph = false
+
+        // Pending explicit transition set by [CUT], CUT:, [CONTINUE], CONTINUE:, ---
+        // Survives metadata markers (Shot N, Scene N) and empty lines until consumed
+        // by a block that actually has content lines.
+        var pendingExplicitTransition: ShotContinuityMode?
+        var pendingStructuralReason: String?
+        var pendingIsNewParagraph = false
+        var pendingIsSceneBoundary = false
 
         func flushCurrentBlock() {
             let filtered = currentBlockLines.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             if !filtered.isEmpty {
                 blocks.append(IntermediateBlock(
                     lines: filtered,
-                    explicitTransition: currentExplicitTransition,
-                    isNewParagraph: nextBlockIsNewParagraph || blocks.isEmpty,
-                    structuralReason: currentStructuralReason
+                    explicitTransition: pendingExplicitTransition,
+                    isNewParagraph: pendingIsNewParagraph || blocks.isEmpty,
+                    isSceneBoundary: pendingIsSceneBoundary,
+                    structuralReason: pendingStructuralReason
                 ))
+                // Once consumed by a content block, clear the pending explicit transition
+                pendingExplicitTransition = nil
+                pendingStructuralReason = nil
+                pendingIsNewParagraph = false
+                pendingIsSceneBoundary = false
             }
             currentBlockLines = []
-            currentExplicitTransition = nil
-            currentStructuralReason = nil
-            nextBlockIsNewParagraph = false
         }
 
         for line in lines {
@@ -83,26 +92,24 @@ enum StructuralMoviePlanner {
 
             // Empty line indicates paragraph boundary
             if lineTrimmed.isEmpty {
-                if !currentBlockLines.isEmpty {
-                    flushCurrentBlock()
-                }
-                nextBlockIsNewParagraph = true
+                flushCurrentBlock()
+                pendingIsNewParagraph = true
                 continue
             }
 
             // Separator marker (--- or - - -)
             if lineTrimmed == "---" || lineTrimmed == "- - -" {
                 flushCurrentBlock()
-                currentExplicitTransition = .cut
-                currentStructuralReason = "Explicit separator (\(lineTrimmed))"
+                pendingExplicitTransition = .cut
+                pendingStructuralReason = "Explicit separator (\(lineTrimmed))"
                 continue
             }
 
             // Explicit [CUT] or CUT:
             if let cutRemainder = stripPrefix(lineTrimmed, prefixes: ["[CUT]", "[cut]", "CUT:", "cut:"]) {
                 flushCurrentBlock()
-                currentExplicitTransition = .cut
-                currentStructuralReason = "Explicit [CUT] marker"
+                pendingExplicitTransition = .cut
+                pendingStructuralReason = "Explicit [CUT] marker"
                 if !cutRemainder.isEmpty {
                     currentBlockLines.append(cutRemainder)
                 }
@@ -112,8 +119,8 @@ enum StructuralMoviePlanner {
             // Explicit [CONTINUE] or CONTINUE:
             if let continueRemainder = stripPrefix(lineTrimmed, prefixes: ["[CONTINUE]", "[continue]", "CONTINUE:", "continue:"]) {
                 flushCurrentBlock()
-                currentExplicitTransition = .continueFromPrevious
-                currentStructuralReason = "Explicit [CONTINUE] marker"
+                pendingExplicitTransition = .continueFromPrevious
+                pendingStructuralReason = "Explicit [CONTINUE] marker"
                 if !continueRemainder.isEmpty {
                     currentBlockLines.append(continueRemainder)
                 }
@@ -123,18 +130,17 @@ enum StructuralMoviePlanner {
             // Shot marker: e.g. "Shot 1:", "[Shot 1]", "Shot 1."
             if let shotRemainder = stripShotMarker(lineTrimmed) {
                 flushCurrentBlock()
-                currentStructuralReason = "Explicit Shot marker"
+                // Shot marker acts as structural boundary, but does NOT overwrite pendingExplicitTransition
                 if !shotRemainder.isEmpty {
                     currentBlockLines.append(shotRemainder)
                 }
                 continue
             }
 
-            // Scene marker: e.g. "Scene 1:", "[Scene 1]", "Scene 1." (Defaults to CUT)
+            // Scene marker: e.g. "Scene 1:", "[Scene 1]", "Scene 1." (Defaults to CUT unless explicit transition is pending)
             if let sceneRemainder = stripSceneMarker(lineTrimmed) {
                 flushCurrentBlock()
-                currentExplicitTransition = .cut
-                currentStructuralReason = "Explicit Scene marker"
+                pendingIsSceneBoundary = true
                 if !sceneRemainder.isEmpty {
                     currentBlockLines.append(sceneRemainder)
                 }
@@ -144,14 +150,13 @@ enum StructuralMoviePlanner {
             // Line-start numbered list: e.g. "1. ", "2. "
             if let numberRemainder = stripNumberedListPrefix(lineTrimmed) {
                 flushCurrentBlock()
-                currentStructuralReason = "Numbered list marker"
                 if !numberRemainder.isEmpty {
                     currentBlockLines.append(numberRemainder)
                 }
                 continue
             }
 
-            // Regular prose line
+            // Regular prose line - preserve verbatim (internal line breaks)
             currentBlockLines.append(line)
         }
 
@@ -166,7 +171,7 @@ enum StructuralMoviePlanner {
         var segments: [StructuralMovieSegment] = []
 
         for block in blocks {
-            let blockText = block.lines.joined(separator: " ")
+            let blockText = block.lines.joined(separator: "\n")
             let sentences = splitIntoSentences(blockText)
 
             for (sentenceIndex, sentence) in sentences.enumerated() {
@@ -182,6 +187,9 @@ enum StructuralMoviePlanner {
                     if let explicit = block.explicitTransition {
                         transition = explicit
                         reason = block.structuralReason
+                    } else if block.isSceneBoundary {
+                        transition = .cut
+                        reason = "Scene boundary"
                     } else if block.isNewParagraph {
                         transition = .cut
                         reason = "Paragraph boundary"

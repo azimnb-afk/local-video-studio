@@ -14,12 +14,23 @@ struct ResolvedShotConditioningImage: Equatable {
 /// Specifications for building a concrete `GenerationRequest` and its effective
 /// `GenerationParameters`.
 struct CanonicalShotSpecification: Equatable {
+    var id: UUID? = nil
     var prompt: String
     var brief: String? = nil
+    var negativePrompt: String = ""
+    var voiceoverText: String = ""
+    var voiceoverSource: String = "mlx-audio"
+    var voiceoverVoice: String = "af_heart"
+    var musicEnabled: Bool = false
+    var musicGenre: String? = nil
+    var gemmaRepetitionPenalty: Double = 1.2
+    var gemmaTopP: Double = 0.9
     var modelID: String
     var textEncoderID: String
     var preset: String? = nil
     var qualityMode: String? = nil
+    var modelRevision: String? = nil
+    var quantization: String? = nil
     var width: Int
     var height: Int
     var fps: Int
@@ -29,8 +40,10 @@ struct CanonicalShotSpecification: Equatable {
     var audioEnabled: Bool = true
     var seed: Int? = nil
     var conditioningImage: ResolvedShotConditioningImage = .none
-    var orientation: SourceImageOrientation = .none
-    var generationSource: String = "canonicalShot"
+    var orientation: SourceImageOrientation? = nil
+    var generationSource: String? = nil
+    var createdAt: Date? = nil
+    var status: GenerationStatus = .pending
     var projectID: UUID? = nil
     var shotID: UUID? = nil
     var takeID: UUID? = nil
@@ -112,14 +125,27 @@ enum CanonicalShotRequestBuilder {
 
         // 6. GenerationRequest Construction
         let request = GenerationRequest(
+            id: spec.id ?? UUID(),
             prompt: technicalPrompt,
             brief: spec.brief,
+            negativePrompt: spec.negativePrompt,
+            voiceoverText: spec.voiceoverText,
+            voiceoverSource: spec.voiceoverSource,
+            voiceoverVoice: spec.voiceoverVoice,
             sourceImagePath: spec.conditioningImage.path,
             presetResolutionOrientation: spec.orientation,
+            musicEnabled: spec.musicEnabled,
+            musicGenre: spec.musicGenre,
             disableAudio: !spec.audioEnabled,
+            gemmaRepetitionPenalty: spec.gemmaRepetitionPenalty,
+            gemmaTopP: spec.gemmaTopP,
             modelId: spec.modelID,
             textEncoderId: spec.textEncoderID,
             parameters: params,
+            createdAt: spec.createdAt ?? Date(),
+            status: spec.status,
+            modelRevision: spec.modelRevision,
+            quantization: spec.quantization,
             qualityMode: spec.qualityMode,
             preset: spec.preset,
             targetDurationSeconds: resolvedTargetDuration,

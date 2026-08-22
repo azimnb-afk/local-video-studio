@@ -175,6 +175,7 @@ func runCanonicalShotRequestBuilderTests(_ t: TestKit) {
                 targetDurationSeconds: 5.0,
                 audioEnabled: true,
                 seed: 42,
+                orientation: legacyInput.projectResolutionOrientation,
                 generationSource: "storyboard",
                 projectID: testProjectID,
                 shotID: testShotID,
@@ -269,6 +270,7 @@ func runCanonicalShotRequestBuilderTests(_ t: TestKit) {
                 targetDurationSeconds: 5.0,
                 audioEnabled: true,
                 seed: 777,
+                orientation: legacyInput.projectResolutionOrientation,
                 generationSource: "storyboard",
                 projectID: testProjectID,
                 shotID: testShotID,
@@ -320,6 +322,7 @@ func runCanonicalShotRequestBuilderTests(_ t: TestKit) {
                 audioEnabled: true,
                 seed: 888,
                 conditioningImage: conditioning,
+                orientation: legacyInput.projectResolutionOrientation,
                 generationSource: "storyboard",
                 projectID: testProjectID,
                 shotID: testShotID,
@@ -343,7 +346,9 @@ func runCanonicalShotRequestBuilderTests(_ t: TestKit) {
                 prompt: "Sound enabled shot.", modelID: LTXModelCatalog.defaultModelID,
                 textEncoderID: LTXTextEncoderCatalog.defaultTextEncoderID, preset: GenerationPreset.standard.rawValue,
                 qualityMode: QualityMode.auto.rawValue, width: 768, height: 512, fps: 24, numInferenceSteps: 30,
-                targetDurationSeconds: 5.0, audioEnabled: true, seed: 42, generationSource: "storyboard",
+                targetDurationSeconds: 5.0, audioEnabled: true, seed: 42,
+                orientation: legacyOnInput.projectResolutionOrientation,
+                generationSource: "storyboard",
                 projectID: testProjectID, shotID: testShotID, takeID: testTakeID
             )
             let canonicalOn = CanonicalShotRequestBuilder.buildRequest(from: specOn)
@@ -358,7 +363,9 @@ func runCanonicalShotRequestBuilderTests(_ t: TestKit) {
                 prompt: "Muted shot.", modelID: LTXModelCatalog.defaultModelID,
                 textEncoderID: LTXTextEncoderCatalog.defaultTextEncoderID, preset: GenerationPreset.standard.rawValue,
                 qualityMode: QualityMode.auto.rawValue, width: 768, height: 512, fps: 24, numInferenceSteps: 30,
-                targetDurationSeconds: 5.0, audioEnabled: false, seed: 42, generationSource: "storyboard",
+                targetDurationSeconds: 5.0, audioEnabled: false, seed: 42,
+                orientation: legacyOffInput.projectResolutionOrientation,
+                generationSource: "storyboard",
                 projectID: testProjectID, shotID: testShotID, takeID: testTakeID
             )
             let canonicalOff = CanonicalShotRequestBuilder.buildRequest(from: specOff)
@@ -378,7 +385,9 @@ func runCanonicalShotRequestBuilderTests(_ t: TestKit) {
                 prompt: "Seed check.", modelID: LTXModelCatalog.defaultModelID,
                 textEncoderID: LTXTextEncoderCatalog.defaultTextEncoderID, preset: GenerationPreset.standard.rawValue,
                 qualityMode: QualityMode.auto.rawValue, width: 768, height: 512, fps: 24, numInferenceSteps: 30,
-                targetDurationSeconds: 5.0, audioEnabled: true, seed: 987654321, generationSource: "storyboard",
+                targetDurationSeconds: 5.0, audioEnabled: true, seed: 987654321,
+                orientation: legacyInput.projectResolutionOrientation,
+                generationSource: "storyboard",
                 projectID: testProjectID, shotID: testShotID, takeID: testTakeID
             )
             let canonicalOut = CanonicalShotRequestBuilder.buildRequest(from: spec)
@@ -399,7 +408,9 @@ func runCanonicalShotRequestBuilderTests(_ t: TestKit) {
                     prompt: "Duration test \(duration)s", modelID: LTXModelCatalog.defaultModelID,
                     textEncoderID: LTXTextEncoderCatalog.defaultTextEncoderID, preset: GenerationPreset.standard.rawValue,
                     qualityMode: QualityMode.auto.rawValue, width: 768, height: 512, fps: 24, numInferenceSteps: 30,
-                    targetDurationSeconds: duration, audioEnabled: true, seed: 42, generationSource: "storyboard",
+                    targetDurationSeconds: duration, audioEnabled: true, seed: 42,
+                    orientation: legacyInput.projectResolutionOrientation,
+                    generationSource: "storyboard",
                     projectID: testProjectID, shotID: testShotID, takeID: testTakeID
                 )
                 let canonicalOut = CanonicalShotRequestBuilder.buildRequest(from: spec)
@@ -423,6 +434,7 @@ func runCanonicalShotRequestBuilderTests(_ t: TestKit) {
                 textEncoderID: LTXTextEncoderCatalog.defaultTextEncoderID, preset: GenerationPreset.custom.rawValue,
                 qualityMode: QualityMode.advanced.rawValue, width: 800, height: 600, fps: 30, numInferenceSteps: 40,
                 targetDurationSeconds: 5.0, numFramesOverride: 73, audioEnabled: false, seed: 999,
+                orientation: legacyInput.projectResolutionOrientation,
                 generationSource: "storyboard", projectID: testProjectID, shotID: testShotID, takeID: testTakeID
             )
             let canonicalOut = CanonicalShotRequestBuilder.buildRequest(from: spec)
@@ -450,6 +462,7 @@ func runCanonicalShotRequestBuilderTests(_ t: TestKit) {
                 textEncoderID: LTXTextEncoderCatalog.defaultTextEncoderID, preset: GenerationPreset.standard.rawValue,
                 qualityMode: QualityMode.auto.rawValue, width: 768, height: 512, fps: 24, numInferenceSteps: 30,
                 targetDurationSeconds: 5.0, audioEnabled: true, seed: 42, conditioningImage: conditioning,
+                orientation: legacyInput.projectResolutionOrientation,
                 generationSource: "storyboard", projectID: testProjectID, shotID: testShotID, takeID: testTakeID
             )
             let canonicalOut = CanonicalShotRequestBuilder.buildRequest(from: spec)
@@ -476,6 +489,7 @@ func runCanonicalShotRequestBuilderTests(_ t: TestKit) {
                 textEncoderID: LTXTextEncoderCatalog.defaultTextEncoderID, preset: GenerationPreset.standard.rawValue,
                 qualityMode: QualityMode.auto.rawValue, width: 768, height: 512, fps: 24, numInferenceSteps: 30,
                 targetDurationSeconds: 5.0, audioEnabled: true, seed: 42, conditioningImage: conditioning,
+                orientation: legacyInput.projectResolutionOrientation,
                 generationSource: "storyboard", projectID: testProjectID, shotID: testShotID, takeID: testTakeID
             )
             let canonicalOut = CanonicalShotRequestBuilder.buildRequest(from: spec)
@@ -502,6 +516,7 @@ func runCanonicalShotRequestBuilderTests(_ t: TestKit) {
                 textEncoderID: LTXTextEncoderCatalog.defaultTextEncoderID, preset: GenerationPreset.standard.rawValue,
                 qualityMode: QualityMode.auto.rawValue, width: 768, height: 512, fps: 24, numInferenceSteps: 30,
                 targetDurationSeconds: 5.0, audioEnabled: true, seed: 42, conditioningImage: conditioning,
+                orientation: legacyInput.projectResolutionOrientation,
                 generationSource: "storyboard", projectID: testProjectID, shotID: testShotID, takeID: testTakeID
             )
             let canonicalOut = CanonicalShotRequestBuilder.buildRequest(from: spec)
@@ -522,7 +537,9 @@ func runCanonicalShotRequestBuilderTests(_ t: TestKit) {
                 prompt: rawPrompt, modelID: LTXModelCatalog.defaultModelID,
                 textEncoderID: LTXTextEncoderCatalog.defaultTextEncoderID, preset: GenerationPreset.standard.rawValue,
                 qualityMode: QualityMode.auto.rawValue, width: 768, height: 512, fps: 24, numInferenceSteps: 30,
-                targetDurationSeconds: 5.0, audioEnabled: true, seed: 42, generationSource: "storyboard",
+                targetDurationSeconds: 5.0, audioEnabled: true, seed: 42,
+                orientation: legacyInput.projectResolutionOrientation,
+                generationSource: "storyboard",
                 projectID: testProjectID, shotID: testShotID, takeID: testTakeID
             )
             let canonicalOut = CanonicalShotRequestBuilder.buildRequest(from: spec)

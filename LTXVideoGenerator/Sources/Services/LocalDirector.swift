@@ -195,15 +195,19 @@ final class LocalDirector {
                 )
             )
         }
-        var params = base.parameters
-        let customParameters = GenerationPreset.resolving(
+
+        let isCustom = GenerationPreset.resolving(
             presetRaw: base.preset,
             qualityModeRaw: base.qualityMode
         ) == .custom
-        if let seconds = plan.durationIntentSeconds, !customParameters {
-            params.numFrames = PromptCompiler.frameCount(forSeconds: seconds, fps: params.fps)
-        }
-        let request = GenerationRequest(
+
+        let conditioning = ResolvedShotConditioningImage(
+            path: base.sourceImagePath,
+            imageStrength: base.parameters.imageStrength,
+            effectiveSource: base.sourceImagePath != nil ? .explicitStartingImage : .none
+        )
+
+        let spec = CanonicalShotSpecification(
             id: base.id,
             prompt: compiled,
             brief: base.brief ?? brief,
@@ -211,24 +215,32 @@ final class LocalDirector {
             voiceoverText: base.voiceoverText,
             voiceoverSource: base.voiceoverSource,
             voiceoverVoice: base.voiceoverVoice,
-            sourceImagePath: base.sourceImagePath,
-            presetResolutionOrientation: base.presetResolutionOrientation,
             musicEnabled: base.musicEnabled,
             musicGenre: base.musicGenre,
-            disableAudio: base.disableAudio,
             gemmaRepetitionPenalty: base.gemmaRepetitionPenalty,
             gemmaTopP: base.gemmaTopP,
-            modelId: base.modelId,
-            textEncoderId: base.textEncoderId,
-            parameters: params,
-            createdAt: base.createdAt,
-            status: base.status,
+            modelID: base.modelId,
+            textEncoderID: base.textEncoderId,
+            preset: base.preset,
+            qualityMode: base.qualityMode,
             modelRevision: base.modelRevision,
             quantization: base.quantization,
-            qualityMode: base.qualityMode,
-            preset: base.preset,
-            targetDurationSeconds: customParameters ? nil : (base.targetDurationSeconds ?? plan.durationIntentSeconds),
+            width: base.parameters.width,
+            height: base.parameters.height,
+            fps: base.parameters.fps,
+            numInferenceSteps: base.parameters.numInferenceSteps,
+            targetDurationSeconds: isCustom ? nil : (base.targetDurationSeconds ?? plan.durationIntentSeconds),
+            numFramesOverride: isCustom ? base.parameters.numFrames : nil,
+            audioEnabled: !base.disableAudio,
+            seed: base.parameters.seed,
+            conditioningImage: conditioning,
+            orientation: base.presetResolutionOrientation,
             generationSource: base.generationSource ?? "oneShot",
+            createdAt: base.createdAt,
+            status: base.status,
+            projectID: base.filmProjectID,
+            shotID: base.shotID,
+            takeID: base.takeID,
             customModelsEnabled: base.customModelsEnabled,
             customModelLocalPath: base.customModelLocalPath,
             customModelSourceMode: base.customModelSourceMode,
@@ -237,11 +249,10 @@ final class LocalDirector {
             minimaxH3Endpoint: base.minimaxH3Endpoint,
             minimaxH3ChainWindows: base.minimaxH3ChainWindows,
             minimaxH3ExpectedFrames: base.minimaxH3ExpectedFrames,
-            minimaxH3RequestedDurationSeconds: base.minimaxH3RequestedDurationSeconds,
-            filmProjectID: base.filmProjectID,
-            shotID: base.shotID,
-            takeID: base.takeID
+            minimaxH3RequestedDurationSeconds: base.minimaxH3RequestedDurationSeconds
         )
+
+        let (request, _, _) = CanonicalShotRequestBuilder.buildRequest(from: spec)
         return (request, plan, providerName)
     }
 

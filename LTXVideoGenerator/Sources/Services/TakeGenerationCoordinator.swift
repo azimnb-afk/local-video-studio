@@ -129,13 +129,6 @@ final class TakeGenerationCoordinator {
         }
 
         let shot = project.shots[shotIndex]
-        // The Director compiler normally stores this policy on every new
-        // Storyboard/Auto Movie Shot. Apply it again at the immutable Take
-        // boundary so a legacy project (or a Shot created by an older app
-        // build) cannot reach either backend without the current product audio
-        // policy. Direct Generate never passes through this coordinator.
-        let generationPrompt = PerShotAudioPolicy.naturalProductionSoundNoMusic
-            .applyingPromptGuard(to: shot.compiledPrompt)
         let settings = project.settings
         let projectResolutionOrientation = FilmProjectResolutionOrientationResolver.resolve(
             project: project, store: store)

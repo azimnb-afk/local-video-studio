@@ -707,5 +707,191 @@ func runOneShotCanonicalParityTests(_ t: TestKit) {
             t.checkEqual(OneShotDurationPolicy.maximumFrameCount(for: LTXModelCatalog.defaultModelID), 361, "23e. LTX technical max frame ceiling is 361")
             t.check(OneShotDurationPolicy.maximumFrameCount(for: MiniMaxH3Configuration.modelID) == nil, "23e. H3 technical frame override is nil")
         }
+
+        // ====================================================================
+        // PHASE 3A — ONE SHOT DIRECTOR ON / OFF
+        // ====================================================================
+
+        // 24. Characterization: Director ON Full Request Pipeline
+        do {
+            let scriptedPlanJSON = """
+            {"camera":"slow pan right","action":"A detective examines clues in a dark room.","acting":"intense focus","motion":"deliberate","lighting":"moonlight through blinds","dialogue":[{"speaker":"Detective","text":"Found it."}],"audioCues":["floorboard creak"],"durationIntentSeconds":10}
+            """
+            let mockProvider = MockDirectorProvider(responses: [scriptedPlanJSON, scriptedPlanJSON, scriptedPlanJSON, scriptedPlanJSON])
+            let director = LocalDirector(providers: [mockProvider])
+
+            // (a) LTX T2V + Audio ON + 10s + seed + dialogue
+            var paramsLTX = GenerationParameters.default
+            paramsLTX.seed = 998877
+            paramsLTX.numFrames = 241
+            paramsLTX.numInferenceSteps = 30
+            let baseLTX = GenerationRequest(
+                prompt: "detective in room",
+                brief: "detective in room",
+                sourceImagePath: nil,
+                disableAudio: false,
+                modelId: LTXModelCatalog.defaultModelID,
+                textEncoderId: LTXTextEncoderCatalog.defaultTextEncoderID,
+                parameters: paramsLTX,
+                qualityMode: QualityMode.auto.rawValue,
+                preset: GenerationPreset.standard.rawValue,
+                targetDurationSeconds: 10.0,
+                generationSource: "oneShot"
+            )
+
+            let sem = DispatchSemaphore(value: 0)
+            Task {
+                do {
+                    let (req, plan, providerName) = try await director.makeRequest(brief: "detective in room", base: baseLTX)
+                    t.checkEqual(providerName, "mock", "24a. Provider name is mock")
+                    t.check(plan.action.contains("detective examines clues"), "24a. Plan action parsed")
+                    t.check(req.prompt.contains("Detective says: \"Found it.\""), "24a. Dialogue preserved in compiled prompt")
+                    t.check(req.prompt.contains("Audio policy: No music"), "24a. Audio guard present in compiled prompt")
+                    t.checkEqual(req.parameters.numFrames, 241, "24a. 10s duration gives 241 frames")
+                    t.checkEqual(req.parameters.seed, 998877, "24a. Explicit seed preserved")
+                    t.checkEqual(req.disableAudio, false, "24a. Audio ON preserved")
+                    t.checkEqual(req.isImageToVideo, false, "24a. T2V is not I2V")
+                } catch {
+                    t.check(false, "24a. Director ON LTX failed: \(error)")
+                }
+                sem.signal()
+            }
+            sem.wait()
+
+            // (b) LTX I2V + Audio OFF
+            let baseI2V = GenerationRequest(
+                prompt: "detective in room",
+                brief: "detective in room",
+                sourceImagePath: "/tmp/fake_detective.png",
+                disableAudio: true,
+                modelId: LTXModelCatalog.defaultModelID,
+                textEncoderId: LTXTextEncoderCatalog.defaultTextEncoderID,
+                parameters: GenerationParameters.default,
+                qualityMode: QualityMode.auto.rawValue,
+                preset: GenerationPreset.standard.rawValue,
+                targetDurationSeconds: 5.0,
+                generationSource: "oneShot"
+            )
+            let sem2 = DispatchSemaphore(value: 0)
+            Task {
+                do {
+                    let (reqI2V, _, _) = try await director.makeRequest(brief: "detective in room", base: baseI2V)
+                    t.checkEqual(reqI2V.sourceImagePath, "/tmp/fake_detective.png", "24b. Source image path preserved")
+                    t.checkEqual(reqI2V.isImageToVideo, true, "24b. I2V mode recognized")
+                    t.checkEqual(reqI2V.disableAudio, true, "24b. Audio OFF preserved")
+                    t.checkEqual(reqI2V.parameters.numFrames, 121, "24b. 5s gives 121 frames")
+                } catch {
+                    t.check(false, "24b. Director ON I2V failed: \(error)")
+                }
+                sem2.signal()
+            }
+            sem2.wait()
+        }
+
+        // 25. Director OFF: Pure Direct Request via CanonicalShotRequestBuilder (Zero LLM)
+        do {
+            // (a) LTX T2V Direct Request
+            let rawPrompt = "A futuristic train glides smoothly across a neon city bridge at night."
+            var paramsDirect = GenerationParameters.default
+            paramsDirect.seed = 123456
+            paramsDirect.numFrames = 361
+            paramsDirect.numInferenceSteps = 25
+            let baseLTXDirect = GenerationRequest(
+                prompt: rawPrompt,
+                brief: rawPrompt,
+                negativePrompt: "low quality, blurry",
+                sourceImagePath: nil,
+                disableAudio: false,
+                modelId: LTXModelCatalog.defaultModelID,
+                textEncoderId: LTXTextEncoderCatalog.defaultTextEncoderID,
+                parameters: paramsDirect,
+                qualityMode: QualityMode.auto.rawValue,
+                preset: GenerationPreset.standard.rawValue,
+                targetDurationSeconds: 15.0,
+                generationSource: "oneShot"
+            )
+
+            let (reqDirect, techPrompt) = LocalDirector.makeDirectRequest(prompt: rawPrompt, base: baseLTXDirect)
+
+            t.check(techPrompt.contains(rawPrompt), "25a. Technical prompt contains exact raw prompt")
+            t.checkEqual(reqDirect.prompt, techPrompt, "25a. Request carries technical prompt")
+            t.checkEqual(reqDirect.brief, rawPrompt, "25a. Request brief matches raw prompt")
+            t.checkEqual(reqDirect.negativePrompt, "low quality, blurry", "25a. Negative prompt preserved")
+            t.checkEqual(reqDirect.parameters.numFrames, 361, "25a. 15s duration resolves to 361 frames")
+            t.checkEqual(reqDirect.parameters.fps, 24, "25a. fps is 24")
+            t.checkEqual(reqDirect.parameters.seed, 123456, "25a. Seed preserved")
+            t.checkEqual(reqDirect.parameters.numInferenceSteps, 25, "25a. Steps preserved")
+            t.checkEqual(reqDirect.disableAudio, false, "25a. Audio enabled preserved")
+            t.checkEqual(reqDirect.generationSource, "oneShot", "25a. Generation source is oneShot")
+            t.check(!reqDirect.isImageToVideo, "25a. Text-only is not I2V")
+
+            // (b) LTX I2V Direct Request
+            let baseI2VDirect = GenerationRequest(
+                prompt: rawPrompt,
+                brief: rawPrompt,
+                sourceImagePath: "/tmp/train_starting.png",
+                disableAudio: true,
+                modelId: LTXModelCatalog.defaultModelID,
+                textEncoderId: LTXTextEncoderCatalog.defaultTextEncoderID,
+                parameters: GenerationParameters.default,
+                qualityMode: QualityMode.auto.rawValue,
+                preset: GenerationPreset.standard.rawValue,
+                targetDurationSeconds: 5.0,
+                generationSource: "oneShot"
+            )
+            let (reqI2VDirect, _) = LocalDirector.makeDirectRequest(prompt: rawPrompt, base: baseI2VDirect)
+            t.checkEqual(reqI2VDirect.sourceImagePath, "/tmp/train_starting.png", "25b. Starting image preserved in Direct mode")
+            t.check(reqI2VDirect.isImageToVideo, "25b. I2V mode recognized in Direct mode")
+            t.checkEqual(reqI2VDirect.disableAudio, true, "25b. Audio OFF preserved")
+            t.checkEqual(reqI2VDirect.parameters.numFrames, 121, "25b. 5s gives 121 frames")
+
+            // (c) H3 T2V Direct Request
+            let baseH3Direct = GenerationRequest(
+                prompt: rawPrompt,
+                brief: rawPrompt,
+                sourceImagePath: nil,
+                disableAudio: false,
+                modelId: MiniMaxH3Configuration.modelID,
+                textEncoderId: LTXTextEncoderCatalog.defaultTextEncoderID,
+                parameters: GenerationParameters.default,
+                qualityMode: QualityMode.auto.rawValue,
+                preset: GenerationPreset.standard.rawValue,
+                targetDurationSeconds: 9.0,
+                generationSource: "oneShot"
+            )
+            let (reqH3Direct, _) = LocalDirector.makeDirectRequest(prompt: rawPrompt, base: baseH3Direct)
+            t.checkEqual(reqH3Direct.modelId, MiniMaxH3Configuration.modelID, "25c. H3 model ID preserved")
+            t.checkEqual(reqH3Direct.targetDurationSeconds, 9.0, "25c. H3 target duration preserved")
+        }
+
+        // 26. Special Sentinel Prompt Test for Director OFF
+        do {
+            let sentinelPrompt = "DIRECT_RAW_SENTINEL_42 :: subject walks left :: exact user wording"
+            let baseSentinel = GenerationRequest(
+                prompt: sentinelPrompt,
+                brief: sentinelPrompt,
+                sourceImagePath: nil,
+                disableAudio: false,
+                modelId: LTXModelCatalog.defaultModelID,
+                textEncoderId: LTXTextEncoderCatalog.defaultTextEncoderID,
+                parameters: GenerationParameters.default,
+                qualityMode: QualityMode.auto.rawValue,
+                preset: GenerationPreset.standard.rawValue,
+                targetDurationSeconds: 5.0,
+                generationSource: "oneShot"
+            )
+
+            let (sentinelReq, techPrompt) = LocalDirector.makeDirectRequest(prompt: sentinelPrompt, base: baseSentinel)
+
+            // Pre-technical prompt parity: exactly equal to user input
+            t.checkEqual(sentinelReq.brief, sentinelPrompt, "26. Pre-technical prompt exactly matches user sentinel input")
+
+            // Technical prompt: only technical audio guard added, zero creative scene/action/camera beats
+            let expectedGuard = PerShotAudioPolicy.naturalProductionSoundNoMusic.applyingPromptGuard(to: sentinelPrompt)
+            t.checkEqual(techPrompt, expectedGuard, "26. Technical prompt contains ONLY technical audio guard over raw sentinel")
+            t.check(!techPrompt.contains("camera"), "26. No camera beats injected")
+            t.check(!techPrompt.contains("Lighting:"), "26. No lighting beats injected")
+            t.check(!techPrompt.contains("says:"), "26. No dialogue beats injected")
+        }
     }
 }

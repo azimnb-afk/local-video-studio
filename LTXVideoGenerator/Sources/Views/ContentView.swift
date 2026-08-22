@@ -302,6 +302,7 @@ private struct OneShotView: View {
     @AppStorage(LTXTextEncoderCatalog.selectedTextEncoderIDKey) private var textEncoderID = LTXTextEncoderCatalog.defaultTextEncoderID
     @AppStorage("oneShotStartingImagePath") private var storedStartingImagePath = ""
     @State private var audioEnabled = true
+    @State private var directorEnabled = true
     @State private var startingImageThumbnail: NSImage?
     @State private var startingImageError: String?
 
@@ -387,8 +388,12 @@ private struct OneShotView: View {
                             in: 1...OneShotDurationPolicy.maximumSelectableSeconds(for: modelID))
                     }
                     Toggle("Audio", isOn: $audioEnabled)
+                    Toggle("Director", isOn: $directorEnabled)
                     Spacer()
                 }
+                Text(directorEnabled ? "Director ON: AI interprets and directs the shot." : "Director OFF: Uses your prompt directly without AI planning.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
                 if preset == .custom {
                     HStack {
                         Text(resolutionSummary)
@@ -510,65 +515,85 @@ private struct OneShotView: View {
             return
         }
         let trimmed = brief.trimmingCharacters(in: .whitespacesAndNewlines)
-        isPlanning = true
-        status = "Planning locally…"
-        Task {
-            defer { isPlanning = false }
-            do {
-                var requestParameters = parameters
-                if preset != .custom {
-                    let maxFrames = OneShotDurationPolicy.maximumFrameCount(for: modelID) ?? PromptCompiler.defaultMaximumFrameCount
-                    requestParameters.numFrames = PromptCompiler.frameCount(
-                        forSeconds: targetDuration,
-                        fps: requestParameters.fps,
-                        maximumFrameCount: maxFrames
+
+        var requestParameters = parameters
+        if preset != .custom {
+            let maxFrames = OneShotDurationPolicy.maximumFrameCount(for: modelID) ?? PromptCompiler.defaultMaximumFrameCount
+            requestParameters.numFrames = PromptCompiler.frameCount(
+                forSeconds: targetDuration,
+                fps: requestParameters.fps,
+                maximumFrameCount: maxFrames
+            )
+        }
+        let baseRequest = GenerationRequest(
+            prompt: trimmed,
+            brief: trimmed,
+            sourceImagePath: validatedStartingImage,
+            disableAudio: !audioEnabled,
+            modelId: modelID,
+            textEncoderId: textEncoderID,
+            parameters: requestParameters,
+            qualityMode: preset.qualityMode.rawValue,
+            preset: preset.rawValue,
+            targetDurationSeconds: preset == .custom ? nil : targetDuration,
+            generationSource: "oneShot"
+        )
+
+        if directorEnabled {
+            // Director ON: Creative LocalDirector planning with LLM
+            isPlanning = true
+            status = "Planning locally…"
+            Task {
+                defer { isPlanning = false }
+                do {
+                    let (request, _, providerName) = try await LocalDirector().makeRequest(
+                        brief: trimmed,
+                        base: baseRequest
                     )
+                    // The file may have moved while local planning was running.
+                    // Re-check immediately before queue insertion; never downgrade
+                    // a selected Starting Image request to text-only.
+                    _ = try OneShotStartingImagePreflight.validatedPath(request.sourceImagePath)
+                    // Planning has already happened, so the job carries the finished
+                    // request: what was queued is exactly what renders, even if the
+                    // brief is edited while it waits.
+                    var snapshot = ProductionJobSnapshot()
+                    snapshot.brief = trimmed
+                    snapshot.prompt = request.prompt
+                    snapshot.pendingRequests = [request]
+                    snapshot.seed = request.parameters.seed
+                    ProductionQueueService.shared.enqueue(ProductionJob(
+                        kind: .oneShot,
+                        title: trimmed.count > 60 ? String(trimmed.prefix(60)) + "…" : trimmed,
+                        snapshot: snapshot))
+                    status = validatedStartingImage == nil
+                        ? "Planned via \(providerName); queued text-only generation"
+                        : "Planned via \(providerName); queued with Starting Image"
+                } catch let error as OneShotStartingImageError {
+                    startingImageThumbnail = nil
+                    startingImageError = error.localizedDescription
+                    status = error.localizedDescription
+                } catch let error as DirectorError {
+                    status = error.localizedDescription
+                } catch {
+                    status = "Planning failed: \(error.localizedDescription)"
                 }
-                let baseRequest = GenerationRequest(
-                    prompt: trimmed,
-                    brief: trimmed,
-                    sourceImagePath: validatedStartingImage,
-                    disableAudio: !audioEnabled,
-                    modelId: modelID,
-                    textEncoderId: textEncoderID,
-                    parameters: requestParameters,
-                    qualityMode: preset.qualityMode.rawValue,
-                    preset: preset.rawValue,
-                    targetDurationSeconds: preset == .custom ? nil : targetDuration,
-                    generationSource: "oneShot"
-                )
-                let (request, _, providerName) = try await LocalDirector().makeRequest(
-                    brief: trimmed,
-                    base: baseRequest
-                )
-                // The file may have moved while local planning was running.
-                // Re-check immediately before queue insertion; never downgrade
-                // a selected Starting Image request to text-only.
-                _ = try OneShotStartingImagePreflight.validatedPath(request.sourceImagePath)
-                // Planning has already happened, so the job carries the finished
-                // request: what was queued is exactly what renders, even if the
-                // brief is edited while it waits.
-                var snapshot = ProductionJobSnapshot()
-                snapshot.brief = trimmed
-                snapshot.prompt = request.prompt
-                snapshot.pendingRequests = [request]
-                snapshot.seed = request.parameters.seed
-                ProductionQueueService.shared.enqueue(ProductionJob(
-                    kind: .oneShot,
-                    title: trimmed.count > 60 ? String(trimmed.prefix(60)) + "…" : trimmed,
-                    snapshot: snapshot))
-                status = validatedStartingImage == nil
-                    ? "Planned via \(providerName); queued text-only generation"
-                    : "Planned via \(providerName); queued with Starting Image"
-            } catch let error as OneShotStartingImageError {
-                startingImageThumbnail = nil
-                startingImageError = error.localizedDescription
-                status = error.localizedDescription
-            } catch let error as DirectorError {
-                status = error.localizedDescription
-            } catch {
-                status = "Planning failed: \(error.localizedDescription)"
             }
+        } else {
+            // Director OFF: Direct user prompt via CanonicalShotRequestBuilder (0 LLM invocations)
+            let (request, _) = LocalDirector.makeDirectRequest(prompt: trimmed, base: baseRequest)
+            var snapshot = ProductionJobSnapshot()
+            snapshot.brief = trimmed
+            snapshot.prompt = request.prompt
+            snapshot.pendingRequests = [request]
+            snapshot.seed = request.parameters.seed
+            ProductionQueueService.shared.enqueue(ProductionJob(
+                kind: .oneShot,
+                title: trimmed.count > 60 ? String(trimmed.prefix(60)) + "…" : trimmed,
+                snapshot: snapshot))
+            status = validatedStartingImage == nil
+                ? "Direct shot enqueued for generation."
+                : "Direct shot with Starting Image enqueued for generation."
         }
     }
 

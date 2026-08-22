@@ -8,10 +8,10 @@ Local Video Studio for Mac `v0.9.0-preview.10` introduces **Director ON / OFF co
 
 ### 🎬 One Shot & Auto Movie Director ON / OFF
 - **Director ON (AI-Assisted)**: Local AI plans and directs your shot or multi-shot sequence with creative shot scaling, camera movement, and pacing.
-- **Director OFF (Direct / Prompt-Preserving)**: Uses your authored prompt directly without AI creative rewriting, template prose injection, or hallucinated scene changes.
+- **Director OFF (Direct / Prompt Structure)**: Uses your authored prompt structure directly without AI creative rewriting or filmmaking embellishment.
 
 ### 🎥 Direct Auto Movie & Deterministic Structural Planning
-- **Structural Movie Planner**: In Director OFF mode, the application deterministically converts paragraphs and sentences into structured multi-shot sequences without invoking an LLM.
+- **Structural Movie Planner**: In Director OFF mode, the application deterministically converts paragraphs and sentences into structured multi-shot sequences without an LLM creative-planning pass.
 - **Explicit CUT / CONTINUE Control**: Scene transitions follow natural paragraph boundaries (paragraph break = CUT, intra-paragraph sentence = CONTINUE) or explicit user-authored markers (`[CUT]`, `[CONTINUE]`).
 - **Full Continuity Conditioning**: Shot-to-shot Image-to-Video continuation seamlessly inherits the verified final frame of the preceding shot.
 
@@ -22,7 +22,7 @@ Local Video Studio for Mac `v0.9.0-preview.10` introduces **Director ON / OFF co
 
 ## Improvements
 
-- **Canonical Request Architecture**: Unified canonical request construction across Generate, One Shot, and Auto Movie ensures consistent prompt compilation, frame calculations, and audio policy enforcement.
+- **Canonical Request Architecture**: Improved canonical request construction for directed and multi-shot generation workflows ensures consistent prompt compilation, frame calculations, and audio policy enforcement.
 - **Clearer Validation & Error UX**: Instant in-sheet error feedback for empty prompts, excessive shot counts, or duration capacity mismatches before queueing jobs.
 - **Custom LTX-2 MLX Compatibility**: Continued support and robust descriptor routing for user-registered custom LTX models.
 - **MiniMax H3 Stability**: Preserved managed `mlx-serve` runtime isolation, port separation, and machine-wide generation lease serialization.
@@ -54,4 +54,4 @@ Download `Local.Video.Studio-0.9.0-preview.10.dmg`, open it, and drag **Local Vi
 
 ## Preview Build Signing
 
-Like previous preview builds (`preview.1` through `preview.9`), this is an unsigned preview release. On first launch, right-click the app in Finder and choose **Open** to proceed. Developer ID signing and notarization remain planned for the general release.
+This Preview build is not Developer ID signed or notarized. On first launch, right-click the app in Finder and choose **Open** to proceed. Developer ID signing and notarization remain planned for the general release.

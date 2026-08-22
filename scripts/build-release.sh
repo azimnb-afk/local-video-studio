@@ -26,9 +26,10 @@ MODE="${1:-}"
 
 usage() {
     cat <<'EOF'
-Usage: ./scripts/build-release.sh <local-test|distribution>
+Usage: ./scripts/build-release.sh <local-test|preview|distribution> [preview-tag]
 
 local-test    Release archive, ad-hoc signed LOCAL TEST ONLY DMG. No notarization.
+preview       Release archive, ad-hoc signed preview release candidate DMG.
 distribution  Developer ID signed, notarized, stapled distribution DMG.
 EOF
 }
@@ -63,6 +64,10 @@ local-test)
     echo "Mode: local-test"
     echo "WARNING: This is a local test build. NOT FOR DISTRIBUTION."
     ;;
+preview)
+    echo "=== Local Video Studio Build ==="
+    echo "Mode: preview"
+    ;;
 distribution)
     echo "=== Local Video Studio Build ==="
     echo "Mode: distribution"
@@ -80,6 +85,9 @@ VERSION=$(xcodebuild -showBuildSettings -scheme "${SCHEME}" | grep MARKETING_VER
 
 if [ "$MODE" = "local-test" ]; then
     DMG_NAME="${APP_DISPLAY_NAME}-${VERSION}-local-test.dmg"
+elif [ "$MODE" = "preview" ]; then
+    PREVIEW_TAG="${2:-preview.10}"
+    DMG_NAME="Local.Video.Studio-${VERSION}-${PREVIEW_TAG}.dmg"
 else
     DMG_NAME="${APP_DISPLAY_NAME}-${VERSION}.dmg"
 fi

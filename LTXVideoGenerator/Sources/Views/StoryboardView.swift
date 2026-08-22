@@ -37,6 +37,8 @@ struct StoryboardView: View {
         selectedProjectID.flatMap { store.project(id: $0) }
     }
 
+    @State private var creationErrorMessage: String?
+
     var body: some View {
         VStack(spacing: 0) {
             BilingualPageHeader(
@@ -75,6 +77,7 @@ struct StoryboardView: View {
                 planningPhase: $planningPhase,
                 planningElapsedSeconds: $planningElapsedSeconds,
                 planningHandle: $planningHandle,
+                errorMessage: $creationErrorMessage,
                 mode: mode
             ) { projectID, title, brief, settings, characterBible, generateFirstPass, openingReferenceURL, directorEnabled in
                 createProject(
@@ -204,6 +207,7 @@ struct StoryboardView: View {
         directorEnabled: Bool = true
     ) {
         isCreating = true
+        creationErrorMessage = nil
         planningPhase = .preparing
         planningElapsedSeconds = 0
         let handle = DirectorPlanningHandle()
@@ -240,8 +244,10 @@ struct StoryboardView: View {
                         // Never fall through to text-to-video: the user asked
                         // the movie to open on a specific image.
                         store.removeUncommittedProjectAssets(projectID: projectID)
-                        statusMessage = (error as? LocalizedError)?.errorDescription
+                        let msg = (error as? LocalizedError)?.errorDescription
                             ?? "Could not import the opening reference image. The Auto Movie was not created."
+                        statusMessage = msg
+                        creationErrorMessage = msg
                         return
                     }
                     if let importedOpeningReference {
@@ -359,19 +365,24 @@ struct StoryboardView: View {
                     + (mode == .hybrid && generateFirstPass ? "; queued one take per shot sequentially" : "")
                     + (violations.isEmpty ? "" : " (\(errors) continuity errors, \(warnings) warnings)")
                 planningPhase = .completed
+                creationErrorMessage = nil
                 showNewProjectSheet = false
             } catch let error as StructuralMoviePlannerError {
                 planningPhase = .failed
                 statusMessage = error.userFacingDescription
+                creationErrorMessage = error.userFacingDescription
                 store.removeUncommittedProjectAssets(projectID: projectID)
             } catch {
                 if (error as? DirectorError) == .cancelled || handle.isCancelled || Task.isCancelled {
                     planningPhase = .cancelled
                     statusMessage = "Planning cancelled."
+                    creationErrorMessage = nil
                     store.removeUncommittedProjectAssets(projectID: projectID)
                 } else {
                     planningPhase = .failed
-                    statusMessage = "Storyboard planning failed: \(error.localizedDescription)"
+                    let msg = "Storyboard planning failed: \(error.localizedDescription)"
+                    statusMessage = msg
+                    creationErrorMessage = msg
                 }
             }
         }
@@ -388,6 +399,7 @@ private struct NewStoryboardSheet: View {
     @Binding var planningPhase: DirectorPlanningPhase
     @Binding var planningElapsedSeconds: Int
     @Binding var planningHandle: DirectorPlanningHandle?
+    @Binding var errorMessage: String?
     let mode: StoryboardWorkspaceMode
     let onCreate: (UUID, String, String, ProjectSettings, CharacterBible, Bool, URL?, Bool) -> Void
 
@@ -587,6 +599,13 @@ private struct NewStoryboardSheet: View {
                 }
                 .padding(12)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack {

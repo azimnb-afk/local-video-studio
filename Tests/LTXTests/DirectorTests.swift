@@ -307,7 +307,8 @@ func runDirectorTests(_ t: TestKit) {
         // Frame count mapping (8n+1 @ 24fps).
         t.checkEqual(PromptCompiler.frameCount(forSeconds: 1), 25, "1s → 25 frames")
         t.checkEqual(PromptCompiler.frameCount(forSeconds: 5), 121, "5s → 121 frames")
-        t.checkEqual(PromptCompiler.frameCount(forSeconds: 100), 361, "clamped to 361 frames")
+        t.checkEqual(PromptCompiler.frameCount(forSeconds: 100), 241, "clamped to default 241 frames")
+        t.checkEqual(PromptCompiler.frameCount(forSeconds: 100, maximumFrameCount: PromptCompiler.oneShotMaximumFrameCount), 361, "clamped to one-shot 361 frames")
         t.checkEqual((PromptCompiler.frameCount(forSeconds: 3) - 1) % 8, 0, "3s frame count is 8n+1")
     }
 

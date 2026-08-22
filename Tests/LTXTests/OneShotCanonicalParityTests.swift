@@ -521,10 +521,10 @@ func runOneShotCanonicalParityTests(_ t: TestKit) {
         }
 
         // ====================================================================
-        // PHASE 2.5 — EXTEND ONE SHOT MAX DURATION TO 15 SECONDS
+        // PHASE 2.6 — ISOLATE ONE SHOT 15S DURATION POLICY
         // ====================================================================
 
-        // 18. LTX 15-second Frame Count & Canonical Assembly
+        // 18. LTX 15-second Frame Count & Canonical Assembly for One Shot
         do {
             let plan15s = OneShotPlan(
                 camera: "epic wide drone orbit",
@@ -546,8 +546,10 @@ func runOneShotCanonicalParityTests(_ t: TestKit) {
                 generationSource: "oneShot"
             )
 
-            let calculatedFrames = PromptCompiler.frameCount(forSeconds: 15.0, fps: 24)
-            t.checkEqual(calculatedFrames, 361, "18. PromptCompiler derives 361 frames for 15.0s @ 24fps")
+            let calculatedFrames = PromptCompiler.frameCount(
+                forSeconds: 15.0, fps: 24, maximumFrameCount: PromptCompiler.oneShotMaximumFrameCount
+            )
+            t.checkEqual(calculatedFrames, 361, "18. PromptCompiler derives 361 frames for One Shot 15.0s @ 24fps")
 
             let spec = CanonicalShotSpecification(
                 id: base.id,
@@ -569,24 +571,49 @@ func runOneShotCanonicalParityTests(_ t: TestKit) {
             let (req, params, _) = CanonicalShotRequestBuilder.buildRequest(from: spec)
 
             t.checkEqual(req.targetDurationSeconds, 15.0, "18. 15s targetDurationSeconds preserved in request")
-            t.checkEqual(params.numFrames, 361, "18. 361 frames assembled in parameters")
-            t.checkEqual(req.parameters.numFrames, 361, "18. 361 frames assembled in GenerationRequest")
+            t.checkEqual(params.numFrames, 361, "18. 361 frames assembled in parameters for oneShot")
+            t.checkEqual(req.parameters.numFrames, 361, "18. 361 frames assembled in GenerationRequest for oneShot")
             t.checkEqual(req.parameters.fps, 24, "18. fps is 24")
             t.check(Double(req.parameters.numFrames) / Double(req.parameters.fps) >= 15.0, "18. duration is >= 15.0s")
         }
 
-        // 19. Existing Historical Durations Invariant Checks (5s, 10s, 2s)
+        // 19. Generic / Historical Default Invariant (241 frames default)
         do {
             t.checkEqual(PromptCompiler.frameCount(forSeconds: 2.0, fps: 24), 49, "19. 2.0s -> 49 frames unchanged")
             t.checkEqual(PromptCompiler.frameCount(forSeconds: 5.0, fps: 24), 121, "19. 5.0s -> 121 frames unchanged")
             t.checkEqual(PromptCompiler.frameCount(forSeconds: 10.0, fps: 24), 241, "19. 10.0s -> 241 frames unchanged")
+            t.checkEqual(PromptCompiler.frameCount(forSeconds: 15.0, fps: 24), 241, "19. Generic 15.0s defaults to 241 frames")
+            t.checkEqual(PromptCompiler.frameCount(forSeconds: 100.0, fps: 24), 241, "19. Generic 100.0s defaults to 241 frames")
+
+            // Auto Movie / Storyboard Canonical request does NOT expand to 361
+            let storyboardSpec = CanonicalShotSpecification(
+                prompt: "Storyboard shot with 15s requested duration",
+                modelID: LTXModelCatalog.defaultModelID,
+                textEncoderID: LTXTextEncoderCatalog.defaultTextEncoderID,
+                preset: GenerationPreset.standard.rawValue,
+                qualityMode: QualityMode.auto.rawValue,
+                width: 768, height: 512, fps: 24, numInferenceSteps: 30,
+                targetDurationSeconds: 15.0,
+                generationSource: "storyboard"
+            )
+            let (sbReq, _, _) = CanonicalShotRequestBuilder.buildRequest(from: storyboardSpec)
+            t.checkEqual(sbReq.parameters.numFrames, 241, "19. Storyboard 15s request clamped to historical 241 frames")
         }
 
-        // 20. Upper Bound Clamp (Durations above 15s clamped to 361 frames)
+        // 20. Upper Bound Clamp for One Shot (Durations above 15s clamped to 361 frames)
         do {
-            t.checkEqual(PromptCompiler.frameCount(forSeconds: 16.0, fps: 24), 361, "20. 16.0s clamped to 361 frames")
-            t.checkEqual(PromptCompiler.frameCount(forSeconds: 20.0, fps: 24), 361, "20. 20.0s clamped to 361 frames")
-            t.checkEqual(PromptCompiler.frameCount(forSeconds: 60.0, fps: 24), 361, "20. 60.0s clamped to 361 frames")
+            t.checkEqual(
+                PromptCompiler.frameCount(forSeconds: 16.0, fps: 24, maximumFrameCount: PromptCompiler.oneShotMaximumFrameCount),
+                361, "20. One Shot 16.0s clamped to 361 frames"
+            )
+            t.checkEqual(
+                PromptCompiler.frameCount(forSeconds: 20.0, fps: 24, maximumFrameCount: PromptCompiler.oneShotMaximumFrameCount),
+                361, "20. One Shot 20.0s clamped to 361 frames"
+            )
+            t.checkEqual(
+                PromptCompiler.frameCount(forSeconds: 60.0, fps: 24, maximumFrameCount: PromptCompiler.oneShotMaximumFrameCount),
+                361, "20. One Shot 60.0s clamped to 361 frames"
+            )
         }
 
         // 21. H3 15-second Policy Resolution (Fails closed above 9.54s)

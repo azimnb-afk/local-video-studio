@@ -517,7 +517,11 @@ private struct OneShotView: View {
             do {
                 var requestParameters = parameters
                 if preset != .custom {
-                    requestParameters.numFrames = PromptCompiler.frameCount(forSeconds: targetDuration, fps: requestParameters.fps)
+                    requestParameters.numFrames = PromptCompiler.frameCount(
+                        forSeconds: targetDuration,
+                        fps: requestParameters.fps,
+                        maximumFrameCount: PromptCompiler.oneShotMaximumFrameCount
+                    )
                 }
                 let baseRequest = GenerationRequest(
                     prompt: trimmed,

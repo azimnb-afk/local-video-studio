@@ -163,6 +163,11 @@ enum MotionTempoPromptPolicy {
 /// dialogue and audio in one description (official LTX prompt guidance).
 enum PromptCompiler {
 
+    /// Historical, production-wide default ceiling (10.04s @ 24fps).
+    public static let defaultMaximumFrameCount = 241
+    /// Explicit One Shot ceiling for LTX models (15.04s @ 24fps).
+    public static let oneShotMaximumFrameCount = 361
+
     struct Options {
         var isImageToVideo: Bool = false
         var japaneseHandling: JapaneseDialogueHandling = .native
@@ -256,12 +261,17 @@ enum PromptCompiler {
     }
 
     /// Suggested frame count for a duration intent (24fps, backend-friendly
-    /// 8k+1 frame counts: 25/49/73/97/121...361 for 15s).
-    static func frameCount(forSeconds seconds: Double, fps: Int = 24) -> Int {
+    /// 8k+1 frame counts: 25/49/73/97/121... up to maximumFrameCount).
+    /// Default maximum is 241 frames (10.04s).
+    static func frameCount(
+        forSeconds seconds: Double,
+        fps: Int = 24,
+        maximumFrameCount: Int = defaultMaximumFrameCount
+    ) -> Int {
         let raw = max(1, Int((seconds * Double(fps)).rounded()))
-        // Round to nearest 8n+1, clamp to the app's supported range.
+        // Round to nearest 8n+1, clamp to the requested supported range.
         let n = max(0, Int((Double(raw - 1) / 8.0).rounded()))
-        return min(361, max(25, n * 8 + 1))
+        return min(maximumFrameCount, max(25, n * 8 + 1))
     }
 
     private static func formatCameraSentence(_ camera: String) -> String {

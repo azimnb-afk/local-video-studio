@@ -350,7 +350,11 @@ enum GenerationSettingsResolver {
             }
         }
         if let target = request.targetDurationSeconds {
-            parameters.numFrames = PromptCompiler.frameCount(forSeconds: target, fps: profile.fps)
+            let maxFrames = (request.generationSource == "oneShot" && request.modelId != MiniMaxH3Configuration.modelID)
+                ? PromptCompiler.oneShotMaximumFrameCount
+                : PromptCompiler.defaultMaximumFrameCount
+            parameters.numFrames = PromptCompiler.frameCount(
+                forSeconds: target, fps: profile.fps, maximumFrameCount: maxFrames)
         }
         return GenerationRequest(
             id: request.id,

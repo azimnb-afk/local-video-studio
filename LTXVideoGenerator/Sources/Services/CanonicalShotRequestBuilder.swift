@@ -37,6 +37,7 @@ struct CanonicalShotSpecification: Equatable {
     var numInferenceSteps: Int
     var targetDurationSeconds: Double? = nil
     var numFramesOverride: Int? = nil
+    var maximumFrameCountOverride: Int? = nil
     var audioEnabled: Bool = true
     var seed: Int? = nil
     var conditioningImage: ResolvedShotConditioningImage = .none
@@ -88,25 +89,35 @@ enum CanonicalShotRequestBuilder {
             qualityModeRaw: spec.qualityMode
         ) == .custom
 
-        // 3. Frame count resolution
+        // 3. Maximum frame count determination: One Shot LTX explicitly permits
+        // up to 361 frames (15s); all other generation contexts retain the
+        // production-wide 241-frame default.
+        let effectiveMaxFrames = spec.maximumFrameCountOverride
+            ?? ((spec.generationSource == "oneShot" && spec.modelID != MiniMaxH3Configuration.modelID)
+                ? PromptCompiler.oneShotMaximumFrameCount
+                : PromptCompiler.defaultMaximumFrameCount)
+
+        // 4. Frame count resolution
         let resolvedFrames: Int
         if isCustom {
             if let explicitFrames = spec.numFramesOverride {
                 resolvedFrames = explicitFrames
             } else if let duration = spec.targetDurationSeconds {
-                resolvedFrames = PromptCompiler.frameCount(forSeconds: duration, fps: spec.fps)
+                resolvedFrames = PromptCompiler.frameCount(
+                    forSeconds: duration, fps: spec.fps, maximumFrameCount: effectiveMaxFrames)
             } else {
                 resolvedFrames = 121
             }
         } else if let duration = spec.targetDurationSeconds {
-            resolvedFrames = PromptCompiler.frameCount(forSeconds: duration, fps: spec.fps)
+            resolvedFrames = PromptCompiler.frameCount(
+                forSeconds: duration, fps: spec.fps, maximumFrameCount: effectiveMaxFrames)
         } else if let explicitFrames = spec.numFramesOverride {
             resolvedFrames = explicitFrames
         } else {
             resolvedFrames = spec.modelID == MiniMaxH3Configuration.modelID ? 39 : 121
         }
 
-        // 4. Parameter Assembly
+        // 5. Parameter Assembly
         var params = GenerationParameters.default
         params.width = spec.width
         params.height = spec.height
@@ -120,10 +131,10 @@ enum CanonicalShotRequestBuilder {
             params.imageStrength = strength
         }
 
-        // 5. Target Duration Seconds
+        // 6. Target Duration Seconds
         let resolvedTargetDuration: Double? = isCustom ? nil : spec.targetDurationSeconds
 
-        // 6. GenerationRequest Construction
+        // 7. GenerationRequest Construction
         let request = GenerationRequest(
             id: spec.id ?? UUID(),
             prompt: technicalPrompt,

@@ -1663,6 +1663,7 @@ runShotPlanValidatorTests(t)
 runQualityHardeningTests(t)
 runCanonicalShotRequestBuilderTests(t)
 runOneShotCanonicalParityTests(t)
+runStructuralMoviePlannerTests(t)
 if CommandLine.arguments.contains("--probe-director-cancellation-acceptance") {
     runRealDirectorPlanningCancellationAcceptanceProbe(t)
 }

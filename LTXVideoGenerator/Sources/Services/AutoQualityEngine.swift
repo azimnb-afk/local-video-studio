@@ -350,8 +350,8 @@ enum GenerationSettingsResolver {
             }
         }
         if let target = request.targetDurationSeconds {
-            let maxFrames = (request.generationSource == "oneShot" && request.modelId != MiniMaxH3Configuration.modelID)
-                ? PromptCompiler.oneShotMaximumFrameCount
+            let maxFrames = request.generationSource == "oneShot"
+                ? (OneShotDurationPolicy.maximumFrameCount(for: request.modelId) ?? PromptCompiler.defaultMaximumFrameCount)
                 : PromptCompiler.defaultMaximumFrameCount
             parameters.numFrames = PromptCompiler.frameCount(
                 forSeconds: target, fps: profile.fps, maximumFrameCount: maxFrames)

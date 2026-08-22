@@ -384,7 +384,7 @@ private struct OneShotView: View {
                         Stepper(
                             "\(targetDuration, specifier: "%.0f")s",
                             value: $targetDuration,
-                            in: 1...(modelID == MiniMaxH3Configuration.modelID ? 9 : 15))
+                            in: 1...OneShotDurationPolicy.maximumSelectableSeconds(for: modelID))
                     }
                     Toggle("Audio", isOn: $audioEnabled)
                     Spacer()
@@ -517,10 +517,11 @@ private struct OneShotView: View {
             do {
                 var requestParameters = parameters
                 if preset != .custom {
+                    let maxFrames = OneShotDurationPolicy.maximumFrameCount(for: modelID) ?? PromptCompiler.defaultMaximumFrameCount
                     requestParameters.numFrames = PromptCompiler.frameCount(
                         forSeconds: targetDuration,
                         fps: requestParameters.fps,
-                        maximumFrameCount: PromptCompiler.oneShotMaximumFrameCount
+                        maximumFrameCount: maxFrames
                     )
                 }
                 let baseRequest = GenerationRequest(

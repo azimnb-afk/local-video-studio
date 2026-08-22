@@ -618,6 +618,14 @@ func runOneShotCanonicalParityTests(_ t: TestKit) {
                 PromptCompiler.frameCount(forSeconds: 16.0, fps: 24, maximumFrameCount: PromptCompiler.oneShotMaximumFrameCount),
                 361, "20. One Shot 16.0s clamped to 361 frames"
             )
+            t.checkEqual(
+                PromptCompiler.frameCount(forSeconds: 20.0, fps: 24, maximumFrameCount: PromptCompiler.oneShotMaximumFrameCount),
+                361, "20. One Shot 20.0s clamped to 361 frames"
+            )
+            t.checkEqual(
+                PromptCompiler.frameCount(forSeconds: 60.0, fps: 24, maximumFrameCount: PromptCompiler.oneShotMaximumFrameCount),
+                361, "20. One Shot 60.0s clamped to 361 frames"
+            )
         }
 
         // 21. H3 15-second Policy Resolution (Fails closed above 9.54s)
@@ -637,6 +645,67 @@ func runOneShotCanonicalParityTests(_ t: TestKit) {
         // 22. Auto Movie & Storyboard Max Duration Invariants
         do {
             t.checkEqual(AutoMovieDurationPlanner.maximumFrameCount, 241, "22. AutoMovieDurationPlanner max frames remains 241")
+        }
+
+        // 23. Preflight and Generation Frame Parity (OneShotDurationPolicy & AutoQualityEngine)
+        do {
+            // (a) LTX One Shot 15s Preflight parity
+            let oneShot15sReq = GenerationRequest(
+                prompt: "One Shot 15s preflight test",
+                modelId: LTXModelCatalog.defaultModelID,
+                parameters: GenerationParameters.default,
+                qualityMode: QualityMode.auto.rawValue,
+                preset: GenerationPreset.standard.rawValue,
+                targetDurationSeconds: 15.0,
+                generationSource: "oneShot"
+            )
+            let preflight15s = GenerationSettingsResolver.resolveForPreflight(request: oneShot15sReq).request
+            t.checkEqual(preflight15s.parameters.numFrames, 361, "23a. One Shot LTX 15s preflight resolves 361 frames")
+
+            // (b) LTX One Shot 10s Preflight parity
+            let oneShot10sReq = GenerationRequest(
+                prompt: "One Shot 10s preflight test",
+                modelId: LTXModelCatalog.defaultModelID,
+                parameters: GenerationParameters.default,
+                qualityMode: QualityMode.auto.rawValue,
+                preset: GenerationPreset.standard.rawValue,
+                targetDurationSeconds: 10.0,
+                generationSource: "oneShot"
+            )
+            let preflight10s = GenerationSettingsResolver.resolveForPreflight(request: oneShot10sReq).request
+            t.checkEqual(preflight10s.parameters.numFrames, 241, "23b. One Shot LTX 10s preflight resolves 241 frames")
+
+            // (c) LTX One Shot 5s Preflight parity
+            let oneShot5sReq = GenerationRequest(
+                prompt: "One Shot 5s preflight test",
+                modelId: LTXModelCatalog.defaultModelID,
+                parameters: GenerationParameters.default,
+                qualityMode: QualityMode.auto.rawValue,
+                preset: GenerationPreset.standard.rawValue,
+                targetDurationSeconds: 5.0,
+                generationSource: "oneShot"
+            )
+            let preflight5s = GenerationSettingsResolver.resolveForPreflight(request: oneShot5sReq).request
+            t.checkEqual(preflight5s.parameters.numFrames, 121, "23c. One Shot LTX 5s preflight resolves 121 frames")
+
+            // (d) Storyboard 15s Preflight parity (clamped to 241)
+            let storyboard15sReq = GenerationRequest(
+                prompt: "Storyboard 15s preflight test",
+                modelId: LTXModelCatalog.defaultModelID,
+                parameters: GenerationParameters.default,
+                qualityMode: QualityMode.auto.rawValue,
+                preset: GenerationPreset.standard.rawValue,
+                targetDurationSeconds: 15.0,
+                generationSource: "storyboard"
+            )
+            let sbPreflight15s = GenerationSettingsResolver.resolveForPreflight(request: storyboard15sReq).request
+            t.checkEqual(sbPreflight15s.parameters.numFrames, 241, "23d. Storyboard 15s preflight clamped to 241 frames")
+
+            // (e) OneShotDurationPolicy Unit Contracts
+            t.checkEqual(OneShotDurationPolicy.maximumSelectableSeconds(for: LTXModelCatalog.defaultModelID), 15.0, "23e. LTX UI max selectable is 15s")
+            t.checkEqual(OneShotDurationPolicy.maximumSelectableSeconds(for: MiniMaxH3Configuration.modelID), 9.0, "23e. H3 UI max selectable is 9s")
+            t.checkEqual(OneShotDurationPolicy.maximumFrameCount(for: LTXModelCatalog.defaultModelID), 361, "23e. LTX technical max frame ceiling is 361")
+            t.check(OneShotDurationPolicy.maximumFrameCount(for: MiniMaxH3Configuration.modelID) == nil, "23e. H3 technical frame override is nil")
         }
     }
 }

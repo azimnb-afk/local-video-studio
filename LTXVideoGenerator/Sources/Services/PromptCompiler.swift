@@ -480,3 +480,32 @@ private extension String {
         count <= limit ? self : String(prefix(limit)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
     }
 }
+
+// ============================================================================
+// ONE SHOT DURATION POLICY
+// ============================================================================
+
+/// Authoritative duration and frame limit policy for One Shot generation.
+///
+/// Encapsulates model-specific capability ceilings for single-shot generation
+/// so UI, Preflight (AutoQualityEngine), and Execution (LocalDirector) share
+/// exactly one single source of truth.
+enum OneShotDurationPolicy {
+
+    /// Maximum user-facing selectable duration in seconds.
+    static func maximumSelectableSeconds(for modelID: String) -> Double {
+        if modelID == MiniMaxH3Configuration.modelID {
+            return Double(Int(MiniMaxH3DurationPolicy.maximumDurationSeconds.rounded(.down)))
+        }
+        return 15.0
+    }
+
+    /// Technical maximum frame ceiling for single-shot LTX generation (361 frames @ 24fps).
+    /// Returns `nil` for MiniMax H3, allowing H3's standalone chain policy to govern.
+    static func maximumFrameCount(for modelID: String) -> Int? {
+        if modelID == MiniMaxH3Configuration.modelID {
+            return nil
+        }
+        return PromptCompiler.oneShotMaximumFrameCount
+    }
+}

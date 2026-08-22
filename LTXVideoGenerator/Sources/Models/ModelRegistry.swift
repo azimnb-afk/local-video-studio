@@ -23,6 +23,7 @@ enum ModelPolicyError: Error, Equatable {
     case blockedModel(modelID: String)
     case modelNotRegistered(modelID: String)
     case modelUnverified(modelID: String)
+    case imageToVideoUnsupported(modelID: String)
 
     var userMessage: String {
         switch self {
@@ -34,6 +35,8 @@ enum ModelPolicyError: Error, Equatable {
             return "Model '\(id)' is not in the model registry."
         case .modelUnverified(let id):
             return "Model '\(id)' has not passed runtime verification yet."
+        case .imageToVideoUnsupported(let id):
+            return "Model '\(id)' does not support Image-to-Video generation."
         }
     }
 }
@@ -467,6 +470,9 @@ final class ModelRegistry {
         try validatePolicy(modelID: request.modelId, customModelsEnabled: allowCustom)
         guard let model = descriptor(for: request) else {
             throw ModelPolicyError.modelNotRegistered(modelID: request.modelId)
+        }
+        if request.isImageToVideo && !model.capabilities.imageToVideo {
+            throw ModelPolicyError.imageToVideoUnsupported(modelID: request.modelId)
         }
         return model
     }

@@ -140,6 +140,36 @@ struct PromptInputView: View {
         return "This pairing (large unified LTX bf16 model + Gemma 12B bf16 text encoder) often needs on the order of 50 GB unified memory during TEXT_ENCODER. Your Mac has about \(physGB) GB physical memory (~\(avail) GB available, approximate). Prefer Gemma 4B bf16 or 4-bit (Preferences → General → Text Encoder), enable aggressive VAE tiling, or fewer pixels/frames. You can still generate."
     }
 
+    /// Warns when a chosen source image will experience significant cropping
+    /// to match the effective video aspect ratio.
+    var sourceImageCropWarning: String? {
+        guard let path = sourceImagePath, !path.isEmpty,
+              let thumbnail = sourceImageThumbnail,
+              thumbnail.size.width > 0, thumbnail.size.height > 0 else {
+            return nil
+        }
+        let effectiveW = Double(effectiveParametersForPreflight.width)
+        let effectiveH = Double(effectiveParametersForPreflight.height)
+        guard effectiveW > 0, effectiveH > 0 else { return nil }
+
+        let sourceAspect = thumbnail.size.width / thumbnail.size.height
+        let targetAspect = effectiveW / effectiveH
+
+        let preservedFraction: Double
+        if sourceAspect > targetAspect {
+            preservedFraction = targetAspect / sourceAspect
+        } else {
+            preservedFraction = sourceAspect / targetAspect
+        }
+
+        if preservedFraction < 0.60 {
+            return "Source image will be heavily cropped to match the selected aspect ratio."
+        } else if preservedFraction < 0.75 {
+            return "Source image will be cropped to match the video aspect ratio."
+        }
+        return nil
+    }
+
     private var selectedVoiceId: String {
         voiceoverSource == .elevenLabs ? selectedElevenLabsVoice : selectedMLXVoice
     }
@@ -406,6 +436,21 @@ struct PromptInputView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     
+                    if let warning = sourceImageCropWarning {
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .font(.caption)
+                            Text(warning)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.orange.opacity(0.08))
+                        .cornerRadius(6)
+                    }
+
                     if sourceImagePath != nil {
                         Divider()
 

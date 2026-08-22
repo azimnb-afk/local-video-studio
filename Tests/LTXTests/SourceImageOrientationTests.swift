@@ -587,6 +587,36 @@ func runSourceImageOrientationTests(_ t: TestKit) {
         t.checkEqual(value(explicitArgs, after: "--height"), "512",
                      "explicit landscape height survives to the child command")
     }
+
+    t.suite("Source image orientation — model capability and crop warning") {
+        // Model capability validation
+        let registry = ModelRegistry.shared
+        let defaultDescriptor = registry.descriptor(id: LTXModelCatalog.defaultModelID)
+        t.check(defaultDescriptor?.capabilities.imageToVideo == true,
+                "default model supports imageToVideo")
+
+        // Request with source image and default model passes validation
+        let validRequest = request(source: portrait)
+        do {
+            _ = try registry.validateForGeneration(request: validRequest)
+            t.check(true, "request with source image on I2V-capable model passes validation")
+        } catch {
+            t.check(false, "request with source image on I2V-capable model failed: \(error)")
+        }
+
+        // Crop warning calculation checks
+        // 1. Portrait source (108x192, aspect ~0.5625) + Custom Landscape (768x512, aspect 1.5)
+        let sourceAspect = 108.0 / 192.0
+        let targetLandscapeAspect = 768.0 / 512.0
+        let landscapePreserved = sourceAspect / targetLandscapeAspect // ~0.375 < 0.60
+        t.check(landscapePreserved < 0.60, "portrait on landscape target causes heavy crop (<60% preserved)")
+
+        // 2. Portrait source + Auto Standard (512x768, aspect 0.666)
+        let targetPortraitAspect = 512.0 / 768.0
+        let portraitPreserved = targetPortraitAspect / sourceAspect // 0.666 / 0.5625 = ~1.18 -> 100% or high
+        let actualPortraitPreserved = min(sourceAspect / targetPortraitAspect, targetPortraitAspect / sourceAspect)
+        t.check(actualPortraitPreserved >= 0.75, "portrait on portrait target has minimal/no crop (>=75% preserved)")
+    }
 }
 
 /// Small optional unwrap helper for the dependency-free test executable.

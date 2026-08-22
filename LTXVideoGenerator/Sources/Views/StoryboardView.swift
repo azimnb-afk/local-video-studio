@@ -76,7 +76,7 @@ struct StoryboardView: View {
                 planningElapsedSeconds: $planningElapsedSeconds,
                 planningHandle: $planningHandle,
                 mode: mode
-            ) { projectID, title, brief, settings, characterBible, generateFirstPass, openingReferenceURL in
+            ) { projectID, title, brief, settings, characterBible, generateFirstPass, openingReferenceURL, directorEnabled in
                 createProject(
                     projectID: projectID,
                     title: title,
@@ -84,7 +84,8 @@ struct StoryboardView: View {
                     settings: settings,
                     characterBible: characterBible,
                     generateFirstPass: generateFirstPass,
-                    openingReferenceURL: openingReferenceURL
+                    openingReferenceURL: openingReferenceURL,
+                    directorEnabled: directorEnabled
                 )
             }
         }
@@ -199,14 +200,17 @@ struct StoryboardView: View {
         settings: ProjectSettings,
         characterBible: CharacterBible,
         generateFirstPass: Bool,
-        openingReferenceURL: URL? = nil
+        openingReferenceURL: URL? = nil,
+        directorEnabled: Bool = true
     ) {
         isCreating = true
         planningPhase = .preparing
         planningElapsedSeconds = 0
         let handle = DirectorPlanningHandle()
         planningHandle = handle
-        statusMessage = "Preparing Local Director…"
+        statusMessage = (mode == .hybrid && !directorEnabled)
+            ? "Structuring movie shots…"
+            : "Preparing Local Director…"
 
         let planningTask = Task { @MainActor in
             let timerTask = Task { @MainActor in
@@ -267,6 +271,7 @@ struct StoryboardView: View {
                         projectID: projectID, title: title, brief: brief,
                         settings: settings, characterBible: planningBible,
                         openingSceneEvidence: openingAppearance,
+                        directorEnabled: directorEnabled,
                         handle: handle,
                         progressCallback: progressCallback
                     )
@@ -316,7 +321,7 @@ struct StoryboardView: View {
                         snapshot.textEncoderID = settings.textEncoderID
                         snapshot.audioEnabled = settings.audioEnabled
                         snapshot.targetDurationSeconds = settings.targetDurationSeconds
-                        snapshot.directorMode = directorModeForSnapshot
+                        snapshot.directorMode = directorEnabled ? directorModeForSnapshot : "direct"
                         // The opening reference and character anchor are already
                         // project-managed copies, so recording their paths keeps
                         // the job deterministic without duplicating image bytes.
@@ -341,16 +346,24 @@ struct StoryboardView: View {
                 let warnings = violations.filter { $0.severity == .warning }.count
                 let errors = violations.filter { $0.severity == .error }.count
                 let planningSource: String
-                switch project.planningMode {
-                case "basic": planningSource = "Basic Director"
-                case "fallback": planningSource = "Basic Director fallback"
-                default: planningSource = "Local AI Director"
+                if mode == .hybrid && !directorEnabled {
+                    planningSource = "Direct"
+                } else {
+                    switch project.planningMode {
+                    case "basic": planningSource = "Basic Director"
+                    case "fallback": planningSource = "Basic Director fallback"
+                    default: planningSource = "Local AI Director"
+                    }
                 }
                 statusMessage = "Planned \(project.shots.count) shots via \(planningSource)"
                     + (mode == .hybrid && generateFirstPass ? "; queued one take per shot sequentially" : "")
                     + (violations.isEmpty ? "" : " (\(errors) continuity errors, \(warnings) warnings)")
                 planningPhase = .completed
                 showNewProjectSheet = false
+            } catch let error as StructuralMoviePlannerError {
+                planningPhase = .failed
+                statusMessage = error.userFacingDescription
+                store.removeUncommittedProjectAssets(projectID: projectID)
             } catch {
                 if (error as? DirectorError) == .cancelled || handle.isCancelled || Task.isCancelled {
                     planningPhase = .cancelled
@@ -376,7 +389,7 @@ private struct NewStoryboardSheet: View {
     @Binding var planningElapsedSeconds: Int
     @Binding var planningHandle: DirectorPlanningHandle?
     let mode: StoryboardWorkspaceMode
-    let onCreate: (UUID, String, String, ProjectSettings, CharacterBible, Bool, URL?) -> Void
+    let onCreate: (UUID, String, String, ProjectSettings, CharacterBible, Bool, URL?, Bool) -> Void
 
     @State private var title = ""
     @State private var brief = ""
@@ -384,6 +397,7 @@ private struct NewStoryboardSheet: View {
     @State private var modelID = UserDefaults.standard.string(
         forKey: LTXModelCatalog.selectedModelIDKey) ?? LTXModelCatalog.defaultModelID
     @State private var audioEnabled = true
+    @State private var directorEnabled = true
     @State private var targetDuration = 20.0
     @State private var generateFirstPass = true
     @State private var width = 768
@@ -507,26 +521,37 @@ private struct NewStoryboardSheet: View {
                     .disabled(isCreating)
             }
             VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Picker("Director", selection: $directorModeRaw) {
-                        Text("Auto").tag(DirectorMode.auto.rawValue)
-                        Text("Local AI").tag(DirectorMode.localAI.rawValue)
-                        Text("Basic").tag(DirectorMode.basic.rawValue)
-                    }
-                    .pickerStyle(.segmented)
-                    .disabled(isCreating)
-                    if isCheckingDirector { ProgressView().controlSize(.small) }
-                }
-                HStack(spacing: 6) {
-                    Image(systemName: directorStatusIcon)
-                        .foregroundStyle(directorStatusColor)
-                    Text(directorStatusText)
-                        .font(.caption)
+                if mode == .hybrid {
+                    Toggle("Director", isOn: $directorEnabled)
+                        .disabled(isCreating)
+                    Text(directorEnabled
+                         ? "Director ON: AI plans and directs the movie."
+                         : "Director OFF: Uses your prompt structure directly.")
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
-                Text("Local AI can improve planning. Basic Director works without additional setup.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                if directorEnabled {
+                    HStack {
+                        Picker(mode == .hybrid ? "Director Mode" : "Director", selection: $directorModeRaw) {
+                            Text("Auto").tag(DirectorMode.auto.rawValue)
+                            Text("Local AI").tag(DirectorMode.localAI.rawValue)
+                            Text("Basic").tag(DirectorMode.basic.rawValue)
+                        }
+                        .pickerStyle(.segmented)
+                        .disabled(isCreating)
+                        if isCheckingDirector { ProgressView().controlSize(.small) }
+                    }
+                    HStack(spacing: 6) {
+                        Image(systemName: directorStatusIcon)
+                            .foregroundStyle(directorStatusColor)
+                        Text(directorStatusText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("Local AI can improve planning. Basic Director works without additional setup.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             if isCreating {
@@ -590,7 +615,8 @@ private struct NewStoryboardSheet: View {
                         settings,
                         characterBible,
                         generateFirstPass,
-                        mode == .hybrid ? openingReferenceURL : nil
+                        mode == .hybrid ? openingReferenceURL : nil,
+                        mode == .hybrid ? directorEnabled : true
                     )
                 } label: {
                     if isCreating {

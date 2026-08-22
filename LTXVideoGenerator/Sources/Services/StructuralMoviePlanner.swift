@@ -20,13 +20,17 @@ enum StructuralMoviePlannerError: LocalizedError, Equatable {
     case exceedsDurationCapacity(requestedSeconds: Double, maximumRepresentableSeconds: Double)
 
     var errorDescription: String? {
+        userFacingDescription
+    }
+
+    var userFacingDescription: String {
         switch self {
         case .emptyPrompt:
-            return "Prompt cannot be empty."
-        case .exceedsMaximumShots(let count, let maximum):
-            return "Director Off supports up to \(maximum) structured shots. Input produced \(count) segments. Reduce the number of segments or enable Director."
-        case .exceedsDurationCapacity(let requested, let maxCap):
-            return "Requested duration of \(String(format: "%.1f", requested))s exceeds the maximum capacity of \(String(format: "%.1f", maxCap))s for the structured shots."
+            return "Enter a movie prompt."
+        case .exceedsMaximumShots:
+            return "Director Off supports up to 12 structured shots. Reduce the number of segments or turn Director on."
+        case .exceedsDurationCapacity:
+            return "Director Off needs more prompt segments for this movie length. Add more shots/paragraphs or turn Director on."
         }
     }
 }

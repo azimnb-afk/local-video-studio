@@ -256,12 +256,12 @@ enum PromptCompiler {
     }
 
     /// Suggested frame count for a duration intent (24fps, backend-friendly
-    /// 8k+1 frame counts: 25/49/73/97/121...).
+    /// 8k+1 frame counts: 25/49/73/97/121...361 for 15s).
     static func frameCount(forSeconds seconds: Double, fps: Int = 24) -> Int {
         let raw = max(1, Int((seconds * Double(fps)).rounded()))
         // Round to nearest 8n+1, clamp to the app's supported range.
         let n = max(0, Int((Double(raw - 1) / 8.0).rounded()))
-        return min(241, max(25, n * 8 + 1))
+        return min(361, max(25, n * 8 + 1))
     }
 
     private static func formatCameraSentence(_ camera: String) -> String {

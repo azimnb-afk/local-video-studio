@@ -519,5 +519,93 @@ func runOneShotCanonicalParityTests(_ t: TestKit) {
             t.checkEqual(snapshotCanonical.pendingRequests.count, snapshotLegacy.pendingRequests.count, "17. pendingRequests count match")
             t.checkEqual(snapshotCanonical.pendingRequests[0].id, snapshotLegacy.pendingRequests[0].id, "17. request ID match")
         }
+
+        // ====================================================================
+        // PHASE 2.5 — EXTEND ONE SHOT MAX DURATION TO 15 SECONDS
+        // ====================================================================
+
+        // 18. LTX 15-second Frame Count & Canonical Assembly
+        do {
+            let plan15s = OneShotPlan(
+                camera: "epic wide drone orbit",
+                action: "A ship sails across the vast ocean during sunset.",
+                acting: nil,
+                motion: nil,
+                lighting: "golden hour reflection on calm waters",
+                dialogue: [],
+                audioCues: ["ocean waves", "wind"],
+                durationIntentSeconds: 15.0
+            )
+            let base = GenerationRequest(
+                prompt: "",
+                modelId: LTXModelCatalog.defaultModelID,
+                parameters: GenerationParameters.default,
+                qualityMode: QualityMode.auto.rawValue,
+                preset: GenerationPreset.standard.rawValue,
+                targetDurationSeconds: 15.0,
+                generationSource: "oneShot"
+            )
+
+            let calculatedFrames = PromptCompiler.frameCount(forSeconds: 15.0, fps: 24)
+            t.checkEqual(calculatedFrames, 361, "18. PromptCompiler derives 361 frames for 15.0s @ 24fps")
+
+            let spec = CanonicalShotSpecification(
+                id: base.id,
+                prompt: PromptCompiler.compile(plan: plan15s),
+                brief: "ocean sunset 15s",
+                modelID: base.modelId,
+                textEncoderID: base.textEncoderId,
+                preset: base.preset,
+                qualityMode: base.qualityMode,
+                width: 768,
+                height: 512,
+                fps: 24,
+                numInferenceSteps: 30,
+                targetDurationSeconds: 15.0,
+                audioEnabled: true,
+                orientation: base.presetResolutionOrientation,
+                generationSource: "oneShot"
+            )
+            let (req, params, _) = CanonicalShotRequestBuilder.buildRequest(from: spec)
+
+            t.checkEqual(req.targetDurationSeconds, 15.0, "18. 15s targetDurationSeconds preserved in request")
+            t.checkEqual(params.numFrames, 361, "18. 361 frames assembled in parameters")
+            t.checkEqual(req.parameters.numFrames, 361, "18. 361 frames assembled in GenerationRequest")
+            t.checkEqual(req.parameters.fps, 24, "18. fps is 24")
+            t.check(Double(req.parameters.numFrames) / Double(req.parameters.fps) >= 15.0, "18. duration is >= 15.0s")
+        }
+
+        // 19. Existing Historical Durations Invariant Checks (5s, 10s, 2s)
+        do {
+            t.checkEqual(PromptCompiler.frameCount(forSeconds: 2.0, fps: 24), 49, "19. 2.0s -> 49 frames unchanged")
+            t.checkEqual(PromptCompiler.frameCount(forSeconds: 5.0, fps: 24), 121, "19. 5.0s -> 121 frames unchanged")
+            t.checkEqual(PromptCompiler.frameCount(forSeconds: 10.0, fps: 24), 241, "19. 10.0s -> 241 frames unchanged")
+        }
+
+        // 20. Upper Bound Clamp (Durations above 15s clamped to 361 frames)
+        do {
+            t.checkEqual(PromptCompiler.frameCount(forSeconds: 16.0, fps: 24), 361, "20. 16.0s clamped to 361 frames")
+            t.checkEqual(PromptCompiler.frameCount(forSeconds: 20.0, fps: 24), 361, "20. 20.0s clamped to 361 frames")
+            t.checkEqual(PromptCompiler.frameCount(forSeconds: 60.0, fps: 24), 361, "20. 60.0s clamped to 361 frames")
+        }
+
+        // 21. H3 15-second Policy Resolution (Fails closed above 9.54s)
+        do {
+            t.checkThrows(
+                MiniMaxH3Error.unsupportedCapability("shot durations above the proven 9.54-second chain limit"),
+                "21. H3 15s request fails closed via proven chain policy") {
+                    _ = try MiniMaxH3DurationPolicy.plan(requestedDurationSeconds: 15.0)
+                }
+
+            let h3MaxPlan = try MiniMaxH3DurationPolicy.plan(requestedDurationSeconds: 9.5)
+            t.checkEqual(h3MaxPlan.chainWindows, 6, "21. H3 maximum supported chain is 6 windows")
+            t.checkEqual(h3MaxPlan.expectedTotalFrames, 229, "21. H3 maximum expected frames is 229")
+            t.checkEqual(h3MaxPlan.expectedDurationSeconds, 229.0 / 24.0, "21. H3 maximum duration is 9.5416s")
+        }
+
+        // 22. Auto Movie & Storyboard Max Duration Invariants
+        do {
+            t.checkEqual(AutoMovieDurationPlanner.maximumFrameCount, 241, "22. AutoMovieDurationPlanner max frames remains 241")
+        }
     }
 }

@@ -384,7 +384,7 @@ private struct OneShotView: View {
                         Stepper(
                             "\(targetDuration, specifier: "%.0f")s",
                             value: $targetDuration,
-                            in: 1...(modelID == MiniMaxH3Configuration.modelID ? 9 : 10))
+                            in: 1...(modelID == MiniMaxH3Configuration.modelID ? 9 : 15))
                     }
                     Toggle("Audio", isOn: $audioEnabled)
                     Spacer()

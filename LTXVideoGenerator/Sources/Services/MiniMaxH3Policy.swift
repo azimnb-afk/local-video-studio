@@ -112,17 +112,26 @@ enum MiniMaxH3DurationPolicy {
         }!
     }
 
-    /// H3 MVP has one directly proven canvas/sampler. This resolver records
-    /// the user's duration intent separately while freezing exactly what the
-    /// backend will execute.
+    /// H3 MVP canvas follows source image orientation (512x288 for landscape,
+    /// 288x512 for portrait). This resolver records the user's duration intent
+    /// separately while freezing exactly what the backend will execute.
     static func applying(to request: GenerationRequest) throws -> GenerationRequest {
         let requestedDuration = request.minimaxH3RequestedDurationSeconds
             ?? request.targetDurationSeconds
             ?? request.requestedDurationSeconds
         let framePlan = try plan(requestedDurationSeconds: requestedDuration)
         var resolved = request
-        resolved.parameters.width = 512
-        resolved.parameters.height = 288
+
+        let orientation = request.presetResolutionOrientation
+            ?? SourceImageOrientationResolver.resolve(path: request.sourceImagePath)
+        if orientation == .portrait {
+            resolved.parameters.width = 288
+            resolved.parameters.height = 512
+        } else {
+            resolved.parameters.width = 512
+            resolved.parameters.height = 288
+        }
+
         resolved.parameters.fps = fps
         resolved.parameters.numInferenceSteps = 8
         resolved.parameters.numFrames = framePlan.windowFrames

@@ -731,13 +731,26 @@ func runMiniMaxH3Tests(_ t: TestKit) {
             parameters: parameters,
             targetDurationSeconds: 6.0)
         let resolved = try MiniMaxH3DurationPolicy.applying(to: request)
-        t.checkEqual(resolved.parameters.width, 512, "H3 effective width is proven canvas")
-        t.checkEqual(resolved.parameters.height, 288, "H3 effective height is proven canvas")
+        t.checkEqual(resolved.parameters.width, 512, "H3 effective landscape width is proven canvas")
+        t.checkEqual(resolved.parameters.height, 288, "H3 effective landscape height is proven canvas")
         t.checkEqual(resolved.parameters.fps, 24, "H3 effective FPS is proven setting")
         t.checkEqual(resolved.parameters.numInferenceSteps, 8, "H3 effective steps are proven setting")
         t.checkEqual(resolved.parameters.numFrames, 39, "chained request sends 39 frames per window")
         t.checkEqual(resolved.minimaxH3ExpectedFrames, 153, "effective total frames remain separate")
         t.checkEqual(resolved.minimaxH3RequestedDurationSeconds, 6.0, "semantic requested duration remains separate")
+
+        // Portrait source orientation test
+        let portraitRequest = GenerationRequest(
+            prompt: "A person turns toward camera.",
+            presetResolutionOrientation: .portrait,
+            modelId: MiniMaxH3Configuration.modelID,
+            parameters: parameters,
+            targetDurationSeconds: 6.0)
+        let portraitResolved = try MiniMaxH3DurationPolicy.applying(to: portraitRequest)
+        t.checkEqual(portraitResolved.parameters.width, 288, "H3 portrait width is 288")
+        t.checkEqual(portraitResolved.parameters.height, 512, "H3 portrait height is 512")
+        t.checkEqual(portraitResolved.parameters.fps, 24, "H3 portrait FPS is 24")
+        t.checkEqual(portraitResolved.parameters.numInferenceSteps, 8, "H3 portrait steps is 8")
     }
 
     t.suite("MiniMax H3 Truthful Progress Presentation") {

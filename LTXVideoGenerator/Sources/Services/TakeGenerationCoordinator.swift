@@ -245,40 +245,51 @@ final class TakeGenerationCoordinator {
             )
         }
 
+        var conditioningStrength: Double? = nil
+        if usesOpeningReference {
+            conditioningStrength = OpeningReferencePolicy.openingImageStrength
+        } else if usesCharacterAnchor {
+            conditioningStrength = CharacterAnchorPolicy.openingImageStrength
+        } else if usesInheritedContinuityFrame {
+            conditioningStrength = ContinuityStrengthResolver.strength(for: continuityStrengthPolicy)
+        }
+        let conditioningImage = ResolvedShotConditioningImage(
+            path: sourceImagePath,
+            imageStrength: conditioningStrength,
+            effectiveSource: effectiveSource
+        )
+
         var requests: [GenerationRequest] = []
         for i in 0..<count {
             let seed = baseSeed.map { $0 + i } ?? Int.random(in: 0..<Int(Int32.max))
-            var params = GenerationParameters.default
-            params.width = settings.width
-            params.height = settings.height
-            params.fps = settings.fps
-            params.numFrames = settings.resolvedPreset == .custom
-                ? (settings.numFrames ?? PromptCompiler.frameCount(forSeconds: shot.durationSeconds, fps: settings.fps))
-                : PromptCompiler.frameCount(forSeconds: shot.durationSeconds, fps: settings.fps)
-            params.numInferenceSteps = settings.resolvedInferenceSteps
-            params.seed = seed
-            if usesOpeningReference {
-                // The user chose this frame as the movie's first frame, so it
-                // is conditioned exactly like an explicit Starting Image.
-                params.imageStrength = OpeningReferencePolicy.openingImageStrength
-            } else if usesCharacterAnchor {
-                // A character sheet extraction is a posed figure on a plain
-                // background. Pinning it as an exact first frame drags that
-                // whole plate into the movie, so the anchor conditions more
-                // loosely than a user-chosen starting image: enough to carry
-                // face, hair and costume, little enough for the shot to be a
-                // shot.
-                params.imageStrength = CharacterAnchorPolicy.openingImageStrength
-            } else if usesInheritedContinuityFrame {
-                // Pinning the first frame exactly (1.0) preserved the scene but
-                // froze the composition, so continuing shots never progressed.
-                // The calibrated value keeps the set, wardrobe and lighting
-                // while letting the camera and action move on, and a shot that
-                // also asks for a large framing change gets the looser anchor.
-                params.imageStrength = ContinuityStrengthResolver.strength(for: continuityStrengthPolicy)
-            }
+            let takeID = UUID()
+
+            let spec = CanonicalShotSpecification(
+                prompt: shot.compiledPrompt,
+                modelID: settings.modelID,
+                textEncoderID: settings.textEncoderID,
+                preset: settings.resolvedPreset.rawValue,
+                qualityMode: settings.qualityMode,
+                width: settings.width,
+                height: settings.height,
+                fps: settings.fps,
+                numInferenceSteps: settings.resolvedInferenceSteps,
+                targetDurationSeconds: shot.durationSeconds,
+                numFramesOverride: settings.resolvedPreset == .custom ? settings.numFrames : nil,
+                audioEnabled: settings.resolvedAudioEnabled,
+                seed: seed,
+                conditioningImage: conditioningImage,
+                orientation: projectResolutionOrientation,
+                generationSource: generationSource,
+                projectID: projectID,
+                shotID: shotID,
+                takeID: takeID
+            )
+
+            let (request, params, generationPrompt) = CanonicalShotRequestBuilder.buildRequest(from: spec)
 
             let take = Take(
+                id: takeID,
                 shotID: shotID,
                 modelID: settings.modelID,
                 seed: seed,
@@ -306,23 +317,6 @@ final class TakeGenerationCoordinator {
                 )
             )
             project.shots[shotIndex].takes.append(take)
-
-            let request = GenerationRequest(
-                prompt: generationPrompt,
-                sourceImagePath: sourceImagePath,
-                presetResolutionOrientation: projectResolutionOrientation,
-                disableAudio: !settings.resolvedAudioEnabled,
-                modelId: settings.modelID,
-                textEncoderId: settings.textEncoderID,
-                parameters: params,
-                qualityMode: settings.qualityMode,
-                preset: settings.resolvedPreset.rawValue,
-                targetDurationSeconds: targetDuration,
-                generationSource: generationSource,
-                filmProjectID: projectID,
-                shotID: shotID,
-                takeID: take.id
-            )
             project.jobs.append(GenerationJob(
                 projectID: projectID, shotID: shotID, takeID: take.id,
                 requestID: request.id

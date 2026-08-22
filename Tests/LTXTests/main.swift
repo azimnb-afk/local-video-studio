@@ -1661,6 +1661,7 @@ runMiniMaxH3Tests(t)
 runMiniMaxH3GenerationLeaseTests(t)
 runShotPlanValidatorTests(t)
 runQualityHardeningTests(t)
+runCanonicalShotRequestBuilderTests(t)
 if CommandLine.arguments.contains("--probe-director-cancellation-acceptance") {
     runRealDirectorPlanningCancellationAcceptanceProbe(t)
 }

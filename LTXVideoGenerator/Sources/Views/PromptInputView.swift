@@ -1028,7 +1028,13 @@ struct PromptInputView: View {
 
         storedImagePath = profile.sourceImagePath ?? ""
         if let imagePath = profile.sourceImagePath, !imagePath.isEmpty {
-            loadThumbnail(from: URL(fileURLWithPath: imagePath))
+            let url = URL(fileURLWithPath: imagePath)
+            loadThumbnail(from: url)
+            let orientation = SourceImageOrientationResolver.resolve(url: url)
+            parameters = SourceImageOrientationResolver.orientedParameters(
+                for: parameters,
+                sourceOrientation: orientation
+            )
             showImageToVideo = true
         } else {
             sourceImageThumbnail = nil
@@ -1118,6 +1124,11 @@ struct PromptInputView: View {
         if panel.runModal() == .OK, let url = panel.url {
             storedImagePath = url.path
             loadThumbnail(from: url)
+            let orientation = SourceImageOrientationResolver.resolve(url: url)
+            parameters = SourceImageOrientationResolver.orientedParameters(
+                for: parameters,
+                sourceOrientation: orientation
+            )
             
             // Auto-expand the section when image is selected
             showImageToVideo = true

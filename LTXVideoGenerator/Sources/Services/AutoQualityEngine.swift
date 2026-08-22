@@ -50,6 +50,50 @@ enum SourceImageOrientationResolver {
         if let value = value as? NSNumber { return value.intValue }
         return value as? Int
     }
+
+    /// Swaps width and height if the current dimensions conflict with the
+    /// imported source image's visual orientation (portrait vs landscape).
+    /// Square or missing sources leave dimensions untouched.
+    static func orientedDimensions(
+        width: Int,
+        height: Int,
+        sourceOrientation: SourceImageOrientation
+    ) -> (width: Int, height: Int) {
+        guard width > 0, height > 0 else { return (width, height) }
+        let currentIsLandscape = width > height
+        let currentIsPortrait = height > width
+
+        switch sourceOrientation {
+        case .portrait:
+            if currentIsLandscape {
+                return (width: height, height: width)
+            }
+        case .landscape:
+            if currentIsPortrait {
+                return (width: height, height: width)
+            }
+        case .square, .none:
+            break
+        }
+        return (width: width, height: height)
+    }
+
+    /// Swaps width and height in `parameters` if they conflict with the
+    /// imported source image's visual orientation.
+    static func orientedParameters(
+        for parameters: GenerationParameters,
+        sourceOrientation: SourceImageOrientation
+    ) -> GenerationParameters {
+        let (newW, newH) = orientedDimensions(
+            width: parameters.width,
+            height: parameters.height,
+            sourceOrientation: sourceOrientation
+        )
+        var params = parameters
+        params.width = newW
+        params.height = newH
+        return params
+    }
 }
 
 /// Resolves a generation request to a concrete quality profile using

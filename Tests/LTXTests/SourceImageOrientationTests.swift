@@ -588,51 +588,72 @@ func runSourceImageOrientationTests(_ t: TestKit) {
                      "explicit landscape height survives to the child command")
     }
 
-    t.suite("Source image orientation — comprehensive policy matrix") {
-        // 1. Generate + portrait Source Image + Auto/Standard => effective resolution becomes portrait
-        let req1 = request(source: portrait, preset: .standard)
-        let res1 = try resolve(req1)
-        t.checkEqual(res1.parameters.width, 512, "1: portrait + Standard yields portrait width 512")
-        t.checkEqual(res1.parameters.height, 768, "1: portrait + Standard yields portrait height 768")
+    t.suite("Source image orientation — import auto-orientation and policy matrix") {
+        // 1. 512×320 + import portrait source => 320×512
+        let p1 = SourceImageOrientationResolver.orientedDimensions(width: 512, height: 320, sourceOrientation: .portrait)
+        t.checkEqual(p1.width, 320, "1: 512x320 + portrait -> width 320")
+        t.checkEqual(p1.height, 512, "1: 512x320 + portrait -> height 512")
 
-        // 2. Generate + landscape Source Image + Auto/Standard => effective resolution remains landscape
-        let req2 = request(source: landscape, preset: .standard)
-        let res2 = try resolve(req2)
-        t.checkEqual(res2.parameters.width, 768, "2: landscape + Standard yields landscape width 768")
-        t.checkEqual(res2.parameters.height, 512, "2: landscape + Standard yields landscape height 512")
+        // 2. 768×512 + import portrait source => 512×768
+        let p2 = SourceImageOrientationResolver.orientedDimensions(width: 768, height: 512, sourceOrientation: .portrait)
+        t.checkEqual(p2.width, 512, "2: 768x512 + portrait -> width 512")
+        t.checkEqual(p2.height, 768, "2: 768x512 + portrait -> height 768")
 
-        // 3. Generate + portrait Source Image + Custom portrait resolution => preserve custom resolution
-        var customPortraitParams = GenerationParameters.default
-        customPortraitParams.width = 320
-        customPortraitParams.height = 512
-        let req3 = request(source: portrait, preset: .custom, parameters: customPortraitParams)
-        let res3 = try resolve(req3)
-        t.checkEqual(res3.parameters.width, 320, "3: portrait + Custom portrait preserves width 320")
-        t.checkEqual(res3.parameters.height, 512, "3: portrait + Custom portrait preserves height 512")
+        // 3. 320×512 + import landscape source => 512×320
+        let p3 = SourceImageOrientationResolver.orientedDimensions(width: 320, height: 512, sourceOrientation: .landscape)
+        t.checkEqual(p3.width, 512, "3: 320x512 + landscape -> width 512")
+        t.checkEqual(p3.height, 320, "3: 320x512 + landscape -> height 320")
 
-        // 4. Generate + portrait Source Image + Custom landscape resolution => preserve custom resolution & warning
-        var customLandscapeParams = GenerationParameters.default
-        customLandscapeParams.width = 512
-        customLandscapeParams.height = 320
-        let req4 = request(source: portrait, preset: .custom, parameters: customLandscapeParams)
-        let res4 = try resolve(req4)
-        t.checkEqual(res4.parameters.width, 512, "4: portrait + Custom landscape preserves width 512")
-        t.checkEqual(res4.parameters.height, 320, "4: portrait + Custom landscape preserves height 320")
+        // 4. 512×768 + import landscape source => 768×512
+        let p4 = SourceImageOrientationResolver.orientedDimensions(width: 512, height: 768, sourceOrientation: .landscape)
+        t.checkEqual(p4.width, 768, "4: 512x768 + landscape -> width 768")
+        t.checkEqual(p4.height, 512, "4: 512x768 + landscape -> height 512")
 
-        // 5. Generate + landscape Source Image + Custom portrait resolution => preserve custom resolution & warning
-        let req5 = request(source: landscape, preset: .custom, parameters: customPortraitParams)
-        let res5 = try resolve(req5)
-        t.checkEqual(res5.parameters.width, 320, "5: landscape + Custom portrait preserves width 320")
-        t.checkEqual(res5.parameters.height, 512, "5: landscape + Custom portrait preserves height 512")
+        // 5. portrait source + already portrait resolution (320x512) => unchanged
+        let p5 = SourceImageOrientationResolver.orientedDimensions(width: 320, height: 512, sourceOrientation: .portrait)
+        t.checkEqual(p5.width, 320, "5: portrait + already portrait -> unchanged width 320")
+        t.checkEqual(p5.height, 512, "5: portrait + already portrait -> unchanged height 512")
 
-        // 6. Generate with Source Image => request remains I2V
-        t.check(req1.isImageToVideo, "6: request with sourceImagePath isImageToVideo is true")
-        t.check(res1.isImageToVideo, "6: resolved request with sourceImagePath isImageToVideo is true")
+        // 6. landscape source + already landscape resolution (512x320) => unchanged
+        let p6 = SourceImageOrientationResolver.orientedDimensions(width: 512, height: 320, sourceOrientation: .landscape)
+        t.checkEqual(p6.width, 512, "6: landscape + already landscape -> unchanged width 512")
+        t.checkEqual(p6.height, 320, "6: landscape + already landscape -> unchanged height 320")
 
-        // 7. Generate with Source Image + unsupported model => explicit failure
+        // 7. square source => unchanged
+        let p7a = SourceImageOrientationResolver.orientedDimensions(width: 512, height: 320, sourceOrientation: .square)
+        t.checkEqual(p7a.width, 512, "7a: square source -> unchanged width 512")
+        t.checkEqual(p7a.height, 320, "7a: square source -> unchanged height 320")
+        let p7b = SourceImageOrientationResolver.orientedDimensions(width: 320, height: 512, sourceOrientation: .square)
+        t.checkEqual(p7b.width, 320, "7b: square source -> unchanged width 320")
+        t.checkEqual(p7b.height, 512, "7b: square source -> unchanged height 512")
+
+        // 8. Custom preset portrait import => width/height swap occurs
+        var customParams = GenerationParameters.default
+        customParams.width = 512
+        customParams.height = 320
+        let orientedCustom = SourceImageOrientationResolver.orientedParameters(for: customParams, sourceOrientation: .portrait)
+        t.checkEqual(orientedCustom.width, 320, "8: Custom preset portrait import swaps to width 320")
+        t.checkEqual(orientedCustom.height, 512, "8: Custom preset portrait import swaps to height 512")
+
+        // 9. After automatic portrait swap, user explicitly changes back to landscape => manual landscape remains
+        var manuallyOverriddenParams = orientedCustom
+        manuallyOverriddenParams.width = 512
+        manuallyOverriddenParams.height = 320
+        let req9 = request(source: portrait, preset: .custom, parameters: manuallyOverriddenParams)
+        let res9 = try resolve(req9)
+        t.checkEqual(res9.parameters.width, 512, "9: manual override to 512 is preserved")
+        t.checkEqual(res9.parameters.height, 320, "9: manual override to 320 is preserved")
+
+        // 10. Source Image remains present after swap => I2V request
+        let req10 = request(source: portrait, preset: .custom, parameters: orientedCustom)
+        let res10 = try resolve(req10)
+        t.check(req10.isImageToVideo, "10: request with sourceImagePath isImageToVideo is true")
+        t.check(res10.isImageToVideo, "10: resolved request with sourceImagePath isImageToVideo is true")
+
+        // 11. Unsupported I2V model => explicit failure, no T2V fallback
         let registry = ModelRegistry.shared
         t.check(registry.descriptor(id: LTXModelCatalog.defaultModelID)?.capabilities.imageToVideo == true,
-                "7: default model supports imageToVideo")
+                "11: default model supports imageToVideo")
         let noI2VDescriptor = ModelDescriptor(
             id: "dummy_no_i2v_model",
             displayName: "Dummy No I2V",
@@ -646,7 +667,7 @@ func runSourceImageOrientationTests(_ t: TestKit) {
         registry.register(descriptor: noI2VDescriptor)
         let unsupportedReq = request(source: portrait, modelID: "dummy_no_i2v_model")
         t.checkThrows(ModelPolicyError.imageToVideoUnsupported(modelID: "dummy_no_i2v_model"),
-                      "7: model without imageToVideo throws imageToVideoUnsupported error") {
+                      "11: model without imageToVideo throws imageToVideoUnsupported error") {
             _ = try registry.validateForGeneration(request: unsupportedReq)
         }
     }

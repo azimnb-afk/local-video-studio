@@ -374,6 +374,10 @@ final class ModelRegistry {
         return descriptors[id]
     }
 
+    func register(descriptor: ModelDescriptor) {
+        descriptors[descriptor.id] = descriptor
+    }
+
     /// Resolves a ModelDescriptor tailored for an immutable GenerationRequest,
     /// honoring any frozen local snapshot path or pinned revision.
     func descriptor(for request: GenerationRequest) -> ModelDescriptor? {

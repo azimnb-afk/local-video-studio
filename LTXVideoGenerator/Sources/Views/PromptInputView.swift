@@ -140,8 +140,8 @@ struct PromptInputView: View {
         return "This pairing (large unified LTX bf16 model + Gemma 12B bf16 text encoder) often needs on the order of 50 GB unified memory during TEXT_ENCODER. Your Mac has about \(physGB) GB physical memory (~\(avail) GB available, approximate). Prefer Gemma 4B bf16 or 4-bit (Preferences → General → Text Encoder), enable aggressive VAE tiling, or fewer pixels/frames. You can still generate."
     }
 
-    /// Warns when a chosen source image will experience significant cropping
-    /// to match the effective video aspect ratio.
+    /// Warns when a chosen source image's visual orientation conflicts with
+    /// the custom video resolution, or will experience significant cropping.
     var sourceImageCropWarning: String? {
         guard let path = sourceImagePath, !path.isEmpty,
               let thumbnail = sourceImageThumbnail,
@@ -152,6 +152,19 @@ struct PromptInputView: View {
         let effectiveH = Double(effectiveParametersForPreflight.height)
         guard effectiveW > 0, effectiveH > 0 else { return nil }
 
+        let sourceOrientation = SourceImageOrientationResolver.resolve(path: path)
+        let targetIsPortrait = effectiveH > effectiveW
+        let targetIsLandscape = effectiveW > effectiveH
+
+        // 1. Explicit orientation mismatch in Custom mode
+        if sourceOrientation == .portrait && targetIsLandscape {
+            return "Source image is portrait, but the selected custom resolution is landscape. The result may be heavily cropped or may not preserve the original framing."
+        }
+        if sourceOrientation == .landscape && targetIsPortrait {
+            return "Source image is landscape, but the selected custom resolution is portrait. The result may be heavily cropped or may not preserve the original framing."
+        }
+
+        // 2. Aspect ratio discrepancy within same orientation (or square)
         let sourceAspect = thumbnail.size.width / thumbnail.size.height
         let targetAspect = effectiveW / effectiveH
 

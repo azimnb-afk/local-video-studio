@@ -588,34 +588,67 @@ func runSourceImageOrientationTests(_ t: TestKit) {
                      "explicit landscape height survives to the child command")
     }
 
-    t.suite("Source image orientation — model capability and crop warning") {
-        // Model capability validation
+    t.suite("Source image orientation — comprehensive policy matrix") {
+        // 1. Generate + portrait Source Image + Auto/Standard => effective resolution becomes portrait
+        let req1 = request(source: portrait, preset: .standard)
+        let res1 = try resolve(req1)
+        t.checkEqual(res1.parameters.width, 512, "1: portrait + Standard yields portrait width 512")
+        t.checkEqual(res1.parameters.height, 768, "1: portrait + Standard yields portrait height 768")
+
+        // 2. Generate + landscape Source Image + Auto/Standard => effective resolution remains landscape
+        let req2 = request(source: landscape, preset: .standard)
+        let res2 = try resolve(req2)
+        t.checkEqual(res2.parameters.width, 768, "2: landscape + Standard yields landscape width 768")
+        t.checkEqual(res2.parameters.height, 512, "2: landscape + Standard yields landscape height 512")
+
+        // 3. Generate + portrait Source Image + Custom portrait resolution => preserve custom resolution
+        var customPortraitParams = GenerationParameters.default
+        customPortraitParams.width = 320
+        customPortraitParams.height = 512
+        let req3 = request(source: portrait, preset: .custom, parameters: customPortraitParams)
+        let res3 = try resolve(req3)
+        t.checkEqual(res3.parameters.width, 320, "3: portrait + Custom portrait preserves width 320")
+        t.checkEqual(res3.parameters.height, 512, "3: portrait + Custom portrait preserves height 512")
+
+        // 4. Generate + portrait Source Image + Custom landscape resolution => preserve custom resolution & warning
+        var customLandscapeParams = GenerationParameters.default
+        customLandscapeParams.width = 512
+        customLandscapeParams.height = 320
+        let req4 = request(source: portrait, preset: .custom, parameters: customLandscapeParams)
+        let res4 = try resolve(req4)
+        t.checkEqual(res4.parameters.width, 512, "4: portrait + Custom landscape preserves width 512")
+        t.checkEqual(res4.parameters.height, 320, "4: portrait + Custom landscape preserves height 320")
+
+        // 5. Generate + landscape Source Image + Custom portrait resolution => preserve custom resolution & warning
+        let req5 = request(source: landscape, preset: .custom, parameters: customPortraitParams)
+        let res5 = try resolve(req5)
+        t.checkEqual(res5.parameters.width, 320, "5: landscape + Custom portrait preserves width 320")
+        t.checkEqual(res5.parameters.height, 512, "5: landscape + Custom portrait preserves height 512")
+
+        // 6. Generate with Source Image => request remains I2V
+        t.check(req1.isImageToVideo, "6: request with sourceImagePath isImageToVideo is true")
+        t.check(res1.isImageToVideo, "6: resolved request with sourceImagePath isImageToVideo is true")
+
+        // 7. Generate with Source Image + unsupported model => explicit failure
         let registry = ModelRegistry.shared
-        let defaultDescriptor = registry.descriptor(id: LTXModelCatalog.defaultModelID)
-        t.check(defaultDescriptor?.capabilities.imageToVideo == true,
-                "default model supports imageToVideo")
-
-        // Request with source image and default model passes validation
-        let validRequest = request(source: portrait)
-        do {
-            _ = try registry.validateForGeneration(request: validRequest)
-            t.check(true, "request with source image on I2V-capable model passes validation")
-        } catch {
-            t.check(false, "request with source image on I2V-capable model failed: \(error)")
+        t.check(registry.descriptor(id: LTXModelCatalog.defaultModelID)?.capabilities.imageToVideo == true,
+                "7: default model supports imageToVideo")
+        let noI2VDescriptor = ModelDescriptor(
+            id: "dummy_no_i2v_model",
+            displayName: "Dummy No I2V",
+            repository: "test/no-i2v",
+            architecture: ArchitectureDescriptor(modelFamily: "LTX", modelVersion: "2.3", modelType: "video-only"),
+            capabilities: CapabilitySet(textToVideo: true, imageToVideo: false, synchronizedAudio: false),
+            runtime: RuntimeCompatibility(backend: "test", verified: true),
+            policy: .general,
+            license: ModelLicenseMetadata(name: "Test", requiresAcknowledgement: false)
+        )
+        registry.register(descriptor: noI2VDescriptor)
+        let unsupportedReq = request(source: portrait, modelID: "dummy_no_i2v_model")
+        t.checkThrows(ModelPolicyError.imageToVideoUnsupported(modelID: "dummy_no_i2v_model"),
+                      "7: model without imageToVideo throws imageToVideoUnsupported error") {
+            _ = try registry.validateForGeneration(request: unsupportedReq)
         }
-
-        // Crop warning calculation checks
-        // 1. Portrait source (108x192, aspect ~0.5625) + Custom Landscape (768x512, aspect 1.5)
-        let sourceAspect = 108.0 / 192.0
-        let targetLandscapeAspect = 768.0 / 512.0
-        let landscapePreserved = sourceAspect / targetLandscapeAspect // ~0.375 < 0.60
-        t.check(landscapePreserved < 0.60, "portrait on landscape target causes heavy crop (<60% preserved)")
-
-        // 2. Portrait source + Auto Standard (512x768, aspect 0.666)
-        let targetPortraitAspect = 512.0 / 768.0
-        let portraitPreserved = targetPortraitAspect / sourceAspect // 0.666 / 0.5625 = ~1.18 -> 100% or high
-        let actualPortraitPreserved = min(sourceAspect / targetPortraitAspect, targetPortraitAspect / sourceAspect)
-        t.check(actualPortraitPreserved >= 0.75, "portrait on portrait target has minimal/no crop (>=75% preserved)")
     }
 }
 

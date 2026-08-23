@@ -322,7 +322,7 @@ enum MiniMaxH3ProgressPresentation {
     ) -> Bool {
         modelID == MiniMaxH3Configuration.modelID
             && isCurrent
-            && progress < 0.94
+            && progress <= 0.03
     }
 
     static func generatingMessage(for request: GenerationRequest) -> String {

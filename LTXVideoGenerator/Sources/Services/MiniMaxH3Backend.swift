@@ -161,7 +161,24 @@ final class MiniMaxH3Backend {
         urlRequest.httpBody = body
         urlRequest.timeoutInterval = MiniMaxH3ProgressPresentation.requestTimeoutSeconds
 
-        progressHandler(0.03, MiniMaxH3ProgressPresentation.generatingMessage(for: request))
+        let progressSession = MiniMaxH3ProgressSession(
+            request: request,
+            progressHandler: progressHandler)
+
+        let listenerID = runtimeManager.registerTelemetryListener { line in
+            progressSession.handleLine(line)
+        }
+        defer { runtimeManager.unregisterTelemetryListener(listenerID) }
+
+        let logTailer = MiniMaxH3LogTailer(endpoint: snapshot.endpoint) { line in
+            progressSession.handleLine(line)
+        }
+        logTailer.start()
+        defer {
+            logTailer.stop()
+            progressSession.finish()
+        }
+
         try Task.checkCancellation()
         var responseData: Data
         let response: HTTPURLResponse
@@ -202,7 +219,7 @@ final class MiniMaxH3Backend {
         // MP4. Release it before FFmpeg reads the raw files so the app does not
         // retain the response and mux working set at the same time.
         responseData = Data()
-        progressHandler(0.94, "Muxing MiniMax H3 video\(request.disableAudio ? "" : " and audio")…")
+        progressSession.recordMuxing()
         try await Self.mux(
             ffmpegPath: ffmpegPath,
             rgbURL: rgbURL,
@@ -216,7 +233,7 @@ final class MiniMaxH3Backend {
               MediaProbe.probe(path: outputPath) != nil else {
             throw MiniMaxH3Error.outputMissing
         }
-        progressHandler(1.0, "MiniMax H3 generation complete.")
+        progressSession.recordComplete()
         return (outputPath, seed, prompt == request.prompt ? nil : prompt)
     }
 

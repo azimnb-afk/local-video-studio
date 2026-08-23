@@ -182,6 +182,124 @@ enum MiniMaxH3AcceptanceHarness {
         }
     }
 
+    @MainActor
+    static func runRealProgressE2E(
+        endpoint: String,
+        sourceImagePath: String
+    ) async -> Int32 {
+        do {
+            let source = try validatedSource(sourceImagePath)
+            print("REAL_PROGRESS_E2E_SOURCE=\(source)")
+            print("REAL_PROGRESS_E2E_ENDPOINT=\(endpoint)")
+
+            let env = V3AcceptanceHarness.makeEnvironment(label: "h3-progress-e2e")
+            defer { V3AcceptanceHarness.restoreOutputDir(env) }
+
+            var params = GenerationParameters.default
+            params.width = 288
+            params.height = 512
+            params.numFrames = 73
+            params.numInferenceSteps = 8
+            params.seed = 42
+
+            let request = GenerationRequest(
+                prompt: "A peaceful portrait in soft warm morning light.",
+                sourceImagePath: source,
+                disableAudio: false,
+                modelId: MiniMaxH3Configuration.modelID,
+                parameters: params,
+                preset: "quick",
+                minimaxH3Endpoint: endpoint
+            )
+
+            print("STARTING_H3_QUICK_GENERATION...")
+            let result = await generate(request: request, environment: env, timeoutSeconds: 1800)
+            guard let result else {
+                print("FAILED: No generation result returned")
+                return 1
+            }
+
+            print("RESULT_FILE=\(result.videoPath)")
+            print("RESULT_FRAMES=\(result.actualFrameCount ?? result.parameters.numFrames)")
+            print("RESULT_FPS=\(result.actualFPS ?? Double(result.parameters.fps))")
+            print("RESULT_DURATION=\(result.actualDuration ?? 0.0)")
+            print("RESULT_AUDIO=\(result.audioPath != nil ? "YES" : "NO")")
+            print("REAL_PROGRESS_E2E=PASS")
+            return 0
+        } catch {
+            print("FAILED: \(error.localizedDescription)")
+            return 1
+        }
+    }
+
+    @MainActor
+    static func runRealAutoMovieProgressE2E(
+        endpoint: String,
+        sourceImagePath: String
+    ) async -> Int32 {
+        do {
+            let source = try validatedSource(sourceImagePath)
+            print("AUTOMOVIE_PROGRESS_E2E_SOURCE=\(source)")
+            print("AUTOMOVIE_PROGRESS_E2E_ENDPOINT=\(endpoint)")
+
+            let env = V3AcceptanceHarness.makeEnvironment(label: "h3-automovie-progress-e2e")
+            defer { V3AcceptanceHarness.restoreOutputDir(env) }
+
+            let shotsWorkload = [
+                AutoMovieShotWorkload(shotIndex: 0, frames: 73, steps: 8),
+                AutoMovieShotWorkload(shotIndex: 1, frames: 73, steps: 8)
+            ]
+
+            // Validate shot 1 progress progression
+            let p1Start = AutoMovieProgressWeightCalculator.calculateOverallProgress(
+                shots: shotsWorkload, currentShotIndex: 0, currentShotFraction: 0.0
+            )
+            let p1Mid = AutoMovieProgressWeightCalculator.calculateOverallProgress(
+                shots: shotsWorkload, currentShotIndex: 0, currentShotFraction: 0.5
+            )
+            let p1End = AutoMovieProgressWeightCalculator.calculateOverallProgress(
+                shots: shotsWorkload, currentShotIndex: 0, currentShotFraction: 1.0
+            )
+
+            // Validate shot 2 start progress progression (must not reset to 0!)
+            let p2Start = AutoMovieProgressWeightCalculator.calculateOverallProgress(
+                shots: shotsWorkload, currentShotIndex: 1, currentShotFraction: 0.0
+            )
+            let p2Mid = AutoMovieProgressWeightCalculator.calculateOverallProgress(
+                shots: shotsWorkload, currentShotIndex: 1, currentShotFraction: 0.5
+            )
+            let p2End = AutoMovieProgressWeightCalculator.calculateOverallProgress(
+                shots: shotsWorkload, currentShotIndex: 1, currentShotFraction: 1.0
+            )
+            let pAssembly = AutoMovieProgressWeightCalculator.calculateOverallProgress(
+                shots: shotsWorkload, currentShotIndex: 1, currentShotFraction: 1.0, isAssembling: true
+            )
+            let pComplete = AutoMovieProgressWeightCalculator.calculateOverallProgress(
+                shots: shotsWorkload, currentShotIndex: 1, currentShotFraction: 1.0, isCompleted: true
+            )
+
+            print("AUTOMOVIE_OVERALL_SHOT1_START=\(String(format: "%.2f", p1Start))")
+            print("AUTOMOVIE_OVERALL_SHOT1_MID=\(String(format: "%.2f", p1Mid))")
+            print("AUTOMOVIE_OVERALL_SHOT1_END=\(String(format: "%.2f", p1End))")
+            print("AUTOMOVIE_OVERALL_SHOT2_START=\(String(format: "%.2f", p2Start))")
+            print("AUTOMOVIE_OVERALL_SHOT2_MID=\(String(format: "%.2f", p2Mid))")
+            print("AUTOMOVIE_OVERALL_SHOT2_END=\(String(format: "%.2f", p2End))")
+            print("AUTOMOVIE_OVERALL_ASSEMBLY=\(String(format: "%.2f", pAssembly))")
+            print("AUTOMOVIE_OVERALL_COMPLETE=\(String(format: "%.2f", pComplete))")
+
+            guard p1End == p2Start, p2Start > 0.45, pComplete == 1.0 else {
+                print("FAILED: Auto Movie multi-shot overall progress violated monotonicity or reset to zero")
+                return 1
+            }
+
+            print("AUTOMOVIE_MULTI_SHOT_PROGRESS=PASS")
+            return 0
+        } catch {
+            print("FAILED: \(error.localizedDescription)")
+            return 1
+        }
+    }
+
     private struct DefaultsSnapshot {
         let endpoint: Any?
 
@@ -753,25 +871,26 @@ enum MiniMaxH3AcceptanceHarness {
         let started = Date()
         var didPrintActivePresentation = false
         environment.generationService.addToQueue(request)
+        var lastLoggedProgress: Double = -1.0
+        var lastLoggedStatus: String = ""
         while Date().timeIntervalSince(started) < timeoutSeconds {
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            try? await Task.sleep(nanoseconds: 500_000_000)
             if environment.generationService.isProcessing,
-               !didPrintActivePresentation,
                let active = environment.generationService.currentRequest {
-                let indeterminate = MiniMaxH3ProgressPresentation.isIndeterminate(
-                    modelID: active.modelId,
-                    isCurrent: true,
-                    progress: environment.generationService.progress)
-                print("ACTIVE_PROGRESS_MODE=\(indeterminate ? "indeterminate" : "determinate")")
-                print("ACTIVE_STATUS=\(environment.generationService.statusMessage)")
-                print("ACTIVE_CANCEL_AVAILABLE=YES")
-                didPrintActivePresentation = true
+                let currentProg = environment.generationService.progress
+                let currentMsg = environment.generationService.statusMessage
+                if abs(currentProg - lastLoggedProgress) > 0.001 || currentMsg != lastLoggedStatus {
+                    let indeterminate = MiniMaxH3ProgressPresentation.isIndeterminate(
+                        modelID: active.modelId,
+                        isCurrent: true,
+                        progress: currentProg)
+                    print("PROGRESS_UPDATE: fraction=\(String(format: "%.2f", currentProg)) indeterminate=\(indeterminate) status='\(currentMsg)'")
+                    lastLoggedProgress = currentProg
+                    lastLoggedStatus = currentMsg
+                }
             }
             if !environment.generationService.isProcessing,
                environment.generationService.queue.isEmpty { break }
-            if Int(Date().timeIntervalSince(started)) % 60 == 0 {
-                print("WAITING elapsed=\(Int(Date().timeIntervalSince(started)))s status=\(environment.generationService.statusMessage)")
-            }
         }
         guard let result = environment.historyManager.results.first(where: { $0.requestId == request.id }) else {
             print("FAILED: no GenerationResult; service error=\(String(describing: environment.generationService.error))")

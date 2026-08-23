@@ -148,11 +148,21 @@ struct QueueItemView: View {
                     } else {
                         ProgressView(value: progress)
                             .progressViewStyle(.linear)
+                            .accessibilityLabel("Generation progress")
+                            .accessibilityValue("\(Int(progress * 100)) percent")
                     }
                     
-                    Text(statusMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack {
+                        Text(statusMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if progress > 0.0 && progress < 1.0 {
+                            Spacer()
+                            Text("\(Int(progress * 100))%")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
 
                     if request.modelId == MiniMaxH3Configuration.modelID,
                        let startedAt {

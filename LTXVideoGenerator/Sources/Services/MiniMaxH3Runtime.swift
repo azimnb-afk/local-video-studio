@@ -642,6 +642,7 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
     private var ownedEndpoint: String?
     private var ownedModelDirectory: String?
     private var ownedStderrTail: String = ""
+    private var telemetryListeners: [UUID: @Sendable (String) -> Void] = [:]
     private let fileManager: FileManager
     private let managedRuntimeManager: MiniMaxH3ManagedRuntimeManager
     private let userDefaults: UserDefaults
@@ -654,6 +655,30 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
         self.fileManager = fileManager
         self.managedRuntimeManager = managedRuntimeManager
         self.userDefaults = userDefaults
+    }
+
+    @discardableResult
+    func registerTelemetryListener(_ listener: @escaping @Sendable (String) -> Void) -> UUID {
+        lock.lock()
+        defer { lock.unlock() }
+        let id = UUID()
+        telemetryListeners[id] = listener
+        return id
+    }
+
+    func unregisterTelemetryListener(_ id: UUID) {
+        lock.lock()
+        defer { lock.unlock() }
+        telemetryListeners.removeValue(forKey: id)
+    }
+
+    func broadcastTelemetryLine(_ line: String) {
+        lock.lock()
+        let listeners = Array(telemetryListeners.values)
+        lock.unlock()
+        for listener in listeners {
+            listener(line)
+        }
     }
 
     /// Keeps the sidebar's persisted snapshot (ActiveModelDisplayResolver)
@@ -962,6 +987,12 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
                 self.ownedStderrTail = String(self.ownedStderrTail.suffix(4_096))
             }
             self.lock.unlock()
+            for line in text.components(separatedBy: .newlines) {
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    self.broadcastTelemetryLine(trimmed)
+                }
+            }
         }
         do {
             try process.run()

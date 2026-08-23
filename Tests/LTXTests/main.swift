@@ -48,6 +48,30 @@ if CommandLine.arguments.count >= 5,
     RunLoop.main.run()
 }
 
+// Real MiniMax H3 progress end-to-end telemetry verification:
+//   swift run LTXTests --h3-progress-e2e <endpoint> <source-image>
+if CommandLine.arguments.count == 4,
+   CommandLine.arguments[1] == "--h3-progress-e2e" {
+    Task { @MainActor in
+        exit(await MiniMaxH3AcceptanceHarness.runRealProgressE2E(
+            endpoint: CommandLine.arguments[2],
+            sourceImagePath: CommandLine.arguments[3]))
+    }
+    RunLoop.main.run()
+}
+
+// Real MiniMax H3 Auto Movie multi-shot overall progress verification:
+//   swift run LTXTests --h3-automovie-progress-e2e <endpoint> <source-image>
+if CommandLine.arguments.count == 4,
+   CommandLine.arguments[1] == "--h3-automovie-progress-e2e" {
+    Task { @MainActor in
+        exit(await MiniMaxH3AcceptanceHarness.runRealAutoMovieProgressE2E(
+            endpoint: CommandLine.arguments[2],
+            sourceImagePath: CommandLine.arguments[3]))
+    }
+    RunLoop.main.run()
+}
+
 // Starts the installed managed runtime once, performs the controlled chain=4
 // continuation and corrected Opening Reference Auto Movie, then stops only
 // that app-owned process:
@@ -1659,6 +1683,7 @@ runCustomModelProfileTests(t)
 runLTX2MLXRuntimeManagerTests(t)
 runMiniMaxH3Tests(t)
 runMiniMaxH3GenerationLeaseTests(t)
+runMiniMaxH3ProgressTests(t)
 runShotPlanValidatorTests(t)
 runQualityHardeningTests(t)
 runCanonicalShotRequestBuilderTests(t)

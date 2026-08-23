@@ -317,7 +317,8 @@ class GenerationService: ObservableObject {
             if usesMiniMaxH3 {
                 effectiveRequest = try MiniMaxH3DurationPolicy.applying(to: request)
                 effectiveParametersForDiagnostics = effectiveRequest.parameters
-                effectiveProfileReason = "MiniMax H3 proven 512×288 / 24 fps / 8-step timing policy"
+                let presetName = (MiniMaxH3Preset(rawValue: effectiveRequest.preset ?? "") ?? .standard).displayName
+                effectiveProfileReason = "MiniMax H3 \(presetName) preset policy (\(effectiveRequest.parameters.width)×\(effectiveRequest.parameters.height) · \(effectiveRequest.parameters.fps) fps · \(effectiveRequest.parameters.numInferenceSteps) steps)"
                 let chain = effectiveRequest.minimaxH3ChainWindows ?? 1
                 statusMessage = "MiniMax H3: \(effectiveRequest.minimaxH3ExpectedFrames ?? effectiveRequest.parameters.numFrames) effective frames · chain \(chain)"
             } else if FeatureFlags.isEnabled(.autoQualityV1) {

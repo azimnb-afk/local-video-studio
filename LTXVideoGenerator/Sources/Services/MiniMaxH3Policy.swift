@@ -57,6 +57,85 @@ enum MiniMaxH3ProductPolicy {
     }
 }
 
+enum MiniMaxH3Preset: String, Codable, CaseIterable, Identifiable {
+    case quick = "quick"
+    case standard = "standard"
+    case high = "high"
+    case custom = "custom"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .quick: return "Quick"
+        case .standard: return "Standard"
+        case .high: return "High"
+        case .custom: return "Custom"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .quick: return "3 sec · 8 steps · fast preview"
+        case .standard: return "Recommended · 4 sec · 10 steps · proven balance"
+        case .high: return "4 sec · 12 steps · 384×640 high resolution"
+        case .custom: return "Custom duration (1–6s), steps (6–20), and resolution tiers"
+        }
+    }
+}
+
+enum MiniMaxH3ResolutionTier: String, Codable, CaseIterable, Identifiable {
+    case tier1 = "tier1" // 512x288 / 288x512
+    case tier2 = "tier2" // 640x384 / 384x640
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .tier1: return "Tier 1 (512×288 / 288×512)"
+        case .tier2: return "Tier 2 (640×384 / 384×640)"
+        }
+    }
+
+    func dimensions(for orientation: SourceImageOrientation?) -> (width: Int, height: Int) {
+        if orientation == .portrait {
+            switch self {
+            case .tier1: return (288, 512)
+            case .tier2: return (384, 640)
+            }
+        } else {
+            switch self {
+            case .tier1: return (512, 288)
+            case .tier2: return (640, 384)
+            }
+        }
+    }
+}
+
+enum MiniMaxH3FrameGrid {
+    static let fps = 24
+
+    /// Snaps a requested duration in seconds (1.0s to 15.0s) to the nearest legal H3 frame count on the 17k+5 ladder.
+    static func legalFrames(forRequestedDurationSeconds seconds: Double) -> Int {
+        let clamped = max(0.5, min(15.0, seconds))
+        let targetFrames = clamped * Double(fps)
+        let k = max(1, Int(round((targetFrames - 5.0) / 17.0)))
+        return 17 * k + 5
+    }
+
+    static func displayDurationText(forFrames frames: Int) -> String {
+        let sec = Double(frames) / Double(fps)
+        if frames == 73 { return "3 sec" }
+        if frames == 90 { return "4 sec" }
+        if frames == 141 { return "6 sec" }
+        return String(format: "%.1f sec", sec)
+    }
+
+    static func shouldShowLongDurationWarning(durationSeconds: Double) -> Bool {
+        durationSeconds >= 5.0
+    }
+}
+
 struct MiniMaxH3FramePlan: Equatable, Codable {
     let requestedDurationSeconds: Double
     /// Frames requested per runtime window. Chained requests use the proven
@@ -112,32 +191,106 @@ enum MiniMaxH3DurationPolicy {
         }!
     }
 
-    /// H3 MVP canvas follows source image orientation (512x288 for landscape,
-    /// 288x512 for portrait). This resolver records the user's duration intent
-    /// separately while freezing exactly what the backend will execute.
+    /// Resolves canonical H3 execution settings driven by the chosen preset (Quick, Standard, High, Custom),
+    /// or falls back to standard duration planning for workflows without explicit preset (e.g. One Shot).
     static func applying(to request: GenerationRequest) throws -> GenerationRequest {
-        let requestedDuration = request.minimaxH3RequestedDurationSeconds
-            ?? request.targetDurationSeconds
-            ?? request.requestedDurationSeconds
-        let framePlan = try plan(requestedDurationSeconds: requestedDuration)
         var resolved = request
-
         let orientation = request.presetResolutionOrientation
             ?? SourceImageOrientationResolver.resolve(path: request.sourceImagePath)
-        if orientation == .portrait {
-            resolved.parameters.width = 288
-            resolved.parameters.height = 512
+
+        let effectivePreset: MiniMaxH3Preset? = {
+            if let presetRaw = request.preset, let preset = MiniMaxH3Preset(rawValue: presetRaw) {
+                return preset
+            }
+            if request.targetDurationSeconds == nil &&
+               request.generationSource != "oneShot" &&
+               request.generationSource != "autoMovie" &&
+               request.generationSource != "storyboard" {
+                return .standard
+            }
+            return nil
+        }()
+
+        if let preset = effectivePreset {
+            switch preset {
+            case .quick:
+                let dims = MiniMaxH3ResolutionTier.tier1.dimensions(for: orientation)
+                resolved.parameters.width = dims.width
+                resolved.parameters.height = dims.height
+                resolved.parameters.fps = fps
+                resolved.parameters.numInferenceSteps = 8
+                resolved.parameters.numFrames = 73 // 3.0s display
+                resolved.minimaxH3ChainWindows = 1
+                resolved.minimaxH3ExpectedFrames = 73
+                resolved.minimaxH3RequestedDurationSeconds = 3.0
+
+            case .standard:
+                let dims = MiniMaxH3ResolutionTier.tier1.dimensions(for: orientation)
+                resolved.parameters.width = dims.width
+                resolved.parameters.height = dims.height
+                resolved.parameters.fps = fps
+                resolved.parameters.numInferenceSteps = 10
+                resolved.parameters.numFrames = 90 // 4.0s display (3.75s encoded)
+                resolved.minimaxH3ChainWindows = 1
+                resolved.minimaxH3ExpectedFrames = 90
+                resolved.minimaxH3RequestedDurationSeconds = 4.0
+
+            case .high:
+                let dims = MiniMaxH3ResolutionTier.tier2.dimensions(for: orientation)
+                resolved.parameters.width = dims.width
+                resolved.parameters.height = dims.height
+                resolved.parameters.fps = fps
+                resolved.parameters.numInferenceSteps = 12
+                resolved.parameters.numFrames = 90 // 4.0s display (3.75s encoded)
+                resolved.minimaxH3ChainWindows = 1
+                resolved.minimaxH3ExpectedFrames = 90
+                resolved.minimaxH3RequestedDurationSeconds = 4.0
+
+            case .custom:
+                let requestedDuration = request.minimaxH3RequestedDurationSeconds
+                    ?? request.targetDurationSeconds
+                    ?? request.requestedDurationSeconds
+                    ?? (Double(request.parameters.numFrames) / Double(fps))
+
+                let legalFrames = MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: requestedDuration)
+
+                let isTier2 = request.parameters.width >= 640 || request.parameters.height >= 640
+                let tier: MiniMaxH3ResolutionTier = isTier2 ? .tier2 : .tier1
+                let dims = tier.dimensions(for: orientation)
+
+                resolved.parameters.width = dims.width
+                resolved.parameters.height = dims.height
+                resolved.parameters.fps = fps
+                resolved.parameters.numInferenceSteps = max(6, min(20, request.parameters.numInferenceSteps))
+                resolved.parameters.numFrames = legalFrames
+                resolved.minimaxH3ChainWindows = 1
+                resolved.minimaxH3ExpectedFrames = legalFrames
+                resolved.minimaxH3RequestedDurationSeconds = requestedDuration
+            }
         } else {
-            resolved.parameters.width = 512
-            resolved.parameters.height = 288
+            // Other workflows (One Shot, Auto Movie, etc.) preserve multi-window chain plan
+            let requestedDuration = request.minimaxH3RequestedDurationSeconds
+                ?? request.targetDurationSeconds
+                ?? request.requestedDurationSeconds
+                ?? (Double(request.parameters.numFrames) / Double(fps))
+            let framePlan = try plan(requestedDurationSeconds: requestedDuration)
+
+            if orientation == .portrait {
+                resolved.parameters.width = 288
+                resolved.parameters.height = 512
+            } else {
+                resolved.parameters.width = 512
+                resolved.parameters.height = 288
+            }
+
+            resolved.parameters.fps = fps
+            resolved.parameters.numInferenceSteps = 8
+            resolved.parameters.numFrames = framePlan.windowFrames
+            resolved.minimaxH3ChainWindows = framePlan.chainWindows
+            resolved.minimaxH3ExpectedFrames = framePlan.expectedTotalFrames
+            resolved.minimaxH3RequestedDurationSeconds = requestedDuration
         }
 
-        resolved.parameters.fps = fps
-        resolved.parameters.numInferenceSteps = 8
-        resolved.parameters.numFrames = framePlan.windowFrames
-        resolved.minimaxH3ChainWindows = framePlan.chainWindows
-        resolved.minimaxH3ExpectedFrames = framePlan.expectedTotalFrames
-        resolved.minimaxH3RequestedDurationSeconds = requestedDuration
         return resolved
     }
 }

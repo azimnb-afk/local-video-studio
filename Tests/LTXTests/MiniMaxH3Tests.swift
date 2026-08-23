@@ -721,36 +721,228 @@ func runMiniMaxH3Tests(_ t: TestKit) {
             t.check((frames - 5) % 17 == 0, "\(frames) follows the 17k+5 ladder")
         }
 
+        for frames in MiniMaxH3DurationPolicy.singleWindowFrames {
+            t.check((frames - 5) % 17 == 0, "\(frames) follows the 17k+5 ladder")
+        }
+
         var parameters = GenerationParameters.default
         parameters.width = 768
         parameters.height = 512
         parameters.numFrames = 144
-        let request = GenerationRequest(
+
+        // 1. Default preset = Standard (landscape & portrait)
+        let defaultReq = GenerationRequest(
+            prompt: "A person turns toward camera.",
+            modelId: MiniMaxH3Configuration.modelID,
+            parameters: parameters)
+        let defaultResolved = try MiniMaxH3DurationPolicy.applying(to: defaultReq)
+        t.checkEqual(defaultResolved.parameters.width, 512, "Default H3 is Standard landscape width 512")
+        t.checkEqual(defaultResolved.parameters.height, 288, "Default H3 is Standard landscape height 288")
+        t.checkEqual(defaultResolved.parameters.numFrames, 90, "Default H3 is Standard 90 frames")
+        t.checkEqual(defaultResolved.parameters.numInferenceSteps, 10, "Default H3 is Standard 10 steps")
+
+        // 2. Quick landscape: 512x288, 73f, 8 steps
+        let quickReq = GenerationRequest(
             prompt: "A person turns toward camera.",
             modelId: MiniMaxH3Configuration.modelID,
             parameters: parameters,
-            targetDurationSeconds: 6.0)
-        let resolved = try MiniMaxH3DurationPolicy.applying(to: request)
-        t.checkEqual(resolved.parameters.width, 512, "H3 effective landscape width is proven canvas")
-        t.checkEqual(resolved.parameters.height, 288, "H3 effective landscape height is proven canvas")
-        t.checkEqual(resolved.parameters.fps, 24, "H3 effective FPS is proven setting")
-        t.checkEqual(resolved.parameters.numInferenceSteps, 8, "H3 effective steps are proven setting")
-        t.checkEqual(resolved.parameters.numFrames, 39, "chained request sends 39 frames per window")
-        t.checkEqual(resolved.minimaxH3ExpectedFrames, 153, "effective total frames remain separate")
-        t.checkEqual(resolved.minimaxH3RequestedDurationSeconds, 6.0, "semantic requested duration remains separate")
+            preset: MiniMaxH3Preset.quick.rawValue)
+        let quickResolved = try MiniMaxH3DurationPolicy.applying(to: quickReq)
+        t.checkEqual(quickResolved.parameters.width, 512, "Quick landscape width 512")
+        t.checkEqual(quickResolved.parameters.height, 288, "Quick landscape height 288")
+        t.checkEqual(quickResolved.parameters.numFrames, 73, "Quick frames 73")
+        t.checkEqual(quickResolved.parameters.numInferenceSteps, 8, "Quick steps 8")
 
-        // Portrait source orientation test
-        let portraitRequest = GenerationRequest(
+        // 3. Quick portrait: 288x512, 73f, 8 steps
+        let quickPortraitReq = GenerationRequest(
             prompt: "A person turns toward camera.",
             presetResolutionOrientation: .portrait,
             modelId: MiniMaxH3Configuration.modelID,
             parameters: parameters,
-            targetDurationSeconds: 6.0)
-        let portraitResolved = try MiniMaxH3DurationPolicy.applying(to: portraitRequest)
-        t.checkEqual(portraitResolved.parameters.width, 288, "H3 portrait width is 288")
-        t.checkEqual(portraitResolved.parameters.height, 512, "H3 portrait height is 512")
-        t.checkEqual(portraitResolved.parameters.fps, 24, "H3 portrait FPS is 24")
-        t.checkEqual(portraitResolved.parameters.numInferenceSteps, 8, "H3 portrait steps is 8")
+            preset: MiniMaxH3Preset.quick.rawValue)
+        let quickPortraitResolved = try MiniMaxH3DurationPolicy.applying(to: quickPortraitReq)
+        t.checkEqual(quickPortraitResolved.parameters.width, 288, "Quick portrait width 288")
+        t.checkEqual(quickPortraitResolved.parameters.height, 512, "Quick portrait height 512")
+        t.checkEqual(quickPortraitResolved.parameters.numFrames, 73, "Quick portrait frames 73")
+        t.checkEqual(quickPortraitResolved.parameters.numInferenceSteps, 8, "Quick portrait steps 8")
+
+        // 4. Standard landscape: 512x288, 90f, 10 steps
+        let standardReq = GenerationRequest(
+            prompt: "A person turns toward camera.",
+            modelId: MiniMaxH3Configuration.modelID,
+            parameters: parameters,
+            preset: MiniMaxH3Preset.standard.rawValue)
+        let standardResolved = try MiniMaxH3DurationPolicy.applying(to: standardReq)
+        t.checkEqual(standardResolved.parameters.width, 512, "Standard landscape width 512")
+        t.checkEqual(standardResolved.parameters.height, 288, "Standard landscape height 288")
+        t.checkEqual(standardResolved.parameters.numFrames, 90, "Standard landscape frames 90")
+        t.checkEqual(standardResolved.parameters.numInferenceSteps, 10, "Standard landscape steps 10")
+
+        // 5. Standard portrait: 288x512, 90f, 10 steps
+        let standardPortraitReq = GenerationRequest(
+            prompt: "A person turns toward camera.",
+            presetResolutionOrientation: .portrait,
+            modelId: MiniMaxH3Configuration.modelID,
+            parameters: parameters,
+            preset: MiniMaxH3Preset.standard.rawValue)
+        let standardPortraitResolved = try MiniMaxH3DurationPolicy.applying(to: standardPortraitReq)
+        t.checkEqual(standardPortraitResolved.parameters.width, 288, "Standard portrait width 288")
+        t.checkEqual(standardPortraitResolved.parameters.height, 512, "Standard portrait height 512")
+        t.checkEqual(standardPortraitResolved.parameters.numFrames, 90, "Standard portrait frames 90")
+        t.checkEqual(standardPortraitResolved.parameters.numInferenceSteps, 10, "Standard portrait steps 10")
+
+        // 6. High landscape: 640x384, 90f, 12 steps
+        let highReq = GenerationRequest(
+            prompt: "A person turns toward camera.",
+            modelId: MiniMaxH3Configuration.modelID,
+            parameters: parameters,
+            preset: MiniMaxH3Preset.high.rawValue)
+        let highResolved = try MiniMaxH3DurationPolicy.applying(to: highReq)
+        t.checkEqual(highResolved.parameters.width, 640, "High landscape width 640")
+        t.checkEqual(highResolved.parameters.height, 384, "High landscape height 384")
+        t.checkEqual(highResolved.parameters.numFrames, 90, "High landscape frames 90")
+        t.checkEqual(highResolved.parameters.numInferenceSteps, 12, "High landscape steps 12")
+
+        // 7. High portrait: 384x640, 90f, 12 steps
+        let highPortraitReq = GenerationRequest(
+            prompt: "A person turns toward camera.",
+            presetResolutionOrientation: .portrait,
+            modelId: MiniMaxH3Configuration.modelID,
+            parameters: parameters,
+            preset: MiniMaxH3Preset.high.rawValue)
+        let highPortraitResolved = try MiniMaxH3DurationPolicy.applying(to: highPortraitReq)
+        t.checkEqual(highPortraitResolved.parameters.width, 384, "High portrait width 384")
+        t.checkEqual(highPortraitResolved.parameters.height, 640, "High portrait height 640")
+        t.checkEqual(highPortraitResolved.parameters.numFrames, 90, "High portrait frames 90")
+        t.checkEqual(highPortraitResolved.parameters.numInferenceSteps, 12, "High portrait steps 12")
+
+        // 8. Custom Tier 1 portrait
+        var customTier1Params = parameters
+        customTier1Params.width = 288
+        customTier1Params.height = 512
+        customTier1Params.numInferenceSteps = 15
+        let customTier1Req = GenerationRequest(
+            prompt: "A custom shot.",
+            presetResolutionOrientation: .portrait,
+            modelId: MiniMaxH3Configuration.modelID,
+            parameters: customTier1Params,
+            preset: MiniMaxH3Preset.custom.rawValue,
+            targetDurationSeconds: 3.0)
+        let customTier1Resolved = try MiniMaxH3DurationPolicy.applying(to: customTier1Req)
+        t.checkEqual(customTier1Resolved.parameters.width, 288, "Custom Tier 1 portrait width 288")
+        t.checkEqual(customTier1Resolved.parameters.height, 512, "Custom Tier 1 portrait height 512")
+        t.checkEqual(customTier1Resolved.parameters.numFrames, 73, "Custom 3s frames 73")
+        t.checkEqual(customTier1Resolved.parameters.numInferenceSteps, 15, "Custom steps preserved 15")
+
+        // 9. Custom Tier 2 portrait
+        var customTier2Params = parameters
+        customTier2Params.width = 384
+        customTier2Params.height = 640
+        customTier2Params.numInferenceSteps = 18
+        let customTier2Req = GenerationRequest(
+            prompt: "A custom shot tier 2.",
+            presetResolutionOrientation: .portrait,
+            modelId: MiniMaxH3Configuration.modelID,
+            parameters: customTier2Params,
+            preset: MiniMaxH3Preset.custom.rawValue,
+            targetDurationSeconds: 5.0)
+        let customTier2Resolved = try MiniMaxH3DurationPolicy.applying(to: customTier2Req)
+        t.checkEqual(customTier2Resolved.parameters.width, 384, "Custom Tier 2 portrait width 384")
+        t.checkEqual(customTier2Resolved.parameters.height, 640, "Custom Tier 2 portrait height 640")
+        t.checkEqual(customTier2Resolved.parameters.numFrames, 124, "Custom 5s frames 124")
+        t.checkEqual(customTier2Resolved.parameters.numInferenceSteps, 18, "Custom steps preserved 18")
+
+        // 10. Frame grid snapping test (17k + 5 ladder)
+        t.checkEqual(MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: 1.0), 22, "1.0s -> 22 frames (k=1)")
+        t.checkEqual(MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: 2.0), 56, "2.0s -> 56 frames (k=3)")
+        t.checkEqual(MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: 3.0), 73, "3.0s -> 73 frames (k=4)")
+        t.checkEqual(MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: 4.0), 90, "4.0s -> 90 frames (k=5)")
+        t.checkEqual(MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: 5.0), 124, "5.0s -> 124 frames (k=7)")
+        t.checkEqual(MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: 6.0), 141, "6.0s -> 141 frames (k=8)")
+
+        // 11 & 12. Long duration warning threshold (>= 5.0s)
+        t.check(!MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: 4.0), "4.0s no warning")
+        t.check(!MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: 4.5), "4.5s no warning")
+        t.check(MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: 5.0), "5.0s has warning")
+        t.check(MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: 6.0), "6.0s has warning")
+
+        // 13 & 14. Custom steps clamping (min 6, max 20)
+        var clampedMinParams = parameters
+        clampedMinParams.numInferenceSteps = 2
+        let customMinReq = GenerationRequest(
+            prompt: "Min steps test",
+            modelId: MiniMaxH3Configuration.modelID,
+            parameters: clampedMinParams,
+            preset: MiniMaxH3Preset.custom.rawValue)
+        let customMinResolved = try MiniMaxH3DurationPolicy.applying(to: customMinReq)
+        t.checkEqual(customMinResolved.parameters.numInferenceSteps, 6, "Clamped minimum steps to 6")
+
+        // 15. Source Image: FL2VA preserved
+        let fl2vaReq = GenerationRequest(
+            prompt: "A FL2VA test.",
+            sourceImagePath: "/tmp/fake_source.png",
+            presetResolutionOrientation: .portrait,
+            modelId: MiniMaxH3Configuration.modelID,
+            parameters: parameters,
+            preset: MiniMaxH3Preset.standard.rawValue)
+        let fl2vaResolved = try MiniMaxH3DurationPolicy.applying(to: fl2vaReq)
+        t.checkEqual(fl2vaResolved.sourceImagePath, "/tmp/fake_source.png", "FL2VA source image preserved")
+        t.checkEqual(fl2vaResolved.parameters.width, 288, "FL2VA portrait width resolved")
+        t.checkEqual(fl2vaResolved.parameters.height, 512, "FL2VA portrait height resolved")
+
+        // 16. No Source Image: T2VA preserved
+        let t2vaReq = GenerationRequest(
+            prompt: "A T2VA text-only test.",
+            sourceImagePath: nil,
+            modelId: MiniMaxH3Configuration.modelID,
+            parameters: parameters,
+            preset: MiniMaxH3Preset.standard.rawValue)
+        let t2vaResolved = try MiniMaxH3DurationPolicy.applying(to: t2vaReq)
+        t.check(t2vaResolved.sourceImagePath == nil, "T2VA has no source image")
+        t.checkEqual(t2vaResolved.parameters.width, 512, "T2VA landscape default width")
+        t.checkEqual(t2vaResolved.parameters.height, 288, "T2VA landscape default height")
+
+        // 17. LTX preset behavior unchanged (GenerationPreset.standard / quick / high)
+        let ltxStandard = GenerationPreset.standard
+        t.checkEqual(ltxStandard.displayName, "Standard", "LTX Standard displayName unchanged")
+        t.checkEqual(ltxStandard.qualityMode, .auto, "LTX Standard qualityMode is auto")
+
+        // 18 & 19. H3 <-> LTX switch persistence isolation
+        let ltxPresetRaw = GenerationPreset.highQuality.rawValue
+        let h3PresetRaw = MiniMaxH3Preset.quick.rawValue
+        t.checkEqual(GenerationPreset(rawValue: ltxPresetRaw)?.displayName, "High Quality", "LTX preset intact")
+        t.checkEqual(MiniMaxH3Preset(rawValue: h3PresetRaw)?.displayName, "Quick", "H3 preset intact")
+
+        // 20. One Shot unchanged (uses plan with multi-window chain)
+        let oneShotReq = GenerationRequest(
+            prompt: "One shot multi-window brief.",
+            modelId: MiniMaxH3Configuration.modelID,
+            parameters: parameters,
+            targetDurationSeconds: 6.0,
+            generationSource: "oneShot")
+        let oneShotResolved = try MiniMaxH3DurationPolicy.applying(to: oneShotReq)
+        t.checkEqual(oneShotResolved.minimaxH3ChainWindows, 4, "One shot 6.0s resolves to 4 chain windows")
+        t.checkEqual(oneShotResolved.minimaxH3ExpectedFrames, 153, "One shot 6.0s expected total frames 153")
+
+        // 21. Auto Movie unchanged
+        let autoMovieReq = GenerationRequest(
+            prompt: "Auto movie segment.",
+            modelId: MiniMaxH3Configuration.modelID,
+            parameters: parameters,
+            targetDurationSeconds: 3.2,
+            generationSource: "autoMovie")
+        let autoMovieResolved = try MiniMaxH3DurationPolicy.applying(to: autoMovieReq)
+        t.checkEqual(autoMovieResolved.minimaxH3ChainWindows, 2, "Auto movie 3.2s resolves to 2 chain windows")
+
+        // 22. Storyboard unchanged
+        let storyboardReq = GenerationRequest(
+            prompt: "Storyboard shot.",
+            modelId: MiniMaxH3Configuration.modelID,
+            parameters: parameters,
+            targetDurationSeconds: 4.0,
+            generationSource: "storyboard")
+        let storyboardResolved = try MiniMaxH3DurationPolicy.applying(to: storyboardReq)
+        t.checkEqual(storyboardResolved.parameters.fps, 24, "Storyboard FPS preserved")
     }
 
     t.suite("MiniMax H3 Truthful Progress Presentation") {

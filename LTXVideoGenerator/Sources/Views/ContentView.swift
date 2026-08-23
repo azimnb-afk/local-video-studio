@@ -21,6 +21,7 @@ struct ContentView: View {
     // and bridge through a `@State` binding the children already expect.
     @State private var parameters: GenerationParameters = SessionSettings.loadParameters()
     @AppStorage("generationPreset") private var generationPresetRaw = GenerationPreset.standard.rawValue
+    @AppStorage("minimaxH3GenerationPreset") private var h3PresetRaw = MiniMaxH3Preset.standard.rawValue
     @State private var showError = false
 
     init() {
@@ -67,7 +68,7 @@ struct ContentView: View {
             }
         }
     }
-    
+
     var body: some View {
         NavigationSplitView {
             sidebarContent
@@ -116,7 +117,7 @@ struct ContentView: View {
             UserDefaults.standard.set(destination.rawValue, forKey: SessionSettings.selectedTabKey)
         }
     }
-    
+
     @ObservedObject private var productionQueue = ProductionQueueService.shared
 
     private var sidebarContent: some View {
@@ -152,7 +153,7 @@ struct ContentView: View {
         .frame(width: 320)
         .background(Color(nsColor: .windowBackgroundColor))
     }
-    
+
     private var tabSelector: some View {
         VStack(spacing: 4) {
             ForEach(visibleTabs, id: \.self) { tab in
@@ -169,7 +170,7 @@ struct ContentView: View {
         }
         .padding()
     }
-    
+
     @ViewBuilder
     private var detailContent: some View {
         switch navigation.selection {
@@ -220,7 +221,7 @@ struct SidebarButton: View {
     let isSelected: Bool
     var badge: Int?
     let action: () -> Void
-    
+
     var body: some View {
         Button(action: action) {
             buttonContent
@@ -228,7 +229,7 @@ struct SidebarButton: View {
         .buttonStyle(.plain)
         .foregroundStyle(isSelected ? .primary : .secondary)
     }
-    
+
     private var buttonContent: some View {
         HStack {
             Image(systemName: icon)
@@ -252,7 +253,7 @@ struct SidebarButton: View {
         )
         .contentShape(Rectangle())
     }
-    
+
     @ViewBuilder
     private var badgeView: some View {
         if let badge = badge, badge > 0 {
@@ -667,7 +668,7 @@ struct ModelStatusView: View {
     private var usesPersistentH3Server: Bool {
         selectedModelID == MiniMaxH3Configuration.modelID
     }
-    
+
     var body: some View {
         VStack(spacing: 8) {
             // Model variant indicator
@@ -684,7 +685,7 @@ struct ModelStatusView: View {
                     .background(Capsule().fill(Color.orange.opacity(0.2)))
                     .foregroundStyle(.orange)
             }
-            
+
             // Model status
             HStack(spacing: 8) {
                 Circle()
@@ -718,9 +719,9 @@ struct ModelStatusView: View {
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            
+
             Divider()
-            
+
             // API Server toggle
             HStack(spacing: 8) {
                 Circle()
@@ -835,8 +836,9 @@ struct GenerateView: View {
     @Binding var parameters: GenerationParameters
     var onSubmissionQueued: () -> Void = {}
     @AppStorage("generationPreset") private var presetRaw = GenerationPreset.standard.rawValue
+    @AppStorage("minimaxH3GenerationPreset") private var h3PresetRaw = MiniMaxH3Preset.standard.rawValue
     @AppStorage(LTXModelCatalog.selectedModelIDKey) private var selectedModelID = LTXModelCatalog.defaultModelID
-    
+
     var body: some View {
         VStack(spacing: 0) {
             BilingualPageHeader(
@@ -853,7 +855,7 @@ struct GenerateView: View {
             }
         }
     }
-    
+
     private var promptArea: some View {
         // Issue #52: wrap the prompt + actions in a vertical ScrollView so the
         // Generate button stays reachable when the window is shorter than the
@@ -875,7 +877,7 @@ struct GenerateView: View {
         }
         .frame(minWidth: 400, idealWidth: 500)
     }
-    
+
     private var parametersPanel: some View {
         Group {
             if selectedModelID == MiniMaxH3Configuration.modelID {
@@ -902,22 +904,111 @@ struct GenerateView: View {
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
+    private var selectedH3Preset: MiniMaxH3Preset {
+        MiniMaxH3Preset(rawValue: h3PresetRaw) ?? .standard
+    }
+
     private var miniMaxH3ParametersPanel: some View {
         VStack(alignment: .leading, spacing: 14) {
             Label("MiniMax H3 (Experimental)", systemImage: "film.stack")
                 .font(.headline)
-            Text("Fixed MVP execution: 512×288 · 24 fps · 8 steps. Duration maps deterministically to the proven frame/chain ladder.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Active Preset: \(selectedH3Preset.displayName)")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                Text(selectedH3Preset.summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Divider()
-            Stepper(
-                "Requested Duration: \(Double(parameters.numFrames) / 24.0, specifier: "%.1f")s",
-                value: Binding(
-                    get: { Double(parameters.numFrames) / 24.0 },
-                    set: { parameters.numFrames = max(1, Int(($0 * 24.0).rounded())) }
-                ),
-                in: 1.0...9.5,
-                step: 0.5)
+
+            if selectedH3Preset == .custom {
+                // Resolution Tier Selector
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Resolution Tier", systemImage: "aspectratio")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Picker("", selection: Binding(
+                        get: {
+                            (parameters.width >= 640 || parameters.height >= 640)
+                                ? MiniMaxH3ResolutionTier.tier2
+                                : MiniMaxH3ResolutionTier.tier1
+                        },
+                        set: { tier in
+                            if tier == .tier2 {
+                                if parameters.height > parameters.width {
+                                    parameters.width = 384
+                                    parameters.height = 640
+                                } else {
+                                    parameters.width = 640
+                                    parameters.height = 384
+                                }
+                            } else {
+                                if parameters.height > parameters.width {
+                                    parameters.width = 288
+                                    parameters.height = 512
+                                } else {
+                                    parameters.width = 512
+                                    parameters.height = 288
+                                }
+                            }
+                        }
+                    )) {
+                        ForEach(MiniMaxH3ResolutionTier.allCases) { tier in
+                            Text(tier.displayName).tag(tier)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                // Custom Duration Stepper (1.0s to 6.0s)
+                VStack(alignment: .leading, spacing: 6) {
+                    let requestedSec = Double(parameters.numFrames) / 24.0
+                    let clampedSec = max(1.0, min(6.0, requestedSec))
+                    let legalFrames = MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: clampedSec)
+                    Stepper(
+                        "Duration: \(clampedSec, specifier: "%.1f")s (\(legalFrames) frames)",
+                        value: Binding(
+                            get: { max(1.0, min(6.0, Double(parameters.numFrames) / 24.0)) },
+                            set: { parameters.numFrames = max(1, Int(($0 * 24.0).rounded())) }
+                        ),
+                        in: 1.0...6.0,
+                        step: 0.5)
+
+                    if MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: clampedSec) {
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .font(.caption)
+                            Text("5秒以上のH3動画では、後半にかけて細部や人物の一貫性が低下する場合があります。最高品質には3〜4秒を推奨します。")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                        }
+                        .padding(8)
+                        .background(Color.orange.opacity(0.1))
+                        .cornerRadius(6)
+                    }
+                }
+
+                // Custom Steps Stepper (6 to 20)
+                VStack(alignment: .leading, spacing: 6) {
+                    Stepper(
+                        "Inference Steps: \(parameters.numInferenceSteps)",
+                        value: Binding(
+                            get: { max(6, min(20, parameters.numInferenceSteps)) },
+                            set: { parameters.numInferenceSteps = max(6, min(20, $0)) }
+                        ),
+                        in: 6...20,
+                        step: 1)
+                }
+            } else {
+                Text("Fixed execution settings are optimized for this preset. For manual resolution tiers, duration, and steps, choose Custom.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             VStack(alignment: .leading, spacing: 8) {
                 Label("Seed", systemImage: "dice")
                     .font(.subheadline)
@@ -942,9 +1033,7 @@ struct GenerateView: View {
                     }
                 }
             }
-            Text("Unsupported LTX controls are intentionally hidden. Actual returned frames, duration, resolution, and audio state are recorded in Video Archive.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+
             Spacer()
         }
         .padding()
@@ -959,9 +1048,9 @@ struct TipsView: View {
         "Use the same seed to regenerate similar results",
         "Negative prompts help remove unwanted elements"
     ]
-    
+
     @State private var currentTip = 0
-    
+
     var body: some View {
         HStack {
             Image(systemName: "lightbulb.fill")
@@ -978,7 +1067,7 @@ struct TipsView: View {
                 .fill(Color.yellow.opacity(0.1))
         )
     }
-    
+
     private var nextButton: some View {
         Button {
             withAnimation {

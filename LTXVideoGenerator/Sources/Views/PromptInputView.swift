@@ -4,13 +4,13 @@ import UniformTypeIdentifiers
 struct PromptInputView: View {
     @EnvironmentObject var presetManager: PresetManager
     @EnvironmentObject var characterProfileManager: CharacterProfileManager
-    
+
     @Binding var prompt: String
     @Binding var negativePrompt: String
     @Binding var voiceoverText: String
     @Binding var parameters: GenerationParameters
     var onPrimarySubmissionQueued: () -> Void = {}
-    
+
     @State private var showNegativePrompt = false
     @State private var showVoiceover = false
     @State private var showMusic = false
@@ -20,7 +20,7 @@ struct PromptInputView: View {
     @State private var isSubmitting = false
     @State private var submissionError: String?
     @FocusState private var isPromptFocused: Bool
-    
+
     // Audio settings
     private var elevenLabsApiKey: String {
         KeychainCredentialStore.shared.elevenLabsApiKey
@@ -40,6 +40,7 @@ struct PromptInputView: View {
     // Shared user-facing preset. QualityMode is derived centrally and remains
     // an internal execution detail.
     @AppStorage("generationPreset") private var presetRaw = GenerationPreset.standard.rawValue
+    @AppStorage("minimaxH3GenerationPreset") private var h3PresetRaw = MiniMaxH3Preset.standard.rawValue
     @AppStorage(FeatureFlag.autoQualityV1.userDefaultsKey) private var autoQualityEnabled = FeatureFlag.autoQualityV1.defaultEnabled
     @AppStorage(FeatureFlag.modelRegistryV1.userDefaultsKey) private var modelRegistryEnabled = FeatureFlag.modelRegistryV1.defaultEnabled
 
@@ -84,7 +85,7 @@ struct PromptInputView: View {
                 request: resolved,
                 profile: nil,
                 attemptLadder: [],
-                reason: "MiniMax H3 experimental timing policy")
+                reason: "MiniMax H3 \(selectedH3Preset.displayName) preset")
         }
         guard autoQualityEnabled else {
             return ResolvedGenerationSettings(
@@ -198,6 +199,10 @@ struct PromptInputView: View {
         GenerationPreset(rawValue: presetRaw) ?? .standard
     }
 
+    private var selectedH3Preset: MiniMaxH3Preset {
+        MiniMaxH3Preset(rawValue: h3PresetRaw) ?? .standard
+    }
+
     private var isMiniMaxH3Selected: Bool {
         selectedModelID == MiniMaxH3Configuration.modelID
     }
@@ -220,7 +225,8 @@ struct PromptInputView: View {
     private var resolutionSummary: String {
         if isMiniMaxH3Selected {
             let effective = effectiveParametersForPreflight
-            return "H3 fixed MVP · \(effective.width)×\(effective.height) · \(effective.fps) fps · \(effective.numInferenceSteps) steps · chain \(preflightSettings.request.minimaxH3ChainWindows ?? 1)"
+            let displayDuration = MiniMaxH3FrameGrid.displayDurationText(forFrames: effective.numFrames)
+            return "\(selectedH3Preset.displayName) · \(effective.width)×\(effective.height) · \(displayDuration) · \(effective.numInferenceSteps) steps"
         }
         if let profile = preflightSettings.profile {
             let effective = effectiveParametersForPreflight
@@ -231,7 +237,7 @@ struct PromptInputView: View {
         }
         return effectiveResolutionNote ?? ""
     }
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Main prompt
@@ -239,7 +245,7 @@ struct PromptInputView: View {
                 Label("Prompt", systemImage: "text.bubble.fill")
                     .font(.headline)
                     .foregroundStyle(.secondary)
-                
+
                 TextEditor(text: $prompt)
                     .font(.body)
                     .frame(minHeight: 80, maxHeight: 120)
@@ -308,7 +314,7 @@ struct PromptInputView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
-            
+
             // Gemma Prompt Enhancement is an LTX-side feature. H3 performs
             // renderer-specific structural compilation without invoking it.
             if isMiniMaxH3Selected {
@@ -336,7 +342,7 @@ struct PromptInputView: View {
                         format: "%.2f"
                     )
                     .disabled(!enableGemmaPromptEnhancement)
-                    
+
                     ParameterSlider(
                         title: "Top-P",
                         value: $gemmaTopP,
@@ -346,7 +352,7 @@ struct PromptInputView: View {
                         format: "%.2f"
                     )
                     .disabled(!enableGemmaPromptEnhancement)
-                    
+
                     if enableGemmaPromptEnhancement {
                         Text("Controls prompt rewriting. Higher repetition penalty reduces repeated phrases. Lower top-p makes output more focused.")
                             .font(.caption)
@@ -386,7 +392,7 @@ struct PromptInputView: View {
             ) {
                 MiniMaxH3ImageGroundingRecommendationView(recommendation: recommendation)
             }
-            
+
             // Image-to-Video section
             DisclosureGroup(isExpanded: $showImageToVideo) {
                 VStack(alignment: .leading, spacing: 12) {
@@ -402,17 +408,17 @@ struct PromptInputView: View {
                                     RoundedRectangle(cornerRadius: 8)
                                         .stroke(Color.accentColor, lineWidth: 2)
                                 )
-                            
+
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(URL(fileURLWithPath: imagePath).lastPathComponent)
                                     .font(.caption)
                                     .fontWeight(.medium)
                                     .lineLimit(1)
-                                
+
                                 Text("\(Int(thumbnail.size.width))x\(Int(thumbnail.size.height))")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
-                                
+
                                 Button(role: .destructive) {
                                     clearSourceImage()
                                 } label: {
@@ -422,7 +428,7 @@ struct PromptInputView: View {
                                 .buttonStyle(.plain)
                                 .foregroundStyle(.red)
                             }
-                            
+
                             Spacer()
                         }
                         .padding(8)
@@ -444,11 +450,11 @@ struct PromptInputView: View {
                         }
                         .buttonStyle(.bordered)
                     }
-                    
+
                     Text("Select an image to use as the first frame. Your prompt should describe the motion/action.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    
+
                     if let warning = sourceImageCropWarning {
                         HStack(alignment: .top, spacing: 6) {
                             Image(systemName: "exclamationmark.triangle.fill")
@@ -493,7 +499,7 @@ struct PromptInputView: View {
                     Label("Image to Video", systemImage: "photo.on.rectangle.angled")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    
+
                     if sourceImagePath != nil {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.green)
@@ -501,7 +507,7 @@ struct PromptInputView: View {
                     }
                 }
             }
-            
+
             // The proven H3 API has no negative-prompt field.
             if !isMiniMaxH3Selected {
                 DisclosureGroup(isExpanded: $showNegativePrompt) {
@@ -520,7 +526,7 @@ struct PromptInputView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            
+
             // Audio included banner for unified model
             if selectedModel.supportsBuiltInAudio {
                 HStack(alignment: .top, spacing: 8) {
@@ -533,7 +539,7 @@ struct PromptInputView: View {
                             set: { disableAudio = !$0 }
                         ))
                         .font(.caption.bold())
-                        
+
                         Text(disableAudio
                             ? (selectedModelID == MiniMaxH3Configuration.modelID
                                 ? "Audio will be omitted from the saved MP4. The current H3 runtime still returns audio internally."
@@ -548,7 +554,7 @@ struct PromptInputView: View {
                 .background(disableAudio ? Color.secondary.opacity(0.05) : Color.green.opacity(0.1))
                 .cornerRadius(8)
             }
-            
+
             // Voiceover narration toggle
             DisclosureGroup(isExpanded: $showVoiceover) {
                 VStack(alignment: .leading, spacing: 12) {
@@ -557,7 +563,7 @@ struct PromptInputView: View {
                         Text("Source:")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        
+
                         Picker("", selection: $voiceoverSource) {
                             ForEach(AudioSource.allCases) { source in
                                 Text(source.displayName).tag(source)
@@ -566,7 +572,7 @@ struct PromptInputView: View {
                         .pickerStyle(.segmented)
                         .frame(maxWidth: 280)
                     }
-                    
+
                     // ElevenLabs API key warning
                     if voiceoverSource == .elevenLabs && elevenLabsApiKey.isEmpty {
                         HStack(spacing: 6) {
@@ -581,13 +587,13 @@ struct PromptInputView: View {
                         .background(Color.orange.opacity(0.1))
                         .cornerRadius(6)
                     }
-                    
+
                     // Voice selection
                     HStack {
                         Text("Voice:")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        
+
                         if voiceoverSource == .elevenLabs {
                             Picker("", selection: $selectedElevenLabsVoice) {
                                 ForEach(ElevenLabsVoice.defaultVoices) { voice in
@@ -603,10 +609,10 @@ struct PromptInputView: View {
                             }
                             .frame(maxWidth: 220)
                         }
-                        
+
                         Spacer()
                     }
-                    
+
                     // Narration text
                     TextEditor(text: $voiceoverText)
                         .font(.body)
@@ -617,14 +623,14 @@ struct PromptInputView: View {
                             RoundedRectangle(cornerRadius: 12)
                                 .fill(Color(nsColor: .controlBackgroundColor))
                         )
-                    
+
                     HStack {
                         Text("Optional narration text. Add audio later from History view.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        
+
                         Spacer()
-                        
+
                         if voiceoverSource == .elevenLabs {
                             Image(systemName: "questionmark.circle")
                                 .foregroundStyle(.blue)
@@ -638,7 +644,7 @@ struct PromptInputView: View {
                     Label("Voiceover / Narration", systemImage: "waveform")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    
+
                     if !voiceoverText.isEmpty {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.green)
@@ -646,14 +652,14 @@ struct PromptInputView: View {
                     }
                 }
             }
-            
+
             // Background Music toggle
             DisclosureGroup(isExpanded: $showMusic) {
                 VStack(alignment: .leading, spacing: 12) {
                     // Enable toggle
                     Toggle("Generate background music", isOn: $musicEnabled)
                         .font(.subheadline)
-                    
+
                     if musicEnabled {
                         // ElevenLabs API key warning
                         if elevenLabsApiKey.isEmpty {
@@ -669,13 +675,13 @@ struct PromptInputView: View {
                             .background(Color.orange.opacity(0.1))
                             .cornerRadius(6)
                         }
-                        
+
                         // Genre selection with categories
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Genre:")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            
+
                             Picker("", selection: $selectedMusicGenre) {
                                 ForEach(MusicGenre.groupedByCategory, id: \.category) { group in
                                     Section(header: Text(group.category)) {
@@ -687,7 +693,7 @@ struct PromptInputView: View {
                             }
                             .frame(maxWidth: 300)
                         }
-                        
+
                         Text("Music will be generated using ElevenLabs Music API and mixed with your video.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -698,7 +704,7 @@ struct PromptInputView: View {
                     Label("Background Music", systemImage: "music.note")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    
+
                     if musicEnabled {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.green)
@@ -706,7 +712,7 @@ struct PromptInputView: View {
                     }
                 }
             }
-            
+
             if let heavyHint = heavyEncoderCombinationWarning, !dismissedHeavyEncoderComboHint {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -731,7 +737,7 @@ struct PromptInputView: View {
             }
 
             // Model + Quality row (model registry / auto quality features)
-            if modelRegistryEnabled || autoQualityEnabled {
+            if modelRegistryEnabled || autoQualityEnabled || isMiniMaxH3Selected {
                 HStack(spacing: 16) {
                     if modelRegistryEnabled {
                         Picker("Model", selection: $selectedModelID) {
@@ -743,7 +749,16 @@ struct PromptInputView: View {
                         .fixedSize()
                         .help("Select active generation model from the registry.")
                     }
-                    if autoQualityEnabled && !isMiniMaxH3Selected {
+                    if isMiniMaxH3Selected {
+                        Picker("Preset", selection: $h3PresetRaw) {
+                            ForEach(MiniMaxH3Preset.allCases) { preset in
+                                Text(preset.displayName).tag(preset.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .help(selectedH3Preset.summary)
+                    } else if autoQualityEnabled {
                         Picker("Preset", selection: $presetRaw) {
                             ForEach(GenerationPreset.allCases) { preset in
                                 Text(preset.displayName).tag(preset.rawValue)
@@ -752,14 +767,15 @@ struct PromptInputView: View {
                         .pickerStyle(.menu)
                         .fixedSize()
                         .help(selectedPreset.summary)
-                    } else if isMiniMaxH3Selected {
-                        Text(resolutionSummary)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
                     Spacer()
                     // Requested vs effective resolution (64-px alignment is never silent).
-                    if !isMiniMaxH3Selected && (effectiveResolutionNote != nil || qualityOverridesParameters) {
+                    if isMiniMaxH3Selected {
+                        Text(resolutionSummary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .help("MiniMax H3 uses dedicated resolution tiers, steps, and duration presets.")
+                    } else if effectiveResolutionNote != nil || qualityOverridesParameters {
                         Text(resolutionSummary)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -797,7 +813,7 @@ struct PromptInputView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .disabled(isSubmitting || (generationActionsDisabled && DependencyHealthManager.shared.canStartGeneration))
-                
+
                 // Add to queue button
                 Button {
                     requestSingleGeneration(dismissAfterSubmission: false)
@@ -807,7 +823,7 @@ struct PromptInputView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.large)
                 .disabled(generationActionsDisabled)
-                
+
                 // Batch button
                 Menu {
                     Button("Generate 3 variations") {
@@ -850,7 +866,7 @@ struct PromptInputView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            
+
         }
         .padding()
         .sheet(isPresented: $showEnhancedPreview) {
@@ -945,7 +961,7 @@ struct PromptInputView: View {
         }
         await MainActor.run { isPreviewing = false }
     }
-    
+
     private func generateVideo(dismissAfterSubmission: Bool) {
         submissionError = nil
         isSubmitting = true
@@ -983,8 +999,8 @@ struct PromptInputView: View {
             modelId: selectedModelID,
             textEncoderId: selectedTextEncoderID,
             parameters: parameters,
-            qualityMode: autoQualityEnabled ? qualityModeRaw : nil,
-            preset: autoQualityEnabled ? selectedPreset.rawValue : nil,
+            qualityMode: isMiniMaxH3Selected ? nil : (autoQualityEnabled ? qualityModeRaw : nil),
+            preset: isMiniMaxH3Selected ? selectedH3Preset.rawValue : (autoQualityEnabled ? selectedPreset.rawValue : nil),
             generationSource: "generate"
         )
     }
@@ -1057,7 +1073,7 @@ struct PromptInputView: View {
         }
         generateVideo(dismissAfterSubmission: dismissAfterSubmission)
     }
-    
+
     private func generateBatch(count: Int) {
         let requests = (0..<count).map { _ in
             makeGenerationRequest(
@@ -1109,9 +1125,9 @@ struct PromptInputView: View {
             generateBatch(count: count)
         }
     }
-    
+
     // MARK: - Image Selection
-    
+
     private func selectSourceImage() {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
@@ -1120,7 +1136,7 @@ struct PromptInputView: View {
         panel.allowedContentTypes = [.image, .png, .jpeg, .webP]
         panel.message = "Select source image for image-to-video generation"
         panel.prompt = "Select"
-        
+
         if panel.runModal() == .OK, let url = panel.url {
             storedImagePath = url.path
             loadThumbnail(from: url)
@@ -1129,25 +1145,25 @@ struct PromptInputView: View {
                 for: parameters,
                 sourceOrientation: orientation
             )
-            
+
             // Auto-expand the section when image is selected
             showImageToVideo = true
         }
     }
-    
+
     private func loadThumbnail(from url: URL) {
         if let image = NSImage(contentsOf: url) {
             // Create a smaller thumbnail for display
             let maxSize: CGFloat = 160
             let aspectRatio = image.size.width / image.size.height
-            
+
             let thumbnailSize: NSSize
             if aspectRatio > 1 {
                 thumbnailSize = NSSize(width: maxSize, height: maxSize / aspectRatio)
             } else {
                 thumbnailSize = NSSize(width: maxSize * aspectRatio, height: maxSize)
             }
-            
+
             let thumbnail = NSImage(size: thumbnailSize)
             thumbnail.lockFocus()
             image.draw(in: NSRect(origin: .zero, size: thumbnailSize),
@@ -1155,11 +1171,11 @@ struct PromptInputView: View {
                       operation: .copy,
                       fraction: 1.0)
             thumbnail.unlockFocus()
-            
+
             sourceImageThumbnail = thumbnail
         }
     }
-    
+
     private func clearSourceImage() {
         storedImagePath = ""
         sourceImageThumbnail = nil

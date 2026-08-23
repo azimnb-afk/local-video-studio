@@ -37,6 +37,18 @@ struct AutoMoviePlanPreviewSection: View {
                 Text("Review Action, Camera, and Cut / Continue before generation. Durations and sources stay derived from the plan.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                if ContinuityChainPolicy.hasLongContinueChainWarning(shots: project.shots, modelID: project.settings.modelID) {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                            .font(.caption)
+                        Text(ContinuityChainPolicy.longContinueChainWarningJapanese)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.orange.opacity(0.1)))
+                }
                 if let newStartFrameError {
                     Text(newStartFrameError).font(.caption2).foregroundStyle(.red)
                 }

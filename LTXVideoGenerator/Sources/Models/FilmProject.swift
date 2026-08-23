@@ -775,6 +775,14 @@ struct Shot: Codable, Equatable, Identifiable {
     /// Preview and for the compiled prompt's closing sentence.
     var endStateSummary: String?
 
+    // MARK: - Continuity Chain & Exact Frame Provenance
+    /// Number of consecutive previous shots continuing into this one (0 for Cut or opening shot, 1 for 1st continue, 2 for 2nd continue, etc.)
+    var continueChainIndex: Int?
+    /// Exact planned frame count on legal hardware grid (e.g. 90, 73, 56 for H3 17k+5)
+    var effectiveFrames: Int?
+    /// Exact projected or actual duration derived from effectiveFrames / fps
+    var actualDurationSeconds: Double?
+
     var selectedTake: Take? {
         guard let selectedTakeID else { return nil }
         return takes.first { $0.id == selectedTakeID }
@@ -871,7 +879,8 @@ struct Shot: Codable, Equatable, Identifiable {
              identityRefreshAnchorRelativePath, identityRefreshAnchorOrigin,
              identityRefreshAnchorSourceShotID, identityRefreshSourceTakeID,
              identityRefreshNote,
-             shotPurpose, actionBeatCount, consultedKnowledgeIDs, endStateSummary
+             shotPurpose, actionBeatCount, consultedKnowledgeIDs, endStateSummary,
+             effectiveFrames, actualDurationSeconds, continueChainIndex
     }
 
     init(from decoder: Decoder) throws {
@@ -925,6 +934,9 @@ struct Shot: Codable, Equatable, Identifiable {
         actionBeatCount = try container.decodeIfPresent(Int.self, forKey: .actionBeatCount)
         consultedKnowledgeIDs = try container.decodeIfPresent([String].self, forKey: .consultedKnowledgeIDs) ?? []
         endStateSummary = try container.decodeIfPresent(String.self, forKey: .endStateSummary)
+        effectiveFrames = try container.decodeIfPresent(Int.self, forKey: .effectiveFrames)
+        actualDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .actualDurationSeconds)
+        continueChainIndex = try container.decodeIfPresent(Int.self, forKey: .continueChainIndex)
     }
 }
 

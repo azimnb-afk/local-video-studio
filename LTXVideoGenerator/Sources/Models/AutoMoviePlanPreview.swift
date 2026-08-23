@@ -29,6 +29,12 @@ struct AutoMoviePlanPreview: Equatable {
         var purposeLabel: String = ""
         /// Director-authored ending state, empty when none was given.
         var endStateText: String = ""
+        /// Planned legal frames (e.g. 90, 73, 56 for H3 17k+5)
+        var effectiveFrames: Int? = nil
+        /// Projected exact duration
+        var actualDurationSeconds: Double? = nil
+        /// Continuity chain index
+        var continueChainIndex: Int? = nil
 
         /// "~5 sec" — never a frame-exact claim.
         var approximateDurationText: String {
@@ -86,7 +92,10 @@ struct AutoMoviePlanPreview: Equatable {
                 continuityIntent: effectiveMode.displayName,
                 isGenerated: shot.takes.contains { $0.status == .completed },
                 purposeLabel: shot.shotPurpose?.shortLabel ?? "",
-                endStateText: shot.endStateSummary ?? ""
+                endStateText: shot.endStateSummary ?? "",
+                effectiveFrames: shot.effectiveFrames,
+                actualDurationSeconds: shot.actualDurationSeconds,
+                continueChainIndex: shot.continueChainIndex
             )
         }
         return preview

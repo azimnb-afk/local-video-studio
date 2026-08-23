@@ -424,3 +424,130 @@ enum MiniMaxH3PromptCompiler {
 private extension String {
     var h3Trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
 }
+
+// MARK: - MiniMax H3 Duration Solver (Deterministic Optimization)
+
+struct MiniMaxH3DurationSolver {
+    static let maximumShots = 12
+    static let fps = 24
+    static let legalLadder = [22, 39, 56, 73, 90, 107, 124, 141]
+
+    /// Solves for the optimal per-shot legal frame counts on the 17k+5 grid
+    /// that minimize abs(sum(frames) - targetDurationSeconds * 24), bounded by
+    /// the preset safe maximum and maximum 12 shots.
+    static func solve(
+        targetDurationSeconds: Double,
+        preset: MiniMaxH3Preset,
+        customDurationSeconds: Double? = nil
+    ) -> [Int]? {
+        let targetFrames = Int((targetDurationSeconds * Double(fps)).rounded())
+        guard targetFrames > 0 else { return nil }
+
+        let safeMaxSeconds: Double
+        if preset == .custom {
+            safeMaxSeconds = min(6.0, max(1.0, customDurationSeconds ?? 4.0))
+        } else {
+            safeMaxSeconds = preset.perShotSafeMaxDurationSeconds
+        }
+        let safeMaxFrames = MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: safeMaxSeconds)
+        let ladder = legalLadder.filter { $0 <= safeMaxFrames }
+        guard !ladder.isEmpty else { return nil }
+
+        let minShots = max(1, Int(ceil(Double(targetFrames) / Double(safeMaxFrames))))
+        if minShots > maximumShots {
+            // Capacity exceeded: 12 shots cannot represent requested duration within preset cap (fail closed)
+            return nil
+        }
+
+        let maxShots = min(maximumShots, minShots + 1)
+
+        var bestCombination: [Int]? = nil
+        var bestError = Int.max
+        var bestCount = Int.max
+        var bestSpread = Int.max
+
+        for k in minShots...maxShots {
+            var currentComb = [Int](repeating: ladder[0], count: k)
+
+            func search(index: Int, startLadderIdx: Int, currentSum: Int) {
+                if index == k {
+                    let err = abs(currentSum - targetFrames)
+                    let spread = currentComb.last! - currentComb.first!
+
+                    var isBetter = false
+                    if err < bestError {
+                        isBetter = true
+                    } else if err == bestError {
+                        if k < bestCount {
+                            isBetter = true
+                        } else if k == bestCount {
+                            if spread < bestSpread {
+                                isBetter = true
+                            }
+                        }
+                    }
+
+                    if isBetter {
+                        bestError = err
+                        bestCount = k
+                        bestSpread = spread
+                        bestCombination = currentComb
+                    }
+                    return
+                }
+
+                let remaining = k - index
+                let minPossible = currentSum + remaining * ladder[startLadderIdx]
+                if minPossible - targetFrames > bestError {
+                    return
+                }
+
+                for lIdx in startLadderIdx..<ladder.count {
+                    currentComb[index] = ladder[lIdx]
+                    search(index: index + 1, startLadderIdx: lIdx, currentSum: currentSum + ladder[lIdx])
+                }
+            }
+
+            search(index: 0, startLadderIdx: 0, currentSum: 0)
+        }
+
+        // Return descending for intuitive front-weighting if weights are equal
+        return bestCombination?.sorted(by: >)
+    }
+}
+
+// MARK: - Continuity Chain Guidance Policy
+
+enum ContinuityChainPolicy {
+    /// Threshold at which consecutive CONTINUE shots trigger a quality guidance warning
+    /// (0-indexed: index 0 is first shot/Cut, 1 is 2nd shot, 2 is 3rd shot, 3 is 4th shot).
+    static let warningThresholdChainIndex = 3
+    static let safeChainLength = "2–3 shots"
+
+    /// Updates `continueChainIndex` on each shot deterministically.
+    static func updateContinueChainIndices(shots: inout [Shot]) {
+        var currentChain = 0
+        for i in shots.indices {
+            if i == 0 || shots[i].continuityMode == .cut {
+                currentChain = 0
+            } else if shots[i].continuityMode == .continueFromPrevious || shots[i].continuityMode == .auto {
+                currentChain += 1
+            } else {
+                currentChain = 0
+            }
+            shots[i].continueChainIndex = currentChain
+        }
+    }
+
+    /// True if any shot in the movie reaches the 4+ consecutive CONTINUE chain warning threshold under MiniMax H3.
+    static func hasLongContinueChainWarning(shots: [Shot], modelID: String) -> Bool {
+        guard modelID == MiniMaxH3Configuration.modelID else { return false }
+        return shots.contains { ($0.continueChainIndex ?? 0) >= warningThresholdChainIndex }
+    }
+
+    static let longContinueChainWarningJapanese =
+        "H3で長いCONTINUE連鎖を使用すると、ショットを重ねるごとに細部や人物の鮮明さが徐々に低下する場合があります。最高品質には2〜3ショットごとのシーン切替を推奨します。"
+
+    static let longContinueChainWarningEnglish =
+        "Long H3 CONTINUE chains may gradually lose fine detail or identity sharpness across generations. For best quality, consider a scene break after 2–3 consecutive shots."
+}

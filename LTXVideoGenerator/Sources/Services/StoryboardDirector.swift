@@ -1368,6 +1368,7 @@ final class HybridProjectCoordinator {
             )
         }
         project.shots = ContinuityReconciler.reconcile(shots: project.shots)
+        ContinuityChainPolicy.updateContinueChainIndices(shots: &project.shots)
         project.workflowMode = "hybrid"
         for index in project.shots.indices {
             CharacterPromptPipeline.recompilePlan(project: &project, shotIndex: index)
@@ -1418,27 +1419,38 @@ final class HybridProjectCoordinator {
         var shots: [Shot] = []
 
         if settings.modelID == MiniMaxH3Configuration.modelID {
-            let targetPerShot = target / Double(plan.segments.count)
-            let clampedDuration = min(effectiveMaxSecondsPerShot, targetPerShot)
-            let legalFrames = MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: clampedDuration)
-            let effectiveDuration = Double(legalFrames) / 24.0
-
+            let h3Preset = settings.resolvedMiniMaxH3Preset
+            var initialShots: [Shot] = []
             for (index, segment) in plan.segments.enumerated() {
                 var shot = Shot(index: index)
                 shot.title = "Shot \(index + 1)"
                 shot.summary = segment.literalPrompt
                 shot.compiledPrompt = segment.literalPrompt
                 shot.baseCompiledPrompt = segment.literalPrompt
-                shot.durationSeconds = effectiveDuration
                 shot.plannedContinuityMode = segment.transition
                 shot.continuityMode = segment.transition
                 shot.continuityReconciliationReason = segment.structuralBoundaryReason
                 shot.camera = CameraPlan()
                 shot.takes = []
                 shot.selectedTakeID = nil
-                shots.append(shot)
+                initialShots.append(shot)
             }
+
+            shots = AutoMovieDurationPlanner.normalizeForH3(
+                shots: initialShots,
+                targetDurationSeconds: target,
+                preset: h3Preset,
+                customDurationSeconds: settings.minimaxH3CustomDuration
+            )
         } else {
+            let effectiveMaxSecondsPerShot = Double(AutoMovieDurationPlanner.maximumFrameCount - 1) / Double(max(1, settings.fps))
+
+            try StructuralMoviePlanner.validateCapacity(
+                requestedTotalDuration: target,
+                shotCount: plan.segments.count,
+                maximumSecondsPerShot: effectiveMaxSecondsPerShot
+            )
+
             let fps = max(1, settings.fps)
             let frameStride = 8
             let minimumFrameCount = AutoMovieDurationPlanner.minimumFrameCount // 25
@@ -1489,6 +1501,7 @@ final class HybridProjectCoordinator {
         project.settings = settings
         project.characterBible = characterBible
         project.shots = shots
+        ContinuityChainPolicy.updateContinueChainIndices(shots: &project.shots)
         project.workflowMode = "hybrid"
         project.directorProvider = "Direct"
         project.planningMode = "Direct (No Director)"

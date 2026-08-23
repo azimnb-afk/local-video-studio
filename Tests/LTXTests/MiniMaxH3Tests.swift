@@ -1291,9 +1291,11 @@ func runMiniMaxH3Tests(_ t: TestKit) {
         ]
         let normalizedH3Standard = AutoMovieDurationPlanner.normalizeForH3(
             shots: mockShots, targetDurationSeconds: 12.0, preset: .standard)
-        t.checkEqual(normalizedH3Standard.count, 3, "12s Standard Auto Movie keeps 3 shots")
+        t.checkEqual(normalizedH3Standard.count, 4, "12s Standard Auto Movie optimizes to 4 shots for minimal error")
+        let totalNormalized12 = normalizedH3Standard.reduce(0) { $0 + ($1.effectiveFrames ?? 0) }
+        t.checkEqual(totalNormalized12, 292, "12s Standard produces 292 frames (12.17s, error +4f)")
         for shot in normalizedH3Standard {
-            t.checkEqual(shot.durationSeconds, 90.0 / 24.0, "Each shot is 90 frames (3.75s) for Standard")
+            t.check((shot.effectiveFrames ?? 0) <= 90, "Each shot is <= 90 frames for Standard")
         }
 
         // 4. Auto Movie with 20s target and Standard preset (4s safe max -> expands to 5 shots)
@@ -1391,5 +1393,160 @@ func runMiniMaxH3Tests(_ t: TestKit) {
         t.check(MiniMaxH3FrameGrid.isLegalFrameCount(141), "141 is legal (17*8+5)")
         t.check(!MiniMaxH3FrameGrid.isLegalFrameCount(80), "80 is not legal")
         t.check(!MiniMaxH3FrameGrid.isLegalFrameCount(100), "100 is not legal")
+    }
+
+    t.suite("MiniMax H3 Auto Movie Duration Solver & Continuity Guidance") {
+        // 1. 12 sec Standard Duration Solver Optimization
+        guard let optimal12 = MiniMaxH3DurationSolver.solve(targetDurationSeconds: 12.0, preset: .standard) else {
+            t.check(false, "MiniMaxH3DurationSolver failed to solve 12.0s Standard")
+            return
+        }
+        let totalFrames12 = optimal12.reduce(0, +)
+        let errorFrames12 = abs(totalFrames12 - 288) // 12s * 24fps = 288 frames
+        t.check(errorFrames12 <= 4, "12s Standard total frames \(totalFrames12) has error <= 4 frames (actual: \(errorFrames12))")
+        t.check(errorFrames12 < 18, "New error (\(errorFrames12)f) is substantially better than old 270f error (18f)")
+        t.check(optimal12.count <= 12, "Shot count is <= 12 (actual: \(optimal12.count))")
+        for f in optimal12 {
+            t.check(f <= 90, "Shot frame \(f) <= 90 (Standard safe max)")
+            t.check(MiniMaxH3FrameGrid.isLegalFrameCount(f), "Shot frame \(f) is legal on 17k+5 grid")
+        }
+
+        // 2. 20 sec Standard Duration Solver Optimization
+        guard let optimal20 = MiniMaxH3DurationSolver.solve(targetDurationSeconds: 20.0, preset: .standard) else {
+            t.check(false, "MiniMaxH3DurationSolver failed to solve 20.0s Standard")
+            return
+        }
+        let totalFrames20 = optimal20.reduce(0, +)
+        let errorFrames20 = abs(totalFrames20 - 480) // 20s * 24fps = 480 frames
+        t.check(errorFrames20 <= 9, "20s Standard total frames \(totalFrames20) has error <= 9 frames (actual: \(errorFrames20))")
+        t.check(optimal20.count <= 12, "20s shot count is <= 12 (actual: \(optimal20.count))")
+        for f in optimal20 {
+            t.check(f <= 90, "Shot frame \(f) <= 90 (Standard safe max)")
+            t.check(MiniMaxH3FrameGrid.isLegalFrameCount(f), "Shot frame \(f) is legal on 17k+5 grid")
+        }
+
+        // 3. Quick Preset (safe max 73)
+        guard let optimalQuick = MiniMaxH3DurationSolver.solve(targetDurationSeconds: 6.0, preset: .quick) else {
+            t.check(false, "MiniMaxH3DurationSolver failed to solve 6.0s Quick")
+            return
+        }
+        let totalFramesQuick = optimalQuick.reduce(0, +)
+        t.check(abs(totalFramesQuick - 144) <= 2, "6s Quick total frames \(totalFramesQuick) close to 144")
+        for f in optimalQuick {
+            t.check(f <= 73, "Quick shot frame \(f) <= 73")
+            t.check(MiniMaxH3FrameGrid.isLegalFrameCount(f), "Quick shot frame \(f) is legal")
+        }
+
+        // 4. High Preset (safe max 90)
+        guard let optimalHigh = MiniMaxH3DurationSolver.solve(targetDurationSeconds: 12.0, preset: .high) else {
+            t.check(false, "MiniMaxH3DurationSolver failed to solve 12.0s High")
+            return
+        }
+        for f in optimalHigh {
+            t.check(f <= 90, "High shot frame \(f) <= 90")
+            t.check(MiniMaxH3FrameGrid.isLegalFrameCount(f), "High shot frame \(f) is legal")
+        }
+
+        // 5. Custom Preset (e.g. 5.0s -> 124f safe max)
+        guard let optimalCustom = MiniMaxH3DurationSolver.solve(
+            targetDurationSeconds: 15.0, preset: .custom, customDurationSeconds: 5.0) else {
+            t.check(false, "MiniMaxH3DurationSolver failed to solve 15.0s Custom")
+            return
+        }
+        for f in optimalCustom {
+            t.check(f <= 124, "Custom shot frame \(f) <= 124")
+            t.check(MiniMaxH3FrameGrid.isLegalFrameCount(f), "Custom shot frame \(f) is legal")
+        }
+
+        // 6. Capacity Limit & Fail Closed (e.g. 60s Standard: 12*90=1080 < 1440)
+        let overcapacity = MiniMaxH3DurationSolver.solve(targetDurationSeconds: 60.0, preset: .standard)
+        t.check(overcapacity == nil, "Overcapacity target returns nil (fail closed)")
+
+        // 7. Determinism (100 runs return identical allocations)
+        let runA = MiniMaxH3DurationSolver.solve(targetDurationSeconds: 12.0, preset: .standard)
+        for _ in 0..<100 {
+            let runB = MiniMaxH3DurationSolver.solve(targetDurationSeconds: 12.0, preset: .standard)
+            t.checkEqual(runA, runB, "Solver output is deterministic")
+        }
+
+        // 8. normalizeForH3 integration with Shot fields
+        var mockShots = [
+            Shot(index: 0, title: "Shot 1", summary: "Opening shot of traveler."),
+            Shot(index: 1, title: "Shot 2", summary: "Traveler walks through ancient forest.")
+        ]
+        let normalized = AutoMovieDurationPlanner.normalizeForH3(
+            shots: mockShots, targetDurationSeconds: 12.0, preset: .standard)
+        t.checkEqual(normalized.count, 4, "12s Standard normalizes to 4 shots")
+        for shot in normalized {
+            t.check(shot.effectiveFrames != nil, "effectiveFrames is populated")
+            t.check(shot.actualDurationSeconds != nil, "actualDurationSeconds is populated")
+            t.checkEqual(shot.durationSeconds, shot.actualDurationSeconds!, "durationSeconds equals actualDurationSeconds")
+            t.check(shot.continueChainIndex != nil, "continueChainIndex is populated")
+        }
+
+        // 9. Continuity Chain Policy & Warning Thresholds
+        var chain3Shots = [
+            Shot(index: 0, title: "Shot 1"),
+            Shot(index: 1, title: "Shot 2"),
+            Shot(index: 2, title: "Shot 3")
+        ]
+        chain3Shots[0].continuityMode = .cut
+        chain3Shots[1].continuityMode = .continueFromPrevious
+        chain3Shots[2].continuityMode = .continueFromPrevious
+        ContinuityChainPolicy.updateContinueChainIndices(shots: &chain3Shots)
+        t.checkEqual(chain3Shots[0].continueChainIndex, 0, "Shot 1 chain index is 0")
+        t.checkEqual(chain3Shots[1].continueChainIndex, 1, "Shot 2 chain index is 1")
+        t.checkEqual(chain3Shots[2].continueChainIndex, 2, "Shot 3 chain index is 2")
+        t.check(!ContinuityChainPolicy.hasLongContinueChainWarning(shots: chain3Shots, modelID: MiniMaxH3Configuration.modelID),
+                "3 shots CONTINUE chain has NO warning")
+
+        var chain4Shots = chain3Shots
+        var shot4 = Shot(index: 3, title: "Shot 4")
+        shot4.continuityMode = .continueFromPrevious
+        chain4Shots.append(shot4)
+        ContinuityChainPolicy.updateContinueChainIndices(shots: &chain4Shots)
+        t.checkEqual(chain4Shots[3].continueChainIndex, 3, "Shot 4 chain index is 3")
+        t.check(ContinuityChainPolicy.hasLongContinueChainWarning(shots: chain4Shots, modelID: MiniMaxH3Configuration.modelID),
+                "4 shots CONTINUE chain triggers warning")
+
+        // LTX model ID check: no warning
+        t.check(!ContinuityChainPolicy.hasLongContinueChainWarning(shots: chain4Shots, modelID: "ltx-video-0.9.1"),
+                "LTX model does NOT trigger H3 continue warning")
+
+        // 10. Cut resets chain index
+        var resetChainShots = chain4Shots
+        var shot5Cut = Shot(index: 4, title: "Shot 5")
+        shot5Cut.continuityMode = .cut
+        resetChainShots.append(shot5Cut)
+        var shot6Continue = Shot(index: 5, title: "Shot 6")
+        shot6Continue.continuityMode = .continueFromPrevious
+        resetChainShots.append(shot6Continue)
+        ContinuityChainPolicy.updateContinueChainIndices(shots: &resetChainShots)
+        t.checkEqual(resetChainShots[4].continueChainIndex, 0, "Shot 5 Cut resets chain index to 0")
+        t.checkEqual(resetChainShots[5].continueChainIndex, 1, "Shot 6 Continue has chain index 1")
+
+        // 11. Director OFF Structural Capacity Validation
+        let coordinator = HybridProjectCoordinator()
+        var h3Settings = ProjectSettings()
+        h3Settings.modelID = MiniMaxH3Configuration.modelID
+        h3Settings.minimaxH3Preset = MiniMaxH3Preset.standard.rawValue
+        h3Settings.targetDurationSeconds = 12.0
+
+        h3Await {
+            do {
+                let result12 = try await coordinator.makeProject(
+                    title: "Test Movie",
+                    brief: "1. The hero wakes up in the cave.\n2. Light filters through the ceiling.\n3. He heads toward the exit.",
+                    settings: h3Settings,
+                    characterBible: CharacterBible(),
+                    directorEnabled: false
+                )
+                t.checkEqual(result12.project.shots.count, 4, "Director OFF creates 4 optimized shots for 12s Standard")
+                t.checkEqual(result12.project.shots[0].summary, "The hero wakes up in the cave.", "Segment 1 content preserved")
+                t.check(result12.project.shots[0].effectiveFrames! <= 90, "Shot 1 frame <= 90")
+            } catch {
+                t.check(false, "Director OFF makeProject failed: \(error)")
+            }
+        }
     }
 }

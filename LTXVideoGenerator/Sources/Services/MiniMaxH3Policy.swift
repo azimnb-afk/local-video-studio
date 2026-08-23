@@ -432,9 +432,13 @@ struct MiniMaxH3DurationSolver {
     static let fps = 24
     static let legalLadder = [22, 39, 56, 73, 90, 107, 124, 141]
 
-    /// Solves for the optimal per-shot legal frame counts on the 17k+5 grid
-    /// that minimize abs(sum(frames) - targetDurationSeconds * 24), bounded by
-    /// the preset safe maximum and maximum 12 shots.
+    /// Solves for the optimal per-shot legal frame counts on the 17k+5 grid.
+    /// Optimization order:
+    /// 1. Minimum practical shot-count window [minShots, min(12, minShots + 1)] bounded by preset safe max (prevents micro-shot explosion).
+    /// 2. Duration error minimization abs(sum(frames) - targetFrames) within that window.
+    /// 3. Fewer shots when error is equal.
+    /// 4. Balanced shot durations (minimum frame spread).
+    /// 5. Deterministic stable descending ordering.
     static func solve(
         targetDurationSeconds: Double,
         preset: MiniMaxH3Preset,
@@ -546,8 +550,8 @@ enum ContinuityChainPolicy {
     }
 
     static let longContinueChainWarningJapanese =
-        "H3で長いCONTINUE連鎖を使用すると、ショットを重ねるごとに細部や人物の鮮明さが徐々に低下する場合があります。最高品質には2〜3ショットごとのシーン切替を推奨します。"
+        "4ショット以上続くH3 CONTINUEチェーンでは、ショットを重ねるごとに細部や人物の鮮明さが低下する場合があります。最高品質には2〜3ショットごとのシーン切替を推奨します。"
 
     static let longContinueChainWarningEnglish =
-        "Long H3 CONTINUE chains may gradually lose fine detail or identity sharpness across generations. For best quality, consider a scene break after 2–3 consecutive shots."
+        "In H3 CONTINUE chains lasting 4 or more shots, fine details and subject sharpness may gradually decay. For best quality, consider a scene cut every 2–3 shots."
 }

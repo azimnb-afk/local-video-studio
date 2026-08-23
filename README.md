@@ -3,7 +3,7 @@
 [![macOS](https://img.shields.io/badge/macOS-14.0+-blue.svg)](https://www.apple.com/macos/)
 [![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-M1%2FM2%2FM3%2FM4-orange.svg)](https://support.apple.com/en-us/HT211814)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/Release-v0.9.0--preview.12-purple.svg)](RELEASE_NOTES_v0.9.0-preview.12.md)
+[![Release](https://img.shields.io/badge/Release-v0.9.0--preview.13-purple.svg)](RELEASE_NOTES_v0.9.0-preview.13.md)
 
 **Create longer AI video sequences locally on Apple Silicon.**
 

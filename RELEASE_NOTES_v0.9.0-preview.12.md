@@ -17,7 +17,7 @@ Local Video Studio for Mac `v0.9.0-preview.12` introduces dedicated **MiniMax H3
   - Resolution: 512×288 (Landscape) / 288×512 (Portrait)
   - Duration: 4 sec (90 frames @ 24fps)
   - Steps: 10 steps
-  - Proven optimal balance between detail retention, prompt adherence, and generation speed.
+  - Recommended balance of detail, generation speed, and temporal stability.
 - **High Preset**:
   - Resolution: 640×384 (Landscape) / 384×640 (Portrait)
   - Duration: 4 sec (90 frames @ 24fps)
@@ -41,13 +41,13 @@ Local Video Studio for Mac `v0.9.0-preview.12` introduces dedicated **MiniMax H3
 
 ### 🛡️ Long Continuity Safety Guidance
 
-- **Chain Quality Warning**: Longer H3 clips and long CONTINUE chains may gradually lose fine detail. Local Video Studio now monitors consecutive continuation chains and displays non-blocking guidance when a chain exceeds 3 consecutive continuations (4+ shots), recommending a scene cut every 2–3 shots for maximum visual sharpness.
+- **Chain Quality Warning**: Longer H3 clips and long CONTINUE chains may gradually lose fine detail. Local Video Studio now displays non-blocking guidance when an H3 CONTINUE chain reaches 4 or more shots, recommending a scene break after 2–3 shots for best visual sharpness.
 
 ---
 
 ## Upgrading
 
-Download `Local.Video.Studio-0.9.0-preview.12.dmg`, open it, and drag **Local Video Studio** to your Applications folder. Existing projects, custom models, and archive history will remain fully intact.
+Download `Local.Video.Studio-0.9.0-preview.12.dmg`, open it, and drag **Local Video Studio** to your Applications folder. Existing projects, custom models, and archive history are preserved across the upgrade.
 
 ---
 

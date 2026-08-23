@@ -419,6 +419,10 @@ private struct NewStoryboardSheet: View {
     /// that explicit choice wins and is never re-seeded.
     @State private var userEditedDimensions = false
     @State private var characterBible = CharacterBible()
+    @State private var minimaxH3PresetRaw = MiniMaxH3Preset.standard.rawValue
+    @State private var minimaxH3TierRaw = MiniMaxH3ResolutionTier.tier1.rawValue
+    @State private var minimaxH3Steps: Int = 10
+    @State private var minimaxH3CustomDuration: Double = 4.0
     /// Held as a plain URL until Create: nothing is copied into a project while
     /// the sheet is open, so cancelling leaves no managed asset behind.
     @State private var openingReferenceURL: URL?
@@ -430,6 +434,14 @@ private struct NewStoryboardSheet: View {
 
     private var directorMode: DirectorMode {
         DirectorMode(rawValue: directorModeRaw) ?? .auto
+    }
+
+    private var minimaxH3Preset: MiniMaxH3Preset {
+        MiniMaxH3Preset(rawValue: minimaxH3PresetRaw) ?? .standard
+    }
+
+    private var minimaxH3Tier: MiniMaxH3ResolutionTier {
+        MiniMaxH3ResolutionTier(rawValue: minimaxH3TierRaw) ?? .tier1
     }
 
     var body: some View {
@@ -459,9 +471,9 @@ private struct NewStoryboardSheet: View {
                         ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
                     }
                 } else {
-                    Text("H3 fixed MVP · 512×288 · 24 fps · 8 steps")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Picker("Preset", selection: $minimaxH3PresetRaw) {
+                        ForEach(MiniMaxH3Preset.allCases) { Text($0.displayName).tag($0.rawValue) }
+                    }
                 }
                 Picker("Model", selection: $modelID) {
                     ForEach(ModelRegistry.shared.selectableModels()) { Text($0.displayName).tag($0.id) }
@@ -491,8 +503,60 @@ private struct NewStoryboardSheet: View {
                 // canvas, as long as the user has not picked a size themselves.
                 if presetRaw == GenerationPreset.custom.rawValue { reseedCustomDimensions() }
             }
-            if presetRaw == GenerationPreset.custom.rawValue
-                && modelID != MiniMaxH3Configuration.modelID {
+
+            if modelID == MiniMaxH3Configuration.modelID {
+                let orientation = SourceImageOrientationResolver.resolve(path: openingReferenceURL?.path)
+                Text(minimaxH3Preset.effectiveSummary(
+                    orientation: orientation,
+                    isAutoMovie: mode == .hybrid,
+                    customTier: minimaxH3Tier,
+                    customDurationSeconds: minimaxH3CustomDuration,
+                    customSteps: minimaxH3Steps
+                ))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                if minimaxH3Preset == .custom {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Picker("Resolution Tier", selection: $minimaxH3TierRaw) {
+                            ForEach(MiniMaxH3ResolutionTier.allCases) { Text($0.displayName).tag($0.rawValue) }
+                        }
+                        .pickerStyle(.segmented)
+
+                        HStack(spacing: 20) {
+                            Stepper(
+                                "Per-Shot Target: \(minimaxH3CustomDuration, specifier: "%.1f")s (\(MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: minimaxH3CustomDuration)) frames)",
+                                value: $minimaxH3CustomDuration,
+                                in: 1.0...6.0,
+                                step: 0.5
+                            )
+                            Stepper(
+                                "Inference Steps: \(minimaxH3Steps)",
+                                value: $minimaxH3Steps,
+                                in: 6...20,
+                                step: 1
+                            )
+                        }
+
+                        if MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: minimaxH3CustomDuration) {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.yellow)
+                                Text(mode == .hybrid
+                                     ? "1ショットあたり5秒以上のH3動画では、後半にかけて細部や人物の一貫性が低下する場合があります。最高品質には3〜4秒/ショットを推奨します。"
+                                     : "5秒以上のH3動画では、後半にかけて細部や人物の一貫性が低下する場合があります。最高品質には3〜4秒を推奨します。")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(8)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.yellow.opacity(0.1)))
+                        }
+                    }
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+                    .disabled(isCreating)
+                }
+            } else if presetRaw == GenerationPreset.custom.rawValue {
                 HStack {
                     Picker("Width", selection: $width) {
                         ForEach([320, 512, 640, 768, 896, 1024], id: \.self) { Text("\($0)").tag($0) }
@@ -614,17 +678,31 @@ private struct NewStoryboardSheet: View {
                     .disabled(isCreating)
                 Button {
                     var settings = ProjectSettings.usingCurrentSelections()
-                    let preset = GenerationPreset(rawValue: presetRaw) ?? .standard
-                    settings.applyPreset(preset)
-                    settings.modelID = modelID
-                    // Audio remains a deliberate choice for Quick (C3 with
-                    // audio, C2 without it). Width and height are Custom-only
-                    // controls, so never overwrite a selected preset with
-                    // stale sheet state.
-                    settings.audioEnabled = audioEnabled
-                    if preset == .custom {
-                        settings.width = width
-                        settings.height = height
+                    if modelID == MiniMaxH3Configuration.modelID {
+                        settings.modelID = modelID
+                        settings.minimaxH3Preset = minimaxH3PresetRaw
+                        settings.minimaxH3CustomTier = minimaxH3TierRaw
+                        settings.minimaxH3CustomSteps = minimaxH3Steps
+                        settings.minimaxH3CustomDuration = minimaxH3CustomDuration
+                        settings.fps = 24
+                        if minimaxH3Tier == .tier2 {
+                            settings.width = 640
+                            settings.height = 384
+                        } else {
+                            settings.width = 512
+                            settings.height = 288
+                        }
+                        settings.numInferenceSteps = (minimaxH3Preset == .custom) ? minimaxH3Steps : (minimaxH3Preset == .high ? 12 : (minimaxH3Preset == .quick ? 8 : 10))
+                        settings.audioEnabled = audioEnabled
+                    } else {
+                        let preset = GenerationPreset(rawValue: presetRaw) ?? .standard
+                        settings.applyPreset(preset)
+                        settings.modelID = modelID
+                        settings.audioEnabled = audioEnabled
+                        if preset == .custom {
+                            settings.width = width
+                            settings.height = height
+                        }
                     }
                     settings.targetDurationSeconds = mode == .hybrid ? targetDuration : nil
                     onCreate(
@@ -1026,6 +1104,15 @@ private struct ProjectSettingsEditor: View {
                         )) {
                             ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
                         }
+                    } else {
+                        Picker("Preset", selection: binding(
+                            get: { project.settings.resolvedMiniMaxH3Preset.rawValue },
+                            set: { raw, settings in
+                                settings.minimaxH3Preset = raw
+                            }
+                        )) {
+                            ForEach(MiniMaxH3Preset.allCases) { Text($0.displayName).tag($0.rawValue) }
+                        }
                     }
                     Picker("Model", selection: binding(
                         get: { project.settings.modelID },
@@ -1036,10 +1123,6 @@ private struct ProjectSettingsEditor: View {
                     Toggle("Audio", isOn: binding(
                         get: { project.settings.resolvedAudioEnabled },
                         set: { value, settings in
-                            // markCustom() freezes the current width/height as
-                            // an explicit choice, so the oriented size has to be
-                            // materialized first — otherwise toggling Audio on a
-                            // portrait project silently rewrites it to landscape.
                             settings.audioEnabled = value
                             if settings.modelID != MiniMaxH3Configuration.modelID {
                                 seedCustomDimensionsIfEnteringCustom(next: .custom, settings: &settings)
@@ -1050,10 +1133,58 @@ private struct ProjectSettingsEditor: View {
                     Spacer()
                 }
                 Text(project.settings.modelID == MiniMaxH3Configuration.modelID
-                     ? "Experimental H3 uses its fixed renderer-specific timing and resolution policy."
+                     ? project.settings.resolvedMiniMaxH3Preset.summary
                      : project.settings.resolvedPreset.summary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if project.settings.modelID == MiniMaxH3Configuration.modelID
+                    && project.settings.resolvedMiniMaxH3Preset == .custom {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Picker("Resolution Tier", selection: binding(
+                            get: { project.settings.minimaxH3CustomTier ?? MiniMaxH3ResolutionTier.tier1.rawValue },
+                            set: { $1.minimaxH3CustomTier = $0 }
+                        )) {
+                            ForEach(MiniMaxH3ResolutionTier.allCases) { Text($0.displayName).tag($0.rawValue) }
+                        }
+                        .pickerStyle(.segmented)
+
+                        HStack(spacing: 20) {
+                            Stepper(
+                                "Per-Shot Target: \(project.settings.minimaxH3CustomDuration ?? 4.0, specifier: "%.1f")s",
+                                value: binding(
+                                    get: { project.settings.minimaxH3CustomDuration ?? 4.0 },
+                                    set: { $1.minimaxH3CustomDuration = $0 }
+                                ),
+                                in: 1.0...6.0,
+                                step: 0.5
+                            )
+                            Stepper(
+                                "Inference Steps: \(project.settings.minimaxH3CustomSteps ?? 10)",
+                                value: binding(
+                                    get: { project.settings.minimaxH3CustomSteps ?? 10 },
+                                    set: { $1.minimaxH3CustomSteps = $0 }
+                                ),
+                                in: 6...20,
+                                step: 1
+                            )
+                        }
+
+                        if MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: project.settings.minimaxH3CustomDuration ?? 4.0) {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.yellow)
+                                Text("5秒以上のH3動画では、後半にかけて細部や人物の一貫性が低下する場合があります。最高品質には3〜4秒を推奨します。")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(8)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.yellow.opacity(0.1)))
+                        }
+                    }
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+                }
 
                 if project.settings.resolvedPreset == .custom
                     && project.settings.modelID != MiniMaxH3Configuration.modelID {
@@ -1083,7 +1214,17 @@ private struct ProjectSettingsEditor: View {
     private var resolutionSummary: String {
         let settings = project.settings
         if settings.modelID == MiniMaxH3Configuration.modelID {
-            return "H3 Effective 512×288 · 24 fps · 8 steps · up to \(String(format: "%.2f", MiniMaxH3DurationPolicy.maximumDurationSeconds))s per shot → Actual shown per completed Take"
+            let orientation = FilmProjectResolutionOrientationResolver.resolve(project: project, store: store)
+            let tier = MiniMaxH3ResolutionTier(rawValue: settings.minimaxH3CustomTier ?? "") ?? .tier1
+            let dur = settings.minimaxH3CustomDuration ?? 4.0
+            let steps = settings.minimaxH3CustomSteps ?? 10
+            return settings.resolvedMiniMaxH3Preset.effectiveSummary(
+                orientation: orientation,
+                isAutoMovie: project.workflowMode == "hybrid",
+                customTier: tier,
+                customDurationSeconds: dur,
+                customSteps: steps
+            ) + " → Actual shown per completed Take"
         }
         if settings.resolvedPreset == .custom {
             let effectiveWidth = (settings.width / 64) * 64

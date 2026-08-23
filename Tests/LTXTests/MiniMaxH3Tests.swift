@@ -913,35 +913,45 @@ func runMiniMaxH3Tests(_ t: TestKit) {
         t.checkEqual(GenerationPreset(rawValue: ltxPresetRaw)?.displayName, "High Quality", "LTX preset intact")
         t.checkEqual(MiniMaxH3Preset(rawValue: h3PresetRaw)?.displayName, "Quick", "H3 preset intact")
 
-        // 20. One Shot unchanged (uses plan with multi-window chain)
+        // 20. One Shot with H3 Preset Standard resolves cleanly to 90f, 10 steps
         let oneShotReq = GenerationRequest(
-            prompt: "One shot multi-window brief.",
+            prompt: "One shot brief.",
             modelId: MiniMaxH3Configuration.modelID,
             parameters: parameters,
-            targetDurationSeconds: 6.0,
+            preset: MiniMaxH3Preset.standard.rawValue,
+            targetDurationSeconds: 4.0,
             generationSource: "oneShot")
         let oneShotResolved = try MiniMaxH3DurationPolicy.applying(to: oneShotReq)
-        t.checkEqual(oneShotResolved.minimaxH3ChainWindows, 4, "One shot 6.0s resolves to 4 chain windows")
-        t.checkEqual(oneShotResolved.minimaxH3ExpectedFrames, 153, "One shot 6.0s expected total frames 153")
+        t.checkEqual(oneShotResolved.parameters.numFrames, 90, "One shot Standard resolves to 90 frames")
+        t.checkEqual(oneShotResolved.parameters.numInferenceSteps, 10, "One shot Standard resolves to 10 steps")
+        t.checkEqual(oneShotResolved.minimaxH3ChainWindows, 1, "One shot Standard uses 1 window")
 
-        // 21. Auto Movie unchanged
+        // 21. Auto Movie with H3 Preset Quick resolves to 73f, 8 steps per shot
         let autoMovieReq = GenerationRequest(
             prompt: "Auto movie segment.",
             modelId: MiniMaxH3Configuration.modelID,
             parameters: parameters,
-            targetDurationSeconds: 3.2,
+            preset: MiniMaxH3Preset.quick.rawValue,
+            targetDurationSeconds: 3.0,
             generationSource: "autoMovie")
         let autoMovieResolved = try MiniMaxH3DurationPolicy.applying(to: autoMovieReq)
-        t.checkEqual(autoMovieResolved.minimaxH3ChainWindows, 2, "Auto movie 3.2s resolves to 2 chain windows")
+        t.checkEqual(autoMovieResolved.parameters.numFrames, 73, "Auto movie Quick resolves to 73 frames")
+        t.checkEqual(autoMovieResolved.parameters.numInferenceSteps, 8, "Auto movie Quick resolves to 8 steps")
+        t.checkEqual(autoMovieResolved.minimaxH3ChainWindows, 1, "Auto movie Quick uses 1 window")
 
-        // 22. Storyboard unchanged
+        // 22. Storyboard with H3 Preset High resolves to 90f, 12 steps, Tier 2 dimensions
         let storyboardReq = GenerationRequest(
             prompt: "Storyboard shot.",
             modelId: MiniMaxH3Configuration.modelID,
             parameters: parameters,
+            preset: MiniMaxH3Preset.high.rawValue,
             targetDurationSeconds: 4.0,
             generationSource: "storyboard")
         let storyboardResolved = try MiniMaxH3DurationPolicy.applying(to: storyboardReq)
+        t.checkEqual(storyboardResolved.parameters.numFrames, 90, "Storyboard High resolves to 90 frames")
+        t.checkEqual(storyboardResolved.parameters.numInferenceSteps, 12, "Storyboard High resolves to 12 steps")
+        t.checkEqual(storyboardResolved.parameters.width, 640, "Storyboard High width is 640")
+        t.checkEqual(storyboardResolved.parameters.height, 384, "Storyboard High height is 384")
         t.checkEqual(storyboardResolved.parameters.fps, 24, "Storyboard FPS preserved")
     }
 
@@ -1235,5 +1245,151 @@ func runMiniMaxH3Tests(_ t: TestKit) {
                      "queued H3 request preserves requested width before execution resolution")
         t.checkEqual(requests[0].parameters.height, 512,
                      "queued H3 request preserves requested height before execution resolution")
+    }
+
+    t.suite("MiniMax H3 All Generation Modes Unified Preset System") {
+        var parameters = GenerationParameters.default
+
+        // 1. Authoritative Preset Constants
+        t.checkEqual(MiniMaxH3ResolutionTier.tier1.dimensions(for: .landscape).width, 512, "Tier 1 landscape width: 512")
+        t.checkEqual(MiniMaxH3ResolutionTier.tier1.dimensions(for: .landscape).height, 288, "Tier 1 landscape height: 288")
+        t.checkEqual(MiniMaxH3ResolutionTier.tier1.dimensions(for: .portrait).width, 288, "Tier 1 portrait width: 288")
+        t.checkEqual(MiniMaxH3ResolutionTier.tier1.dimensions(for: .portrait).height, 512, "Tier 1 portrait height: 512")
+
+        t.checkEqual(MiniMaxH3ResolutionTier.tier2.dimensions(for: .landscape).width, 640, "Tier 2 landscape width: 640")
+        t.checkEqual(MiniMaxH3ResolutionTier.tier2.dimensions(for: .landscape).height, 384, "Tier 2 landscape height: 384")
+        t.checkEqual(MiniMaxH3ResolutionTier.tier2.dimensions(for: .portrait).width, 384, "Tier 2 portrait width: 384")
+        t.checkEqual(MiniMaxH3ResolutionTier.tier2.dimensions(for: .portrait).height, 640, "Tier 2 portrait height: 640")
+
+        t.checkEqual(MiniMaxH3Preset.quick.perShotSafeMaxDurationSeconds, 3.0, "Quick per-shot safe max: 3.0s")
+        t.checkEqual(MiniMaxH3Preset.standard.perShotSafeMaxDurationSeconds, 4.0, "Standard per-shot safe max: 4.0s")
+        t.checkEqual(MiniMaxH3Preset.high.perShotSafeMaxDurationSeconds, 4.0, "High per-shot safe max: 4.0s")
+
+        // 2. Summary Formatting (Standard / Auto Movie / Landscape / Portrait)
+        let quickSummaryLandscape = MiniMaxH3Preset.quick.effectiveSummary(orientation: .landscape, isAutoMovie: false)
+        t.check(quickSummaryLandscape.contains("512×288"), "Quick summary contains 512x288")
+        t.check(quickSummaryLandscape.contains("3 sec"), "Quick summary contains 3 sec")
+        t.check(quickSummaryLandscape.contains("8 steps"), "Quick summary contains 8 steps")
+
+        let quickSummaryPortrait = MiniMaxH3Preset.quick.effectiveSummary(orientation: .portrait, isAutoMovie: false)
+        t.check(quickSummaryPortrait.contains("288×512"), "Quick portrait summary contains 288x512")
+
+        let standardAutoMovieSummary = MiniMaxH3Preset.standard.effectiveSummary(orientation: .landscape, isAutoMovie: true)
+        t.check(standardAutoMovieSummary.contains("up to 4 sec/shot"), "Auto Movie Standard summary contains up to 4 sec/shot")
+
+        let customSummary = MiniMaxH3Preset.custom.effectiveSummary(
+            orientation: .landscape, isAutoMovie: true, customTier: .tier2, customDurationSeconds: 5.5, customSteps: 14)
+        t.check(customSummary.contains("640×384"), "Custom Tier 2 summary contains 640x384")
+        t.check(customSummary.contains("14 steps"), "Custom summary contains 14 steps")
+        t.check(customSummary.contains("up to") && customSummary.contains("/shot"), "Custom Auto Movie summary contains up to X/shot")
+
+        // 3. Auto Movie Duration Planner (normalizeForH3)
+        var mockShots = [
+            Shot(index: 0, title: "Shot 1", summary: "Opening scene."),
+            Shot(index: 1, title: "Shot 2", summary: "Action unfolds."),
+            Shot(index: 2, title: "Shot 3", summary: "Climax and finish.")
+        ]
+        let normalizedH3Standard = AutoMovieDurationPlanner.normalizeForH3(
+            shots: mockShots, targetDurationSeconds: 12.0, preset: .standard)
+        t.checkEqual(normalizedH3Standard.count, 3, "12s Standard Auto Movie keeps 3 shots")
+        for shot in normalizedH3Standard {
+            t.checkEqual(shot.durationSeconds, 90.0 / 24.0, "Each shot is 90 frames (3.75s) for Standard")
+        }
+
+        // 4. Auto Movie with 20s target and Standard preset (4s safe max -> expands to 5 shots)
+        let normalized20s = AutoMovieDurationPlanner.normalizeForH3(
+            shots: mockShots, targetDurationSeconds: 20.0, preset: .standard)
+        t.check(normalized20s.count >= 5, "20s Standard Auto Movie expands to at least 5 shots to respect 4s safe max")
+        for shot in normalized20s {
+            t.check(shot.durationSeconds <= 4.0, "No shot exceeds 4s in Standard Auto Movie")
+            let frames = Int((shot.durationSeconds * 24.0).rounded())
+            t.check(MiniMaxH3FrameGrid.isLegalFrameCount(frames), "Shot frame count \(frames) is on 17k+5 grid")
+        }
+
+        // 5. Auto Movie Structural Movie Planner for H3
+        let brief = "A samurai walks in the forest.\n\nHe spots an enemy in the trees.\n\nHe draws his blade for battle."
+        let plan = try! StructuralMoviePlanner.plan(prompt: brief)
+        t.checkEqual(plan.segments.count, 3, "Structural planner parsed 3 segments")
+
+        // 6. Storyboard and Take Generation Coordinator H3 Propagation
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MiniMaxH3AutoMovieTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var settings = ProjectSettings()
+        settings.modelID = MiniMaxH3Configuration.modelID
+        settings.minimaxH3Preset = MiniMaxH3Preset.standard.rawValue
+        settings.targetDurationSeconds = 12.0
+
+        var project = FilmProject(title: "H3 Project")
+        project.settings = settings
+        var shot0 = Shot(index: 0, title: "Shot 1", summary: "Opening")
+        shot0.compiledPrompt = "Samurai walks in forest"
+        shot0.durationSeconds = 4.0
+        project.shots = [shot0]
+
+        let store = FilmProjectStore(projectsDirectory: root)
+        store.save(project)
+
+        let coordinator = TakeGenerationCoordinator(store: store)
+        let requests = try coordinator.planTakes(projectID: project.id, shotID: shot0.id, count: 1, baseSeed: 100)
+        t.checkEqual(requests.count, 1, "Generated 1 take request")
+        let req = requests[0]
+        t.checkEqual(req.modelId, MiniMaxH3Configuration.modelID, "Request carries H3 model ID")
+        t.checkEqual(req.preset, MiniMaxH3Preset.standard.rawValue, "Request carries Standard H3 preset")
+        t.checkEqual(req.parameters.numInferenceSteps, 10, "Request carries 10 inference steps for Standard")
+
+        let resolvedReq = try MiniMaxH3DurationPolicy.applying(to: req)
+        t.checkEqual(resolvedReq.parameters.numFrames, 90, "Resolved request has 90 frames")
+        t.checkEqual(resolvedReq.parameters.numInferenceSteps, 10, "Resolved request has 10 steps")
+        t.checkEqual(resolvedReq.parameters.width, 512, "Resolved request has 512 width")
+        t.checkEqual(resolvedReq.parameters.height, 288, "Resolved request has 288 height")
+        t.checkEqual(resolvedReq.parameters.fps, 24, "Resolved request has 24 fps")
+
+        // 7. Portrait Source Image Orientation Propagation
+        let portraitReq = GenerationRequest(
+            prompt: req.prompt,
+            presetResolutionOrientation: .portrait,
+            modelId: req.modelId,
+            parameters: req.parameters,
+            preset: req.preset,
+            targetDurationSeconds: req.targetDurationSeconds,
+            generationSource: req.generationSource,
+            minimaxH3RequestedDurationSeconds: req.minimaxH3RequestedDurationSeconds
+        )
+        let resolvedPortrait = try MiniMaxH3DurationPolicy.applying(to: portraitReq)
+        t.checkEqual(resolvedPortrait.parameters.width, 288, "Portrait resolved width is 288")
+        t.checkEqual(resolvedPortrait.parameters.height, 512, "Portrait resolved height is 512")
+
+        // 8. Custom Preset Validation
+        var customReq = GenerationRequest(
+            prompt: "Custom shot",
+            modelId: MiniMaxH3Configuration.modelID,
+            parameters: parameters,
+            preset: MiniMaxH3Preset.custom.rawValue,
+            targetDurationSeconds: 5.0,
+            generationSource: "generate",
+            minimaxH3RequestedDurationSeconds: 5.0
+        )
+        customReq.parameters.numInferenceSteps = 16
+        customReq.parameters.width = 640
+        customReq.parameters.height = 384
+        let resolvedCustom = try MiniMaxH3DurationPolicy.applying(to: customReq)
+        t.checkEqual(resolvedCustom.parameters.width, 640, "Custom Tier 2 width is 640")
+        t.checkEqual(resolvedCustom.parameters.height, 384, "Custom Tier 2 height is 384")
+        t.checkEqual(resolvedCustom.parameters.numInferenceSteps, 16, "Custom steps is 16")
+        t.checkEqual(resolvedCustom.parameters.numFrames, 124, "5.0s snaps to 124 frames (17*7+5)")
+
+        // 9. Frame Ladder Legal Checks
+        t.check(MiniMaxH3FrameGrid.isLegalFrameCount(22), "22 is legal (17*1+5)")
+        t.check(MiniMaxH3FrameGrid.isLegalFrameCount(39), "39 is legal (17*2+5)")
+        t.check(MiniMaxH3FrameGrid.isLegalFrameCount(56), "56 is legal (17*3+5)")
+        t.check(MiniMaxH3FrameGrid.isLegalFrameCount(73), "73 is legal (17*4+5)")
+        t.check(MiniMaxH3FrameGrid.isLegalFrameCount(90), "90 is legal (17*5+5)")
+        t.check(MiniMaxH3FrameGrid.isLegalFrameCount(107), "107 is legal (17*6+5)")
+        t.check(MiniMaxH3FrameGrid.isLegalFrameCount(124), "124 is legal (17*7+5)")
+        t.check(MiniMaxH3FrameGrid.isLegalFrameCount(141), "141 is legal (17*8+5)")
+        t.check(!MiniMaxH3FrameGrid.isLegalFrameCount(80), "80 is not legal")
+        t.check(!MiniMaxH3FrameGrid.isLegalFrameCount(100), "100 is not legal")
     }
 }

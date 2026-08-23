@@ -946,9 +946,17 @@ struct ProjectSettings: Codable, Equatable {
     var targetDurationSeconds: Double?
     var globalBGMGenre: String?   // project-level BGM (applied at final assembly)
     var japaneseHandling: String = JapaneseDialogueHandling.native.rawValue
+    var minimaxH3Preset: String?
+    var minimaxH3CustomTier: String?
+    var minimaxH3CustomSteps: Int?
+    var minimaxH3CustomDuration: Double?
 
     var resolvedPreset: GenerationPreset {
         GenerationPreset.resolving(presetRaw: preset, qualityModeRaw: qualityMode)
+    }
+
+    var resolvedMiniMaxH3Preset: MiniMaxH3Preset {
+        minimaxH3Preset.flatMap { MiniMaxH3Preset(rawValue: $0) } ?? .standard
     }
 
     var resolvedAudioEnabled: Bool { audioEnabled ?? true }

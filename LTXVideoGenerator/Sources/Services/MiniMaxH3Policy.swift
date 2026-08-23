@@ -82,6 +82,45 @@ enum MiniMaxH3Preset: String, Codable, CaseIterable, Identifiable {
         case .custom: return "Custom duration (1–6s), steps (6–20), and resolution tiers"
         }
     }
+
+    var perShotSafeMaxDurationSeconds: Double {
+        switch self {
+        case .quick: return 3.0
+        case .standard: return 4.0
+        case .high: return 4.0
+        case .custom: return 4.0
+        }
+    }
+
+    func effectiveSummary(
+        orientation: SourceImageOrientation?,
+        isAutoMovie: Bool = false,
+        customTier: MiniMaxH3ResolutionTier = .tier1,
+        customDurationSeconds: Double = 4.0,
+        customSteps: Int = 10
+    ) -> String {
+        switch self {
+        case .quick:
+            let dims = MiniMaxH3ResolutionTier.tier1.dimensions(for: orientation)
+            let dur = isAutoMovie ? "up to 3 sec/shot" : "3 sec"
+            return "\(displayName) · \(dims.width)×\(dims.height) · \(dur) · 8 steps"
+        case .standard:
+            let dims = MiniMaxH3ResolutionTier.tier1.dimensions(for: orientation)
+            let dur = isAutoMovie ? "up to 4 sec/shot" : "4 sec"
+            return "\(displayName) · \(dims.width)×\(dims.height) · \(dur) · 10 steps"
+        case .high:
+            let dims = MiniMaxH3ResolutionTier.tier2.dimensions(for: orientation)
+            let dur = isAutoMovie ? "up to 4 sec/shot" : "4 sec"
+            return "\(displayName) · \(dims.width)×\(dims.height) · \(dur) · 12 steps"
+        case .custom:
+            let dims = customTier.dimensions(for: orientation)
+            let frames = MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: customDurationSeconds)
+            let durText = isAutoMovie
+                ? "up to \(MiniMaxH3FrameGrid.displayDurationText(forFrames: frames))/shot"
+                : MiniMaxH3FrameGrid.displayDurationText(forFrames: frames)
+            return "\(displayName) · \(dims.width)×\(dims.height) · \(durText) · \(customSteps) steps"
+        }
+    }
 }
 
 enum MiniMaxH3ResolutionTier: String, Codable, CaseIterable, Identifiable {
@@ -133,6 +172,11 @@ enum MiniMaxH3FrameGrid {
 
     static func shouldShowLongDurationWarning(durationSeconds: Double) -> Bool {
         durationSeconds >= 5.0
+    }
+
+    static func isLegalFrameCount(_ frames: Int) -> Bool {
+        guard frames >= 22 else { return false }
+        return (frames - 5) % 17 == 0
     }
 }
 
@@ -191,103 +235,72 @@ enum MiniMaxH3DurationPolicy {
         }!
     }
 
-    /// Resolves canonical H3 execution settings driven by the chosen preset (Quick, Standard, High, Custom),
-    /// or falls back to standard duration planning for workflows without explicit preset (e.g. One Shot).
+    /// Resolves canonical H3 execution settings driven by the chosen preset (Quick, Standard, High, Custom)
+    /// across all workflows (Generate, One Shot, Auto Movie, Storyboard), defaulting to Standard.
     static func applying(to request: GenerationRequest) throws -> GenerationRequest {
         var resolved = request
         let orientation = request.presetResolutionOrientation
             ?? SourceImageOrientationResolver.resolve(path: request.sourceImagePath)
 
-        let effectivePreset: MiniMaxH3Preset? = {
+        let effectivePreset: MiniMaxH3Preset = {
             if let presetRaw = request.preset, let preset = MiniMaxH3Preset(rawValue: presetRaw) {
                 return preset
             }
-            if request.targetDurationSeconds == nil &&
-               request.generationSource != "oneShot" &&
-               request.generationSource != "autoMovie" &&
-               request.generationSource != "storyboard" {
-                return .standard
-            }
-            return nil
+            return .standard
         }()
 
-        if let preset = effectivePreset {
-            switch preset {
-            case .quick:
-                let dims = MiniMaxH3ResolutionTier.tier1.dimensions(for: orientation)
-                resolved.parameters.width = dims.width
-                resolved.parameters.height = dims.height
-                resolved.parameters.fps = fps
-                resolved.parameters.numInferenceSteps = 8
-                resolved.parameters.numFrames = 73 // 3.0s display
-                resolved.minimaxH3ChainWindows = 1
-                resolved.minimaxH3ExpectedFrames = 73
-                resolved.minimaxH3RequestedDurationSeconds = 3.0
-
-            case .standard:
-                let dims = MiniMaxH3ResolutionTier.tier1.dimensions(for: orientation)
-                resolved.parameters.width = dims.width
-                resolved.parameters.height = dims.height
-                resolved.parameters.fps = fps
-                resolved.parameters.numInferenceSteps = 10
-                resolved.parameters.numFrames = 90 // 4.0s display (3.75s encoded)
-                resolved.minimaxH3ChainWindows = 1
-                resolved.minimaxH3ExpectedFrames = 90
-                resolved.minimaxH3RequestedDurationSeconds = 4.0
-
-            case .high:
-                let dims = MiniMaxH3ResolutionTier.tier2.dimensions(for: orientation)
-                resolved.parameters.width = dims.width
-                resolved.parameters.height = dims.height
-                resolved.parameters.fps = fps
-                resolved.parameters.numInferenceSteps = 12
-                resolved.parameters.numFrames = 90 // 4.0s display (3.75s encoded)
-                resolved.minimaxH3ChainWindows = 1
-                resolved.minimaxH3ExpectedFrames = 90
-                resolved.minimaxH3RequestedDurationSeconds = 4.0
-
-            case .custom:
-                let requestedDuration = request.minimaxH3RequestedDurationSeconds
-                    ?? request.targetDurationSeconds
-                    ?? request.requestedDurationSeconds
-                    ?? (Double(request.parameters.numFrames) / Double(fps))
-
-                let legalFrames = MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: requestedDuration)
-
-                let isTier2 = request.parameters.width >= 640 || request.parameters.height >= 640
-                let tier: MiniMaxH3ResolutionTier = isTier2 ? .tier2 : .tier1
-                let dims = tier.dimensions(for: orientation)
-
-                resolved.parameters.width = dims.width
-                resolved.parameters.height = dims.height
-                resolved.parameters.fps = fps
-                resolved.parameters.numInferenceSteps = max(6, min(20, request.parameters.numInferenceSteps))
-                resolved.parameters.numFrames = legalFrames
-                resolved.minimaxH3ChainWindows = 1
-                resolved.minimaxH3ExpectedFrames = legalFrames
-                resolved.minimaxH3RequestedDurationSeconds = requestedDuration
-            }
-        } else {
-            // Other workflows (One Shot, Auto Movie, etc.) preserve multi-window chain plan
-            let requestedDuration = request.minimaxH3RequestedDurationSeconds
-                ?? request.targetDurationSeconds
-                ?? request.requestedDurationSeconds
-                ?? (Double(request.parameters.numFrames) / Double(fps))
-            let framePlan = try plan(requestedDurationSeconds: requestedDuration)
-
-            if orientation == .portrait {
-                resolved.parameters.width = 288
-                resolved.parameters.height = 512
-            } else {
-                resolved.parameters.width = 512
-                resolved.parameters.height = 288
-            }
-
+        switch effectivePreset {
+        case .quick:
+            let dims = MiniMaxH3ResolutionTier.tier1.dimensions(for: orientation)
+            resolved.parameters.width = dims.width
+            resolved.parameters.height = dims.height
             resolved.parameters.fps = fps
             resolved.parameters.numInferenceSteps = 8
-            resolved.parameters.numFrames = framePlan.windowFrames
-            resolved.minimaxH3ChainWindows = framePlan.chainWindows
-            resolved.minimaxH3ExpectedFrames = framePlan.expectedTotalFrames
+            resolved.parameters.numFrames = 73 // 3.0s display
+            resolved.minimaxH3ChainWindows = 1
+            resolved.minimaxH3ExpectedFrames = 73
+            resolved.minimaxH3RequestedDurationSeconds = 3.0
+
+        case .standard:
+            let dims = MiniMaxH3ResolutionTier.tier1.dimensions(for: orientation)
+            resolved.parameters.width = dims.width
+            resolved.parameters.height = dims.height
+            resolved.parameters.fps = fps
+            resolved.parameters.numInferenceSteps = 10
+            resolved.parameters.numFrames = 90 // 4.0s display (3.75s encoded)
+            resolved.minimaxH3ChainWindows = 1
+            resolved.minimaxH3ExpectedFrames = 90
+            resolved.minimaxH3RequestedDurationSeconds = 4.0
+
+        case .high:
+            let dims = MiniMaxH3ResolutionTier.tier2.dimensions(for: orientation)
+            resolved.parameters.width = dims.width
+            resolved.parameters.height = dims.height
+            resolved.parameters.fps = fps
+            resolved.parameters.numInferenceSteps = 12
+            resolved.parameters.numFrames = 90 // 4.0s display (3.75s encoded)
+            resolved.minimaxH3ChainWindows = 1
+            resolved.minimaxH3ExpectedFrames = 90
+            resolved.minimaxH3RequestedDurationSeconds = 4.0
+
+        case .custom:
+            let requestedDuration = request.minimaxH3RequestedDurationSeconds
+                ?? request.targetDurationSeconds
+                ?? (Double(request.parameters.numFrames) / Double(fps))
+
+            let legalFrames = MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: requestedDuration)
+
+            let isTier2 = request.parameters.width >= 640 || request.parameters.height >= 640
+            let tier: MiniMaxH3ResolutionTier = isTier2 ? .tier2 : .tier1
+            let dims = tier.dimensions(for: orientation)
+
+            resolved.parameters.width = dims.width
+            resolved.parameters.height = dims.height
+            resolved.parameters.fps = fps
+            resolved.parameters.numInferenceSteps = max(6, min(20, request.parameters.numInferenceSteps))
+            resolved.parameters.numFrames = legalFrames
+            resolved.minimaxH3ChainWindows = 1
+            resolved.minimaxH3ExpectedFrames = legalFrames
             resolved.minimaxH3RequestedDurationSeconds = requestedDuration
         }
 

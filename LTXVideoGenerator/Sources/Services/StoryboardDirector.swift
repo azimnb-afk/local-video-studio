@@ -1353,11 +1353,20 @@ final class HybridProjectCoordinator {
         // Provider output is advisory; this deterministic pass is the single
         // source of truth for the complete-movie target shown in Plan Preview
         // and later converted to GenerationRequests.
-        project.shots = AutoMovieDurationPlanner.normalize(
-            shots: project.shots,
-            targetDurationSeconds: target,
-            fps: settings.fps
-        )
+        if settings.modelID == MiniMaxH3Configuration.modelID {
+            project.shots = AutoMovieDurationPlanner.normalizeForH3(
+                shots: project.shots,
+                targetDurationSeconds: target,
+                preset: settings.resolvedMiniMaxH3Preset,
+                customDurationSeconds: settings.minimaxH3CustomDuration
+            )
+        } else {
+            project.shots = AutoMovieDurationPlanner.normalize(
+                shots: project.shots,
+                targetDurationSeconds: target,
+                fps: settings.fps
+            )
+        }
         project.shots = ContinuityReconciler.reconcile(shots: project.shots)
         project.workflowMode = "hybrid"
         for index in project.shots.indices {
@@ -1392,7 +1401,10 @@ final class HybridProjectCoordinator {
         let target = min(60, max(5, settings.targetDurationSeconds ?? 20))
         let effectiveMaxSecondsPerShot: Double
         if settings.modelID == MiniMaxH3Configuration.modelID {
-            effectiveMaxSecondsPerShot = MiniMaxH3DurationPolicy.maximumDurationSeconds
+            let h3Preset = settings.resolvedMiniMaxH3Preset
+            effectiveMaxSecondsPerShot = (h3Preset == .custom)
+                ? min(6.0, max(1.0, settings.minimaxH3CustomDuration ?? 4.0))
+                : h3Preset.perShotSafeMaxDurationSeconds
         } else {
             effectiveMaxSecondsPerShot = Double(AutoMovieDurationPlanner.maximumFrameCount - 1) / Double(max(1, settings.fps))
         }
@@ -1403,43 +1415,67 @@ final class HybridProjectCoordinator {
             maximumSecondsPerShot: effectiveMaxSecondsPerShot
         )
 
-        let fps = max(1, settings.fps)
-        let frameStride = 8
-        let minimumFrameCount = AutoMovieDurationPlanner.minimumFrameCount // 25
-        let maximumFrameCount = AutoMovieDurationPlanner.maximumFrameCount // 241
-        let minimumUnits = (minimumFrameCount - 1) / frameStride
-        let maximumUnits = (maximumFrameCount - 1) / frameStride
-        let targetUnits = max(
-            minimumUnits,
-            Int((target * Double(fps) / Double(frameStride)).rounded())
-        )
-
-        let unitsPerShot = allocateEqualUnits(
-            count: plan.segments.count,
-            targetUnits: targetUnits,
-            minimumUnits: minimumUnits,
-            maximumUnits: maximumUnits
-        )
-
         var shots: [Shot] = []
-        for (index, segment) in plan.segments.enumerated() {
-            let unit = unitsPerShot[index]
-            let frameCount = min(maximumFrameCount, max(minimumFrameCount, unit * frameStride + 1))
-            let duration = Double(frameCount - 1) / Double(fps)
 
-            var shot = Shot(index: index)
-            shot.title = "Shot \(index + 1)"
-            shot.summary = segment.literalPrompt
-            shot.compiledPrompt = segment.literalPrompt
-            shot.baseCompiledPrompt = segment.literalPrompt
-            shot.durationSeconds = duration
-            shot.plannedContinuityMode = segment.transition
-            shot.continuityMode = segment.transition
-            shot.continuityReconciliationReason = segment.structuralBoundaryReason
-            shot.camera = CameraPlan()
-            shot.takes = []
-            shot.selectedTakeID = nil
-            shots.append(shot)
+        if settings.modelID == MiniMaxH3Configuration.modelID {
+            let targetPerShot = target / Double(plan.segments.count)
+            let clampedDuration = min(effectiveMaxSecondsPerShot, targetPerShot)
+            let legalFrames = MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: clampedDuration)
+            let effectiveDuration = Double(legalFrames) / 24.0
+
+            for (index, segment) in plan.segments.enumerated() {
+                var shot = Shot(index: index)
+                shot.title = "Shot \(index + 1)"
+                shot.summary = segment.literalPrompt
+                shot.compiledPrompt = segment.literalPrompt
+                shot.baseCompiledPrompt = segment.literalPrompt
+                shot.durationSeconds = effectiveDuration
+                shot.plannedContinuityMode = segment.transition
+                shot.continuityMode = segment.transition
+                shot.continuityReconciliationReason = segment.structuralBoundaryReason
+                shot.camera = CameraPlan()
+                shot.takes = []
+                shot.selectedTakeID = nil
+                shots.append(shot)
+            }
+        } else {
+            let fps = max(1, settings.fps)
+            let frameStride = 8
+            let minimumFrameCount = AutoMovieDurationPlanner.minimumFrameCount // 25
+            let maximumFrameCount = AutoMovieDurationPlanner.maximumFrameCount // 241
+            let minimumUnits = (minimumFrameCount - 1) / frameStride
+            let maximumUnits = (maximumFrameCount - 1) / frameStride
+            let targetUnits = max(
+                minimumUnits,
+                Int((target * Double(fps) / Double(frameStride)).rounded())
+            )
+
+            let unitsPerShot = allocateEqualUnits(
+                count: plan.segments.count,
+                targetUnits: targetUnits,
+                minimumUnits: minimumUnits,
+                maximumUnits: maximumUnits
+            )
+
+            for (index, segment) in plan.segments.enumerated() {
+                let unit = unitsPerShot[index]
+                let frameCount = min(maximumFrameCount, max(minimumFrameCount, unit * frameStride + 1))
+                let duration = Double(frameCount - 1) / Double(fps)
+
+                var shot = Shot(index: index)
+                shot.title = "Shot \(index + 1)"
+                shot.summary = segment.literalPrompt
+                shot.compiledPrompt = segment.literalPrompt
+                shot.baseCompiledPrompt = segment.literalPrompt
+                shot.durationSeconds = duration
+                shot.plannedContinuityMode = segment.transition
+                shot.continuityMode = segment.transition
+                shot.continuityReconciliationReason = segment.structuralBoundaryReason
+                shot.camera = CameraPlan()
+                shot.takes = []
+                shot.selectedTakeID = nil
+                shots.append(shot)
+            }
         }
 
         if handle?.isCancelled == true || Task.isCancelled {

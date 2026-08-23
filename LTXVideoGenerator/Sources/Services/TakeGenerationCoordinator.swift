@@ -257,16 +257,45 @@ final class TakeGenerationCoordinator {
             let seed = baseSeed.map { $0 + i } ?? Int.random(in: 0..<Int(Int32.max))
             let takeID = UUID()
 
+            let resolvedPresetRaw: String
+            let resolvedQualityMode: String?
+            let resolvedSteps: Int
+            let resolvedFps: Int
+            let resolvedH3RequestedDuration: Double?
+
+            if settings.modelID == MiniMaxH3Configuration.modelID {
+                let h3Preset = settings.resolvedMiniMaxH3Preset
+                resolvedPresetRaw = h3Preset.rawValue
+                resolvedQualityMode = QualityMode.auto.rawValue
+                resolvedFps = 24
+                resolvedH3RequestedDuration = shot.durationSeconds
+                if h3Preset == .custom {
+                    resolvedSteps = max(6, min(20, settings.minimaxH3CustomSteps ?? 10))
+                } else if h3Preset == .high {
+                    resolvedSteps = 12
+                } else if h3Preset == .quick {
+                    resolvedSteps = 8
+                } else {
+                    resolvedSteps = 10
+                }
+            } else {
+                resolvedPresetRaw = settings.resolvedPreset.rawValue
+                resolvedQualityMode = settings.qualityMode
+                resolvedSteps = settings.resolvedInferenceSteps
+                resolvedFps = settings.fps
+                resolvedH3RequestedDuration = nil
+            }
+
             let spec = CanonicalShotSpecification(
                 prompt: shot.compiledPrompt,
                 modelID: settings.modelID,
                 textEncoderID: settings.textEncoderID,
-                preset: settings.resolvedPreset.rawValue,
-                qualityMode: settings.qualityMode,
+                preset: resolvedPresetRaw,
+                qualityMode: resolvedQualityMode,
                 width: settings.width,
                 height: settings.height,
-                fps: settings.fps,
-                numInferenceSteps: settings.resolvedInferenceSteps,
+                fps: resolvedFps,
+                numInferenceSteps: resolvedSteps,
                 targetDurationSeconds: shot.durationSeconds,
                 numFramesOverride: settings.resolvedPreset == .custom ? settings.numFrames : nil,
                 audioEnabled: settings.resolvedAudioEnabled,
@@ -276,7 +305,8 @@ final class TakeGenerationCoordinator {
                 generationSource: generationSource,
                 projectID: projectID,
                 shotID: shotID,
-                takeID: takeID
+                takeID: takeID,
+                minimaxH3RequestedDurationSeconds: resolvedH3RequestedDuration
             )
 
             let (request, params, generationPrompt) = CanonicalShotRequestBuilder.buildRequest(from: spec)

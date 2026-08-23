@@ -203,6 +203,59 @@ enum AutoMovieDurationPlanner {
         return shots
     }
 
+    /// Normalizes Auto Movie shots specifically for MiniMax H3 presets, enforcing
+    /// per-shot safe max duration and snapping every shot to the 17k+5 frame grid.
+    static func normalizeForH3(
+        shots input: [Shot],
+        targetDurationSeconds: Double,
+        preset: MiniMaxH3Preset,
+        customDurationSeconds: Double? = nil
+    ) -> [Shot] {
+        guard !input.isEmpty, targetDurationSeconds.isFinite, targetDurationSeconds > 0 else {
+            return input
+        }
+
+        let safeMaxSeconds: Double
+        if preset == .custom {
+            safeMaxSeconds = min(6.0, max(1.0, customDurationSeconds ?? 4.0))
+        } else {
+            safeMaxSeconds = preset.perShotSafeMaxDurationSeconds
+        }
+
+        let minimumSeconds = 22.0 / 24.0 // ~0.916s (minimum 17k+5 ladder frame is 22)
+        let minimumCount = min(12, max(1, Int(ceil(targetDurationSeconds / safeMaxSeconds))))
+        let maximumCount = min(12, max(1, Int(floor(targetDurationSeconds / minimumSeconds))))
+        let feasibleCount = min(max(input.count, minimumCount), max(minimumCount, maximumCount))
+
+        var shots: [Shot]
+        if input.count > feasibleCount {
+            shots = merge(input, toCount: feasibleCount)
+        } else if input.count < feasibleCount {
+            shots = split(input, toCount: feasibleCount)
+        } else {
+            shots = input
+        }
+
+        let targetDurationPerShot = targetDurationSeconds / Double(shots.count)
+        let signals = shots.map(allocationSignal(for:))
+        let totalWeight = signals.map(\.weight).reduce(0, +)
+
+        for index in shots.indices {
+            let rawShare: Double
+            if totalWeight > 0 {
+                rawShare = (signals[index].weight / totalWeight) * targetDurationSeconds
+            } else {
+                rawShare = targetDurationPerShot
+            }
+            let clampedShare = min(safeMaxSeconds, max(minimumSeconds, rawShare))
+            let legalFrames = MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: clampedShare)
+            shots[index].durationSeconds = Double(legalFrames) / 24.0
+            shots[index].actionBeatCount = signals[index].beatCount
+            shots[index].index = index
+        }
+        return shots
+    }
+
     /// How many seconds a shot's own content wants (`weight`, used only in
     /// relative proportion to other shots — its unit does not matter to the
     /// allocator), and the visible action-beat count behind that number, kept

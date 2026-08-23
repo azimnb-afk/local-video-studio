@@ -299,6 +299,10 @@ private struct OneShotView: View {
     @State private var isPlanning = false
     @State private var targetDuration = 5.0
     @AppStorage("oneShotGenerationPreset") private var presetRaw = GenerationPreset.standard.rawValue
+    @AppStorage("minimaxH3OneShotPreset") private var minimaxH3OneShotPresetRaw = MiniMaxH3Preset.standard.rawValue
+    @AppStorage("minimaxH3OneShotTier") private var minimaxH3OneShotTierRaw = MiniMaxH3ResolutionTier.tier1.rawValue
+    @AppStorage("minimaxH3OneShotCustomDuration") private var minimaxH3OneShotCustomDuration = 4.0
+    @AppStorage("minimaxH3OneShotCustomSteps") private var minimaxH3OneShotCustomSteps = 10
     @AppStorage(LTXModelCatalog.selectedModelIDKey) private var modelID = LTXModelCatalog.defaultModelID
     @AppStorage(LTXTextEncoderCatalog.selectedTextEncoderIDKey) private var textEncoderID = LTXTextEncoderCatalog.defaultTextEncoderID
     @AppStorage("oneShotStartingImagePath") private var storedStartingImagePath = ""
@@ -308,24 +312,19 @@ private struct OneShotView: View {
     @State private var startingImageError: String?
 
     private var preset: GenerationPreset { GenerationPreset(rawValue: presetRaw) ?? .standard }
+    private var minimaxH3Preset: MiniMaxH3Preset { MiniMaxH3Preset(rawValue: minimaxH3OneShotPresetRaw) ?? .standard }
+    private var minimaxH3Tier: MiniMaxH3ResolutionTier { MiniMaxH3ResolutionTier(rawValue: minimaxH3OneShotTierRaw) ?? .tier1 }
 
     private var resolutionSummary: String {
         if modelID == MiniMaxH3Configuration.modelID {
-            let request = GenerationRequest(
-                prompt: brief,
-                sourceImagePath: storedStartingImagePath.isEmpty ? nil : storedStartingImagePath,
-                disableAudio: !audioEnabled,
-                modelId: modelID,
-                textEncoderId: textEncoderID,
-                parameters: parameters,
-                qualityMode: preset.qualityMode.rawValue,
-                preset: preset.rawValue,
-                targetDurationSeconds: targetDuration,
-                generationSource: "oneShot")
-            if let resolved = try? MiniMaxH3DurationPolicy.applying(to: request) {
-                return "Experimental H3 · Effective 512×288 · 8 steps · chain \(resolved.minimaxH3ChainWindows ?? 1) · \(resolved.minimaxH3ExpectedFrames ?? resolved.parameters.numFrames) frames"
-            }
-            return "Experimental H3 · Supported duration: up to \(String(format: "%.2f", MiniMaxH3DurationPolicy.maximumDurationSeconds))s"
+            let orientation = SourceImageOrientationResolver.resolve(path: storedStartingImagePath.isEmpty ? nil : storedStartingImagePath)
+            return minimaxH3Preset.effectiveSummary(
+                orientation: orientation,
+                isAutoMovie: false,
+                customTier: minimaxH3Tier,
+                customDurationSeconds: minimaxH3OneShotCustomDuration,
+                customSteps: minimaxH3OneShotCustomSteps
+            )
         }
         guard preset != .custom else {
             return "Custom: \(parameters.width)×\(parameters.height), \(parameters.numFrames) frames, \(parameters.fps) fps, \(parameters.numInferenceSteps) steps"
@@ -377,16 +376,22 @@ private struct OneShotView: View {
                         Picker("Preset", selection: $presetRaw) {
                             ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
                         }
+                    } else {
+                        Picker("Preset", selection: $minimaxH3OneShotPresetRaw) {
+                            ForEach(MiniMaxH3Preset.allCases) { Text($0.displayName).tag($0.rawValue) }
+                        }
                     }
                     Picker("Model", selection: $modelID) {
                         ForEach(ModelRegistry.shared.selectableModels()) { Text($0.displayName).tag($0.id) }
                     }
-                    HStack {
-                        Text("Target Duration")
-                        Stepper(
-                            "\(targetDuration, specifier: "%.0f")s",
-                            value: $targetDuration,
-                            in: 1...OneShotDurationPolicy.maximumSelectableSeconds(for: modelID))
+                    if modelID != MiniMaxH3Configuration.modelID {
+                        HStack {
+                            Text("Target Duration")
+                            Stepper(
+                                "\(targetDuration, specifier: "%.0f")s",
+                                value: $targetDuration,
+                                in: 1...OneShotDurationPolicy.maximumSelectableSeconds(for: modelID))
+                        }
                     }
                     Toggle("Audio", isOn: $audioEnabled)
                     Toggle("Director", isOn: $directorEnabled)
@@ -395,7 +400,46 @@ private struct OneShotView: View {
                 Text(directorEnabled ? "Director ON: AI interprets and directs the shot." : "Director OFF: Uses your prompt directly without AI planning.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
-                if preset == .custom {
+
+                if modelID == MiniMaxH3Configuration.modelID && minimaxH3Preset == .custom {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Picker("Resolution Tier", selection: $minimaxH3OneShotTierRaw) {
+                            ForEach(MiniMaxH3ResolutionTier.allCases) { Text($0.displayName).tag($0.rawValue) }
+                        }
+                        .pickerStyle(.segmented)
+
+                        HStack(spacing: 20) {
+                            Stepper(
+                                "Duration: \(minimaxH3OneShotCustomDuration, specifier: "%.1f")s (\(MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: minimaxH3OneShotCustomDuration)) frames)",
+                                value: $minimaxH3OneShotCustomDuration,
+                                in: 1.0...6.0,
+                                step: 0.5
+                            )
+                            Stepper(
+                                "Inference Steps: \(minimaxH3OneShotCustomSteps)",
+                                value: $minimaxH3OneShotCustomSteps,
+                                in: 6...20,
+                                step: 1
+                            )
+                        }
+
+                        if MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: minimaxH3OneShotCustomDuration) {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.yellow)
+                                Text("5秒以上のH3動画では、後半にかけて細部や人物の一貫性が低下する場合があります。最高品質には3〜4秒を推奨します。")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(8)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.yellow.opacity(0.1)))
+                        }
+                    }
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+                }
+
+                if preset == .custom && modelID != MiniMaxH3Configuration.modelID {
                     HStack {
                         Text(resolutionSummary)
                             .font(.caption.monospaced())
@@ -417,10 +461,6 @@ private struct OneShotView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                // A running generation does not block submission: this button
-                // enqueues a production job, and the queue is what decides when
-                // it runs. It stays disabled only while this One Shot's own
-                // planning is in flight, or when the input itself is unusable.
                 .disabled(!GenerationSubmissionPolicy.canSubmit(
                     prompt: brief,
                     isPreparing: isPlanning,
@@ -518,26 +558,81 @@ private struct OneShotView: View {
         let trimmed = brief.trimmingCharacters(in: .whitespacesAndNewlines)
 
         var requestParameters = parameters
-        if preset != .custom {
-            let maxFrames = OneShotDurationPolicy.maximumFrameCount(for: modelID) ?? PromptCompiler.defaultMaximumFrameCount
-            requestParameters.numFrames = PromptCompiler.frameCount(
-                forSeconds: targetDuration,
-                fps: requestParameters.fps,
-                maximumFrameCount: maxFrames
-            )
+        let orientation = SourceImageOrientationResolver.resolve(path: validatedStartingImage)
+
+        let resolvedPresetRaw: String
+        let resolvedQualityModeRaw: String
+        let resolvedTargetDuration: Double?
+        let resolvedH3RequestedDuration: Double?
+
+        if modelID == MiniMaxH3Configuration.modelID {
+            resolvedPresetRaw = minimaxH3OneShotPresetRaw
+            resolvedQualityModeRaw = QualityMode.auto.rawValue
+            requestParameters.fps = 24
+
+            switch minimaxH3Preset {
+            case .quick:
+                let dims = MiniMaxH3ResolutionTier.tier1.dimensions(for: orientation)
+                requestParameters.width = dims.width
+                requestParameters.height = dims.height
+                requestParameters.numInferenceSteps = 8
+                requestParameters.numFrames = 73
+                resolvedTargetDuration = 3.0
+                resolvedH3RequestedDuration = 3.0
+            case .standard:
+                let dims = MiniMaxH3ResolutionTier.tier1.dimensions(for: orientation)
+                requestParameters.width = dims.width
+                requestParameters.height = dims.height
+                requestParameters.numInferenceSteps = 10
+                requestParameters.numFrames = 90
+                resolvedTargetDuration = 4.0
+                resolvedH3RequestedDuration = 4.0
+            case .high:
+                let dims = MiniMaxH3ResolutionTier.tier2.dimensions(for: orientation)
+                requestParameters.width = dims.width
+                requestParameters.height = dims.height
+                requestParameters.numInferenceSteps = 12
+                requestParameters.numFrames = 90
+                resolvedTargetDuration = 4.0
+                resolvedH3RequestedDuration = 4.0
+            case .custom:
+                let dims = minimaxH3Tier.dimensions(for: orientation)
+                requestParameters.width = dims.width
+                requestParameters.height = dims.height
+                requestParameters.numInferenceSteps = max(6, min(20, minimaxH3OneShotCustomSteps))
+                requestParameters.numFrames = MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: minimaxH3OneShotCustomDuration)
+                resolvedTargetDuration = nil
+                resolvedH3RequestedDuration = minimaxH3OneShotCustomDuration
+            }
+        } else {
+            resolvedPresetRaw = preset.rawValue
+            resolvedQualityModeRaw = preset.qualityMode.rawValue
+            resolvedTargetDuration = preset == .custom ? nil : targetDuration
+            resolvedH3RequestedDuration = nil
+            if preset != .custom {
+                let maxFrames = OneShotDurationPolicy.maximumFrameCount(for: modelID) ?? PromptCompiler.defaultMaximumFrameCount
+                requestParameters.numFrames = PromptCompiler.frameCount(
+                    forSeconds: targetDuration,
+                    fps: requestParameters.fps,
+                    maximumFrameCount: maxFrames
+                )
+            }
         }
+
         let baseRequest = GenerationRequest(
             prompt: trimmed,
             brief: trimmed,
             sourceImagePath: validatedStartingImage,
+            presetResolutionOrientation: orientation,
             disableAudio: !audioEnabled,
             modelId: modelID,
             textEncoderId: textEncoderID,
             parameters: requestParameters,
-            qualityMode: preset.qualityMode.rawValue,
-            preset: preset.rawValue,
-            targetDurationSeconds: preset == .custom ? nil : targetDuration,
-            generationSource: "oneShot"
+            qualityMode: resolvedQualityModeRaw,
+            preset: resolvedPresetRaw,
+            targetDurationSeconds: resolvedTargetDuration,
+            generationSource: "oneShot",
+            minimaxH3RequestedDurationSeconds: resolvedH3RequestedDuration
         )
 
         if directorEnabled {

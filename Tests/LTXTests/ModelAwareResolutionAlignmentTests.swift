@@ -83,12 +83,47 @@ func runModelAwareResolutionAlignmentTests(_ t: TestKit) {
         let ltx2mlxAligned = ModelAwareResolutionAlignment.align(
             requestedWidth: 700,
             requestedHeight: 500,
-            modelID: "ltx-2.5-mlx-test" // generic / ltx-2-mlx
+            modelID: LTX25ModelCatalog.ltx25ExperimentalID
         )
         t.checkEqual(ltx2mlxAligned.generation.width, 704, "ltx-2-mlx 700x500 width")
-        t.check(ltx2mlxAligned.alignmentMultiple == 32 || ltx2mlxAligned.alignmentMultiple == 64, "ltx-2-mlx alignment multiple resolved")
+        t.checkEqual(ltx2mlxAligned.generation.height, 512, "ltx-2-mlx 700x500 height")
+        t.checkEqual(ltx2mlxAligned.alignmentMultiple, 32, "ltx-2-mlx alignment multiple strictly 32")
+        t.checkEqual(ltx2mlxAligned.crop?.left, 2, "ltx-2-mlx crop left 2")
+        t.checkEqual(ltx2mlxAligned.crop?.right, 2, "ltx-2-mlx crop right 2")
+        t.checkEqual(ltx2mlxAligned.crop?.top, 6, "ltx-2-mlx crop top 6")
+        t.checkEqual(ltx2mlxAligned.crop?.bottom, 6, "ltx-2-mlx crop bottom 6")
 
-        // 7. MiniMax H3 validated presets (NO-OP / preserved)
+        // 7. Fail-Closed Model Routing tests (nil, empty, unknown, unsupported)
+        let nilModelAligned = ModelAwareResolutionAlignment.align(
+            requestedWidth: 700,
+            requestedHeight: 500,
+            modelID: nil
+        )
+        t.checkEqual(nilModelAligned.generation.width, 700, "Nil model: generation width unchanged (700)")
+        t.checkEqual(nilModelAligned.generation.height, 500, "Nil model: generation height unchanged (500)")
+        t.check(nilModelAligned.alignmentMultiple == nil, "Nil model: alignmentMultiple is nil (NO-OP)")
+        t.check(nilModelAligned.crop == nil, "Nil model: crop is nil")
+        t.checkEqual(nilModelAligned.alignmentReason, .unsupported, "Nil model: reason unsupported")
+
+        let unknownModelAligned = ModelAwareResolutionAlignment.align(
+            requestedWidth: 700,
+            requestedHeight: 500,
+            modelID: "completely_unknown_xyz"
+        )
+        t.checkEqual(unknownModelAligned.generation.width, 700, "Unknown model: generation width unchanged")
+        t.check(unknownModelAligned.alignmentMultiple == nil, "Unknown model: alignmentMultiple is nil (NO-OP)")
+        t.check(unknownModelAligned.crop == nil, "Unknown model: crop is nil")
+        t.checkEqual(unknownModelAligned.alignmentReason, .unsupported, "Unknown model: reason unsupported")
+
+        let emptyModelAligned = ModelAwareResolutionAlignment.align(
+            requestedWidth: 700,
+            requestedHeight: 500,
+            modelID: "   "
+        )
+        t.check(emptyModelAligned.alignmentMultiple == nil, "Empty model: alignmentMultiple is nil (NO-OP)")
+        t.check(emptyModelAligned.crop == nil, "Empty model: crop is nil")
+
+        // 8. MiniMax H3 validated presets (NO-OP / preserved)
         let h3Tier1 = ModelAwareResolutionAlignment.align(
             requestedWidth: 512,
             requestedHeight: 288,
@@ -113,7 +148,7 @@ func runModelAwareResolutionAlignmentTests(_ t: TestKit) {
         t.check(h3Tier2.crop == nil, "H3 Tier2: crop is nil")
         t.checkEqual(h3Tier2.alignmentReason, .validatedPreset, "H3 Tier2: reason validatedPreset")
 
-        // 8. Backward compatibility JSON decoding test for Take and GenerationResult
+        // 9. Backward compatibility JSON decoding test for Take and GenerationResult
         var sampleTake = Take(
             shotID: UUID(),
             modelID: "ltx23_distilled_q4",

@@ -88,15 +88,18 @@ public enum ModelAwareResolutionAlignment {
     }
 
     /// Retrieves the alignment multiple for a given model ID.
+    /// Returns nil (NO-OP) for unknown, nil, empty, or unsupported models.
     public static func alignmentMultiple(for modelID: String?) -> Int? {
-        guard let modelID, !modelID.isEmpty else { return 64 }
+        guard let modelID = modelID?.trimmingCharacters(in: .whitespacesAndNewlines), !modelID.isEmpty else {
+            return nil
+        }
         if modelID == MiniMaxH3Configuration.modelID { return nil }
         let resolved = GenerationModelResolver.resolve(modelID: modelID)
         switch resolved {
         case .runnable(let runnable):
             return alignmentMultiple(for: runnable.backend)
         case .unsupported:
-            return 64
+            return nil
         }
     }
 
@@ -123,13 +126,25 @@ public enum ModelAwareResolutionAlignment {
         }
 
         guard let multiple = alignmentMultiple(for: modelID), multiple > 0 else {
+            let reason: AlignmentReason
+            if modelID == nil || (modelID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
+                reason = .unsupported
+            } else {
+                let resolved = GenerationModelResolver.resolve(modelID: modelID!)
+                switch resolved {
+                case .runnable:
+                    reason = .alreadyCompatible
+                case .unsupported:
+                    reason = .unsupported
+                }
+            }
             return ResolutionAlignmentResult(
                 requested: requested,
                 generation: requested,
                 finalOutput: requested,
                 crop: nil,
                 alignmentMultiple: nil,
-                alignmentReason: .alreadyCompatible
+                alignmentReason: reason
             )
         }
 

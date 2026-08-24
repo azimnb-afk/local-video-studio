@@ -93,7 +93,7 @@ struct ContentView: View {
         // displays (e.g. 13" MacBook Air with a non-default text size). Inner
         // panes are scrollable, so the Generate button stays reachable.
         .frame(
-            minWidth: 900,
+            minWidth: 1040,
             idealWidth: 1280,
             minHeight: 480,
             idealHeight: 800,
@@ -970,7 +970,7 @@ struct GenerateView: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .frame(minWidth: 400, idealWidth: 500)
+        .frame(minWidth: 400, idealWidth: 500, maxWidth: .infinity)
     }
 
     private var parametersPanel: some View {
@@ -980,22 +980,25 @@ struct GenerateView: View {
             } else if presetRaw == GenerationPreset.custom.rawValue {
                 ParametersView(parameters: $parameters)
             } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    let preset = GenerationPreset(rawValue: presetRaw) ?? .standard
-                    Label("\(preset.displayName) Preset", systemImage: "slider.horizontal.3")
-                        .font(.headline)
-                    Text(preset.summary)
-                        .foregroundStyle(.secondary)
-                    Divider()
-                    Text("Manual resolution, frames, FPS and steps are available with Custom. The finished video records the requested settings, selected effective profile and actual MP4 metadata.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        let preset = GenerationPreset(rawValue: presetRaw) ?? .standard
+                        Label("\(preset.displayName) Preset", systemImage: "slider.horizontal.3")
+                            .font(.headline)
+                        Text(preset.summary)
+                            .foregroundStyle(.secondary)
+                        Divider()
+                        Text("Manual resolution, frames, FPS and steps are available with Custom. The finished video records the requested settings, selected effective profile and actual MP4 metadata.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding()
             }
         }
-        .frame(width: 300)
+        .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -1004,134 +1007,157 @@ struct GenerateView: View {
     }
 
     private var miniMaxH3ParametersPanel: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Label("MiniMax H3 (Experimental)", systemImage: "film.stack")
-                .font(.headline)
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 14) {
+                Label("MiniMax H3 (Experimental)", systemImage: "film.stack")
+                    .font(.headline)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Active Preset: \(selectedH3Preset.displayName)")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                Text(selectedH3Preset.summary)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Divider()
-
-            if selectedH3Preset == .custom {
-                // Resolution Tier Selector
-                VStack(alignment: .leading, spacing: 6) {
-                    Label("Resolution Tier", systemImage: "aspectratio")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Active Preset: \(selectedH3Preset.displayName)")
                         .font(.subheadline)
+                        .fontWeight(.medium)
+                    Text(selectedH3Preset.summary)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-                    Picker("", selection: Binding(
-                        get: {
-                            (parameters.width >= 640 || parameters.height >= 640)
-                                ? MiniMaxH3ResolutionTier.tier2
-                                : MiniMaxH3ResolutionTier.tier1
-                        },
-                        set: { tier in
-                            if tier == .tier2 {
-                                if parameters.height > parameters.width {
-                                    parameters.width = 384
-                                    parameters.height = 640
+                }
+
+                Divider()
+
+                if selectedH3Preset == .custom {
+                    // Resolution Tier Selector
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Resolution Tier", systemImage: "aspectratio")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Picker("", selection: Binding(
+                            get: {
+                                (parameters.width >= 640 || parameters.height >= 640)
+                                    ? MiniMaxH3ResolutionTier.tier2
+                                    : MiniMaxH3ResolutionTier.tier1
+                            },
+                            set: { tier in
+                                if tier == .tier2 {
+                                    if parameters.height > parameters.width {
+                                        parameters.width = 384
+                                        parameters.height = 640
+                                    } else {
+                                        parameters.width = 640
+                                        parameters.height = 384
+                                    }
                                 } else {
-                                    parameters.width = 640
-                                    parameters.height = 384
-                                }
-                            } else {
-                                if parameters.height > parameters.width {
-                                    parameters.width = 288
-                                    parameters.height = 512
-                                } else {
-                                    parameters.width = 512
-                                    parameters.height = 288
+                                    if parameters.height > parameters.width {
+                                        parameters.width = 288
+                                        parameters.height = 512
+                                    } else {
+                                        parameters.width = 512
+                                        parameters.height = 288
+                                    }
                                 }
                             }
+                        )) {
+                            Text("Tier 1 (512p)").tag(MiniMaxH3ResolutionTier.tier1)
+                            Text("Tier 2 (640p)").tag(MiniMaxH3ResolutionTier.tier2)
                         }
-                    )) {
-                        ForEach(MiniMaxH3ResolutionTier.allCases) { tier in
-                            Text(tier.displayName).tag(tier)
+                        .pickerStyle(.segmented)
+
+                        let isPortrait = parameters.height > parameters.width
+                        let isTier2 = parameters.width >= 640 || parameters.height >= 640
+                        let dimensionsText = isPortrait
+                            ? (isTier2 ? "384×640 · Portrait" : "288×512 · Portrait")
+                            : (isTier2 ? "640×384 · Landscape" : "512×288 · Landscape")
+                        Text(dimensionsText)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    // Custom Duration Stepper (1.0s to 6.0s)
+                    VStack(alignment: .leading, spacing: 6) {
+                        let requestedSec = Double(parameters.numFrames) / 24.0
+                        let clampedSec = max(1.0, min(6.0, requestedSec))
+                        let legalFrames = MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: clampedSec)
+                        HStack {
+                            Text("Duration: \(clampedSec, specifier: "%.1f")s (\(legalFrames) frames)")
+                                .font(.subheadline)
+                            Spacer()
+                            Stepper(
+                                "",
+                                value: Binding(
+                                    get: { max(1.0, min(6.0, Double(parameters.numFrames) / 24.0)) },
+                                    set: { parameters.numFrames = max(1, Int(($0 * 24.0).rounded())) }
+                                ),
+                                in: 1.0...6.0,
+                                step: 0.5)
+                            .labelsHidden()
+                        }
+
+                        if MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: clampedSec) {
+                            HStack(alignment: .top, spacing: 6) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                    .font(.caption)
+                                Text("5秒以上のH3動画では、後半にかけて細部や人物の一貫性が低下する場合があります。最高品質には3〜4秒を推奨します。")
+                                    .font(.caption2)
+                                    .foregroundStyle(.orange)
+                            }
+                            .padding(8)
+                            .background(Color.orange.opacity(0.1))
+                            .cornerRadius(6)
                         }
                     }
-                    .pickerStyle(.segmented)
-                }
 
-                // Custom Duration Stepper (1.0s to 6.0s)
-                VStack(alignment: .leading, spacing: 6) {
-                    let requestedSec = Double(parameters.numFrames) / 24.0
-                    let clampedSec = max(1.0, min(6.0, requestedSec))
-                    let legalFrames = MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: clampedSec)
-                    Stepper(
-                        "Duration: \(clampedSec, specifier: "%.1f")s (\(legalFrames) frames)",
-                        value: Binding(
-                            get: { max(1.0, min(6.0, Double(parameters.numFrames) / 24.0)) },
-                            set: { parameters.numFrames = max(1, Int(($0 * 24.0).rounded())) }
-                        ),
-                        in: 1.0...6.0,
-                        step: 0.5)
-
-                    if MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: clampedSec) {
-                        HStack(alignment: .top, spacing: 6) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                                .font(.caption)
-                            Text("5秒以上のH3動画では、後半にかけて細部や人物の一貫性が低下する場合があります。最高品質には3〜4秒を推奨します。")
-                                .font(.caption2)
-                                .foregroundStyle(.orange)
+                    // Custom Steps Stepper (6 to 20)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Inference Steps: \(parameters.numInferenceSteps)")
+                                .font(.subheadline)
+                            Spacer()
+                            Stepper(
+                                "",
+                                value: Binding(
+                                    get: { max(6, min(20, parameters.numInferenceSteps)) },
+                                    set: { parameters.numInferenceSteps = max(6, min(20, $0)) }
+                                ),
+                                in: 6...20,
+                                step: 1)
+                            .labelsHidden()
                         }
-                        .padding(8)
-                        .background(Color.orange.opacity(0.1))
-                        .cornerRadius(6)
                     }
+                } else {
+                    Text("Fixed execution settings are optimized for this preset. For manual resolution tiers, duration, and steps, choose Custom.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
-                // Custom Steps Stepper (6 to 20)
-                VStack(alignment: .leading, spacing: 6) {
-                    Stepper(
-                        "Inference Steps: \(parameters.numInferenceSteps)",
-                        value: Binding(
-                            get: { max(6, min(20, parameters.numInferenceSteps)) },
-                            set: { parameters.numInferenceSteps = max(6, min(20, $0)) }
-                        ),
-                        in: 6...20,
-                        step: 1)
-                }
-            } else {
-                Text("Fixed execution settings are optimized for this preset. For manual resolution tiers, duration, and steps, choose Custom.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Seed", systemImage: "dice")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                HStack {
-                    TextField("Random", value: $parameters.seed, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 120)
-                    Button {
-                        parameters.seed = Int.random(in: 0..<Int(Int32.max))
-                    } label: {
-                        Image(systemName: "dice.fill")
-                    }
-                    .buttonStyle(.borderless)
-                    if parameters.seed != nil {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Seed", systemImage: "dice")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        TextField("Random", value: $parameters.seed, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(minWidth: 100, maxWidth: 140)
                         Button {
-                            parameters.seed = nil
+                            parameters.seed = Int.random(in: 0..<Int(Int32.max))
                         } label: {
-                            Image(systemName: "xmark.circle.fill")
+                            Image(systemName: "dice.fill")
                         }
                         .buttonStyle(.borderless)
+                        if parameters.seed != nil {
+                            Button {
+                                parameters.seed = nil
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                            }
+                            .buttonStyle(.borderless)
+                        }
                     }
                 }
-            }
 
-            Spacer()
+                Spacer()
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding()
     }
 }
 

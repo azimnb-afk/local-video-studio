@@ -249,6 +249,11 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
     var isImageToVideo: Bool {
         sourceImagePath != nil && !sourceImagePath!.isEmpty
     }
+
+    /// True if this request represents a continuation from a previous shot/take
+    var isContinuation: Bool {
+        isImageToVideo && (generationSource == "hybrid" || generationSource == "storyboard" || generationSource == "autoMovie" || takeID != nil)
+    }
     
     /// True if voiceover text is provided
     var hasVoiceover: Bool {

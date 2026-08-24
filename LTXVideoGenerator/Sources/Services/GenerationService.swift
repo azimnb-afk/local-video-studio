@@ -497,14 +497,24 @@ class GenerationService: ObservableObject {
             
             // Director-extension metadata (backward-compatible optional fields).
             // Applied last so intermediate rebuilds (thumbnail, voiceover, music)
-            // cannot drop it.
-            if usesMiniMaxH3 {
-                generationResult.effectiveWidth = effectiveRequest.parameters.width
-                generationResult.effectiveHeight = effectiveRequest.parameters.height
-            } else {
-                generationResult.effectiveWidth = (effectiveRequest.parameters.width / 64) * 64
-                generationResult.effectiveHeight = (effectiveRequest.parameters.height / 64) * 64
-            }
+            let alignment = ModelAwareResolutionAlignment.align(
+                requestedWidth: request.parameters.width,
+                requestedHeight: request.parameters.height,
+                modelID: request.modelId,
+                isContinuation: request.isContinuation
+            )
+            generationResult.requestedWidth = alignment.requested.width
+            generationResult.requestedHeight = alignment.requested.height
+            generationResult.effectiveWidth = alignment.generation.width
+            generationResult.effectiveHeight = alignment.generation.height
+            generationResult.finalWidth = alignment.finalOutput.width
+            generationResult.finalHeight = alignment.finalOutput.height
+            generationResult.alignmentApplied = alignment.crop?.hasCrop ?? false
+            generationResult.alignmentMultiple = alignment.alignmentMultiple
+            generationResult.cropTop = alignment.crop?.top
+            generationResult.cropBottom = alignment.crop?.bottom
+            generationResult.cropLeft = alignment.crop?.left
+            generationResult.cropRight = alignment.crop?.right
             if let mediaInfo = MediaProbe.probe(path: generationResult.videoPath) {
                 generationResult.actualWidth = mediaInfo.width
                 generationResult.actualHeight = mediaInfo.height
@@ -522,8 +532,6 @@ class GenerationService: ObservableObject {
             generationResult.effectiveProfileID = effectiveProfile?.id
             generationResult.effectiveProfileName = effectiveProfile?.displayName
             generationResult.effectiveProfileReason = effectiveProfileReason
-            generationResult.requestedWidth = request.parameters.width
-            generationResult.requestedHeight = request.parameters.height
             generationResult.requestedDurationSeconds = effectiveRequest.minimaxH3RequestedDurationSeconds
                 ?? request.requestedDurationSeconds
             generationResult.targetDurationSeconds = request.targetDurationSeconds

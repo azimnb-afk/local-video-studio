@@ -525,8 +525,16 @@ struct Take: Codable, Equatable, Identifiable {
     var requestedHeight: Int
     var effectiveWidth: Int?
     var effectiveHeight: Int?
+    var finalWidth: Int?
+    var finalHeight: Int?
     var actualWidth: Int?
     var actualHeight: Int?
+    var alignmentApplied: Bool?
+    var alignmentMultiple: Int?
+    var cropTop: Int?
+    var cropBottom: Int?
+    var cropLeft: Int?
+    var cropRight: Int?
 
     var fps: Int
     var requestedDuration: Double

@@ -179,10 +179,14 @@ class LTXBridge {
         }
         
         let params = request.parameters
-        // These are the exact dimensions passed to mlx_video below. Image
-        // conditioning must target this effective canvas, not a preset label.
-        let genWidth = (params.width / 64) * 64
-        let genHeight = (params.height / 64) * 64
+        let alignment = ModelAwareResolutionAlignment.align(
+            requestedWidth: params.width,
+            requestedHeight: params.height,
+            modelID: request.modelId,
+            isContinuation: request.isContinuation
+        )
+        let genWidth = alignment.generation.width
+        let genHeight = alignment.generation.height
         let seed = params.seed ?? Int.random(in: 0..<Int(Int32.max))
         
         // Resolve through the one boundary that knows what the installed
@@ -831,6 +835,10 @@ except Exception as e:
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let videoPath = json["video_path"] as? String,
                let resultSeed = json["seed"] as? Int {
+                _ = try? PostGenerationCropService.applyCropIfNeeded(
+                    videoPath: videoPath,
+                    alignment: alignment
+                )
                 progressHandler(1.0, "Complete!")
                 // Safe to read without lock: runPython has completed, no more stderr callbacks
                 return (videoPath, resultSeed, capturedEnhancedPrompt)

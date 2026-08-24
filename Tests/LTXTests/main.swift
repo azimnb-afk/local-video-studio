@@ -1692,6 +1692,7 @@ runStructuralMoviePlannerTests(t)
 runAutoMovieDirectorCoreIntegrationTests(t)
 runAutoMovieDirectorIsolationTests(t)
 runAutoMovieDirectorUITests(t)
+runModelAwareResolutionAlignmentTests(t)
 if CommandLine.arguments.contains("--probe-director-cancellation-acceptance") {
     runRealDirectorPlanningCancellationAcceptanceProbe(t)
 }

@@ -110,9 +110,14 @@ struct LTX2MLXBackend {
         }
 
         let params = request.parameters
-        // ltx-2-mlx works in multiples of 32; the app already snaps to 64.
-        let width = (params.width / 32) * 32
-        let height = (params.height / 32) * 32
+        let alignment = ModelAwareResolutionAlignment.align(
+            requestedWidth: params.width,
+            requestedHeight: params.height,
+            modelID: request.modelId,
+            isContinuation: request.isContinuation
+        )
+        let width = alignment.generation.width
+        let height = alignment.generation.height
         let seed = params.seed ?? Int.random(in: 0..<Int(Int32.max))
 
         var effectiveSourceImage = request.sourceImagePath
@@ -147,6 +152,11 @@ struct LTX2MLXBackend {
                 "\(GenerationBackendKind.ltx2MLX.displayName) reported success but wrote no video to \(outputPath)."
             )
         }
+        _ = try? PostGenerationCropService.applyCropIfNeeded(
+            videoPath: outputPath,
+            alignment: alignment,
+            fileManager: fileManager
+        )
         progressHandler(1.0, "Generation complete.")
         return (outputPath, seed, nil)
     }

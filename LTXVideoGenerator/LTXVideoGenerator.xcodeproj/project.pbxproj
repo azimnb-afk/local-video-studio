@@ -136,6 +136,8 @@
 		AA000328 /* MiniMaxH3Policy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000329; };
 		AA00032A /* MiniMaxH3Backend.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00032B; };
 		AA00032C /* MiniMaxH3Progress.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00032D; };
+		AA000330 /* ModelAwareResolutionAlignment.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000331; };
+		AA000332 /* PostGenerationCropService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000333; };
 		AA0009C9 /* MiniMaxH3GenerationLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009CA; };
 		AA0009D0 /* CanonicalShotRequestBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009D1; };
 		AA0009E0 /* StructuralMoviePlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009E1; };
@@ -270,6 +272,8 @@
 		AA000329 /* MiniMaxH3Policy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniMaxH3Policy.swift; sourceTree = "<group>"; };
 		AA00032B /* MiniMaxH3Backend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniMaxH3Backend.swift; sourceTree = "<group>"; };
 		AA00032D /* MiniMaxH3Progress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniMaxH3Progress.swift; sourceTree = "<group>"; };
+		AA000331 /* ModelAwareResolutionAlignment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelAwareResolutionAlignment.swift; sourceTree = "<group>"; };
+		AA000333 /* PostGenerationCropService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostGenerationCropService.swift; sourceTree = "<group>"; };
 		AA0009CA /* MiniMaxH3GenerationLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniMaxH3GenerationLease.swift; sourceTree = "<group>"; };
 		AA0009D1 /* CanonicalShotRequestBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanonicalShotRequestBuilder.swift; sourceTree = "<group>"; };
 		AA0009E1 /* StructuralMoviePlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StructuralMoviePlanner.swift; sourceTree = "<group>"; };
@@ -440,6 +444,8 @@
 				AA000329 /* MiniMaxH3Policy.swift */,
 				AA00032B /* MiniMaxH3Backend.swift */,
 				AA00032D /* MiniMaxH3Progress.swift */,
+				AA000331 /* ModelAwareResolutionAlignment.swift */,
+				AA000333 /* PostGenerationCropService.swift */,
 				AA0009CA /* MiniMaxH3GenerationLease.swift */,
 				AA0009D1 /* CanonicalShotRequestBuilder.swift */,
 				AA0009E1 /* StructuralMoviePlanner.swift */,
@@ -676,6 +682,8 @@
 				AA000328 /* MiniMaxH3Policy.swift in Sources */,
 				AA00032A /* MiniMaxH3Backend.swift in Sources */,
 				AA00032C /* MiniMaxH3Progress.swift in Sources */,
+				AA000330 /* ModelAwareResolutionAlignment.swift in Sources */,
+				AA000332 /* PostGenerationCropService.swift in Sources */,
 				AA0009C9 /* MiniMaxH3GenerationLease.swift in Sources */,
 				AA0009D0 /* CanonicalShotRequestBuilder.swift in Sources */,
 				AA0009E0 /* StructuralMoviePlanner.swift in Sources */,

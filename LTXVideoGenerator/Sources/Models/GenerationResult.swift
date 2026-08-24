@@ -53,6 +53,14 @@ struct GenerationResult: Identifiable, Codable {
     var shotID: UUID?
     var takeID: UUID?
     var brief: String?
+    var finalWidth: Int?
+    var finalHeight: Int?
+    var alignmentApplied: Bool?
+    var alignmentMultiple: Int?
+    var cropTop: Int?
+    var cropBottom: Int?
+    var cropLeft: Int?
+    var cropRight: Int?
 
     var videoURL: URL {
         URL(fileURLWithPath: videoPath)

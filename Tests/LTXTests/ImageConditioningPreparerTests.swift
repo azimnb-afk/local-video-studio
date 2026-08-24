@@ -157,9 +157,9 @@ func runImageConditioningPreparerTests(_ t: TestKit) {
                 prompt: "p", sourceImagePath: arbitrary.path,
                 parameters: parameters, generationSource: source)
             let prepared = try preparer.prepare(request: request)
-            t.checkEqual(prepared?.geometry.targetWidth, 768,
+            t.checkEqual(prepared?.geometry.targetWidth, 832,
                          "\(source) uses backend-effective 64-pixel width")
-            t.checkEqual(prepared?.geometry.targetHeight, 512,
+            t.checkEqual(prepared?.geometry.targetHeight, 576,
                          "\(source) uses backend-effective 64-pixel height")
         }
 

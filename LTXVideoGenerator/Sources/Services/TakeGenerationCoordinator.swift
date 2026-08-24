@@ -493,9 +493,17 @@ final class TakeGenerationCoordinator {
         take.seed = result.seed
         take.effectiveWidth = result.effectiveWidth
         take.effectiveHeight = result.effectiveHeight
+        take.finalWidth = result.finalWidth
+        take.finalHeight = result.finalHeight
         take.actualWidth = result.actualWidth ?? mediaInfo?.width
         take.actualHeight = result.actualHeight ?? mediaInfo?.height
         take.actualDuration = result.actualDuration ?? mediaInfo?.durationSeconds
+        take.alignmentApplied = result.alignmentApplied
+        take.alignmentMultiple = result.alignmentMultiple
+        take.cropTop = result.cropTop
+        take.cropBottom = result.cropBottom
+        take.cropLeft = result.cropLeft
+        take.cropRight = result.cropRight
         take.modelRevision = result.modelRevision
         take.quantization = result.quantization
         take.preset = result.preset ?? take.preset
@@ -525,8 +533,16 @@ final class TakeGenerationCoordinator {
             requestedHeight: previousRuntime?.requestedHeight ?? take.requestedHeight,
             effectiveWidth: result.effectiveWidth ?? effectiveDimension(result.parameters.width),
             effectiveHeight: result.effectiveHeight ?? effectiveDimension(result.parameters.height),
+            finalWidth: result.finalWidth,
+            finalHeight: result.finalHeight,
             actualWidth: mediaInfo?.width ?? result.actualWidth,
             actualHeight: mediaInfo?.height ?? result.actualHeight,
+            alignmentApplied: result.alignmentApplied,
+            alignmentMultiple: result.alignmentMultiple,
+            cropTop: result.cropTop,
+            cropBottom: result.cropBottom,
+            cropLeft: result.cropLeft,
+            cropRight: result.cropRight,
             requestedFrames: requestedFrames,
             requestedDurationSeconds: requestedDuration,
             actualDurationSeconds: mediaInfo?.durationSeconds ?? result.actualDuration,

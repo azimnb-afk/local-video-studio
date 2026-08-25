@@ -17,8 +17,8 @@ struct ProjectIdentityAnchorSection: View {
     @State private var isSelectingFile = false
     @State private var errorMessage: String?
 
-    private var isEnabled: Bool {
-        project.identityAnchor != nil && project.reanchorPolicy != .off
+    private var isPolicyActive: Bool {
+        project.reanchorPolicy != .off
     }
 
     private var anchor: ProjectIdentityAnchor? {
@@ -42,14 +42,14 @@ struct ProjectIdentityAnchorSection: View {
                 }
                 Spacer()
                 Toggle("", isOn: Binding(
-                    get: { isEnabled },
+                    get: { isPolicyActive },
                     set: { toggleEnabled($0) }
                 ))
                 .toggleStyle(.switch)
                 .labelsHidden()
             }
 
-            if isEnabled {
+            if isPolicyActive {
                 VStack(alignment: .leading, spacing: 8) {
                     if let imageURL = anchorImageURL, let nsImage = NSImage(contentsOf: imageURL) {
                         HStack(spacing: 12) {
@@ -87,9 +87,13 @@ struct ProjectIdentityAnchorSection: View {
                         }
                     } else {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("基準となるキャラクター画像を選択してください。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            HStack(spacing: 6) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                Text("参照画像が未設定です。基準となる画像を選択してください。")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
                             Button("画像を選択...") {
                                 selectAndImportImage()
                             }
@@ -107,7 +111,7 @@ struct ProjectIdentityAnchorSection: View {
                     .foregroundStyle(.red)
             }
 
-            Text("作品全体を通してキャラクターの顔や服装の特徴を保つための基準画像を設定します。")
+            Text("自然なカットで参照画像を再適用することで、キャラクターの外観を維持しやすくし、その後の連続ショットにも引き継ぎます。")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }

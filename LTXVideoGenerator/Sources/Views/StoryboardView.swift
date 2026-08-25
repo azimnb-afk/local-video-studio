@@ -2667,6 +2667,7 @@ private struct TakeRow: View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 8) {
                 statusIcon
+                conditioningBadge
                 Text("Seed \(take.seed)")
                     .font(.caption.monospaced())
                 if let preset = take.preset.flatMap(GenerationPreset.init(rawValue:)) {
@@ -2743,6 +2744,40 @@ private struct TakeRow: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
         )
+    }
+
+    @ViewBuilder
+    private var conditioningBadge: some View {
+        if take.reanchorApplied == true {
+            if (take.continueChainIndex ?? 0) == 0 && shot.index > 0 {
+                Text("RE-ANCHOR")
+                    .font(.system(size: 9, weight: .bold))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.purple.opacity(0.15))
+                    .foregroundStyle(.purple)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                    .help("Reapplies Project Identity Reference on natural cut")
+            } else {
+                Text("ANCHOR")
+                    .font(.system(size: 9, weight: .bold))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.blue.opacity(0.15))
+                    .foregroundStyle(.blue)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                    .help("Uses Project Identity Reference")
+            }
+        } else if take.conditioningStrategy == "previousFinalFrame" {
+            Text("CONTINUE")
+                .font(.system(size: 9, weight: .bold))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(Color.teal.opacity(0.15))
+                .foregroundStyle(.teal)
+                .clipShape(RoundedRectangle(cornerRadius: 3))
+                .help("Continues from previous shot's final frame")
+        }
     }
 
     @ViewBuilder

@@ -254,5 +254,74 @@ func runIdentityAnchorFoundationTests(_ t: TestKit) {
         t.checkEqual(recordedDecisions[4].conditioningStrategy, .previousFinalFrame, "Dry-Run Shot 5: previousFinalFrame")
         t.checkEqual(recordedDecisions[4].resultingContinueChainIndex, 1, "Dry-Run Shot 5: chainIndex 1")
         t.checkEqual(recordedDecisions[4].reanchorApplied, false, "Dry-Run Shot 5: reanchorApplied false")
+
+        // 14. ANCHOR_REPLACE_INVALIDATES_CACHE
+        let sampleImageURL2 = tmpDir.appendingPathComponent("sample_character_2.png")
+        let rep2 = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 600,
+            pixelsHigh: 600,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 600 * 4,
+            bitsPerPixel: 32
+        )!
+        let pngData2 = rep2.representation(using: .png, properties: [:])!
+        try? pngData2.write(to: sampleImageURL2)
+
+        let oldPreparedURL = ltxPreparedURL
+        t.check(FileManager.default.fileExists(atPath: oldPreparedURL.path), "Old prepared anchor exists before replacement")
+
+        // Remove old anchor and import new
+        service.removeAnchor(anchor: anchor, projectID: project.id, store: store)
+        t.check(!FileManager.default.fileExists(atPath: oldPreparedURL.path), "ANCHOR_REPLACE_INVALIDATES_CACHE: old prepared anchor removed")
+
+        let newAnchor = try! service.importAnchor(
+            sourceURL: sampleImageURL2,
+            projectID: project.id,
+            characterName: "Hero V2",
+            store: store
+        )
+        project.identityAnchor = newAnchor
+        store.save(project)
+
+        let newPreparedURL = try! service.prepareAnchor(
+            anchor: newAnchor,
+            projectID: project.id,
+            requestedWidth: 512,
+            requestedHeight: 300,
+            modelID: LTXModelCatalog.defaultModelID,
+            store: store
+        )
+        t.check(FileManager.default.fileExists(atPath: newPreparedURL.path), "New prepared anchor created successfully")
+        t.check(newPreparedURL != oldPreparedURL, "New prepared URL is distinct from old URL")
+
+        // 15. ANCHOR_REMOVE_SAFE
+        service.removeAnchor(anchor: newAnchor, projectID: project.id, store: store)
+        project.identityAnchor = nil
+        project.reanchorPolicy = .off
+        store.save(project)
+
+        t.check(!FileManager.default.fileExists(atPath: newPreparedURL.path), "ANCHOR_REMOVE_SAFE: prepared anchor removed")
+        let postRemoveDecision = IdentityReanchorEngine.decide(
+            reanchorPolicy: project.reanchorPolicy,
+            identityAnchor: project.identityAnchor,
+            shotIndex: 0,
+            transitionIntent: .cut,
+            previousContinueChainIndex: 0,
+            hasExplicitShotSource: false,
+            hasIdentityRefreshAsset: false
+        )
+        t.checkEqual(postRemoveDecision.shouldApplyAnchor, false, "ANCHOR_REMOVE_SAFE: shouldApplyAnchor is false after removal")
+        t.checkEqual(postRemoveDecision.reason, .disabled, "ANCHOR_REMOVE_SAFE: reason is .disabled after removal")
+
+        // 16. BACKEND_VALIDATION_STATUS
+        t.checkEqual(IdentityReanchorBackendValidation.status(for: MiniMaxH3Configuration.modelID), .supportedAndValidated, "H3 is supported and validated")
+        t.checkEqual(IdentityReanchorBackendValidation.status(for: LTXModelCatalog.defaultModelID), .supportedAndValidated, "LTX 2.3 Distilled Q4 is supported and validated")
+        t.checkEqual(IdentityReanchorBackendValidation.status(for: "custom_ltx_model"), .supportedUnvalidated, "Custom models are supported unvalidated")
+        t.checkEqual(IdentityReanchorBackendValidation.status(for: nil), .supportedUnvalidated, "Nil model is supported unvalidated")
     }
 }

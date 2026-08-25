@@ -22,6 +22,23 @@ enum ConditioningStrategy: String, Codable, Sendable, Equatable {
     case identityRefresh = "identityRefresh"
 }
 
+/// Back-end capability and experimental validation status for natural-CUT Identity Re-anchor.
+enum IdentityReanchorBackendValidation: String, Codable, Sendable, Equatable {
+    case supportedAndValidated = "supportedAndValidated"
+    case supportedUnvalidated = "supportedUnvalidated"
+    case unsupported = "unsupported"
+
+    static func status(for modelID: String?) -> Self {
+        guard let modelID = modelID?.trimmingCharacters(in: .whitespacesAndNewlines), !modelID.isEmpty else {
+            return .supportedUnvalidated
+        }
+        if modelID == MiniMaxH3Configuration.modelID || modelID == LTXModelCatalog.defaultModelID {
+            return .supportedAndValidated
+        }
+        return .supportedUnvalidated
+    }
+}
+
 /// Deterministic result of evaluating a shot's re-anchoring needs.
 struct IdentityReanchorDecision: Codable, Sendable, Equatable {
     let shouldApplyAnchor: Bool

@@ -879,6 +879,7 @@ private struct ProjectDetailView: View {
                     AutoMoviePlanPreviewSection(project: project, onChanged: onChanged)
                     OpeningReferenceSection(project: project, onChanged: onChanged)
                     CharacterAnchorSection(project: project, onChanged: onChanged)
+                    ProjectIdentityAnchorSection(project: project, onChanged: onChanged)
                 }
                 Divider()
                 ForEach(project.shots) { shot in

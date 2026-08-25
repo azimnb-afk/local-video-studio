@@ -62,6 +62,17 @@ struct GenerationResult: Identifiable, Codable {
     var cropLeft: Int?
     var cropRight: Int?
 
+    // Identity Keyframe & Re-anchor provenance foundation (optional for backward compatibility).
+    var transitionIntent: String?
+    var conditioningStrategy: String?
+    var continueChainIndex: Int?
+    var identityAnchorID: UUID?
+    var temporalSourceShotID: UUID?
+    var reanchorApplied: Bool?
+    var reanchorReason: String?
+    var preparedAnchorWidth: Int?
+    var preparedAnchorHeight: Int?
+
     var videoURL: URL {
         URL(fileURLWithPath: videoPath)
     }

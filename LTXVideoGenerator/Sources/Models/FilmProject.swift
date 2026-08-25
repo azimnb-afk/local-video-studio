@@ -566,6 +566,126 @@ struct Take: Codable, Equatable, Identifiable {
     /// diagnostics safely remain "unavailable" rather than being guessed from
     /// current settings or a later output file.
     var generationRuntimeDiagnostics: GenerationRuntimeDiagnostics?
+
+    // Identity Keyframe & Re-anchor provenance foundation (optional for backward compatibility).
+    var transitionIntent: String?
+    var conditioningStrategy: String?
+    var continueChainIndex: Int?
+    var identityAnchorID: UUID?
+    var temporalSourceShotID: UUID?
+    var reanchorApplied: Bool?
+    var reanchorReason: String?
+    var preparedAnchorWidth: Int?
+    var preparedAnchorHeight: Int?
+}
+
+// MARK: - Identity Keyframe & Conditioning Models
+
+/// Project-level immutable identity anchor (source of truth for character/subject consistency).
+public struct ProjectIdentityAnchor: Codable, Equatable, Sendable {
+    public let id: UUID
+    public var projectRelativePath: String
+    public var characterName: String?
+    public var createdTimestamp: Date
+    public var originalWidth: Int?
+    public var originalHeight: Int?
+
+    public init(
+        id: UUID = UUID(),
+        projectRelativePath: String,
+        characterName: String? = nil,
+        createdTimestamp: Date = Date(),
+        originalWidth: Int? = nil,
+        originalHeight: Int? = nil
+    ) {
+        self.id = id
+        self.projectRelativePath = projectRelativePath
+        self.characterName = characterName
+        self.createdTimestamp = createdTimestamp
+        self.originalWidth = originalWidth
+        self.originalHeight = originalHeight
+    }
+}
+
+/// Project-level policy for automatic re-anchoring across long continuation chains.
+public enum IdentityReanchorPolicy: String, Codable, Sendable, CaseIterable, Equatable {
+    case off = "off"
+    case automatic = "automatic"
+    case manual = "manual"
+}
+
+/// Role of a conditioning asset in video generation.
+public enum ConditioningRole: String, Codable, Sendable, Equatable {
+    case temporalStart
+    case temporalEnd
+    case identityReference
+}
+
+/// Provenance kind of the conditioning source asset.
+public enum ConditioningSourceKind: String, Codable, Sendable, Equatable {
+    case userProvided
+    case projectContinuityFrame
+    case storyboardAsset
+    case identityAnchor
+    case identityRefresh
+}
+
+/// A concrete conditioning asset reference with role and source details.
+public struct ConditioningAsset: Codable, Sendable, Equatable {
+    public let id: UUID
+    public var role: ConditioningRole
+    public var sourceKind: ConditioningSourceKind
+    public var originalPath: String
+    public var preparedPath: String?
+    public var sourceShotID: UUID?
+    public var sourceTakeID: UUID?
+    public var conditioningStrength: Double
+
+    public init(
+        id: UUID = UUID(),
+        role: ConditioningRole,
+        sourceKind: ConditioningSourceKind,
+        originalPath: String,
+        preparedPath: String? = nil,
+        sourceShotID: UUID? = nil,
+        sourceTakeID: UUID? = nil,
+        conditioningStrength: Double = 0.8
+    ) {
+        self.id = id
+        self.role = role
+        self.sourceKind = sourceKind
+        self.originalPath = originalPath
+        self.preparedPath = preparedPath
+        self.sourceShotID = sourceShotID
+        self.sourceTakeID = sourceTakeID
+        self.conditioningStrength = conditioningStrength
+    }
+}
+
+/// Multi-role conditioning plan for a single shot generation request.
+public struct ShotConditioningPlan: Codable, Sendable, Equatable {
+    public var temporalStart: ConditioningAsset?
+    public var temporalEnd: ConditioningAsset?
+    public var identityReference: ConditioningAsset?
+
+    public init(
+        temporalStart: ConditioningAsset? = nil,
+        temporalEnd: ConditioningAsset? = nil,
+        identityReference: ConditioningAsset? = nil
+    ) {
+        self.temporalStart = temporalStart
+        self.temporalEnd = temporalEnd
+        self.identityReference = identityReference
+    }
+
+    public var isConditioned: Bool {
+        temporalStart != nil || temporalEnd != nil || identityReference != nil
+    }
+
+    public var effectivePrimaryImagePath: String? {
+        temporalStart?.preparedPath ?? temporalStart?.originalPath
+            ?? identityReference?.preparedPath ?? identityReference?.originalPath
+    }
 }
 
 // MARK: - Continuity chain
@@ -1157,9 +1277,23 @@ struct FilmProject: Codable, Equatable, Identifiable {
     /// behavior to before this field existed.
     var finalAudio: FinalAudioSettings = FinalAudioSettings()
 
+    /// Project-level immutable identity anchor (Character Keyframe).
+    /// Optional; absent in older projects.
+    var identityAnchor: ProjectIdentityAnchor?
+
+    /// Policy for automatic/manual re-anchoring across long continuation chains.
+    /// Absent in legacy projects; decodes as `.off` to preserve previous behavior.
+    var reanchorPolicy: IdentityReanchorPolicy = .off
+
+    /// Maximum consecutive CONTINUE shots before a re-anchor is recommended/scheduled.
+    var maxContinueChainLength: Int = 3
+
     init(id: UUID = UUID(), title: String) {
         self.id = id
         self.title = title
+        // Newly created projects default to automatic re-anchoring
+        self.reanchorPolicy = .automatic
+        self.maxContinueChainLength = 3
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -1170,7 +1304,8 @@ struct FilmProject: Codable, Equatable, Identifiable {
              storyBible, characterBible, shots, jobs,
              lastAssemblySignature, assembledMoviePath, assembledAt,
              continuityChainEnabled, characterAnchor, openingReferenceImage,
-             openingReferenceAppearance, characterOpeningConsistency, finalAudio
+             openingReferenceAppearance, characterOpeningConsistency, finalAudio,
+             identityAnchor, reanchorPolicy, maxContinueChainLength
     }
 
     init(from decoder: Decoder) throws {
@@ -1215,6 +1350,10 @@ struct FilmProject: Codable, Equatable, Identifiable {
         // with BGM off, reproducing their exact previous assembly output.
         finalAudio = try container.decodeIfPresent(FinalAudioSettings.self, forKey: .finalAudio)
             ?? FinalAudioSettings()
+        identityAnchor = try container.decodeIfPresent(ProjectIdentityAnchor.self, forKey: .identityAnchor)
+        // CRITICAL backward-compatibility: legacy projects missing reanchorPolicy decode as .off
+        reanchorPolicy = try container.decodeIfPresent(IdentityReanchorPolicy.self, forKey: .reanchorPolicy) ?? .off
+        maxContinueChainLength = try container.decodeIfPresent(Int.self, forKey: .maxContinueChainLength) ?? 3
     }
 
     mutating func touch() {

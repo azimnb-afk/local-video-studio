@@ -141,6 +141,8 @@
 		AA0009C9 /* MiniMaxH3GenerationLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009CA; };
 		AA0009D0 /* CanonicalShotRequestBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009D1; };
 		AA0009E0 /* StructuralMoviePlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009E1; };
+		AA000334 /* PreparedIdentityAnchorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000335; };
+		AA000336 /* ProjectIdentityAnchorSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000337; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -277,6 +279,8 @@
 		AA0009CA /* MiniMaxH3GenerationLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniMaxH3GenerationLease.swift; sourceTree = "<group>"; };
 		AA0009D1 /* CanonicalShotRequestBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanonicalShotRequestBuilder.swift; sourceTree = "<group>"; };
 		AA0009E1 /* StructuralMoviePlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StructuralMoviePlanner.swift; sourceTree = "<group>"; };
+		AA000335 /* PreparedIdentityAnchorService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreparedIdentityAnchorService.swift; sourceTree = "<group>"; };
+		AA000337 /* ProjectIdentityAnchorSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectIdentityAnchorSection.swift; sourceTree = "<group>"; };
 		AA000030 /* LTXVideoGenerator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LTXVideoGenerator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -452,6 +456,7 @@
 				AA000317 /* RenderLanguageValidator.swift */,
 				AA000319 /* RenderTextNormalizer.swift */,
 				AA00031B /* PromptSanitizer.swift */,
+				AA000335 /* PreparedIdentityAnchorService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -476,6 +481,7 @@
 				AA000247 /* CharacterReferenceExtractionView.swift */,
 				AA000233 /* ModelsAndFeaturesPreferences.swift */,
 				AA000257 /* SetupWizardView.swift */,
+				AA000337 /* ProjectIdentityAnchorSection.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -687,6 +693,8 @@
 				AA0009C9 /* MiniMaxH3GenerationLease.swift in Sources */,
 				AA0009D0 /* CanonicalShotRequestBuilder.swift in Sources */,
 				AA0009E0 /* StructuralMoviePlanner.swift in Sources */,
+				AA000334 /* PreparedIdentityAnchorService.swift in Sources */,
+				AA000336 /* ProjectIdentityAnchorSection.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

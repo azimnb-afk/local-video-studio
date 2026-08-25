@@ -10,6 +10,16 @@ let ltxTestsStorageRoot = FileManager.default.temporaryDirectory
         isDirectory: true)
 setenv(AppStorageDirectory.testRootEnvironmentKey, ltxTestsStorageRoot.path, 1)
 
+// Actual App Continuity E2E verification:
+//   swift run LTXTests --app-continuity-e2e
+if CommandLine.arguments.count >= 2,
+   CommandLine.arguments[1] == "--app-continuity-e2e" {
+    Task { @MainActor in
+        exit(await AppContinuityE2EHarness.runRealAppContinuityE2E())
+    }
+    RunLoop.main.run()
+}
+
 // Shipping-equivalent Personal first-run acceptance. Discovers the runtime
 // inside a built Personal app, installs it into an isolated Personal-shaped
 // Application Support tree, starts an app-owned server on 11237, and performs

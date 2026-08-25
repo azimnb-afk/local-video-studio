@@ -152,11 +152,13 @@ struct LTX2MLXBackend {
                 "\(GenerationBackendKind.ltx2MLX.displayName) reported success but wrote no video to \(outputPath)."
             )
         }
-        _ = try? PostGenerationCropService.applyCropIfNeeded(
-            videoPath: outputPath,
-            alignment: alignment,
-            fileManager: fileManager
-        )
+        if request.filmProjectID == nil {
+            _ = try? PostGenerationCropService.applyCropIfNeeded(
+                videoPath: outputPath,
+                alignment: alignment,
+                fileManager: fileManager
+            )
+        }
         progressHandler(1.0, "Generation complete.")
         return (outputPath, seed, nil)
     }

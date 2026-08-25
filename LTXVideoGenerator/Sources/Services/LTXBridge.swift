@@ -835,10 +835,12 @@ except Exception as e:
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let videoPath = json["video_path"] as? String,
                let resultSeed = json["seed"] as? Int {
-                _ = try? PostGenerationCropService.applyCropIfNeeded(
-                    videoPath: videoPath,
-                    alignment: alignment
-                )
+                if request.filmProjectID == nil {
+                    _ = try? PostGenerationCropService.applyCropIfNeeded(
+                        videoPath: videoPath,
+                        alignment: alignment
+                    )
+                }
                 progressHandler(1.0, "Complete!")
                 // Safe to read without lock: runPython has completed, no more stderr callbacks
                 return (videoPath, resultSeed, capturedEnhancedPrompt)

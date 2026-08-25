@@ -177,14 +177,27 @@ final class FinalAssemblyService {
                 throw AssemblyError.bgmProbeFailed(mixedOutputPath)
             }
             try replaceFile(at: outputPath, with: mixedOutputPath)
-            return mixedInfo
         } else {
             try replaceFile(at: outputPath, with: concatOutputPath)
-            guard let info = MediaProbe.probe(path: outputPath) else {
-                throw AssemblyError.probeFailed(outputPath)
-            }
-            return info
         }
+
+        // Apply final model-aware resolution crop once to the assembled movie if needed
+        let alignment = ModelAwareResolutionAlignment.align(
+            requestedWidth: project.settings.width,
+            requestedHeight: project.settings.height,
+            modelID: project.settings.modelID
+        )
+        if alignment.crop?.hasCrop == true {
+            _ = try? PostGenerationCropService.applyCropIfNeeded(
+                videoPath: outputPath,
+                alignment: alignment
+            )
+        }
+
+        guard let info = MediaProbe.probe(path: outputPath) else {
+            throw AssemblyError.probeFailed(outputPath)
+        }
+        return info
     }
 
     /// Atomic replace for a local single-user file: write finished

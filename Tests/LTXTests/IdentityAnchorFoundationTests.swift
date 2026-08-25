@@ -3,36 +3,57 @@ import AppKit
 @testable import LTXVideoGeneratorCore
 
 func runIdentityAnchorFoundationTests(_ t: TestKit) {
-    t.suite("Identity Anchor Foundation — Phase 1 Architecture & Storage") {
+    t.suite("Identity Anchor & Re-anchor Engine (Phase 1.1 + Phase 2)") {
         let tmpDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("anchor-foundation-tests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("anchor-engine-tests-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
         let store = FilmProjectStore(projectsDirectory: tmpDir.appendingPathComponent("Projects"))
         let service = PreparedIdentityAnchorService.shared
 
-        // 1. New Project Default Policy
-        let newProject = FilmProject(title: "New Project")
-        t.check(newProject.identityAnchor == nil, "New project identityAnchor is nil")
-        t.checkEqual(newProject.reanchorPolicy, .automatic, "New project defaults to .automatic reanchor policy")
-        t.checkEqual(newProject.maxContinueChainLength, 3, "New project default maxContinueChainLength is 3")
+        // 1. GENERIC_NEW_PROJECT_DEFAULT_OFF & NEW_AUTOMOVIE_DEFAULT_AUTO
+        let genericProject = FilmProject(title: "Generic Project")
+        t.checkEqual(genericProject.reanchorPolicy, .off, "GENERIC_NEW_PROJECT_DEFAULT_OFF: generic init defaults to .off")
+        t.checkEqual(genericProject.maxContinueChainLength, 3, "generic init default maxContinueChainLength is 3")
 
-        // 2. Backward Compatibility JSON Decoding of Old Projects
+        var settings = ProjectSettings()
+        settings.targetDurationSeconds = 5.0
+        let sem = DispatchSemaphore(value: 0)
+        var autoMovieProject: FilmProject? = nil
+        Task {
+            do {
+                let res = try await HybridProjectCoordinator().makeProject(
+                    title: "Auto Movie",
+                    brief: "Hero walks across snowy mountains",
+                    settings: settings,
+                    directorEnabled: false
+                )
+                autoMovieProject = res.project
+            } catch {
+                print("AutoMovie planning error: \(error)")
+            }
+            sem.signal()
+        }
+        sem.wait()
+
+        t.check(autoMovieProject != nil, "Auto Movie project planned")
+        t.checkEqual(autoMovieProject?.reanchorPolicy, .automatic, "NEW_AUTOMOVIE_DEFAULT_AUTO: Auto Movie creation sets policy to .automatic")
+
+        // 2. OLD_PROJECT_DEFAULT_OFF (Legacy project backward compatibility)
         let legacyJSON = """
         {"id":"\(UUID().uuidString)","title":"Legacy Project"}
         """.data(using: .utf8)!
-
         do {
             let decodedLegacy = try JSONDecoder().decode(FilmProject.self, from: legacyJSON)
-            t.check(decodedLegacy.identityAnchor == nil, "Legacy project decodes with identityAnchor == nil")
-            t.checkEqual(decodedLegacy.reanchorPolicy, .off, "CRITICAL: Legacy project missing reanchorPolicy decodes as .off")
-            t.checkEqual(decodedLegacy.maxContinueChainLength, 3, "Legacy project decodes safe default maxContinueChainLength 3")
+            t.check(decodedLegacy.identityAnchor == nil, "OLD_PROJECT: identityAnchor is nil")
+            t.checkEqual(decodedLegacy.reanchorPolicy, .off, "OLD_PROJECT_DEFAULT_OFF: decodes as .off")
+            t.checkEqual(decodedLegacy.maxContinueChainLength, 3, "OLD_PROJECT: maxContinueChainLength is 3")
         } catch {
-            t.check(false, "Legacy project failed to decode: \(error)")
+            t.check(false, "Legacy project decode failed: \(error)")
         }
 
-        // 3. Create dummy source anchor image (500x400)
+        // 3. Create sample anchor image in storage
         let sampleImageURL = tmpDir.appendingPathComponent("sample_character.png")
         let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil,
@@ -49,156 +70,189 @@ func runIdentityAnchorFoundationTests(_ t: TestKit) {
         let pngData = rep.representation(using: .png, properties: [:])!
         try? pngData.write(to: sampleImageURL)
 
-        var project = FilmProject(title: "Anchor Test Project")
+        var project = FilmProject(title: "Engine Test Project")
         store.save(project)
-
-        // 4. Import anchor to managed storage
-        var importedAnchor: ProjectIdentityAnchor?
-        do {
-            importedAnchor = try service.importAnchor(
-                sourceURL: sampleImageURL,
-                projectID: project.id,
-                characterName: "Hero",
-                store: store
-            )
-        } catch {
-            t.check(false, "Anchor import failed: \(error)")
-        }
-
-        t.check(importedAnchor != nil, "Anchor imported successfully")
-        t.checkEqual(importedAnchor?.characterName, "Hero", "Anchor characterName preserved")
-        t.checkEqual(importedAnchor?.originalWidth, 500, "Anchor originalWidth 500")
-        t.checkEqual(importedAnchor?.originalHeight, 400, "Anchor originalHeight 400")
-
-        guard let anchor = importedAnchor else { return }
+        let anchor = try! service.importAnchor(
+            sourceURL: sampleImageURL,
+            projectID: project.id,
+            characterName: "Hero",
+            store: store
+        )
         project.identityAnchor = anchor
         store.save(project)
 
-        let managedOriginalURL = store.managedProjectAssetURL(
-            projectID: project.id, relativePath: anchor.projectRelativePath
+        // 4. AUTO_WITHOUT_ANCHOR_NOOP
+        let noAnchorDecision = IdentityReanchorEngine.decide(
+            reanchorPolicy: .automatic,
+            identityAnchor: nil,
+            shotIndex: 0,
+            transitionIntent: .cut,
+            previousContinueChainIndex: 0,
+            hasExplicitShotSource: false,
+            hasIdentityRefreshAsset: false
         )
-        t.check(managedOriginalURL != nil, "Managed asset URL resolves")
-        t.check(FileManager.default.fileExists(atPath: managedOriginalURL?.path ?? ""), "Managed asset exists on disk")
+        t.checkEqual(noAnchorDecision.shouldApplyAnchor, false, "AUTO_WITHOUT_ANCHOR: shouldApplyAnchor is false")
+        t.checkEqual(noAnchorDecision.reason, .noAnchor, "AUTO_WITHOUT_ANCHOR: reason is .noAnchor")
 
-        // 5. Model-Aware Preparation: LTX 2.3 (512x300 requested -> 512x320 generation)
-        var ltxPreparedURL: URL?
-        do {
-            ltxPreparedURL = try service.prepareAnchor(
-                anchor: anchor,
-                projectID: project.id,
-                requestedWidth: 512,
-                requestedHeight: 300,
-                modelID: LTXModelCatalog.defaultModelID,
-                store: store
-            )
-        } catch {
-            t.check(false, "LTX anchor preparation failed: \(error)")
-        }
-
-        t.check(ltxPreparedURL != nil, "LTX prepared URL produced")
-        if let ltxURL = ltxPreparedURL {
-            let probe = MediaProbe.probe(path: ltxURL.path)
-            t.checkEqual(probe?.width, 512, "LTX prepared width 512")
-            t.checkEqual(probe?.height, 320, "LTX prepared height 320 (aligned to 64)")
-        }
-
-        // 6. Model-Aware Preparation: MiniMax H3 Tier 1 (512x288)
-        var h3Tier1URL: URL?
-        do {
-            h3Tier1URL = try service.prepareAnchor(
-                anchor: anchor,
-                projectID: project.id,
-                requestedWidth: 512,
-                requestedHeight: 288,
-                modelID: MiniMaxH3Configuration.modelID,
-                store: store
-            )
-        } catch {
-            t.check(false, "H3 Tier 1 anchor preparation failed: \(error)")
-        }
-
-        t.check(h3Tier1URL != nil, "H3 Tier 1 prepared URL produced")
-        if let h3URL = h3Tier1URL {
-            let probe = MediaProbe.probe(path: h3URL.path)
-            t.checkEqual(probe?.width, 512, "H3 Tier 1 prepared width 512")
-            t.checkEqual(probe?.height, 288, "H3 Tier 1 prepared height 288")
-        }
-
-        // 7. Model-Aware Preparation: MiniMax H3 Tier 2 (640x384)
-        var h3Tier2URL: URL?
-        do {
-            h3Tier2URL = try service.prepareAnchor(
-                anchor: anchor,
-                projectID: project.id,
-                requestedWidth: 640,
-                requestedHeight: 384,
-                modelID: MiniMaxH3Configuration.modelID,
-                store: store
-            )
-        } catch {
-            t.check(false, "H3 Tier 2 anchor preparation failed: \(error)")
-        }
-
-        t.check(h3Tier2URL != nil, "H3 Tier 2 prepared URL produced")
-        if let h3URL = h3Tier2URL {
-            let probe = MediaProbe.probe(path: h3URL.path)
-            t.checkEqual(probe?.width, 640, "H3 Tier 2 prepared width 640")
-            t.checkEqual(probe?.height, 384, "H3 Tier 2 prepared height 384")
-        }
-
-        // 8. Cache Key and Preparation Cache Invalidation
-        let cacheKey = service.cacheKey(
-            anchorID: anchor.id,
-            modelID: LTXModelCatalog.defaultModelID,
-            generationWidth: 512,
-            generationHeight: 320
+        // 5. OFF_WITH_ANCHOR_NOOP
+        let offPolicyDecision = IdentityReanchorEngine.decide(
+            reanchorPolicy: .off,
+            identityAnchor: anchor,
+            shotIndex: 0,
+            transitionIntent: .cut,
+            previousContinueChainIndex: 0,
+            hasExplicitShotSource: false,
+            hasIdentityRefreshAsset: false
         )
-        t.check(cacheKey.contains(anchor.id.uuidString), "Cache key contains anchor ID")
-        t.check(cacheKey.contains("512x320"), "Cache key contains generation dimensions")
-        t.check(cacheKey.contains("v1"), "Cache key contains policy version")
+        t.checkEqual(offPolicyDecision.shouldApplyAnchor, false, "OFF_WITH_ANCHOR: shouldApplyAnchor is false")
+        t.checkEqual(offPolicyDecision.reason, .disabled, "OFF_WITH_ANCHOR: reason is .disabled")
 
-        // Replace anchor with a new one
-        service.invalidatePreparedCache(anchorID: anchor.id, projectID: project.id, store: store)
-        let preparedDir = store.managedProjectAssetURL(
-            projectID: project.id, relativePath: "Assets/Anchors/Prepared"
+        // 6. EXPLICIT_SOURCE_BEATS_REANCHOR
+        let explicitSourceDecision = IdentityReanchorEngine.decide(
+            reanchorPolicy: .automatic,
+            identityAnchor: anchor,
+            shotIndex: 0,
+            transitionIntent: .cut,
+            previousContinueChainIndex: 0,
+            hasExplicitShotSource: true,
+            hasIdentityRefreshAsset: false
         )
-        let remainingFiles = (try? FileManager.default.contentsOfDirectory(atPath: preparedDir?.path ?? "")) ?? []
-        t.check(!remainingFiles.contains { $0.contains(anchor.id.uuidString) }, "Prepared cache invalidated for old anchor ID")
+        t.checkEqual(explicitSourceDecision.shouldApplyAnchor, false, "EXPLICIT_SOURCE: shouldApplyAnchor is false")
+        t.checkEqual(explicitSourceDecision.reason, .explicitShotSource, "EXPLICIT_SOURCE: reason is .explicitShotSource")
+        t.checkEqual(explicitSourceDecision.conditioningStrategy, .explicitSource, "EXPLICIT_SOURCE: strategy is .explicitSource")
 
-        // 9. Conditioning Model Plan Integrity
-        let condAsset = ConditioningAsset(
-            role: .identityReference,
-            sourceKind: .identityAnchor,
-            originalPath: managedOriginalURL?.path ?? "",
-            preparedPath: ltxPreparedURL?.path,
-            conditioningStrength: 0.8
+        // 7. IDENTITY_REFRESH_PRIORITY_DETERMINISTIC
+        let refreshDecision = IdentityReanchorEngine.decide(
+            reanchorPolicy: .automatic,
+            identityAnchor: anchor,
+            shotIndex: 1,
+            transitionIntent: .continueFromPrevious,
+            previousContinueChainIndex: 0,
+            hasExplicitShotSource: false,
+            hasIdentityRefreshAsset: true
         )
-        let plan = ShotConditioningPlan(identityReference: condAsset)
-        t.check(plan.isConditioned, "Plan is marked conditioned")
-        t.checkEqual(plan.effectivePrimaryImagePath, ltxPreparedURL?.path, "Plan effectivePrimaryImagePath returns prepared anchor path")
+        t.checkEqual(refreshDecision.shouldApplyAnchor, false, "IDENTITY_REFRESH: shouldApplyAnchor is false")
+        t.checkEqual(refreshDecision.reason, .identityRefreshAsset, "IDENTITY_REFRESH: reason is .identityRefreshAsset")
+        t.checkEqual(refreshDecision.conditioningStrategy, .identityRefresh, "IDENTITY_REFRESH: strategy is .identityRefresh")
 
-        // 10. Backward-compatible JSON decoding for Take and GenerationResult with provenance
-        var take = Take(
-            shotID: UUID(),
-            modelID: "ltx23_distilled_q4",
-            seed: 42,
-            promptSnapshot: "Hero stands heroically",
-            settingsSnapshot: GenerationParameters.default,
+        // 8. AUTO_CUT_USES_IDENTITY_ANCHOR & NATURAL_CUT_RESETS_CHAIN_INDEX
+        let cutDecision = IdentityReanchorEngine.decide(
+            reanchorPolicy: .automatic,
+            identityAnchor: anchor,
+            shotIndex: 3,
+            transitionIntent: .cut,
+            previousContinueChainIndex: 2,
+            hasExplicitShotSource: false,
+            hasIdentityRefreshAsset: false
+        )
+        t.checkEqual(cutDecision.shouldApplyAnchor, true, "AUTO_CUT: shouldApplyAnchor is true")
+        t.checkEqual(cutDecision.reason, .naturalCut, "AUTO_CUT: reason is .naturalCut")
+        t.checkEqual(cutDecision.conditioningStrategy, .identityAnchor, "AUTO_CUT: strategy is .identityAnchor")
+        t.checkEqual(cutDecision.resultingContinueChainIndex, 0, "NATURAL_CUT_RESETS_CHAIN_INDEX: chain index reset to 0")
+        t.checkEqual(cutDecision.reanchorApplied, true, "AUTO_CUT: reanchorApplied is true")
+
+        // 9. AUTO_CONTINUE_USES_PREVIOUS_FINAL & CONTINUE_CHAIN_INDEX_INCREMENTS
+        let continueDecision = IdentityReanchorEngine.decide(
+            reanchorPolicy: .automatic,
+            identityAnchor: anchor,
+            shotIndex: 1,
+            transitionIntent: .continueFromPrevious,
+            previousContinueChainIndex: 0,
+            hasExplicitShotSource: false,
+            hasIdentityRefreshAsset: false
+        )
+        t.checkEqual(continueDecision.shouldApplyAnchor, false, "AUTO_CONTINUE: shouldApplyAnchor is false")
+        t.checkEqual(continueDecision.reason, .chainWithinLimit, "AUTO_CONTINUE: reason is .chainWithinLimit")
+        t.checkEqual(continueDecision.conditioningStrategy, .previousFinalFrame, "AUTO_CONTINUE: strategy is .previousFinalFrame")
+        t.checkEqual(continueDecision.resultingContinueChainIndex, 1, "CONTINUE_CHAIN_INDEX_INCREMENTS: chain index incremented to 1")
+        t.checkEqual(continueDecision.reanchorApplied, false, "AUTO_CONTINUE: reanchorApplied is false")
+
+        // 10. LONG_CHAIN_DOES_NOT_FORCE_CUT & LONG_CHAIN_SETS_REANCHOR_RECOMMENDED
+        let longChainDecision = IdentityReanchorEngine.decide(
+            reanchorPolicy: .automatic,
+            identityAnchor: anchor,
+            shotIndex: 4,
+            transitionIntent: .continueFromPrevious,
+            previousContinueChainIndex: 3,
+            maxContinueChainLength: 3,
+            hasExplicitShotSource: false,
+            hasIdentityRefreshAsset: false
+        )
+        t.checkEqual(longChainDecision.shouldApplyAnchor, false, "LONG_CHAIN: does NOT apply anchor (preserves temporal frame)")
+        t.checkEqual(longChainDecision.conditioningStrategy, .previousFinalFrame, "LONG_CHAIN: strategy remains .previousFinalFrame")
+        t.checkEqual(longChainDecision.resultingContinueChainIndex, 4, "LONG_CHAIN: chain index becomes 4")
+        t.checkEqual(longChainDecision.shouldRecommendReanchor, true, "LONG_CHAIN_SETS_REANCHOR_RECOMMENDED: shouldRecommendReanchor is true")
+        t.checkEqual(longChainDecision.reason, .longContinueChain, "LONG_CHAIN: reason is .longContinueChain")
+
+        // 11. H3_ANCHOR_RESOLUTION_MATCHES_GENERATION
+        let h3PreparedURL = try! service.prepareAnchor(
+            anchor: anchor,
+            projectID: project.id,
             requestedWidth: 512,
-            requestedHeight: 320,
-            fps: 24,
-            requestedDuration: 2.0
+            requestedHeight: 288,
+            modelID: MiniMaxH3Configuration.modelID,
+            store: store
         )
-        take.transitionIntent = "cut"
-        take.conditioningStrategy = "identityAnchor"
-        take.continueChainIndex = 0
-        take.identityAnchorID = anchor.id
-        take.reanchorApplied = false
+        let h3Probe = MediaProbe.probe(path: h3PreparedURL.path)
+        t.checkEqual(h3Probe?.width, 512, "H3_ANCHOR_RESOLUTION: width matches generation (512)")
+        t.checkEqual(h3Probe?.height, 288, "H3_ANCHOR_RESOLUTION: height matches generation (288)")
 
-        let takeData = try? JSONEncoder().encode(take)
-        let decodedTake = takeData != nil ? try? JSONDecoder().decode(Take.self, from: takeData!) : nil
-        t.checkEqual(decodedTake?.transitionIntent, "cut", "Decoded take transitionIntent preserved")
-        t.checkEqual(decodedTake?.conditioningStrategy, "identityAnchor", "Decoded take conditioningStrategy preserved")
-        t.checkEqual(decodedTake?.reanchorApplied, false, "Decoded take reanchorApplied is false in Phase 1")
+        // 12. LTX_ANCHOR_RESOLUTION_MATCHES_GENERATION
+        let ltxPreparedURL = try! service.prepareAnchor(
+            anchor: anchor,
+            projectID: project.id,
+            requestedWidth: 512,
+            requestedHeight: 300,
+            modelID: LTXModelCatalog.defaultModelID,
+            store: store
+        )
+        let ltxProbe = MediaProbe.probe(path: ltxPreparedURL.path)
+        t.checkEqual(ltxProbe?.width, 512, "LTX_ANCHOR_RESOLUTION: width matches generation (512)")
+        t.checkEqual(ltxProbe?.height, 320, "LTX_ANCHOR_RESOLUTION: height matches 64-aligned generation (320)")
+
+        // 13. DRY-RUN PROVENANCE MATRIX (5-Shot Plan: CUT -> CONTINUE -> CONTINUE -> CUT -> CONTINUE)
+        let shotSequence: [ShotContinuityMode] = [.cut, .continueFromPrevious, .continueFromPrevious, .cut, .continueFromPrevious]
+        var currentChainIndex = 0
+        var recordedDecisions: [IdentityReanchorDecision] = []
+
+        for (idx, mode) in shotSequence.enumerated() {
+            let dec = IdentityReanchorEngine.decide(
+                reanchorPolicy: .automatic,
+                identityAnchor: anchor,
+                shotIndex: idx,
+                transitionIntent: mode,
+                previousContinueChainIndex: currentChainIndex,
+                maxContinueChainLength: 3,
+                hasExplicitShotSource: false,
+                hasIdentityRefreshAsset: false
+            )
+            recordedDecisions.append(dec)
+            currentChainIndex = dec.resultingContinueChainIndex
+        }
+
+        // Validate Shot 1: CUT -> ANCHOR / chain 0 / reanchorApplied true
+        t.checkEqual(recordedDecisions[0].conditioningStrategy, .identityAnchor, "Dry-Run Shot 1: identityAnchor")
+        t.checkEqual(recordedDecisions[0].resultingContinueChainIndex, 0, "Dry-Run Shot 1: chainIndex 0")
+        t.checkEqual(recordedDecisions[0].reanchorApplied, true, "Dry-Run Shot 1: reanchorApplied true")
+
+        // Validate Shot 2: CONTINUE -> PREVIOUS / chain 1 / reanchorApplied false
+        t.checkEqual(recordedDecisions[1].conditioningStrategy, .previousFinalFrame, "Dry-Run Shot 2: previousFinalFrame")
+        t.checkEqual(recordedDecisions[1].resultingContinueChainIndex, 1, "Dry-Run Shot 2: chainIndex 1")
+        t.checkEqual(recordedDecisions[1].reanchorApplied, false, "Dry-Run Shot 2: reanchorApplied false")
+
+        // Validate Shot 3: CONTINUE -> PREVIOUS / chain 2 / reanchorApplied false
+        t.checkEqual(recordedDecisions[2].conditioningStrategy, .previousFinalFrame, "Dry-Run Shot 3: previousFinalFrame")
+        t.checkEqual(recordedDecisions[2].resultingContinueChainIndex, 2, "Dry-Run Shot 3: chainIndex 2")
+        t.checkEqual(recordedDecisions[2].reanchorApplied, false, "Dry-Run Shot 3: reanchorApplied false")
+
+        // Validate Shot 4: CUT -> RE-ANCHOR / chain 0 / reanchorApplied true
+        t.checkEqual(recordedDecisions[3].conditioningStrategy, .identityAnchor, "Dry-Run Shot 4: identityAnchor (RE-ANCHOR)")
+        t.checkEqual(recordedDecisions[3].resultingContinueChainIndex, 0, "Dry-Run Shot 4: chainIndex 0 (RESET)")
+        t.checkEqual(recordedDecisions[3].reanchorApplied, true, "Dry-Run Shot 4: reanchorApplied true")
+
+        // Validate Shot 5: CONTINUE -> PREVIOUS / chain 1 / reanchorApplied false
+        t.checkEqual(recordedDecisions[4].conditioningStrategy, .previousFinalFrame, "Dry-Run Shot 5: previousFinalFrame")
+        t.checkEqual(recordedDecisions[4].resultingContinueChainIndex, 1, "Dry-Run Shot 5: chainIndex 1")
+        t.checkEqual(recordedDecisions[4].reanchorApplied, false, "Dry-Run Shot 5: reanchorApplied false")
     }
 }

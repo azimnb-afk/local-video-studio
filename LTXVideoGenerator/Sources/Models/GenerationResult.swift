@@ -70,6 +70,7 @@ struct GenerationResult: Identifiable, Codable {
     var temporalSourceShotID: UUID?
     var reanchorApplied: Bool?
     var reanchorReason: String?
+    var reanchorRecommended: Bool?
     var preparedAnchorWidth: Int?
     var preparedAnchorHeight: Int?
 

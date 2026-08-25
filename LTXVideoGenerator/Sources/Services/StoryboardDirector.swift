@@ -838,6 +838,7 @@ final class StoryboardDirector {
         }
 
         var project = FilmProject(id: projectID, title: title)
+        project.reanchorPolicy = .automatic
         project.settings = settings
         project.directorProvider = providerName
         project.directorModel = lastProviderModel
@@ -1498,6 +1499,7 @@ final class HybridProjectCoordinator {
         progressCallback?(.applying, "Applying structured shots…")
 
         var project = FilmProject(id: projectID, title: title)
+        project.reanchorPolicy = .automatic
         project.settings = settings
         project.characterBible = characterBible
         project.shots = shots

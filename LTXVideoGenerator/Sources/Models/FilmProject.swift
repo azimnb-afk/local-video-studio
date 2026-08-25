@@ -575,6 +575,7 @@ struct Take: Codable, Equatable, Identifiable {
     var temporalSourceShotID: UUID?
     var reanchorApplied: Bool?
     var reanchorReason: String?
+    var reanchorRecommended: Bool?
     var preparedAnchorWidth: Int?
     var preparedAnchorHeight: Int?
 }
@@ -1291,8 +1292,8 @@ struct FilmProject: Codable, Equatable, Identifiable {
     init(id: UUID = UUID(), title: String) {
         self.id = id
         self.title = title
-        // Newly created projects default to automatic re-anchoring
-        self.reanchorPolicy = .automatic
+        // Generic initialization defaults to .off; Auto Movie creation flow explicitly sets .automatic
+        self.reanchorPolicy = .off
         self.maxContinueChainLength = 3
     }
 

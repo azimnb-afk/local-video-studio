@@ -146,18 +146,41 @@ final class TakeGenerationCoordinator {
         // A shot that is supposed to continue but has an unusable inherited
         // frame is rejected rather than quietly rendered as text-to-video; the
         // same applies to a Cut shot whose New Start Frame is set but unusable.
+        // Determine transition intent for re-anchor decision
+        let transitionIntent: ShotContinuityMode = mayInheritPreviousShot ? .continueFromPrevious : .cut
+        let previousChainIndex: Int
+        if shotIndex > 0 {
+            previousChainIndex = project.shots[shotIndex - 1].continuitySourceTake?.continueChainIndex
+                ?? project.shots[shotIndex - 1].continueChainIndex ?? 0
+        } else {
+            previousChainIndex = 0
+        }
+
+        let hasExplicitShotSource = (shot.startingImageReferenceAssetID != nil)
+            || (isCut && shot.newStartFrameRelativePath != nil && !shot.newStartFrameRelativePath!.isEmpty)
+        let hasIdentityRefresh = mayInheritPreviousShot
+            && shot.identityRefreshAnchorRelativePath != nil
+            && !shot.identityRefreshAnchorRelativePath!.isEmpty
+
+        let reanchorDecision = IdentityReanchorEngine.decide(
+            reanchorPolicy: project.reanchorPolicy,
+            identityAnchor: project.identityAnchor,
+            shotIndex: shotIndex,
+            transitionIntent: transitionIntent,
+            previousContinueChainIndex: previousChainIndex,
+            maxContinueChainLength: project.maxContinueChainLength,
+            hasExplicitShotSource: hasExplicitShotSource,
+            hasIdentityRefreshAsset: hasIdentityRefresh
+        )
+
         var sourceImagePath: String? = nil
-        // Only a frame inherited from the previous shot gets the calibrated
-        // continuity strength; an image the user chose (explicit selection or
-        // New Start Frame) keeps the existing exact-first-frame behaviour.
         var usesInheritedContinuityFrame = false
         var effectiveSource: LTXContinuitySource = .none
-        // The optional Character Anchor sits between the two: it applies to the
-        // opening shot, or a Cut shot re-anchoring identity, never overrides an
-        // image the user picked for that shot, and is never re-injected into an
-        // ordinary continuing shot, which keeps inheriting from the shot before it.
         var usesCharacterAnchor = false
         var usesOpeningReference = false
+        var preparedAnchorWidth: Int? = nil
+        var preparedAnchorHeight: Int? = nil
+
         if let assetID = shot.startingImageReferenceAssetID {
             guard let (_, asset) = project.findReferenceAsset(id: assetID) else {
                 throw CoordinatorError.startingImageNotFound(assetID)
@@ -172,27 +195,45 @@ final class TakeGenerationCoordinator {
         } else if isCut,
                   let newStartRelativePath = shot.newStartFrameRelativePath,
                   !newStartRelativePath.isEmpty {
-            // A Cut never extracts or reuses the previous shot's final frame;
-            // this is the only image source it can inherit, and only when the
-            // user set one explicitly.
             guard let url = store.managedProjectAssetURL(projectID: projectID, relativePath: newStartRelativePath),
                   ContinuityFrameExtractor.isUsableImage(atPath: url.path) else {
                 throw CoordinatorError.newStartFrameUnavailable(shotID)
             }
             sourceImagePath = url.path
             effectiveSource = .newStartFrame
-        } else if mayInheritPreviousShot,
+        } else if hasIdentityRefresh,
                   let refreshPath = shot.identityRefreshAnchorRelativePath,
-                  !refreshPath.isEmpty,
                   let url = store.managedProjectAssetURL(projectID: projectID, relativePath: refreshPath),
                   ContinuityFrameExtractor.isUsableImage(atPath: url.path) {
-            // A refresh anchor is only ever created when the frame this shot
-            // would otherwise inherit could not carry the character into a
-            // closer framing. It conditions like an inherited frame, so the
-            // camera and action still move on.
             sourceImagePath = url.path
             usesInheritedContinuityFrame = true
             effectiveSource = .identityRefreshAnchor
+        } else if reanchorDecision.shouldApplyAnchor, let anchor = project.identityAnchor {
+            // Apply model-aware prepared Project Identity Anchor
+            if let preparedURL = try? PreparedIdentityAnchorService.shared.prepareAnchor(
+                anchor: anchor,
+                projectID: projectID,
+                requestedWidth: settings.width,
+                requestedHeight: settings.height,
+                modelID: settings.modelID,
+                store: store
+            ), FileManager.default.fileExists(atPath: preparedURL.path) {
+                sourceImagePath = preparedURL.path
+                usesCharacterAnchor = true
+                effectiveSource = .characterAnchor
+                if let probe = MediaProbe.probe(path: preparedURL.path) {
+                    preparedAnchorWidth = probe.width
+                    preparedAnchorHeight = probe.height
+                }
+            } else {
+                // Fallback to original anchor path if preparation failed
+                if let originalURL = store.managedProjectAssetURL(projectID: projectID, relativePath: anchor.projectRelativePath),
+                   FileManager.default.fileExists(atPath: originalURL.path) {
+                    sourceImagePath = originalURL.path
+                    usesCharacterAnchor = true
+                    effectiveSource = .characterAnchor
+                }
+            }
         } else if mayInheritPreviousShot,
                   let relativePath = shot.continuityImageRelativePath {
             guard let url = store.managedProjectAssetURL(projectID: projectID, relativePath: relativePath),
@@ -205,9 +246,6 @@ final class TakeGenerationCoordinator {
         } else if shotIndex == 0,
                   let openingReference = CharacterAnchorResolver.resolveOpeningReference(
                       project: project, store: store) {
-            // A scene-like still the user picked is the most explicit statement
-            // of how the movie should open, so it outranks the Character Bible
-            // anchor below.
             switch openingReference {
             case .success(let url):
                 sourceImagePath = url.path
@@ -311,7 +349,7 @@ final class TakeGenerationCoordinator {
 
             let (request, params, generationPrompt) = CanonicalShotRequestBuilder.buildRequest(from: spec)
 
-            let take = Take(
+            var take = Take(
                 id: takeID,
                 shotID: shotID,
                 modelID: settings.modelID,
@@ -339,6 +377,18 @@ final class TakeGenerationCoordinator {
                     sourceImagePath: sourceImagePath
                 )
             )
+            take.transitionIntent = transitionIntent.rawValue
+            take.conditioningStrategy = reanchorDecision.conditioningStrategy.rawValue
+            take.continueChainIndex = reanchorDecision.resultingContinueChainIndex
+            take.identityAnchorID = project.identityAnchor?.id
+            take.temporalSourceShotID = (mayInheritPreviousShot && shotIndex > 0) ? project.shots[shotIndex - 1].id : nil
+            take.reanchorApplied = reanchorDecision.reanchorApplied
+            take.reanchorReason = reanchorDecision.reason.rawValue
+            take.reanchorRecommended = reanchorDecision.shouldRecommendReanchor
+            take.preparedAnchorWidth = preparedAnchorWidth
+            take.preparedAnchorHeight = preparedAnchorHeight
+
+            project.shots[shotIndex].continueChainIndex = reanchorDecision.resultingContinueChainIndex
             project.shots[shotIndex].takes.append(take)
             project.jobs.append(GenerationJob(
                 projectID: projectID, shotID: shotID, takeID: take.id,

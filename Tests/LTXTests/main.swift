@@ -108,6 +108,15 @@ if CommandLine.arguments.count == 3,
     RunLoop.main.run()
 }
 
+if CommandLine.arguments.count == 3,
+   CommandLine.arguments[1] == "--h3-v2-dev-acceptance" {
+    Task { @MainActor in
+        exit(await MiniMaxH3AcceptanceHarness.runPresetV2DevAcceptance(
+            sourceImagePath: CommandLine.arguments[2]))
+    }
+    RunLoop.main.run()
+}
+
 // One exact direct-HTTP parity request using the complete prompt emitted by
 // the production H3 compiler for Matrix P3-I2V.
 if CommandLine.arguments.count == 3,

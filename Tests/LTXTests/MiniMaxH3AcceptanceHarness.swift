@@ -950,4 +950,126 @@ enum MiniMaxH3AcceptanceHarness {
         }
         return path
     }
+
+    @MainActor
+    static func runPresetV2DevAcceptance(sourceImagePath: String) async -> Int32 {
+        let sourceImage: String
+        do { sourceImage = try validatedSource(sourceImagePath) }
+        catch {
+            print("FAILED: \(error.localizedDescription)")
+            return 2
+        }
+
+        let env = V3AcceptanceHarness.makeEnvironment(label: "h3-dev-acceptance")
+        defer { try? FileManager.default.removeItem(at: env.tmpDir) }
+
+        print("==================================================")
+        print("REAL DEV PIPELINE: H3 STANDARD ACCEPTANCE")
+        print("==================================================")
+
+        let rawStdRequest = GenerationRequest(
+            prompt: "A cinematic medium shot of the woman walking slowly forward in natural daylight.",
+            sourceImagePath: sourceImage,
+            presetResolutionOrientation: .landscape,
+            modelId: MiniMaxH3Configuration.modelID,
+            parameters: .default,
+            preset: MiniMaxH3Preset.standard.rawValue,
+            generationSource: "generate"
+        )
+
+        let resolvedStdSettings = GenerationSettingsResolver.resolveForPreflight(request: rawStdRequest)
+        let resolvedStdRequest = resolvedStdSettings.request
+
+        print("ACTUAL_STANDARD_PRESET=\(resolvedStdRequest.preset ?? "none")")
+        print("ACTUAL_STANDARD_WIDTH=\(resolvedStdRequest.parameters.width)")
+        print("ACTUAL_STANDARD_HEIGHT=\(resolvedStdRequest.parameters.height)")
+        print("ACTUAL_STANDARD_FRAMES=\(resolvedStdRequest.parameters.numFrames)")
+        print("ACTUAL_STANDARD_STEPS=\(resolvedStdRequest.parameters.numInferenceSteps)")
+        print("ACTUAL_STANDARD_FAST=\(resolvedStdRequest.minimaxH3Fast == true ? "ON" : "OFF")")
+
+        guard resolvedStdRequest.parameters.width == 640,
+              resolvedStdRequest.parameters.height == 384,
+              resolvedStdRequest.parameters.numFrames == 90,
+              resolvedStdRequest.parameters.numInferenceSteps == 16,
+              resolvedStdRequest.minimaxH3Fast == true else {
+            print("FAILED: Standard resolved request did not match Preset V2 contract")
+            return 1
+        }
+
+        print("Enqueuing Standard generation through real GenerationService...")
+        guard let stdResult = await generate(request: resolvedStdRequest, environment: env, timeoutSeconds: 1200) else {
+            print("FAILED: Standard generation timed out or failed")
+            return 1
+        }
+        print("REAL_STANDARD_DEV=PASS")
+        print("STANDARD_OUTPUT=\(stdResult.videoPath)")
+        print("STANDARD_ACTUAL_WIDTH=\(stdResult.actualWidth ?? -1)")
+        print("STANDARD_ACTUAL_HEIGHT=\(stdResult.actualHeight ?? -1)")
+        print("STANDARD_ACTUAL_FRAMES=\(stdResult.actualFrameCount ?? -1)")
+        print("STANDARD_ACTUAL_DURATION=\(stdResult.actualDuration ?? -1)")
+
+        print("\n==================================================")
+        print("REAL DEV PIPELINE: H3 CUSTOM 141F ACCEPTANCE")
+        print("==================================================")
+
+        var customParams = GenerationParameters.default
+        customParams.width = 640
+        customParams.height = 384
+        customParams.numInferenceSteps = 20
+        customParams.numFrames = 141
+
+        let rawCustomRequest = GenerationRequest(
+            prompt: "A cinematic medium shot of the woman walking slowly forward in natural daylight.",
+            sourceImagePath: sourceImage,
+            presetResolutionOrientation: .landscape,
+            modelId: MiniMaxH3Configuration.modelID,
+            parameters: customParams,
+            preset: MiniMaxH3Preset.custom.rawValue,
+            generationSource: "generate",
+            minimaxH3RequestedDurationSeconds: 5.875,
+            minimaxH3Fast: true
+        )
+
+        let resolvedCustomSettings = GenerationSettingsResolver.resolveForPreflight(request: rawCustomRequest)
+        let resolvedCustomRequest = resolvedCustomSettings.request
+
+        print("ACTUAL_CUSTOM_PRESET=\(resolvedCustomRequest.preset ?? "none")")
+        print("ACTUAL_CUSTOM_WIDTH=\(resolvedCustomRequest.parameters.width)")
+        print("ACTUAL_CUSTOM_HEIGHT=\(resolvedCustomRequest.parameters.height)")
+        print("ACTUAL_CUSTOM_FRAMES=\(resolvedCustomRequest.parameters.numFrames)")
+        print("ACTUAL_CUSTOM_STEPS=\(resolvedCustomRequest.parameters.numInferenceSteps)")
+        print("ACTUAL_CUSTOM_FAST=\(resolvedCustomRequest.minimaxH3Fast == true ? "ON" : "OFF")")
+
+        guard resolvedCustomRequest.parameters.width == 640,
+              resolvedCustomRequest.parameters.height == 384,
+              resolvedCustomRequest.parameters.numFrames == 141,
+              resolvedCustomRequest.parameters.numInferenceSteps == 20,
+              resolvedCustomRequest.minimaxH3Fast == true else {
+            print("FAILED: Custom 141f resolved request did not match contract")
+            return 1
+        }
+
+        print("Enqueuing Custom 141f generation through real GenerationService...")
+        guard let customResult = await generate(request: resolvedCustomRequest, environment: env, timeoutSeconds: 1200) else {
+            print("FAILED: Custom 141f generation timed out or failed")
+            return 1
+        }
+        print("REAL_CUSTOM_141F_DEV=PASS")
+        print("CUSTOM_OUTPUT=\(customResult.videoPath)")
+        print("CUSTOM_ACTUAL_WIDTH=\(customResult.actualWidth ?? -1)")
+        print("CUSTOM_ACTUAL_HEIGHT=\(customResult.actualHeight ?? -1)")
+        print("CUSTOM_ACTUAL_FRAMES=\(customResult.actualFrameCount ?? -1)")
+        print("CUSTOM_ACTUAL_DURATION=\(customResult.actualDuration ?? -1)")
+
+        // Copy outputs to local review destination for contact sheet generation
+        let devOutputDir = "/Users/azimnb/ltx23appdev/ltx-video-mac/Reports/H3_Preset_Reassessment_20260827/dev_acceptance"
+        try? FileManager.default.createDirectory(atPath: devOutputDir, withIntermediateDirectories: true)
+        let localStdPath = "\(devOutputDir)/dev_standard_output.mp4"
+        let localCustomPath = "\(devOutputDir)/dev_custom_141f_output.mp4"
+        try? FileManager.default.copyItem(atPath: stdResult.videoPath, toPath: localStdPath)
+        try? FileManager.default.copyItem(atPath: customResult.videoPath, toPath: localCustomPath)
+
+        print("\nALL_DEV_ACCEPTANCE=PASS")
+        return 0
+    }
 }

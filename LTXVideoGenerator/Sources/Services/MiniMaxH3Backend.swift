@@ -76,7 +76,7 @@ final class MiniMaxH3Backend {
         outputPath: String,
         progressHandler: @escaping (Double, String) -> Void
     ) async throws -> (videoPath: String, seed: Int, enhancedPrompt: String?) {
-        guard model.id == MiniMaxH3Configuration.modelID,
+        guard MiniMaxH3Configuration.isMiniMaxH3(modelID: model.id),
               model.runtime.backend == GenerationBackendKind.minimaxH3.rawValue else {
             throw MiniMaxH3Error.unsupportedCapability("this resolved model/backend combination")
         }
@@ -107,7 +107,8 @@ final class MiniMaxH3Backend {
         let snapshot = MiniMaxH3Configuration.Snapshot(
             modelDirectory: model.localPath ?? request.minimaxH3ModelDirectory,
             runtimeExecutablePath: model.runtime.executablePath ?? request.minimaxH3RuntimeExecutablePath,
-            endpoint: endpoint)
+            endpoint: endpoint,
+            targetModelID: model.id)
         _ = try await runtimeManager.ensureReady(snapshot: snapshot, progress: progressHandler)
         guard let baseURL = MiniMaxH3Configuration.endpointURL(endpoint) else {
             throw MiniMaxH3Error.invalidEndpoint

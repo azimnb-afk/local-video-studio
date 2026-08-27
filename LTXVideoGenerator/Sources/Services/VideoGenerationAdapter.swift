@@ -215,7 +215,7 @@ final class MiniMaxH3Adapter: VideoGenerationAdapter {
     }
 
     func supports(model: ModelDescriptor) -> Bool {
-        model.id == MiniMaxH3Configuration.modelID
+        MiniMaxH3Configuration.isMiniMaxH3(modelID: model.id)
             && model.runtime.backend == GenerationBackendKind.minimaxH3.rawValue
     }
 

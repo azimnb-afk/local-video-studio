@@ -263,7 +263,8 @@ struct ModelsAndFeaturesPreferences: View {
 }
 
 private struct MiniMaxH3RuntimePreferenceView: View {
-    @AppStorage(MiniMaxH3Configuration.modelDirectoryKey) private var modelDirectory = ""
+    @AppStorage(MiniMaxH3Configuration.standardModelDirectoryKey) private var modelDirectory = ""
+    @AppStorage(MiniMaxH3Configuration.highQualityModelDirectoryKey) private var hqModelDirectory = ""
     @AppStorage(MiniMaxH3Configuration.runtimeExecutablePathKey) private var runtimeExecutable = ""
     @AppStorage(MiniMaxH3Configuration.endpointKey) private var endpoint = MiniMaxH3Configuration.defaultEndpoint
     @State private var status = MiniMaxH3RuntimeStatus(
@@ -324,7 +325,7 @@ private struct MiniMaxH3RuntimePreferenceView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Model")
+                Text("MiniMax H3 (標準・省メモリ)")
                     .font(.caption.bold())
                 HStack {
                     Circle()
@@ -333,7 +334,7 @@ private struct MiniMaxH3RuntimePreferenceView: View {
                     Text(modelDirectory.isEmpty ? "Not Configured" : "Configured")
                         .font(.caption.bold())
                     Spacer()
-                    Button("Choose Model Folder…", action: chooseModelDirectory)
+                    Button("Choose Folder…", action: chooseModelDirectory)
                 }
                 if !modelDirectory.isEmpty {
                     Text(modelDirectory)
@@ -341,7 +342,30 @@ private struct MiniMaxH3RuntimePreferenceView: View {
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
-                Text("The large MiniMax H3 model is not included and is never downloaded automatically. Choose an existing local model folder.")
+                Text("Standard model (4-bit DiT, ~33GB local pack). Faster generation, suitable for 32GB+ Macs.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("MiniMax H3 High Quality (より高精細・48GB以上推奨)")
+                    .font(.caption.bold())
+                HStack {
+                    Circle()
+                        .fill(hqModelDirectory.isEmpty ? Color.secondary : Color.green)
+                        .frame(width: 8, height: 8)
+                    Text(hqModelDirectory.isEmpty ? "Not Configured" : "Configured")
+                        .font(.caption.bold())
+                    Spacer()
+                    Button("Choose Folder…", action: chooseHQModelDirectory)
+                }
+                if !hqModelDirectory.isEmpty {
+                    Text(hqModelDirectory)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                Text("High Quality model (8-bit DiT, ~49GB local pack). この高品質モデルはメモリ使用量が多いため、48GB以上のMacを推奨します。")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -411,6 +435,7 @@ private struct MiniMaxH3RuntimePreferenceView: View {
             Task { await checkReadiness() }
         }
         .onChange(of: modelDirectory) { _, _ in configurationChanged() }
+        .onChange(of: hqModelDirectory) { _, _ in configurationChanged() }
         .onChange(of: runtimeExecutable) { _, _ in configurationChanged() }
         .onChange(of: endpoint) { _, _ in configurationChanged() }
     }
@@ -517,9 +542,20 @@ private struct MiniMaxH3RuntimePreferenceView: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "Select H3 Model"
+        panel.prompt = "Select Standard H3 Model"
         if panel.runModal() == .OK, let url = panel.url {
             modelDirectory = url.path
+        }
+    }
+
+    private func chooseHQModelDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Select High Quality H3 Model"
+        if panel.runModal() == .OK, let url = panel.url {
+            hqModelDirectory = url.path
         }
     }
 

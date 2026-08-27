@@ -5,11 +5,23 @@ import Foundation
 /// H3 experimental renderer. Filesystem locations are user configuration,
 /// never model identity and never compiled-in machine-specific paths.
 enum MiniMaxH3Configuration {
-    static let modelID = "minimax_h3_fl2va_2bit_te"
-    static let displayName = "MiniMax H3 (Experimental)"
-    static let expectedServerModelID = "MiniMax-H3-FL2VA-MLX-Serve-2bit-text-encoder"
+    static let standardModelID = "minimax_h3_fl2va_2bit_te"
+    static let highQualityModelID = "minimax_h3_fl2va_8bit_dit"
+    static var modelID: String { standardModelID }
 
-    static let modelDirectoryKey = "minimaxH3ModelDirectory"
+    static let displayName = "MiniMax H3 (Experimental)"
+    static let standardDisplayName = "MiniMax H3 (Experimental)"
+    static let highQualityDisplayName = "MiniMax H3 High Quality (Experimental)"
+
+    static let standardExpectedServerModelID = "MiniMax-H3-FL2VA-MLX-Serve-2bit-text-encoder"
+    static let highQualityExpectedServerModelID = "MiniMax-H3-FL2VA-MLX-Serve-8bit-DiT-2bit-TE"
+    static let highQualityAlternativeServerModelID = "MiniMax-H3-FL2VA-MLX-Serve-8bit"
+    static var expectedServerModelID: String { standardExpectedServerModelID }
+
+    static let standardModelDirectoryKey = "minimaxH3ModelDirectory"
+    static let highQualityModelDirectoryKey = "minimaxH3HighQualityModelDirectory"
+    static var modelDirectoryKey: String { standardModelDirectoryKey }
+
     static let runtimeExecutablePathKey = "minimaxH3RuntimeExecutablePath"
     static let endpointKey = "minimaxH3Endpoint"
     static let lastReadinessStateKey = "minimaxH3LastReadinessState"
@@ -17,6 +29,22 @@ enum MiniMaxH3Configuration {
     static let externalLegacyEndpoint = "http://127.0.0.1:11235"
     static let developmentManagedEndpoint = "http://127.0.0.1:11236"
     static let personalManagedEndpoint = "http://127.0.0.1:11237"
+
+    static func isMiniMaxH3(modelID: String?) -> Bool {
+        guard let modelID else { return false }
+        return modelID == standardModelID || modelID == highQualityModelID
+    }
+
+    static func expectedServerModelIDs(for modelID: String?) -> [String] {
+        if modelID == highQualityModelID {
+            return [highQualityExpectedServerModelID, highQualityAlternativeServerModelID]
+        }
+        return [standardExpectedServerModelID]
+    }
+
+    static func modelDirectoryKey(for modelID: String?) -> String {
+        modelID == highQualityModelID ? highQualityModelDirectoryKey : standardModelDirectoryKey
+    }
 
     /// A fresh installed app gets a profile-scoped managed port. Existing
     /// explicit endpoint preferences remain authoritative, including the
@@ -46,14 +74,18 @@ enum MiniMaxH3Configuration {
         var modelDirectory: String?
         var runtimeExecutablePath: String?
         var endpoint: String
+        var targetModelID: String?
 
-        static func current(userDefaults: UserDefaults = .standard) -> Snapshot {
+        static func current(forModelID modelID: String? = nil, userDefaults: UserDefaults = .standard) -> Snapshot {
+            let effectiveModelID = modelID ?? standardModelID
+            let dirKey = modelDirectoryKey(for: effectiveModelID)
             let configuredRuntime = nonEmpty(userDefaults.string(forKey: runtimeExecutablePathKey))
             return Snapshot(
-                modelDirectory: nonEmpty(userDefaults.string(forKey: modelDirectoryKey)),
+                modelDirectory: nonEmpty(userDefaults.string(forKey: dirKey)),
                 runtimeExecutablePath: configuredRuntime
                     ?? MiniMaxH3ManagedRuntimeManager.shared.readyExecutablePath,
-                endpoint: nonEmpty(userDefaults.string(forKey: endpointKey)) ?? defaultEndpoint
+                endpoint: nonEmpty(userDefaults.string(forKey: endpointKey)) ?? defaultEndpoint,
+                targetModelID: effectiveModelID
             )
         }
 
@@ -762,8 +794,9 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
                     detail: "The /v1/models response was unreadable.", loadedModelID: nil)
             }
 
+            let expectedIDs = MiniMaxH3Configuration.expectedServerModelIDs(for: snapshot.targetModelID)
             let models = Self.modelEntries(from: object)
-            if let exact = models.first(where: { $0.id == MiniMaxH3Configuration.expectedServerModelID }) {
+            if let exact = models.first(where: { expectedIDs.contains($0.id) }) {
                 if exact.isReady {
                     return MiniMaxH3RuntimeStatus(
                         state: .ready, ownership: ownership(for: snapshot.endpoint),
@@ -798,9 +831,17 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
         recordReadiness(initial)
         if initial.isReady { return initial }
         if initial.state == .wrongModel {
-            throw MiniMaxH3Error.wrongModel(
-                expected: MiniMaxH3Configuration.expectedServerModelID,
-                actual: initial.loadedModelID)
+            if ownedServerIsRunning {
+                // Model switched between Standard (4-bit) and High Quality (8-bit):
+                // Stop the previously owned server and restart with the requested model.
+                stopOwnedServer()
+            } else {
+                let expected = MiniMaxH3Configuration.expectedServerModelIDs(for: snapshot.targetModelID).first
+                    ?? MiniMaxH3Configuration.expectedServerModelID
+                throw MiniMaxH3Error.wrongModel(
+                    expected: expected,
+                    actual: initial.loadedModelID)
+            }
         }
         if initial.state == .failed || initial.state == .broken || initial.state == .starting {
             throw MiniMaxH3Error.serverUnhealthy(initial.detail)
@@ -832,8 +873,10 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
                 if current.state == .wrongModel {
                     stopOwnedServer()
                     recordReadiness(current)
+                    let expected = MiniMaxH3Configuration.expectedServerModelIDs(for: snapshot.targetModelID).first
+                        ?? MiniMaxH3Configuration.expectedServerModelID
                     throw MiniMaxH3Error.wrongModel(
-                        expected: MiniMaxH3Configuration.expectedServerModelID,
+                        expected: expected,
                         actual: current.loadedModelID)
                 }
                 if !ownedServerIsRunning {

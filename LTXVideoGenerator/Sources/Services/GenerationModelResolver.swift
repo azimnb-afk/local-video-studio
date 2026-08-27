@@ -69,7 +69,7 @@ enum GenerationModelResolver {
         if let runnable = LTXModelCatalog.model(id: modelID) {
             return .runnable(RunnableModel(model: runnable, backend: .mlxVideoWithAudio))
         }
-        if modelID == MiniMaxH3Configuration.modelID,
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID),
            let descriptor = registry.descriptor(id: modelID) {
             let runnable = LTXModel(
                 id: descriptor.id,

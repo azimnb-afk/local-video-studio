@@ -39,7 +39,8 @@ enum ActiveModelDisplayResolver {
             )
         }
 
-        if effectiveID == MiniMaxH3Configuration.modelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: effectiveID) {
+            let isHQ = effectiveID == MiniMaxH3Configuration.highQualityModelID
             let raw = userDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessStateKey)
             let state = raw.flatMap(MiniMaxH3RuntimeState.init(rawValue:)) ?? .notConfigured
             let ready = state == .ready
@@ -54,8 +55,8 @@ enum ActiveModelDisplayResolver {
             }
             return DisplayInfo(
                 modelID: effectiveID,
-                displayName: MiniMaxH3Configuration.displayName,
-                backendBadge: "H3 · Experimental",
+                displayName: isHQ ? MiniMaxH3Configuration.highQualityDisplayName : MiniMaxH3Configuration.standardDisplayName,
+                backendBadge: isHQ ? "H3 · High Quality" : "H3 · Standard",
                 isCustom: false,
                 isReady: ready,
                 statusText: status

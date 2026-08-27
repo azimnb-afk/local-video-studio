@@ -41,7 +41,7 @@ enum MiniMaxH3ProductPolicy {
         context: MiniMaxH3ImageGroundingContext,
         hasImage: Bool
     ) -> MiniMaxH3ImageGroundingRecommendation? {
-        guard modelID == MiniMaxH3Configuration.modelID, !hasImage else { return nil }
+        guard MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID), !hasImage else { return nil }
         switch context {
         case .normalGenerate, .oneShot:
             return MiniMaxH3ImageGroundingRecommendation(
@@ -331,7 +331,7 @@ enum MiniMaxH3ProgressPresentation {
         isCurrent: Bool,
         progress: Double
     ) -> Bool {
-        modelID == MiniMaxH3Configuration.modelID
+        MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID)
             && isCurrent
             && progress <= 0.03
     }
@@ -556,7 +556,7 @@ enum ContinuityChainPolicy {
 
     /// True if any shot in the movie reaches the 4+ consecutive CONTINUE chain warning threshold under MiniMax H3.
     static func hasLongContinueChainWarning(shots: [Shot], modelID: String) -> Bool {
-        guard modelID == MiniMaxH3Configuration.modelID else { return false }
+        guard MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) else { return false }
         return shots.contains { ($0.continueChainIndex ?? 0) >= warningThresholdChainIndex }
     }
 

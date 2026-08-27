@@ -281,17 +281,16 @@ final class ModelRegistry {
     }
 
     private func seedMiniMaxH3() {
-        let configuration = MiniMaxH3Configuration.Snapshot.current(userDefaults: userDefaults)
-        descriptors[MiniMaxH3Configuration.modelID] = ModelDescriptor(
-            id: MiniMaxH3Configuration.modelID,
-            displayName: MiniMaxH3Configuration.displayName,
-            repository: MiniMaxH3Configuration.expectedServerModelID,
+        let standardConfig = MiniMaxH3Configuration.Snapshot.current(forModelID: MiniMaxH3Configuration.standardModelID, userDefaults: userDefaults)
+        descriptors[MiniMaxH3Configuration.standardModelID] = ModelDescriptor(
+            id: MiniMaxH3Configuration.standardModelID,
+            displayName: MiniMaxH3Configuration.standardDisplayName,
+            repository: MiniMaxH3Configuration.standardExpectedServerModelID,
             revision: nil,
-            localPath: configuration.modelDirectory,
+            localPath: standardConfig.modelDirectory,
             quantization: "2-bit",
             precision: nil,
-            // Full local pack: transformer + text encoder + video/audio VAEs.
-            // Keep this separate from the server's transformer-only figure.
+            // Full local pack: transformer (4-bit) + text encoder (2-bit) + video/audio VAEs.
             estimatedModelSizeGB: 33.0,
             recommendedUnifiedMemoryGB: 48,
             minimumUnifiedMemoryGB: 32,
@@ -312,9 +311,52 @@ final class ModelRegistry {
                 backend: GenerationBackendKind.minimaxH3.rawValue,
                 minimumBackendVersion: "26.8.9",
                 verified: true,
-                verificationNotes: "Experimental local renderer. T2V, single-image FL2VA/I2V, native audio and chain_windows are verified; REF2VA and motion context are unsupported.",
-                executablePath: configuration.runtimeExecutablePath,
-                endpoint: configuration.endpoint
+                verificationNotes: "Experimental local renderer (Standard 4-bit DiT). T2V, single-image FL2VA/I2V, native audio and chain_windows are verified; REF2VA and motion context are unsupported.",
+                executablePath: standardConfig.runtimeExecutablePath,
+                endpoint: standardConfig.endpoint
+            ),
+            policy: .general,
+            license: ModelLicenseMetadata(
+                name: "MiniMax model license — see the local model card",
+                url: nil,
+                requiresAcknowledgement: false
+            ),
+            isOfficial: false
+        )
+
+        let hqConfig = MiniMaxH3Configuration.Snapshot.current(forModelID: MiniMaxH3Configuration.highQualityModelID, userDefaults: userDefaults)
+        descriptors[MiniMaxH3Configuration.highQualityModelID] = ModelDescriptor(
+            id: MiniMaxH3Configuration.highQualityModelID,
+            displayName: MiniMaxH3Configuration.highQualityDisplayName,
+            repository: MiniMaxH3Configuration.highQualityExpectedServerModelID,
+            revision: nil,
+            localPath: hqConfig.modelDirectory,
+            quantization: "8-bit",
+            precision: nil,
+            // High Quality local pack: transformer (8-bit) + text encoder (2-bit) + video/audio VAEs.
+            estimatedModelSizeGB: 49.0,
+            recommendedUnifiedMemoryGB: 48,
+            minimumUnifiedMemoryGB: 32,
+            architecture: ArchitectureDescriptor(
+                modelFamily: "MiniMax H3",
+                modelVersion: "H3",
+                modelType: "AudioVideo"
+            ),
+            capabilities: CapabilitySet(
+                textToVideo: true,
+                imageToVideo: true,
+                synchronizedAudio: true,
+                keyframes: true,
+                firstLastFrame: false,
+                continuation: true
+            ),
+            runtime: RuntimeCompatibility(
+                backend: GenerationBackendKind.minimaxH3.rawValue,
+                minimumBackendVersion: "26.8.9",
+                verified: true,
+                verificationNotes: "Experimental local renderer (High Quality 8-bit DiT). Higher precision facial detail and dynamic range. 48GB+ unified memory recommended.",
+                executablePath: hqConfig.runtimeExecutablePath,
+                endpoint: hqConfig.endpoint
             ),
             policy: .general,
             license: ModelLicenseMetadata(
@@ -365,7 +407,7 @@ final class ModelRegistry {
         if id == LTX25ModelCatalog.ltx25ExperimentalID {
             return ltx25Descriptor()
         }
-        if id == MiniMaxH3Configuration.modelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: id) {
             seedMiniMaxH3()
         }
         if let profile = CustomModelProfileStore.profile(forModelID: id, userDefaults: userDefaults) {
@@ -382,7 +424,7 @@ final class ModelRegistry {
     /// honoring any frozen local snapshot path or pinned revision.
     func descriptor(for request: GenerationRequest) -> ModelDescriptor? {
         guard var desc = descriptor(id: request.modelId) else { return nil }
-        if request.modelId == MiniMaxH3Configuration.modelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: request.modelId) {
             desc.localPath = request.minimaxH3ModelDirectory
             desc.runtime.executablePath = request.minimaxH3RuntimeExecutablePath
             desc.runtime.endpoint = request.minimaxH3Endpoint
@@ -400,7 +442,7 @@ final class ModelRegistry {
 
     func refreshVerification(from lab: CompatibilityLab) {
         for (id, model) in descriptors
-        where !model.isOfficial && id != MiniMaxH3Configuration.modelID {
+        where !model.isOfficial && !MiniMaxH3Configuration.isMiniMaxH3(modelID: id) {
             descriptors[id]?.runtime.verified = lab.isVerified(modelID: id)
         }
     }
@@ -408,6 +450,7 @@ final class ModelRegistry {
     /// Models visible for selection.
     /// - Official models are always listed.
     /// - LTX-2.5 (Experimental) is listed as an experimental capability model.
+    /// - MiniMax H3 (Standard and High Quality) are listed as experimental built-in models.
     /// - Custom models and profiles are listed when customModelsV1 is enabled.
     func selectableModels(customModelsEnabled: Bool? = nil) -> [ModelDescriptor] {
         let allowCustom = customModelsEnabled ?? FeatureFlags.isEnabled(.customModelsV1, userDefaults: userDefaults)
@@ -417,9 +460,13 @@ final class ModelRegistry {
                 models.append(ltx25)
             }
         }
-        if let h3 = descriptor(id: MiniMaxH3Configuration.modelID),
+        if let h3 = descriptor(id: MiniMaxH3Configuration.standardModelID),
            !models.contains(where: { $0.id == h3.id }) {
             models.append(h3)
+        }
+        if let hq = descriptor(id: MiniMaxH3Configuration.highQualityModelID),
+           !models.contains(where: { $0.id == hq.id }) {
+            models.append(hq)
         }
         if allowCustom {
             let profiles = CustomModelProfileStore.loadProfiles(userDefaults: userDefaults).filter(\.isEnabled)
@@ -438,7 +485,7 @@ final class ModelRegistry {
             .filter { model in
                 if model.isOfficial { return true }
                 if model.id == LTX25ModelCatalog.ltx25ExperimentalID { return true }
-                if model.id == MiniMaxH3Configuration.modelID { return true }
+                if MiniMaxH3Configuration.isMiniMaxH3(modelID: model.id) { return true }
                 return allowCustom
             }
             .sorted { ($0.isOfficial ? 0 : 1, $0.id) < ($1.isOfficial ? 0 : 1, $1.id) }

@@ -1663,4 +1663,99 @@ func runMiniMaxH3Tests(_ t: TestKit) {
         let resolvedCustomFastOff = try! MiniMaxH3DurationPolicy.applying(to: customFastOffReq)
         t.checkEqual(resolvedCustomFastOff.minimaxH3Fast, false, "H3_FAST_CUSTOM_OFF_ALLOWED")
     }
+
+    t.suite("MiniMax H3 8-Bit High Quality Model Tier Tests") {
+        let registry = ModelRegistry.shared
+
+        // 1. H3_MODEL_STANDARD_ENTRY
+        let standardDescriptor = registry.descriptor(id: MiniMaxH3Configuration.standardModelID)
+        t.check(standardDescriptor != nil, "H3_MODEL_STANDARD_ENTRY exists in registry")
+        t.checkEqual(standardDescriptor?.id, "minimax_h3_fl2va_2bit_te", "H3_MODEL_STANDARD_ENTRY id")
+        t.checkEqual(standardDescriptor?.displayName, MiniMaxH3Configuration.standardDisplayName, "H3_MODEL_STANDARD_ENTRY display name")
+        t.checkEqual(standardDescriptor?.quantization, "2-bit", "H3_MODEL_STANDARD_ENTRY quantization")
+
+        // 2. H3_MODEL_HIGH_QUALITY_ENTRY
+        let hqDescriptor = registry.descriptor(id: MiniMaxH3Configuration.highQualityModelID)
+        t.check(hqDescriptor != nil, "H3_MODEL_HIGH_QUALITY_ENTRY exists in registry")
+        t.checkEqual(hqDescriptor?.id, "minimax_h3_fl2va_8bit_dit", "H3_MODEL_HIGH_QUALITY_ENTRY id")
+        t.checkEqual(hqDescriptor?.displayName, MiniMaxH3Configuration.highQualityDisplayName, "H3_MODEL_HIGH_QUALITY_ENTRY display name")
+        t.checkEqual(hqDescriptor?.quantization, "8-bit", "H3_MODEL_HIGH_QUALITY_ENTRY quantization")
+
+        // 3. DEFAULT_H3_MODEL_REMAINS_STANDARD
+        t.checkEqual(MiniMaxH3Configuration.modelID, "minimax_h3_fl2va_2bit_te", "DEFAULT_H3_MODEL_REMAINS_STANDARD")
+        t.check(MiniMaxH3Configuration.isMiniMaxH3(modelID: MiniMaxH3Configuration.standardModelID), "isMiniMaxH3 recognizes standard model")
+        t.check(MiniMaxH3Configuration.isMiniMaxH3(modelID: MiniMaxH3Configuration.highQualityModelID), "isMiniMaxH3 recognizes high quality model")
+
+        // 4. H3_HQ_RECOMMENDED_MEMORY_48GB
+        t.checkEqual(hqDescriptor?.recommendedUnifiedMemoryGB, 48, "H3_HQ_RECOMMENDED_MEMORY_48GB recommended 48GB")
+        t.checkEqual(hqDescriptor?.minimumUnifiedMemoryGB, 32, "H3_HQ_RECOMMENDED_MEMORY_48GB minimum 32GB")
+
+        // 5. H3_HQ_NOT_AUTO_DOWNLOADED
+        t.checkEqual(hqDescriptor?.isOfficial, false, "H3_HQ_NOT_AUTO_DOWNLOADED not in official auto-download catalog")
+
+        // 6. H3_HQ_PRESET_STANDARD: 640x384 / 90f / 16st / Fast ON
+        let hqStandardReq = GenerationRequest(
+            prompt: "HQ Standard Test",
+            modelId: MiniMaxH3Configuration.highQualityModelID,
+            preset: MiniMaxH3Preset.standard.rawValue)
+        let resolvedHQStd = try! MiniMaxH3DurationPolicy.applying(to: hqStandardReq)
+        t.checkEqual(resolvedHQStd.parameters.width, 640, "H3_HQ_PRESET_STANDARD width 640")
+        t.checkEqual(resolvedHQStd.parameters.height, 384, "H3_HQ_PRESET_STANDARD height 384")
+        t.checkEqual(resolvedHQStd.parameters.numFrames, 90, "H3_HQ_PRESET_STANDARD frames 90")
+        t.checkEqual(resolvedHQStd.parameters.numInferenceSteps, 16, "H3_HQ_PRESET_STANDARD steps 16")
+        t.checkEqual(resolvedHQStd.minimaxH3Fast, true, "H3_HQ_PRESET_STANDARD fast ON")
+
+        // 7. H3_HQ_PRESET_HIGH: 640x384 / 90f / 20st / Fast ON
+        let hqHighReq = GenerationRequest(
+            prompt: "HQ High Test",
+            modelId: MiniMaxH3Configuration.highQualityModelID,
+            preset: MiniMaxH3Preset.high.rawValue)
+        let resolvedHQHigh = try! MiniMaxH3DurationPolicy.applying(to: hqHighReq)
+        t.checkEqual(resolvedHQHigh.parameters.width, 640, "H3_HQ_PRESET_HIGH width 640")
+        t.checkEqual(resolvedHQHigh.parameters.height, 384, "H3_HQ_PRESET_HIGH height 384")
+        t.checkEqual(resolvedHQHigh.parameters.numFrames, 90, "H3_HQ_PRESET_HIGH frames 90")
+        t.checkEqual(resolvedHQHigh.parameters.numInferenceSteps, 20, "H3_HQ_PRESET_HIGH steps 20")
+        t.checkEqual(resolvedHQHigh.minimaxH3Fast, true, "H3_HQ_PRESET_HIGH fast ON")
+
+        // 8. H3_HQ_CUSTOM_141F
+        let hqCustomReq = GenerationRequest(
+            prompt: "HQ Custom 141f Test",
+            modelId: MiniMaxH3Configuration.highQualityModelID,
+            preset: MiniMaxH3Preset.custom.rawValue,
+            minimaxH3RequestedDurationSeconds: 5.9)
+        let resolvedHQCustom = try! MiniMaxH3DurationPolicy.applying(to: hqCustomReq)
+        t.checkEqual(resolvedHQCustom.parameters.numFrames, 141, "H3_HQ_CUSTOM_141F frames 141")
+
+        // 9. H3_MODEL_SWITCH_4_TO_8 & H3_MODEL_SWITCH_8_TO_4
+        let snap4 = MiniMaxH3Configuration.Snapshot.current(forModelID: MiniMaxH3Configuration.standardModelID)
+        let snap8 = MiniMaxH3Configuration.Snapshot.current(forModelID: MiniMaxH3Configuration.highQualityModelID)
+        t.checkEqual(snap4.targetModelID, MiniMaxH3Configuration.standardModelID, "H3_MODEL_SWITCH snapshot target 4bit")
+        t.checkEqual(snap8.targetModelID, MiniMaxH3Configuration.highQualityModelID, "H3_MODEL_SWITCH snapshot target 8bit")
+        t.checkEqual(MiniMaxH3Configuration.expectedServerModelIDs(for: snap4.targetModelID).first, "MiniMax-H3-FL2VA-MLX-Serve-2bit-text-encoder", "H3_MODEL_SWITCH 4bit expected server id")
+        t.check(MiniMaxH3Configuration.expectedServerModelIDs(for: snap8.targetModelID).contains("MiniMax-H3-FL2VA-MLX-Serve-8bit-DiT-2bit-TE"), "H3_MODEL_SWITCH 8bit expected server id")
+
+        // 10. AUTO_MOVIE_ONE_MODEL_ONLY
+        let resolverResolution4 = GenerationModelResolver.resolve(modelID: MiniMaxH3Configuration.standardModelID)
+        let resolverResolution8 = GenerationModelResolver.resolve(modelID: MiniMaxH3Configuration.highQualityModelID)
+        if case .runnable(let run4) = resolverResolution4 {
+            t.checkEqual(run4.backend, .minimaxH3, "Resolver routes 4bit to minimaxH3 backend")
+            t.checkEqual(run4.model.id, MiniMaxH3Configuration.standardModelID, "Resolver keeps 4bit model ID")
+        } else {
+            t.check(false, "Resolver failed to resolve 4bit H3 model")
+        }
+        if case .runnable(let run8) = resolverResolution8 {
+            t.checkEqual(run8.backend, .minimaxH3, "Resolver routes 8bit to minimaxH3 backend")
+            t.checkEqual(run8.model.id, MiniMaxH3Configuration.highQualityModelID, "Resolver keeps 8bit model ID")
+        } else {
+            t.check(false, "Resolver failed to resolve 8bit H3 model")
+        }
+
+        // 11. OLD_PROJECT_MODEL_COMPATIBILITY
+        let oldProjectRes = GenerationModelResolver.resolve(modelID: "minimax_h3_fl2va_2bit_te")
+        if case .runnable(let runOld) = oldProjectRes {
+            t.checkEqual(runOld.model.id, "minimax_h3_fl2va_2bit_te", "OLD_PROJECT_MODEL_COMPATIBILITY preserved")
+        } else {
+            t.check(false, "Failed to resolve old H3 project model ID")
+        }
+    }
 }

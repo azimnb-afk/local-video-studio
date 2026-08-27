@@ -420,9 +420,10 @@ private struct NewStoryboardSheet: View {
     @State private var userEditedDimensions = false
     @State private var characterBible = CharacterBible()
     @State private var minimaxH3PresetRaw = MiniMaxH3Preset.standard.rawValue
-    @State private var minimaxH3TierRaw = MiniMaxH3ResolutionTier.tier1.rawValue
-    @State private var minimaxH3Steps: Int = 10
-    @State private var minimaxH3CustomDuration: Double = 4.0
+    @State private var minimaxH3TierRaw = MiniMaxH3ResolutionTier.tier2.rawValue
+    @State private var minimaxH3Steps: Int = 16
+    @State private var minimaxH3CustomDuration: Double = 3.75
+    @State private var minimaxH3CustomFast: Bool = true
     /// Held as a plain URL until Create: nothing is copied into a project while
     /// the sheet is open, so cancelling leaves no managed asset behind.
     @State private var openingReferenceURL: URL?
@@ -441,7 +442,7 @@ private struct NewStoryboardSheet: View {
     }
 
     private var minimaxH3Tier: MiniMaxH3ResolutionTier {
-        MiniMaxH3ResolutionTier(rawValue: minimaxH3TierRaw) ?? .tier1
+        MiniMaxH3ResolutionTier(rawValue: minimaxH3TierRaw) ?? .tier2
     }
 
     var body: some View {
@@ -511,7 +512,8 @@ private struct NewStoryboardSheet: View {
                     isAutoMovie: mode == .hybrid,
                     customTier: minimaxH3Tier,
                     customDurationSeconds: minimaxH3CustomDuration,
-                    customSteps: minimaxH3Steps
+                    customSteps: minimaxH3Steps,
+                    customFast: minimaxH3CustomFast
                 ))
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -527,15 +529,16 @@ private struct NewStoryboardSheet: View {
                             Stepper(
                                 "Per-Shot Target: \(minimaxH3CustomDuration, specifier: "%.1f")s (\(MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: minimaxH3CustomDuration)) frames)",
                                 value: $minimaxH3CustomDuration,
-                                in: 1.0...6.0,
+                                in: 1.0...5.9,
                                 step: 0.5
                             )
                             Stepper(
                                 "Inference Steps: \(minimaxH3Steps)",
                                 value: $minimaxH3Steps,
-                                in: 6...20,
+                                in: 8...24,
                                 step: 1
                             )
+                            Toggle("Fast Mode", isOn: $minimaxH3CustomFast)
                         }
 
                         if MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: minimaxH3CustomDuration) {
@@ -1143,7 +1146,7 @@ private struct ProjectSettingsEditor: View {
                     && project.settings.resolvedMiniMaxH3Preset == .custom {
                     VStack(alignment: .leading, spacing: 10) {
                         Picker("Resolution Tier", selection: binding(
-                            get: { project.settings.minimaxH3CustomTier ?? MiniMaxH3ResolutionTier.tier1.rawValue },
+                            get: { project.settings.minimaxH3CustomTier ?? MiniMaxH3ResolutionTier.tier2.rawValue },
                             set: { $1.minimaxH3CustomTier = $0 }
                         )) {
                             ForEach(MiniMaxH3ResolutionTier.allCases) { Text($0.displayName).tag($0.rawValue) }
@@ -1152,26 +1155,30 @@ private struct ProjectSettingsEditor: View {
 
                         HStack(spacing: 20) {
                             Stepper(
-                                "Per-Shot Target: \(project.settings.minimaxH3CustomDuration ?? 4.0, specifier: "%.1f")s",
+                                "Per-Shot Target: \(project.settings.minimaxH3CustomDuration ?? 3.75, specifier: "%.1f")s",
                                 value: binding(
-                                    get: { project.settings.minimaxH3CustomDuration ?? 4.0 },
+                                    get: { project.settings.minimaxH3CustomDuration ?? 3.75 },
                                     set: { $1.minimaxH3CustomDuration = $0 }
                                 ),
-                                in: 1.0...6.0,
+                                in: 1.0...5.9,
                                 step: 0.5
                             )
                             Stepper(
-                                "Inference Steps: \(project.settings.minimaxH3CustomSteps ?? 10)",
+                                "Inference Steps: \(project.settings.minimaxH3CustomSteps ?? 16)",
                                 value: binding(
-                                    get: { project.settings.minimaxH3CustomSteps ?? 10 },
+                                    get: { project.settings.minimaxH3CustomSteps ?? 16 },
                                     set: { $1.minimaxH3CustomSteps = $0 }
                                 ),
-                                in: 6...20,
+                                in: 8...24,
                                 step: 1
                             )
+                            Toggle("Fast Mode", isOn: binding(
+                                get: { project.settings.minimaxH3CustomFast ?? true },
+                                set: { $1.minimaxH3CustomFast = $0 }
+                            ))
                         }
 
-                        if MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: project.settings.minimaxH3CustomDuration ?? 4.0) {
+                        if MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: project.settings.minimaxH3CustomDuration ?? 3.75) {
                             HStack(alignment: .top, spacing: 8) {
                                 Image(systemName: "exclamationmark.triangle.fill")
                                     .foregroundStyle(.yellow)
@@ -1216,15 +1223,17 @@ private struct ProjectSettingsEditor: View {
         let settings = project.settings
         if settings.modelID == MiniMaxH3Configuration.modelID {
             let orientation = FilmProjectResolutionOrientationResolver.resolve(project: project, store: store)
-            let tier = MiniMaxH3ResolutionTier(rawValue: settings.minimaxH3CustomTier ?? "") ?? .tier1
-            let dur = settings.minimaxH3CustomDuration ?? 4.0
-            let steps = settings.minimaxH3CustomSteps ?? 10
+            let tier = MiniMaxH3ResolutionTier(rawValue: settings.minimaxH3CustomTier ?? "") ?? .tier2
+            let dur = settings.minimaxH3CustomDuration ?? 3.75
+            let steps = settings.minimaxH3CustomSteps ?? 16
+            let fast = settings.minimaxH3CustomFast ?? true
             return settings.resolvedMiniMaxH3Preset.effectiveSummary(
                 orientation: orientation,
                 isAutoMovie: project.workflowMode == "hybrid",
                 customTier: tier,
                 customDurationSeconds: dur,
-                customSteps: steps
+                customSteps: steps,
+                customFast: fast
             ) + " → Actual shown per completed Take"
         }
         if settings.resolvedPreset == .custom {

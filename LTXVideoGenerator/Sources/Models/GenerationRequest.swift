@@ -240,6 +240,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
     var minimaxH3ChainWindows: Int?
     var minimaxH3ExpectedFrames: Int?
     var minimaxH3RequestedDurationSeconds: Double?
+    var minimaxH3Fast: Bool?
     var brief: String?                 // Original user brief before prompt compilation
     var filmProjectID: UUID?
     var shotID: UUID?
@@ -302,6 +303,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         minimaxH3ChainWindows: Int? = nil,
         minimaxH3ExpectedFrames: Int? = nil,
         minimaxH3RequestedDurationSeconds: Double? = nil,
+        minimaxH3Fast: Bool? = nil,
         filmProjectID: UUID? = nil,
         shotID: UUID? = nil,
         takeID: UUID? = nil,
@@ -339,6 +341,7 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         self.minimaxH3ChainWindows = minimaxH3ChainWindows
         self.minimaxH3ExpectedFrames = minimaxH3ExpectedFrames
         self.minimaxH3RequestedDurationSeconds = minimaxH3RequestedDurationSeconds
+        self.minimaxH3Fast = minimaxH3Fast
 
         if modelId == MiniMaxH3Configuration.modelID {
             let snapshot = MiniMaxH3Configuration.Snapshot.current(userDefaults: userDefaults)

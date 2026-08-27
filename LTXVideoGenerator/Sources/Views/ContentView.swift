@@ -300,9 +300,10 @@ private struct OneShotView: View {
     @State private var targetDuration = 5.0
     @AppStorage("oneShotGenerationPreset") private var presetRaw = GenerationPreset.standard.rawValue
     @AppStorage("minimaxH3OneShotPreset") private var minimaxH3OneShotPresetRaw = MiniMaxH3Preset.standard.rawValue
-    @AppStorage("minimaxH3OneShotTier") private var minimaxH3OneShotTierRaw = MiniMaxH3ResolutionTier.tier1.rawValue
-    @AppStorage("minimaxH3OneShotCustomDuration") private var minimaxH3OneShotCustomDuration = 4.0
-    @AppStorage("minimaxH3OneShotCustomSteps") private var minimaxH3OneShotCustomSteps = 10
+    @AppStorage("minimaxH3OneShotTier") private var minimaxH3OneShotTierRaw = MiniMaxH3ResolutionTier.tier2.rawValue
+    @AppStorage("minimaxH3OneShotCustomDuration") private var minimaxH3OneShotCustomDuration = 3.75
+    @AppStorage("minimaxH3OneShotCustomSteps") private var minimaxH3OneShotCustomSteps = 16
+    @AppStorage("minimaxH3OneShotCustomFast") private var minimaxH3OneShotCustomFast = true
     @AppStorage(LTXModelCatalog.selectedModelIDKey) private var modelID = LTXModelCatalog.defaultModelID
     @AppStorage(LTXTextEncoderCatalog.selectedTextEncoderIDKey) private var textEncoderID = LTXTextEncoderCatalog.defaultTextEncoderID
     @AppStorage("oneShotStartingImagePath") private var storedStartingImagePath = ""
@@ -313,7 +314,7 @@ private struct OneShotView: View {
 
     private var preset: GenerationPreset { GenerationPreset(rawValue: presetRaw) ?? .standard }
     private var minimaxH3Preset: MiniMaxH3Preset { MiniMaxH3Preset(rawValue: minimaxH3OneShotPresetRaw) ?? .standard }
-    private var minimaxH3Tier: MiniMaxH3ResolutionTier { MiniMaxH3ResolutionTier(rawValue: minimaxH3OneShotTierRaw) ?? .tier1 }
+    private var minimaxH3Tier: MiniMaxH3ResolutionTier { MiniMaxH3ResolutionTier(rawValue: minimaxH3OneShotTierRaw) ?? .tier2 }
 
     private var resolutionSummary: String {
         if modelID == MiniMaxH3Configuration.modelID {
@@ -323,7 +324,8 @@ private struct OneShotView: View {
                 isAutoMovie: false,
                 customTier: minimaxH3Tier,
                 customDurationSeconds: minimaxH3OneShotCustomDuration,
-                customSteps: minimaxH3OneShotCustomSteps
+                customSteps: minimaxH3OneShotCustomSteps,
+                customFast: minimaxH3OneShotCustomFast
             )
         }
         guard preset != .custom else {
@@ -412,15 +414,16 @@ private struct OneShotView: View {
                             Stepper(
                                 "Duration: \(minimaxH3OneShotCustomDuration, specifier: "%.1f")s (\(MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: minimaxH3OneShotCustomDuration)) frames)",
                                 value: $minimaxH3OneShotCustomDuration,
-                                in: 1.0...6.0,
+                                in: 1.0...5.9,
                                 step: 0.5
                             )
                             Stepper(
                                 "Inference Steps: \(minimaxH3OneShotCustomSteps)",
                                 value: $minimaxH3OneShotCustomSteps,
-                                in: 6...20,
+                                in: 8...24,
                                 step: 1
                             )
+                            Toggle("Fast Mode", isOn: $minimaxH3OneShotCustomFast)
                         }
 
                         if MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: minimaxH3OneShotCustomDuration) {
@@ -580,26 +583,26 @@ private struct OneShotView: View {
                 resolvedTargetDuration = 3.0
                 resolvedH3RequestedDuration = 3.0
             case .standard:
-                let dims = MiniMaxH3ResolutionTier.tier1.dimensions(for: orientation)
+                let dims = MiniMaxH3ResolutionTier.tier2.dimensions(for: orientation)
                 requestParameters.width = dims.width
                 requestParameters.height = dims.height
-                requestParameters.numInferenceSteps = 10
+                requestParameters.numInferenceSteps = 16
                 requestParameters.numFrames = 90
-                resolvedTargetDuration = 4.0
-                resolvedH3RequestedDuration = 4.0
+                resolvedTargetDuration = 3.75
+                resolvedH3RequestedDuration = 3.75
             case .high:
                 let dims = MiniMaxH3ResolutionTier.tier2.dimensions(for: orientation)
                 requestParameters.width = dims.width
                 requestParameters.height = dims.height
-                requestParameters.numInferenceSteps = 12
+                requestParameters.numInferenceSteps = 20
                 requestParameters.numFrames = 90
-                resolvedTargetDuration = 4.0
-                resolvedH3RequestedDuration = 4.0
+                resolvedTargetDuration = 3.75
+                resolvedH3RequestedDuration = 3.75
             case .custom:
                 let dims = minimaxH3Tier.dimensions(for: orientation)
                 requestParameters.width = dims.width
                 requestParameters.height = dims.height
-                requestParameters.numInferenceSteps = max(6, min(20, minimaxH3OneShotCustomSteps))
+                requestParameters.numInferenceSteps = max(8, min(24, minimaxH3OneShotCustomSteps))
                 requestParameters.numFrames = MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: minimaxH3OneShotCustomDuration)
                 resolvedTargetDuration = nil
                 resolvedH3RequestedDuration = minimaxH3OneShotCustomDuration
@@ -632,7 +635,8 @@ private struct OneShotView: View {
             preset: resolvedPresetRaw,
             targetDurationSeconds: resolvedTargetDuration,
             generationSource: "oneShot",
-            minimaxH3RequestedDurationSeconds: resolvedH3RequestedDuration
+            minimaxH3RequestedDurationSeconds: resolvedH3RequestedDuration,
+            minimaxH3Fast: minimaxH3Preset == .custom ? minimaxH3OneShotCustomFast : true
         )
 
         if directorEnabled {
@@ -932,6 +936,7 @@ struct GenerateView: View {
     var onSubmissionQueued: () -> Void = {}
     @AppStorage("generationPreset") private var presetRaw = GenerationPreset.standard.rawValue
     @AppStorage("minimaxH3GenerationPreset") private var h3PresetRaw = MiniMaxH3Preset.standard.rawValue
+    @AppStorage("minimaxH3GenerationCustomFast") private var h3CustomFast = true
     @AppStorage(LTXModelCatalog.selectedModelIDKey) private var selectedModelID = LTXModelCatalog.defaultModelID
 
     var body: some View {
@@ -1070,10 +1075,10 @@ struct GenerateView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    // Custom Duration Stepper (1.0s to 6.0s)
+                    // Custom Duration Stepper (1.0s to 5.9s)
                     VStack(alignment: .leading, spacing: 6) {
                         let requestedSec = Double(parameters.numFrames) / 24.0
-                        let clampedSec = max(1.0, min(6.0, requestedSec))
+                        let clampedSec = max(1.0, min(5.9, requestedSec))
                         let legalFrames = MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: clampedSec)
                         HStack {
                             Text("Duration: \(clampedSec, specifier: "%.1f")s (\(legalFrames) frames)")
@@ -1082,10 +1087,10 @@ struct GenerateView: View {
                             Stepper(
                                 "",
                                 value: Binding(
-                                    get: { max(1.0, min(6.0, Double(parameters.numFrames) / 24.0)) },
+                                    get: { max(1.0, min(5.9, Double(parameters.numFrames) / 24.0)) },
                                     set: { parameters.numFrames = max(1, Int(($0 * 24.0).rounded())) }
                                 ),
-                                in: 1.0...6.0,
+                                in: 1.0...5.9,
                                 step: 0.5)
                             .labelsHidden()
                         }
@@ -1105,23 +1110,27 @@ struct GenerateView: View {
                         }
                     }
 
-                    // Custom Steps Stepper (6 to 20)
+                    // Custom Steps Stepper (8 to 24)
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
-                            Text("Inference Steps: \(parameters.numInferenceSteps)")
+                            Text("Inference Steps: \(parameters.numInferenceSteps > 0 ? parameters.numInferenceSteps : 16)")
                                 .font(.subheadline)
                             Spacer()
                             Stepper(
                                 "",
                                 value: Binding(
-                                    get: { max(6, min(20, parameters.numInferenceSteps)) },
-                                    set: { parameters.numInferenceSteps = max(6, min(20, $0)) }
+                                    get: { max(8, min(24, parameters.numInferenceSteps > 0 ? parameters.numInferenceSteps : 16)) },
+                                    set: { parameters.numInferenceSteps = max(8, min(24, $0)) }
                                 ),
-                                in: 6...20,
+                                in: 8...24,
                                 step: 1)
                             .labelsHidden()
                         }
                     }
+
+                    // Fast Mode Toggle
+                    Toggle("Fast Mode", isOn: $h3CustomFast)
+                        .font(.subheadline)
                 } else {
                     Text("Fixed execution settings are optimized for this preset. For manual resolution tiers, duration, and steps, choose Custom.")
                         .font(.caption)

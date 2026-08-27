@@ -1405,8 +1405,8 @@ final class HybridProjectCoordinator {
         if settings.modelID == MiniMaxH3Configuration.modelID {
             let h3Preset = settings.resolvedMiniMaxH3Preset
             effectiveMaxSecondsPerShot = (h3Preset == .custom)
-                ? min(6.0, max(1.0, settings.minimaxH3CustomDuration ?? 4.0))
-                : h3Preset.perShotSafeMaxDurationSeconds
+                ? min(5.9, max(1.0, settings.minimaxH3CustomDuration ?? 3.75))
+                : max(107.0 / 24.0, h3Preset.perShotSafeMaxDurationSeconds)
         } else {
             effectiveMaxSecondsPerShot = Double(AutoMovieDurationPlanner.maximumFrameCount - 1) / Double(max(1, settings.fps))
         }

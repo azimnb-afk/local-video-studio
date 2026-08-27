@@ -46,13 +46,13 @@ enum MiniMaxH3ProductPolicy {
         case .normalGenerate, .oneShot:
             return MiniMaxH3ImageGroundingRecommendation(
                 title: "Recommended for H3",
-                english: "Add a Starting Image for better subject consistency. Text-only generation remains available.",
-                japanese: "被写体の一貫性を高めるには開始画像の追加を推奨します。画像なしでも生成できます。")
+                english: "Using a Starting Image helps stabilize characters and composition. Generation remains available without an image.",
+                japanese: "開始画像を使うと、人物や構図を安定させやすくなります。")
         case .autoMovie:
             return MiniMaxH3ImageGroundingRecommendation(
                 title: "Recommended for H3",
-                english: "Add an Opening Reference for better character or subject consistency. Text-only generation remains available.",
-                japanese: "人物や被写体の一貫性を高めるにはOpening Referenceの追加を推奨します。画像なしでも生成できます。")
+                english: "Using an Opening Reference helps stabilize characters and composition. Generation remains available without an image.",
+                japanese: "開始画像を使うと、人物や構図を安定させやすくなります。")
         }
     }
 }
@@ -76,49 +76,51 @@ enum MiniMaxH3Preset: String, Codable, CaseIterable, Identifiable {
 
     var summary: String {
         switch self {
-        case .quick: return "3 sec · 8 steps · fast preview"
-        case .standard: return "Recommended · 4 sec · 10 steps · proven balance"
-        case .high: return "4 sec · 12 steps · 384×640 high resolution"
-        case .custom: return "Custom duration (1–6s), steps (6–20), and resolution tiers"
+        case .quick: return "構図確認向け・高速 · 512×288 · 3s (73f) · 8 steps · Fast ON"
+        case .standard: return "おすすめ・品質と速度のバランス · 640×384 · 3.75s (90f) · 16 steps · Fast ON"
+        case .high: return "品質優先 · 640×384 · 3.75s (90f) · 20 steps · Fast ON"
+        case .custom: return "詳細設定 · 512/640 · 1.0–5.9s (22–141f) · 8–24 steps · Fast ON/OFF"
         }
     }
 
     var perShotSafeMaxDurationSeconds: Double {
         switch self {
         case .quick: return 3.0
-        case .standard: return 4.0
-        case .high: return 4.0
-        case .custom: return 4.0
+        case .standard: return 3.75
+        case .high: return 3.75
+        case .custom: return 5.875
         }
     }
 
     func effectiveSummary(
         orientation: SourceImageOrientation?,
         isAutoMovie: Bool = false,
-        customTier: MiniMaxH3ResolutionTier = .tier1,
-        customDurationSeconds: Double = 4.0,
-        customSteps: Int = 10
+        customTier: MiniMaxH3ResolutionTier = .tier2,
+        customDurationSeconds: Double = 3.75,
+        customSteps: Int = 16,
+        customFast: Bool = true
     ) -> String {
         switch self {
         case .quick:
             let dims = MiniMaxH3ResolutionTier.tier1.dimensions(for: orientation)
-            let dur = isAutoMovie ? "up to 3 sec/shot" : "3 sec"
-            return "\(displayName) · \(dims.width)×\(dims.height) · \(dur) · 8 steps"
+            let dur = isAutoMovie ? "up to 3.0 sec/shot" : "3.0 sec"
+            return "\(displayName) · \(dims.width)×\(dims.height) · \(dur) (73f) · 8 steps · Fast ON"
         case .standard:
-            let dims = MiniMaxH3ResolutionTier.tier1.dimensions(for: orientation)
-            let dur = isAutoMovie ? "up to 4 sec/shot" : "4 sec"
-            return "\(displayName) · \(dims.width)×\(dims.height) · \(dur) · 10 steps"
+            let dims = MiniMaxH3ResolutionTier.tier2.dimensions(for: orientation)
+            let dur = isAutoMovie ? "up to 3.75 sec/shot" : "3.75 sec"
+            return "\(displayName) · \(dims.width)×\(dims.height) · \(dur) (90f) · 16 steps · Fast ON"
         case .high:
             let dims = MiniMaxH3ResolutionTier.tier2.dimensions(for: orientation)
-            let dur = isAutoMovie ? "up to 4 sec/shot" : "4 sec"
-            return "\(displayName) · \(dims.width)×\(dims.height) · \(dur) · 12 steps"
+            let dur = isAutoMovie ? "up to 3.75 sec/shot" : "3.75 sec"
+            return "\(displayName) · \(dims.width)×\(dims.height) · \(dur) (90f) · 20 steps · Fast ON"
         case .custom:
             let dims = customTier.dimensions(for: orientation)
             let frames = MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: customDurationSeconds)
             let durText = isAutoMovie
                 ? "up to \(MiniMaxH3FrameGrid.displayDurationText(forFrames: frames))/shot"
                 : MiniMaxH3FrameGrid.displayDurationText(forFrames: frames)
-            return "\(displayName) · \(dims.width)×\(dims.height) · \(durText) · \(customSteps) steps"
+            let fastText = customFast ? "Fast ON" : "Fast OFF"
+            return "\(displayName) · \(dims.width)×\(dims.height) · \(durText) (\(frames)f) · \(customSteps) steps · \(fastText)"
         }
     }
 }
@@ -153,21 +155,22 @@ enum MiniMaxH3ResolutionTier: String, Codable, CaseIterable, Identifiable {
 
 enum MiniMaxH3FrameGrid {
     static let fps = 24
+    static let legalLadder = [22, 39, 56, 73, 90, 107, 124, 141]
 
-    /// Snaps a requested duration in seconds (1.0s to 15.0s) to the nearest legal H3 frame count on the 17k+5 ladder.
+    /// Snaps a requested duration in seconds (1.0s to 5.9s) to the nearest legal H3 frame count on the 17k+5 ladder (max 141f).
     static func legalFrames(forRequestedDurationSeconds seconds: Double) -> Int {
-        let clamped = max(0.5, min(15.0, seconds))
+        let clamped = max(0.5, min(5.9, seconds))
         let targetFrames = clamped * Double(fps)
-        let k = max(1, Int(round((targetFrames - 5.0) / 17.0)))
+        let k = max(1, min(8, Int(round((targetFrames - 5.0) / 17.0))))
         return 17 * k + 5
     }
 
     static func displayDurationText(forFrames frames: Int) -> String {
         let sec = Double(frames) / Double(fps)
-        if frames == 73 { return "3 sec" }
-        if frames == 90 { return "4 sec" }
-        if frames == 141 { return "6 sec" }
-        return String(format: "%.1f sec", sec)
+        if frames == 73 { return "3.0 sec" }
+        if frames == 90 { return "3.75 sec" }
+        if frames == 141 { return "5.88 sec (5.9s)" }
+        return String(format: "%.2f sec", sec)
     }
 
     static func shouldShowLongDurationWarning(durationSeconds: Double) -> Bool {
@@ -175,7 +178,7 @@ enum MiniMaxH3FrameGrid {
     }
 
     static func isLegalFrameCount(_ frames: Int) -> Bool {
-        guard frames >= 22 else { return false }
+        guard frames >= 22 && frames <= 141 else { return false }
         return (frames - 5) % 17 == 0
     }
 }
@@ -198,7 +201,7 @@ struct MiniMaxH3FramePlan: Equatable, Codable {
 
 enum MiniMaxH3DurationPolicy {
     static let fps = 24
-    static let singleWindowFrames = [22, 39, 56, 73]
+    static let singleWindowFrames = [22, 39, 56, 73, 90, 107, 124, 141]
     static let chainedWindowFrames = 39
     static let maximumChainWindows = 6
     static let maximumExpectedFrames = 39 + (maximumChainWindows - 1) * 38
@@ -256,32 +259,35 @@ enum MiniMaxH3DurationPolicy {
             resolved.parameters.height = dims.height
             resolved.parameters.fps = fps
             resolved.parameters.numInferenceSteps = 8
-            resolved.parameters.numFrames = 73 // 3.0s display
+            resolved.parameters.numFrames = 73 // 3.0s
             resolved.minimaxH3ChainWindows = 1
             resolved.minimaxH3ExpectedFrames = 73
             resolved.minimaxH3RequestedDurationSeconds = 3.0
+            resolved.minimaxH3Fast = true
 
         case .standard:
-            let dims = MiniMaxH3ResolutionTier.tier1.dimensions(for: orientation)
+            let dims = MiniMaxH3ResolutionTier.tier2.dimensions(for: orientation)
             resolved.parameters.width = dims.width
             resolved.parameters.height = dims.height
             resolved.parameters.fps = fps
-            resolved.parameters.numInferenceSteps = 10
-            resolved.parameters.numFrames = 90 // 4.0s display (3.75s encoded)
+            resolved.parameters.numInferenceSteps = 16
+            resolved.parameters.numFrames = 90 // 3.75s (90f)
             resolved.minimaxH3ChainWindows = 1
             resolved.minimaxH3ExpectedFrames = 90
-            resolved.minimaxH3RequestedDurationSeconds = 4.0
+            resolved.minimaxH3RequestedDurationSeconds = 3.75
+            resolved.minimaxH3Fast = true
 
         case .high:
             let dims = MiniMaxH3ResolutionTier.tier2.dimensions(for: orientation)
             resolved.parameters.width = dims.width
             resolved.parameters.height = dims.height
             resolved.parameters.fps = fps
-            resolved.parameters.numInferenceSteps = 12
-            resolved.parameters.numFrames = 90 // 4.0s display (3.75s encoded)
+            resolved.parameters.numInferenceSteps = 20
+            resolved.parameters.numFrames = 90 // 3.75s (90f)
             resolved.minimaxH3ChainWindows = 1
             resolved.minimaxH3ExpectedFrames = 90
-            resolved.minimaxH3RequestedDurationSeconds = 4.0
+            resolved.minimaxH3RequestedDurationSeconds = 3.75
+            resolved.minimaxH3Fast = true
 
         case .custom:
             let requestedDuration = request.minimaxH3RequestedDurationSeconds
@@ -294,14 +300,19 @@ enum MiniMaxH3DurationPolicy {
             let tier: MiniMaxH3ResolutionTier = isTier2 ? .tier2 : .tier1
             let dims = tier.dimensions(for: orientation)
 
+            let customSteps = request.parameters.numInferenceSteps > 0
+                ? max(8, min(24, request.parameters.numInferenceSteps))
+                : 16
+
             resolved.parameters.width = dims.width
             resolved.parameters.height = dims.height
             resolved.parameters.fps = fps
-            resolved.parameters.numInferenceSteps = max(6, min(20, request.parameters.numInferenceSteps))
+            resolved.parameters.numInferenceSteps = customSteps
             resolved.parameters.numFrames = legalFrames
             resolved.minimaxH3ChainWindows = 1
             resolved.minimaxH3ExpectedFrames = legalFrames
             resolved.minimaxH3RequestedDurationSeconds = requestedDuration
+            resolved.minimaxH3Fast = request.minimaxH3Fast ?? true
         }
 
         return resolved
@@ -449,7 +460,7 @@ struct MiniMaxH3DurationSolver {
 
         let safeMaxSeconds: Double
         if preset == .custom {
-            safeMaxSeconds = min(6.0, max(1.0, customDurationSeconds ?? 4.0))
+            safeMaxSeconds = min(5.9, max(1.0, customDurationSeconds ?? 3.75))
         } else {
             safeMaxSeconds = preset.perShotSafeMaxDurationSeconds
         }

@@ -7,11 +7,12 @@ struct MiniMaxH3GenerationPayload: Codable, Equatable {
     var numFrames: Int
     var steps: Int
     var seed: Int
+    var fast: Bool?
     var firstFrameImage: Data?
     var chainWindows: Int
 
     enum CodingKeys: String, CodingKey {
-        case prompt, width, height, steps, seed
+        case prompt, width, height, steps, seed, fast
         case numFrames = "num_frames"
         case firstFrameImage = "first_frame_image"
         case chainWindows = "chain_windows"
@@ -309,6 +310,7 @@ final class MiniMaxH3Backend {
             numFrames: request.parameters.numFrames,
             steps: request.parameters.numInferenceSteps,
             seed: seed,
+            fast: request.minimaxH3Fast ?? true,
             firstFrameImage: sourceImageData,
             chainWindows: request.minimaxH3ChainWindows ?? 1)
     }

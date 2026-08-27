@@ -57,6 +57,7 @@ struct CanonicalShotSpecification: Equatable {
     var minimaxH3ChainWindows: Int? = nil
     var minimaxH3ExpectedFrames: Int? = nil
     var minimaxH3RequestedDurationSeconds: Double? = nil
+    var minimaxH3Fast: Bool? = nil
 }
 
 /// Single-shot technical preparation and request assembly.
@@ -166,6 +167,7 @@ enum CanonicalShotRequestBuilder {
             minimaxH3ChainWindows: spec.minimaxH3ChainWindows,
             minimaxH3ExpectedFrames: spec.minimaxH3ExpectedFrames,
             minimaxH3RequestedDurationSeconds: spec.minimaxH3RequestedDurationSeconds,
+            minimaxH3Fast: spec.minimaxH3Fast,
             filmProjectID: spec.projectID,
             shotID: spec.shotID,
             takeID: spec.takeID

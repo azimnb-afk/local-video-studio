@@ -300,6 +300,7 @@ final class TakeGenerationCoordinator {
             let resolvedSteps: Int
             let resolvedFps: Int
             let resolvedH3RequestedDuration: Double?
+            let resolvedH3Fast: Bool?
 
             if settings.modelID == MiniMaxH3Configuration.modelID {
                 let h3Preset = settings.resolvedMiniMaxH3Preset
@@ -307,14 +308,15 @@ final class TakeGenerationCoordinator {
                 resolvedQualityMode = QualityMode.auto.rawValue
                 resolvedFps = 24
                 resolvedH3RequestedDuration = shot.durationSeconds
+                resolvedH3Fast = h3Preset == .custom ? (settings.minimaxH3CustomFast ?? true) : true
                 if h3Preset == .custom {
-                    resolvedSteps = max(6, min(20, settings.minimaxH3CustomSteps ?? 10))
+                    resolvedSteps = max(8, min(24, settings.minimaxH3CustomSteps ?? 16))
                 } else if h3Preset == .high {
-                    resolvedSteps = 12
+                    resolvedSteps = 20
                 } else if h3Preset == .quick {
                     resolvedSteps = 8
                 } else {
-                    resolvedSteps = 10
+                    resolvedSteps = 16
                 }
             } else {
                 resolvedPresetRaw = settings.resolvedPreset.rawValue
@@ -322,6 +324,7 @@ final class TakeGenerationCoordinator {
                 resolvedSteps = settings.resolvedInferenceSteps
                 resolvedFps = settings.fps
                 resolvedH3RequestedDuration = nil
+                resolvedH3Fast = nil
             }
 
             let spec = CanonicalShotSpecification(
@@ -344,7 +347,8 @@ final class TakeGenerationCoordinator {
                 projectID: projectID,
                 shotID: shotID,
                 takeID: takeID,
-                minimaxH3RequestedDurationSeconds: resolvedH3RequestedDuration
+                minimaxH3RequestedDurationSeconds: resolvedH3RequestedDuration,
+                minimaxH3Fast: resolvedH3Fast
             )
 
             let (request, params, generationPrompt) = CanonicalShotRequestBuilder.buildRequest(from: spec)

@@ -299,6 +299,13 @@ enum GenerationSettingsResolver {
         engine: AutoQualityEngine = AutoQualityEngine(),
         snapshot: MemorySnapshot = MemoryMonitor.shared.snapshot()
     ) -> (width: Int, height: Int)? {
+        if modelID == MiniMaxH3Configuration.modelID {
+            let h3Preset = MiniMaxH3Preset(rawValue: preset.rawValue) ?? .standard
+            guard h3Preset != .custom else { return nil }
+            let tier: MiniMaxH3ResolutionTier = (h3Preset == .quick) ? .tier1 : .tier2
+            let dims = tier.dimensions(for: orientation)
+            return (dims.width, dims.height)
+        }
         guard preset != .custom else { return nil }
         let request = GenerationRequest(
             prompt: "Preset dimension preflight",
@@ -318,6 +325,16 @@ enum GenerationSettingsResolver {
         engine: AutoQualityEngine,
         snapshot: MemorySnapshot
     ) throws -> ResolvedGenerationSettings {
+        if request.modelId == MiniMaxH3Configuration.modelID {
+            let oriented = try MiniMaxH3DurationPolicy.applying(to: request)
+            let presetName = (MiniMaxH3Preset(rawValue: oriented.preset ?? "") ?? .standard).displayName
+            return ResolvedGenerationSettings(
+                request: oriented,
+                profile: nil,
+                attemptLadder: [],
+                reason: "MiniMax H3 \(presetName) preset policy (\(oriented.parameters.width)×\(oriented.parameters.height) · \(oriented.parameters.fps) fps · \(oriented.parameters.numInferenceSteps) steps)"
+            )
+        }
         guard let rawMode = request.qualityMode,
               let mode = QualityMode(rawValue: rawMode) else {
             return ResolvedGenerationSettings(

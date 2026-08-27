@@ -1091,6 +1091,7 @@ struct ProjectSettings: Codable, Equatable {
     var minimaxH3CustomTier: String?
     var minimaxH3CustomSteps: Int?
     var minimaxH3CustomDuration: Double?
+    var minimaxH3CustomFast: Bool?
 
     var resolvedPreset: GenerationPreset {
         GenerationPreset.resolving(presetRaw: preset, qualityModeRaw: qualityMode)

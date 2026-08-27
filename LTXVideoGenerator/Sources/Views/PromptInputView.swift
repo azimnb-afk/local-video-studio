@@ -41,6 +41,7 @@ struct PromptInputView: View {
     // an internal execution detail.
     @AppStorage("generationPreset") private var presetRaw = GenerationPreset.standard.rawValue
     @AppStorage("minimaxH3GenerationPreset") private var h3PresetRaw = MiniMaxH3Preset.standard.rawValue
+    @AppStorage("minimaxH3GenerationCustomFast") private var h3CustomFast = true
     @AppStorage(FeatureFlag.autoQualityV1.userDefaultsKey) private var autoQualityEnabled = FeatureFlag.autoQualityV1.defaultEnabled
     @AppStorage(FeatureFlag.modelRegistryV1.userDefaultsKey) private var modelRegistryEnabled = FeatureFlag.modelRegistryV1.defaultEnabled
 
@@ -1001,7 +1002,8 @@ struct PromptInputView: View {
             parameters: parameters,
             qualityMode: isMiniMaxH3Selected ? nil : (autoQualityEnabled ? qualityModeRaw : nil),
             preset: isMiniMaxH3Selected ? selectedH3Preset.rawValue : (autoQualityEnabled ? selectedPreset.rawValue : nil),
-            generationSource: "generate"
+            generationSource: "generate",
+            minimaxH3Fast: isMiniMaxH3Selected ? (selectedH3Preset == .custom ? h3CustomFast : true) : nil
         )
     }
 

@@ -86,7 +86,7 @@ VERSION=$(xcodebuild -showBuildSettings -scheme "${SCHEME}" | grep MARKETING_VER
 if [ "$MODE" = "local-test" ]; then
     DMG_NAME="${APP_DISPLAY_NAME}-${VERSION}-local-test.dmg"
 elif [ "$MODE" = "preview" ]; then
-    PREVIEW_TAG="${2:-preview.16}"
+    PREVIEW_TAG="${2:-preview.17}"
     DMG_NAME="Local.Video.Studio-${VERSION}-${PREVIEW_TAG}.dmg"
 else
     DMG_NAME="${APP_DISPLAY_NAME}-${VERSION}.dmg"

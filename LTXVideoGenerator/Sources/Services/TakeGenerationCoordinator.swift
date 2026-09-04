@@ -302,7 +302,7 @@ final class TakeGenerationCoordinator {
             let resolvedH3RequestedDuration: Double?
             let resolvedH3Fast: Bool?
 
-            if settings.modelID == MiniMaxH3Configuration.modelID {
+            if MiniMaxH3Configuration.isMiniMaxH3(modelID: settings.modelID) {
                 let h3Preset = settings.resolvedMiniMaxH3Preset
                 resolvedPresetRaw = h3Preset.rawValue
                 resolvedQualityMode = QualityMode.auto.rawValue
@@ -366,7 +366,7 @@ final class TakeGenerationCoordinator {
                 requestedWidth: params.width,
                 requestedHeight: params.height,
                 fps: params.fps,
-                requestedDuration: settings.modelID == MiniMaxH3Configuration.modelID
+                requestedDuration: MiniMaxH3Configuration.isMiniMaxH3(modelID: settings.modelID)
                     ? (targetDuration ?? Double(params.numFrames) / Double(params.fps))
                     : Double(params.numFrames) / Double(params.fps),
                 targetDurationSeconds: targetDuration,

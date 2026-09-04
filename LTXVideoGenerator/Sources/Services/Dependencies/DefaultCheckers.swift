@@ -97,15 +97,18 @@ public class DefaultModelChecker: ModelChecking {
             return .invalid("Selected model '\(modelID)' is not registered.")
         }
 
-        if modelID == MiniMaxH3Configuration.modelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
             let status = await MiniMaxH3RuntimeManager.shared.status(
-                snapshot: .current(userDefaults: .standard))
+                snapshot: .current(forModelID: modelID, userDefaults: .standard))
             UserDefaults.standard.set(
                 status.state.rawValue,
                 forKey: MiniMaxH3Configuration.lastReadinessStateKey)
             UserDefaults.standard.set(
                 status.detail,
                 forKey: MiniMaxH3Configuration.lastReadinessDetailKey)
+            UserDefaults.standard.set(
+                modelID,
+                forKey: MiniMaxH3Configuration.lastReadinessModelIDKey)
             switch status.state {
             case .ready: return .ready
             case .notConfigured, .notRunning, .starting: return .missing(status.detail)
@@ -132,7 +135,7 @@ public class DefaultModelChecker: ModelChecking {
     public func checkTextEncoder() async -> SetupStatus {
         let modelID = UserDefaults.standard.string(forKey: LTXModelCatalog.selectedModelIDKey)
             ?? LTXModelCatalog.defaultModelID
-        if modelID == MiniMaxH3Configuration.modelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
             return .ready
         }
         let encoderID = UserDefaults.standard.string(forKey: LTXTextEncoderCatalog.selectedTextEncoderIDKey) ?? LTXTextEncoderCatalog.defaultTextEncoderID

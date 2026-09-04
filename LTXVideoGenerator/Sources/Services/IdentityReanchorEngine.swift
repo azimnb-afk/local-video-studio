@@ -32,7 +32,7 @@ enum IdentityReanchorBackendValidation: String, Codable, Sendable, Equatable {
         guard let modelID = modelID?.trimmingCharacters(in: .whitespacesAndNewlines), !modelID.isEmpty else {
             return .supportedUnvalidated
         }
-        if modelID == MiniMaxH3Configuration.modelID || modelID == LTXModelCatalog.defaultModelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) || modelID == LTXModelCatalog.defaultModelID {
             return .supportedAndValidated
         }
         return .supportedUnvalidated

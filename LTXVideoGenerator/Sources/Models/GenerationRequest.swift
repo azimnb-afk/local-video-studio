@@ -343,8 +343,8 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         self.minimaxH3RequestedDurationSeconds = minimaxH3RequestedDurationSeconds
         self.minimaxH3Fast = minimaxH3Fast
 
-        if modelId == MiniMaxH3Configuration.modelID {
-            let snapshot = MiniMaxH3Configuration.Snapshot.current(userDefaults: userDefaults)
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelId) {
+            let snapshot = MiniMaxH3Configuration.Snapshot.current(forModelID: modelId, userDefaults: userDefaults)
             self.minimaxH3ModelDirectory = minimaxH3ModelDirectory ?? snapshot.modelDirectory
             self.minimaxH3RuntimeExecutablePath = minimaxH3RuntimeExecutablePath ?? snapshot.runtimeExecutablePath
             self.minimaxH3Endpoint = minimaxH3Endpoint ?? snapshot.endpoint

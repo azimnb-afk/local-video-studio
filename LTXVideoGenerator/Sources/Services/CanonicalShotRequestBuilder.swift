@@ -111,7 +111,7 @@ enum CanonicalShotRequestBuilder {
         } else if let explicitFrames = spec.numFramesOverride {
             resolvedFrames = explicitFrames
         } else {
-            resolvedFrames = spec.modelID == MiniMaxH3Configuration.modelID ? 39 : 121
+            resolvedFrames = MiniMaxH3Configuration.isMiniMaxH3(modelID: spec.modelID) ? 39 : 121
         }
 
         // 5. Parameter Assembly

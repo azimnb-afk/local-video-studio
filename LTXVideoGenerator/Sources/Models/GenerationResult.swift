@@ -116,7 +116,7 @@ struct GenerationResult: Identifiable, Codable {
     }
 
     var model: LTXModel {
-        if modelId == MiniMaxH3Configuration.modelID,
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelId),
            let descriptor = ModelRegistry.shared.descriptor(id: modelId) {
             return LTXModel(
                 id: descriptor.id,

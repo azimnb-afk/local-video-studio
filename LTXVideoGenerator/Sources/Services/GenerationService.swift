@@ -49,7 +49,7 @@ class GenerationService: ObservableObject {
     /// preset is active. Resolve here so every producer (Generate, One Shot,
     /// Storyboard, Hybrid, History) shares the same preflight boundary.
     private func requestForQueue(_ request: GenerationRequest) -> GenerationRequest {
-        if request.modelId == MiniMaxH3Configuration.modelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: request.modelId) {
             // Preserve the user's immutable Requested snapshot in the queue.
             // H3 resolution happens once at the execution boundary below;
             // replacing the queued request here would collapse Requested and
@@ -278,7 +278,7 @@ class GenerationService: ObservableObject {
             var resolvedDescriptor: ModelDescriptor?
             let runGeneration: (GenerationRequest) async throws -> (videoPath: String, seed: Int, enhancedPrompt: String?) = { [bridge] req in
                 if FeatureFlags.isEnabled(.modelRegistryV1)
-                    || req.modelId == MiniMaxH3Configuration.modelID {
+                    || MiniMaxH3Configuration.isMiniMaxH3(modelID: req.modelId) {
                     // Registry path: policy + verification enforced at the service
                     // layer, then routed through the adapter boundary. Official
                     // models still end up in the same LTXBridge fast path.

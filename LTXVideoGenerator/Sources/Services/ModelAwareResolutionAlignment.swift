@@ -93,7 +93,7 @@ public enum ModelAwareResolutionAlignment {
         guard let modelID = modelID?.trimmingCharacters(in: .whitespacesAndNewlines), !modelID.isEmpty else {
             return nil
         }
-        if modelID == MiniMaxH3Configuration.modelID { return nil }
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) { return nil }
         let resolved = GenerationModelResolver.resolve(modelID: modelID)
         switch resolved {
         case .runnable(let runnable):
@@ -114,7 +114,7 @@ public enum ModelAwareResolutionAlignment {
         let requested = VideoDimensions(width: requestedWidth, height: requestedHeight)
 
         // MiniMax H3 uses validated resolution presets/tiers; do not modify.
-        if modelID == MiniMaxH3Configuration.modelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
             return ResolutionAlignmentResult(
                 requested: requested,
                 generation: requested,

@@ -179,7 +179,7 @@ final class LocalDirector {
         try RenderLanguageValidator.validateRendererAction(plan.action)
 
         let compiled: String
-        if base.modelId == MiniMaxH3Configuration.modelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: base.modelId) {
             compiled = MiniMaxH3PromptCompiler.compile(
                 plan: plan,
                 isImageToVideo: base.isImageToVideo,

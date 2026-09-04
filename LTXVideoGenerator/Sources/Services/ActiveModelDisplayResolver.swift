@@ -43,15 +43,23 @@ enum ActiveModelDisplayResolver {
             let isHQ = effectiveID == MiniMaxH3Configuration.highQualityModelID
             let raw = userDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessStateKey)
             let state = raw.flatMap(MiniMaxH3RuntimeState.init(rawValue:)) ?? .notConfigured
-            let ready = state == .ready
+            let recordedModelID = userDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessModelIDKey)
+            let modelMatches = recordedModelID == effectiveID
+            let ready = state == .ready && modelMatches
             let status: String
-            switch state {
-            case .notConfigured: status = "Not Configured"
-            case .notRunning: status = "Stopped"
-            case .starting: status = "Starting"
-            case .ready: status = "Ready"
-            case .wrongModel: status = "Wrong Model"
-            case .failed, .broken: status = "Failed"
+            if let recordedModelID, recordedModelID != effectiveID {
+                status = "Wrong Model"
+            } else if state == .ready && recordedModelID == nil {
+                status = "Not Configured"
+            } else {
+                switch state {
+                case .notConfigured: status = "Not Configured"
+                case .notRunning: status = "Stopped"
+                case .starting: status = "Starting"
+                case .ready: status = "Ready"
+                case .wrongModel: status = "Wrong Model"
+                case .failed, .broken: status = "Failed"
+                }
             }
             return DisplayInfo(
                 modelID: effectiveID,

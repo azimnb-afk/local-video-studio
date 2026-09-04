@@ -162,8 +162,7 @@ class LTXBridge {
             throw LTXError.pythonNotConfigured
         }
         
-        let selectedModel = LTXModelCatalog.selectedModel()
-        progressHandler("MLX environment ready. Model will download on first generation (\(selectedModel.downloadSize)).")
+        progressHandler("MLX environment ready. Prepare the selected model in Settings before generation.")
         isModelLoaded = true
     }
     
@@ -221,6 +220,23 @@ class LTXBridge {
         guard !textEncoderRepo.isEmpty else {
             throw LTXError.generationFailed(
                 "Set a text encoder Hugging Face repo in Preferences → General (pick a preset or fill in Custom)."
+            )
+        }
+        // Generation is an execution step, never an implicit model installer.
+        // The Python backend's `from_pretrained` path can otherwise start a
+        // multi-gigabyte Hugging Face download before the first frame exists.
+        // Keep this guard after backend resolution so custom LTX-2-MLX models
+        // continue through their own local/readiness contract above.
+        let hubDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cache/huggingface/hub")
+        guard HuggingFaceCacheChecker.isCached(repository: modelRepo, hubDirectory: hubDirectory) else {
+            throw LTXError.modelLoadFailed(
+                "Model \(selectedModel.displayName) is not prepared locally. Open Settings → Models & Features and download it explicitly before generating."
+            )
+        }
+        guard HuggingFaceCacheChecker.isCached(repository: textEncoderRepo, hubDirectory: hubDirectory) else {
+            throw LTXError.modelLoadFailed(
+                "Text Encoder \(selectedTextEncoder.displayName) is not prepared locally. Open Settings → General and download it explicitly before generating."
             )
         }
         let (effectiveTilingMode, appliedTilingRecovery) = GenerationFailureRecovery.effectiveTilingMode(

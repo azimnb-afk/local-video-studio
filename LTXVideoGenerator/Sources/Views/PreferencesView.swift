@@ -42,6 +42,7 @@ struct PreferencesView: View {
     @State private var isTestingElevenLabs = false
     @State private var elevenLabsTestResult: (success: Bool, message: String)?
     @State private var showResetConfirm = false
+    @StateObject private var textEncoderDownloads = TextEncoderDownloadCoordinator.shared
 
     private var selectedModel: LTXModel {
         if case .runnable(let runnable) = GenerationModelResolver.resolve(modelID: selectedModelID) {
@@ -278,7 +279,7 @@ struct PreferencesView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(selectedModel.displayName)
                                 .font(.caption.bold())
-                            if selectedModelID == MiniMaxH3Configuration.modelID {
+                            if MiniMaxH3Configuration.isMiniMaxH3(modelID: selectedModelID) {
                                 BilingualSettingDescription(
                                     english: "Uses the separately configured local mlx-serve runtime and H3 model directory. No model is downloaded by this selection.",
                                     japanese: "個別設定したローカルmlx-serveランタイムとH3モデルフォルダを使用します。この選択によるモデルの自動ダウンロードはありません。"
@@ -309,7 +310,7 @@ struct PreferencesView: View {
                         CustomLTX2MLXRuntimeSection(executablePath: $ltx2mlxExecutablePath)
                     }
 
-                    if selectedModelID == MiniMaxH3Configuration.modelID {
+                    if MiniMaxH3Configuration.isMiniMaxH3(modelID: selectedModelID) {
                         HStack(alignment: .top, spacing: 8) {
                             Image(systemName: "textformat.abc")
                                 .foregroundStyle(.secondary)
@@ -343,6 +344,8 @@ struct PreferencesView: View {
                         }
                         .padding(.vertical, 4)
 
+                        textEncoderDownloadControl
+
                         if let qualityWarning = selectedTextEncoder.qualityWarning {
                             HStack(alignment: .top, spacing: 8) {
                                 Image(systemName: "exclamationmark.triangle.fill")
@@ -360,8 +363,8 @@ struct PreferencesView: View {
                                 TextField("e.g. mlx-community/gemma-3-12b-it-4bit", text: $customTextEncoderRepo)
                                     .textFieldStyle(.roundedBorder)
                                 BilingualSettingDescription(
-                                    english: "The app does not download weights until you run a generation. Use any MLX-compatible Gemma repo your Python environment supports.",
-                                    japanese: "生成を実行するまでweightsはダウンロードされません。現在のPython環境が対応するMLX互換Gemma repoを指定してください。"
+                                    english: "Generation never downloads weights automatically. Use the explicit Download action above for the selected MLX-compatible Gemma repo.",
+                                    japanese: "生成時に重みを自動ダウンロードすることはありません。選択したMLX互換Gemma repoは、上の明示的なダウンロード操作で準備してください。"
                                 )
                             }
                         }
@@ -617,6 +620,49 @@ struct PreferencesView: View {
             }
         } message: {
             Text("This clears the persisted prompt, generation parameters, audio settings, prompt-enhancement toggles, and model/text-encoder selections. Python path, output directory, and ElevenLabs API key are preserved.")
+        }
+    }
+
+    @ViewBuilder
+    private var textEncoderDownloadControl: some View {
+        HStack(alignment: .center, spacing: 8) {
+            switch textEncoderDownloads.state {
+            case .idle, .succeeded:
+                Button(textEncoderDownloads.state == .succeeded
+                       ? "Download Again"
+                       : "Download Text Encoder (\(selectedTextEncoder.downloadSize))") {
+                    Task { await textEncoderDownloads.startDownload() }
+                }
+                .controlSize(.small)
+                if case .succeeded = textEncoderDownloads.state {
+                    Text("Prepared locally")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+            case .downloading(let progress, let message):
+                if let progress {
+                    ProgressView(value: progress)
+                        .frame(maxWidth: 180)
+                    Text("Downloading… \(Int(progress * 100))%")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            case .failed(let reason):
+                Button("Retry Download") {
+                    Task { await textEncoderDownloads.retry() }
+                }
+                .controlSize(.small)
+                Text(reason)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .lineLimit(2)
+            }
         }
     }
     

@@ -114,6 +114,7 @@
 		AA00031E /* StorageHealthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00031F; };
 		AA000320 /* CharacterContinuitySafetyPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000321; };
 		AA00030E /* GenerationModelResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00030F; };
+		AA000340 /* ModelReadiness.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000341; };
 		AA000312 /* LTX2MLXBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000313; };
 		AA000310 /* GenerationBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000311; };
 		AA000304 /* FinalAudioMixer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000305; };
@@ -250,6 +251,7 @@
 		AA00031F /* StorageHealthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageHealthService.swift; sourceTree = "<group>"; };
 		AA000321 /* CharacterContinuitySafetyPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterContinuitySafetyPolicy.swift; sourceTree = "<group>"; };
 		AA00030F /* GenerationModelResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationModelResolver.swift; sourceTree = "<group>"; };
+		AA000341 /* ModelReadiness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelReadiness.swift; sourceTree = "<group>"; };
 		AA000313 /* LTX2MLXBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LTX2MLXBackend.swift; sourceTree = "<group>"; };
 		AA000311 /* GenerationBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationBackend.swift; sourceTree = "<group>"; };
 		AA000305 /* FinalAudioMixer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalAudioMixer.swift; sourceTree = "<group>"; };
@@ -431,6 +433,7 @@
 				AA00031F /* StorageHealthService.swift */,
 				AA000321 /* CharacterContinuitySafetyPolicy.swift */,
 				AA00030F /* GenerationModelResolver.swift */,
+				AA000341 /* ModelReadiness.swift */,
 				AA000313 /* LTX2MLXBackend.swift */,
 				AA000311 /* GenerationBackend.swift */,
 				AA000305 /* FinalAudioMixer.swift */,
@@ -666,6 +669,7 @@
 				AA00031E /* StorageHealthService.swift in Sources */,
 				AA000320 /* CharacterContinuitySafetyPolicy.swift in Sources */,
 				AA00030E /* GenerationModelResolver.swift in Sources */,
+				AA000340 /* ModelReadiness.swift in Sources */,
 				AA000312 /* LTX2MLXBackend.swift in Sources */,
 				AA000310 /* GenerationBackend.swift in Sources */,
 				AA000304 /* FinalAudioMixer.swift in Sources */,

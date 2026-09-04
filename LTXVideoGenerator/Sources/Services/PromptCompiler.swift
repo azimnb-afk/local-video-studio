@@ -371,7 +371,7 @@ enum CharacterPromptPipeline {
         let options = PromptCompiler.Options(
             japaneseHandling: JapaneseDialogueHandling(rawValue: project.settings.japaneseHandling) ?? .native,
             perShotAudioPolicy: .naturalProductionSoundNoMusic)
-        let compiled = project.settings.modelID == MiniMaxH3Configuration.modelID
+        let compiled = MiniMaxH3Configuration.isMiniMaxH3(modelID: project.settings.modelID)
             ? MiniMaxH3PromptCompiler.compile(
                 plan: plan,
                 isImageToVideo: shot.continuityMode == .continueFromPrevious
@@ -494,7 +494,7 @@ enum OneShotDurationPolicy {
 
     /// Maximum user-facing selectable duration in seconds.
     static func maximumSelectableSeconds(for modelID: String) -> Double {
-        if modelID == MiniMaxH3Configuration.modelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
             return Double(Int(MiniMaxH3DurationPolicy.maximumDurationSeconds.rounded(.down)))
         }
         return 15.0
@@ -503,7 +503,7 @@ enum OneShotDurationPolicy {
     /// Technical maximum frame ceiling for single-shot LTX generation (361 frames @ 24fps).
     /// Returns `nil` for MiniMax H3, allowing H3's standalone chain policy to govern.
     static func maximumFrameCount(for modelID: String) -> Int? {
-        if modelID == MiniMaxH3Configuration.modelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
             return nil
         }
         return PromptCompiler.oneShotMaximumFrameCount

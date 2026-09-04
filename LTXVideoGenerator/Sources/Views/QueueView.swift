@@ -164,7 +164,7 @@ struct QueueItemView: View {
                         }
                     }
 
-                    if request.modelId == MiniMaxH3Configuration.modelID,
+                    if MiniMaxH3Configuration.isMiniMaxH3(modelID: request.modelId),
                        let startedAt {
                         TimelineView(.periodic(from: .now, by: 1)) { context in
                             Text(MiniMaxH3ProgressPresentation.elapsedText(

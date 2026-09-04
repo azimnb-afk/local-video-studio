@@ -299,7 +299,7 @@ enum GenerationSettingsResolver {
         engine: AutoQualityEngine = AutoQualityEngine(),
         snapshot: MemorySnapshot = MemoryMonitor.shared.snapshot()
     ) -> (width: Int, height: Int)? {
-        if modelID == MiniMaxH3Configuration.modelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
             let h3Preset = MiniMaxH3Preset(rawValue: preset.rawValue) ?? .standard
             guard h3Preset != .custom else { return nil }
             let tier: MiniMaxH3ResolutionTier = (h3Preset == .quick) ? .tier1 : .tier2
@@ -325,7 +325,7 @@ enum GenerationSettingsResolver {
         engine: AutoQualityEngine,
         snapshot: MemorySnapshot
     ) throws -> ResolvedGenerationSettings {
-        if request.modelId == MiniMaxH3Configuration.modelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: request.modelId) {
             let oriented = try MiniMaxH3DurationPolicy.applying(to: request)
             let presetName = (MiniMaxH3Preset(rawValue: oriented.preset ?? "") ?? .standard).displayName
             return ResolvedGenerationSettings(

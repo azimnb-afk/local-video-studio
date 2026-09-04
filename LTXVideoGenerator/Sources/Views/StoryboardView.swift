@@ -467,7 +467,7 @@ private struct NewStoryboardSheet: View {
                 generationActive: generationService.isProcessing || isCreating
             )
             HStack {
-                if modelID != MiniMaxH3Configuration.modelID {
+                if !MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
                     Picker("Preset", selection: $presetRaw) {
                         ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
                     }
@@ -476,9 +476,7 @@ private struct NewStoryboardSheet: View {
                         ForEach(MiniMaxH3Preset.allCases) { Text($0.displayName).tag($0.rawValue) }
                     }
                 }
-                Picker("Model", selection: $modelID) {
-                    ForEach(ModelRegistry.shared.selectableModels()) { Text($0.displayName).tag($0.id) }
-                }
+                ReadyModelPicker(selection: $modelID)
                 Toggle("Audio", isOn: $audioEnabled)
                     .onChange(of: audioEnabled) { old, new in
                         // Audio is a Custom-only control, so changing it drops
@@ -487,7 +485,7 @@ private struct NewStoryboardSheet: View {
                         // default here would silently turn a portrait Opening
                         // Reference into a landscape movie, which is exactly what
                         // the user did not ask for by touching the Audio toggle.
-                        if old != new && modelID != MiniMaxH3Configuration.modelID {
+                        if old != new && !MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
                             seedCustomDimensionsFromCurrentPreset()
                             presetRaw = GenerationPreset.custom.rawValue
                         }
@@ -505,7 +503,7 @@ private struct NewStoryboardSheet: View {
                 if presetRaw == GenerationPreset.custom.rawValue { reseedCustomDimensions() }
             }
 
-            if modelID == MiniMaxH3Configuration.modelID {
+            if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
                 let orientation = SourceImageOrientationResolver.resolve(path: openingReferenceURL?.path)
                 Text(minimaxH3Preset.effectiveSummary(
                     orientation: orientation,
@@ -681,7 +679,7 @@ private struct NewStoryboardSheet: View {
                     .disabled(isCreating)
                 Button {
                     var settings = ProjectSettings.usingCurrentSelections()
-                    if modelID == MiniMaxH3Configuration.modelID {
+                    if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
                         settings.modelID = modelID
                         settings.minimaxH3Preset = minimaxH3PresetRaw
                         settings.minimaxH3CustomTier = minimaxH3TierRaw
@@ -1091,13 +1089,14 @@ private struct ProjectSettingsEditor: View {
     let onChanged: () -> Void
 
     @State private var expanded = true
+    @ObservedObject private var readinessStore = ModelReadinessStore.shared
     private let store = FilmProjectStore.shared
 
     var body: some View {
         DisclosureGroup("Project Settings", isExpanded: $expanded) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 16) {
-                    if project.settings.modelID != MiniMaxH3Configuration.modelID {
+                    if !MiniMaxH3Configuration.isMiniMaxH3(modelID: project.settings.modelID) {
                         Picker("Preset", selection: binding(
                             get: { project.settings.resolvedPreset.rawValue },
                             set: { raw, settings in
@@ -1122,13 +1121,26 @@ private struct ProjectSettingsEditor: View {
                         get: { project.settings.modelID },
                         set: { $1.modelID = $0 }
                     )) {
-                        ForEach(ModelRegistry.shared.selectableModels()) { Text($0.displayName).tag($0.id) }
+                        let entries = readinessStore.pickerModels(selectedID: project.settings.modelID)
+                        if entries.isEmpty {
+                            Text(readinessStore.isRefreshing ? "Checking models…" : "No ready models — open Settings")
+                                .tag(project.settings.modelID)
+                                .disabled(true)
+                        } else {
+                            ForEach(entries, id: \.model.id) { entry in
+                                Text(entry.readiness.canGenerate
+                                     ? entry.model.displayName
+                                     : "\(entry.model.displayName) (Unavailable)")
+                                    .tag(entry.model.id)
+                                    .disabled(!entry.readiness.canGenerate)
+                            }
+                        }
                     }
                     Toggle("Audio", isOn: binding(
                         get: { project.settings.resolvedAudioEnabled },
                         set: { value, settings in
                             settings.audioEnabled = value
-                            if settings.modelID != MiniMaxH3Configuration.modelID {
+                            if !MiniMaxH3Configuration.isMiniMaxH3(modelID: settings.modelID) {
                                 seedCustomDimensionsIfEnteringCustom(next: .custom, settings: &settings)
                                 settings.markCustom()
                             }
@@ -1136,13 +1148,13 @@ private struct ProjectSettingsEditor: View {
                     ))
                     Spacer()
                 }
-                Text(project.settings.modelID == MiniMaxH3Configuration.modelID
+                Text(MiniMaxH3Configuration.isMiniMaxH3(modelID: project.settings.modelID)
                      ? project.settings.resolvedMiniMaxH3Preset.summary
                      : project.settings.resolvedPreset.summary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                if project.settings.modelID == MiniMaxH3Configuration.modelID
+                if MiniMaxH3Configuration.isMiniMaxH3(modelID: project.settings.modelID)
                     && project.settings.resolvedMiniMaxH3Preset == .custom {
                     VStack(alignment: .leading, spacing: 10) {
                         Picker("Resolution Tier", selection: binding(
@@ -1195,7 +1207,7 @@ private struct ProjectSettingsEditor: View {
                 }
 
                 if project.settings.resolvedPreset == .custom
-                    && project.settings.modelID != MiniMaxH3Configuration.modelID {
+                    && !MiniMaxH3Configuration.isMiniMaxH3(modelID: project.settings.modelID) {
                     HStack(spacing: 12) {
                         Picker("Width", selection: customBinding(\.width)) {
                             ForEach([320, 512, 640, 768, 896, 1024], id: \.self) { Text("\($0)").tag($0) }
@@ -1217,11 +1229,12 @@ private struct ProjectSettingsEditor: View {
             .padding(.top, 8)
         }
         .font(.headline)
+        .task { await readinessStore.refreshIfNeeded() }
     }
 
     private var resolutionSummary: String {
         let settings = project.settings
-        if settings.modelID == MiniMaxH3Configuration.modelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: settings.modelID) {
             let orientation = FilmProjectResolutionOrientationResolver.resolve(project: project, store: store)
             let tier = MiniMaxH3ResolutionTier(rawValue: settings.minimaxH3CustomTier ?? "") ?? .tier2
             let dur = settings.minimaxH3CustomDuration ?? 3.75

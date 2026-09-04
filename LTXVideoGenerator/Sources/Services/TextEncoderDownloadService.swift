@@ -37,10 +37,9 @@ public protocol TextEncoderDownloading {
     ) async -> Result<Void, TextEncoderDownloadError>
 }
 
-/// Downloads via the same `huggingface_hub` primitive the Python backend
-/// already relies on for its own first-use fallback download — this does
-/// not introduce a new download engine, just an explicit, standalone way to
-/// invoke the existing one outside of a full generation run.
+/// Downloads via the same `huggingface_hub` primitive used by the runtime. It
+/// is an explicit, standalone setup action; the generation path is guarded so
+/// it can no longer invoke this implicitly.
 public final class DefaultTextEncoderDownloader: TextEncoderDownloading {
     public init() {}
 

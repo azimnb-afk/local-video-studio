@@ -80,7 +80,7 @@ private struct ProductionQueueRow: View {
                 Text(progress).font(.caption2).foregroundStyle(.secondary)
             }
             if job.state == .running,
-               job.snapshot.modelID == MiniMaxH3Configuration.modelID,
+               MiniMaxH3Configuration.isMiniMaxH3(modelID: job.snapshot.modelID),
                let startedAt = job.startedAt {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text(MiniMaxH3ProgressPresentation.elapsedText(

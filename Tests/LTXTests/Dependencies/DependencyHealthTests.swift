@@ -85,10 +85,8 @@ func runDependencyHealthTests(_ t: TestKit) {
 
         // --- Post-Phase-3 regression: Text Encoder / video model setup ---
         // A selected model that is not yet downloaded ("Download Required")
-        // must not permanently block generation: attempting generation is
-        // what actually triggers the Python backend's download. Only Python
-        // and ffmpeg being unready, or the selected model being genuinely
-        // invalid/unsupported, may block a generation attempt.
+        // must block generation until the user explicitly prepares it in
+        // Settings. Generation is never an implicit model installer.
 
         print("Test 4: selected Text Encoder missing locally -> Generate blocked, routes to explicit Download instead")
         var done4 = false
@@ -129,7 +127,7 @@ func runDependencyHealthTests(_ t: TestKit) {
         }
         while !done5 { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) }
 
-        print("Test 6: selection alone is not installation — video model missing independently blocks isGenerationReady but not the attempt")
+        print("Test 6: selection alone is not installation — video model missing blocks both readiness and the attempt")
         var done6 = false
         Task { @MainActor in
             let models6 = FakeModelChecker()
@@ -143,7 +141,7 @@ func runDependencyHealthTests(_ t: TestKit) {
             )
             await manager6.refresh()
             t.checkEqual(manager6.isGenerationReady, false, "a selected-but-not-downloaded video model must not be conflated with installed")
-            t.checkEqual(manager6.canStartGeneration, true, "canStartGeneration true — the missing video model is what generation would download")
+            t.checkEqual(manager6.canStartGeneration, false, "canStartGeneration false — a missing video model requires explicit setup")
             done6 = true
         }
         while !done6 { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) }

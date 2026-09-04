@@ -327,9 +327,9 @@ func runTextEncoderDownloadTests(_ t: TestKit) {
         }
         while !done10 { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) }
 
-        // --- Generate gating asymmetry (items 21-24; video model unaffected) ---
+        // --- Generate gating: both model and encoder must be explicitly ready ---
 
-        print("Test 11: a missing text encoder blocks Generate even though a missing video model alone would not")
+        print("Test 11: a missing text encoder or video model blocks Generate")
         var done11 = false
         Task { @MainActor in
             let videoMissingOnly = FakeModelChecker()
@@ -342,7 +342,7 @@ func runTextEncoderDownloadTests(_ t: TestKit) {
                 optionalServiceChecker: FakeOptionalServiceChecker()
             )
             await managerVideoMissing.refresh()
-            t.checkEqual(managerVideoMissing.canStartGeneration, true, "video model missing alone still allows the attempt (unchanged first-use download semantics)")
+            t.checkEqual(managerVideoMissing.canStartGeneration, false, "video model missing blocks the attempt until explicit setup")
 
             let textMissingOnly = FakeModelChecker()
             textMissingOnly.videoStatus = .ready

@@ -16,6 +16,8 @@ struct ModelsAndFeaturesPreferences: View {
     @State private var isShowingAddSheet = false
     @State private var profileToDelete: CustomModelProfile? = nil
     @StateObject private var runtimeManager = LTX2MLXRuntimeManager.shared
+    @StateObject private var readinessStore = ModelReadinessStore.shared
+    @StateObject private var modelDownloads = ModelDownloadCoordinator.shared
 
     var body: some View {
         Form {
@@ -23,6 +25,37 @@ struct ModelsAndFeaturesPreferences: View {
 
             Section("LTX-2.5 Runtime") {
                 LTX2MLXRuntimePreferenceView(manager: runtimeManager)
+            }
+
+            Section("Registered Models") {
+                Text("All registered models are shown here. Generation pickers show only models marked Ready.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                ForEach(ModelRegistry.shared.selectableModels()) { model in
+                    let readiness = readinessStore.readiness(for: model.id)
+                        ?? ModelReadiness(modelID: model.id, status: .checking, reason: nil)
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(model.displayName)
+                            Spacer()
+                            Text(readiness.status.shortDisplayName)
+                                .font(.caption.bold())
+                                .foregroundStyle(readiness.canGenerate ? .green : .orange)
+                        }
+                        Text(readiness.reason ?? model.runtime.backend)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        if readiness.status == .notDownloaded && model.isOfficial {
+                            modelDownloadControl(for: model)
+                        }
+                    }
+                }
+
+                Button("Refresh Model Status") {
+                    Task { await readinessStore.refresh() }
+                }
+                .disabled(readinessStore.isRefreshing)
             }
 
             Section("Custom Models") {
@@ -90,7 +123,7 @@ struct ModelsAndFeaturesPreferences: View {
             Section("Compatibility Lab") {
                 let lab = CompatibilityLab.shared
                 let labModels = ModelRegistry.shared.descriptors.values
-                    .filter { !$0.isOfficial && $0.id != MiniMaxH3Configuration.modelID }
+                    .filter { !$0.isOfficial && !MiniMaxH3Configuration.isMiniMaxH3(modelID: $0.id) }
                     .sorted { $0.id < $1.id }
                 if labModels.isEmpty {
                     Text("No custom models registered.")
@@ -121,6 +154,7 @@ struct ModelsAndFeaturesPreferences: View {
         .formStyle(.grouped)
         .onAppear {
             reloadProfiles()
+            Task { await readinessStore.refreshIfNeeded() }
         }
         .sheet(item: $editingProfile) { profile in
             CustomModelProfileEditorSheet(
@@ -129,6 +163,7 @@ struct ModelsAndFeaturesPreferences: View {
                 onSave: { updated in
                     try? CustomModelProfileStore.updateProfile(updated)
                     reloadProfiles()
+                    Task { await readinessStore.refresh() }
                     editingProfile = nil
                 },
                 onCancel: {
@@ -146,6 +181,7 @@ struct ModelsAndFeaturesPreferences: View {
                 onSave: { newProfile in
                     try? CustomModelProfileStore.addProfile(newProfile)
                     reloadProfiles()
+                    Task { await readinessStore.refresh() }
                     isShowingAddSheet = false
                 },
                 onCancel: {
@@ -165,6 +201,7 @@ struct ModelsAndFeaturesPreferences: View {
                 if let target = profileToDelete {
                     CustomModelProfileStore.removeProfile(id: target.id)
                     reloadProfiles()
+                    Task { await readinessStore.refresh() }
                     profileToDelete = nil
                 }
             }
@@ -259,6 +296,38 @@ struct ModelsAndFeaturesPreferences: View {
             return "~" + path.dropFirst(home.count)
         }
         return path
+    }
+
+    @ViewBuilder
+    private func modelDownloadControl(for model: ModelDescriptor) -> some View {
+        switch modelDownloads.state {
+        case .downloading(let progress, let message):
+            ProgressView(value: progress ?? 0, total: 1.0)
+            Text(progress.map { "Downloading… \(Int($0 * 100))%" } ?? message)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        case .failed(let reason):
+            HStack(spacing: 8) {
+                Button("Retry Download") {
+                    Task {
+                        await modelDownloads.startDownload(
+                            repository: model.repository,
+                            estimatedSizeGB: model.estimatedModelSizeGB)
+                        await readinessStore.refresh()
+                    }
+                }
+                Text(reason).font(.caption2).foregroundStyle(.red)
+            }
+        case .idle, .succeeded:
+            Button("Download Model") {
+                Task {
+                    await modelDownloads.startDownload(
+                        repository: model.repository,
+                        estimatedSizeGB: model.estimatedModelSizeGB)
+                    await readinessStore.refresh()
+                }
+            }
+        }
     }
 }
 
@@ -516,6 +585,9 @@ private struct MiniMaxH3RuntimePreferenceView: View {
         UserDefaults.standard.set(
             MiniMaxH3RuntimeState.notConfigured.rawValue,
             forKey: MiniMaxH3Configuration.lastReadinessStateKey)
+        UserDefaults.standard.set(
+            MiniMaxH3Configuration.standardModelID,
+            forKey: MiniMaxH3Configuration.lastReadinessModelIDKey)
         Task { await DependencyHealthManager.shared.refresh() }
     }
 
@@ -525,7 +597,8 @@ private struct MiniMaxH3RuntimePreferenceView: View {
         let snapshot = MiniMaxH3Configuration.Snapshot(
             modelDirectory: modelDirectory.isEmpty ? nil : modelDirectory,
             runtimeExecutablePath: runtimeExecutable.isEmpty ? nil : runtimeExecutable,
-            endpoint: endpoint)
+            endpoint: endpoint,
+            targetModelID: MiniMaxH3Configuration.standardModelID)
         status = await MiniMaxH3RuntimeManager.shared.status(snapshot: snapshot)
         UserDefaults.standard.set(
             status.state.rawValue,
@@ -533,6 +606,9 @@ private struct MiniMaxH3RuntimePreferenceView: View {
         UserDefaults.standard.set(
             status.detail,
             forKey: MiniMaxH3Configuration.lastReadinessDetailKey)
+        UserDefaults.standard.set(
+            snapshot.targetModelID,
+            forKey: MiniMaxH3Configuration.lastReadinessModelIDKey)
         isChecking = false
         await DependencyHealthManager.shared.refresh()
     }

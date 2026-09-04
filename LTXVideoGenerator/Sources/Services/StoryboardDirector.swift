@@ -997,7 +997,7 @@ final class StoryboardDirector {
             )
             let context = ContinuityEngine.promptContext(for: nextState, bible: bible)
             let compiled: String
-            if project.settings.modelID == MiniMaxH3Configuration.modelID {
+            if MiniMaxH3Configuration.isMiniMaxH3(modelID: project.settings.modelID) {
                 compiled = MiniMaxH3PromptCompiler.compile(
                     plan: plan,
                     isImageToVideo: shot.continuityMode == .continueFromPrevious
@@ -1354,7 +1354,7 @@ final class HybridProjectCoordinator {
         // Provider output is advisory; this deterministic pass is the single
         // source of truth for the complete-movie target shown in Plan Preview
         // and later converted to GenerationRequests.
-        if settings.modelID == MiniMaxH3Configuration.modelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: settings.modelID) {
             project.shots = AutoMovieDurationPlanner.normalizeForH3(
                 shots: project.shots,
                 targetDurationSeconds: target,
@@ -1402,7 +1402,7 @@ final class HybridProjectCoordinator {
 
         let target = min(60, max(5, settings.targetDurationSeconds ?? 20))
         let effectiveMaxSecondsPerShot: Double
-        if settings.modelID == MiniMaxH3Configuration.modelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: settings.modelID) {
             let h3Preset = settings.resolvedMiniMaxH3Preset
             effectiveMaxSecondsPerShot = (h3Preset == .custom)
                 ? min(5.9, max(1.0, settings.minimaxH3CustomDuration ?? 3.75))
@@ -1419,7 +1419,7 @@ final class HybridProjectCoordinator {
 
         var shots: [Shot] = []
 
-        if settings.modelID == MiniMaxH3Configuration.modelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: settings.modelID) {
             let h3Preset = settings.resolvedMiniMaxH3Preset
             var initialShots: [Shot] = []
             for (index, segment) in plan.segments.enumerated() {

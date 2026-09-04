@@ -106,6 +106,55 @@ func runRegistryTests(_ t: TestKit) {
         FeatureFlags.disableAll(userDefaults: defaults)
     }
 
+    t.suite("Model readiness policy") {
+        let readinessRegistry = ModelRegistry(userDefaults: defaults)
+        t.check(ModelReadinessStatus.ready.canGenerate,
+                "only Ready models can be selected for generation")
+        t.check(!ModelReadinessStatus.notDownloaded.canGenerate,
+                "not-downloaded models are setup-only")
+        t.check(!ModelReadinessStatus.serverNotRunning.canGenerate,
+                "H3 server-not-running models are setup-only")
+
+        var unsupported = readinessRegistry.descriptor(id: LTXModelCatalog.defaultModelID)!
+        unsupported.capabilities.textToVideo = false
+        let result = ModelReadinessResolver.evaluate(
+            model: unsupported,
+            userDefaults: defaults,
+            fileManager: .default,
+            hubDirectory: URL(fileURLWithPath: "/private/tmp/ltx-tests-no-cache-\(UUID().uuidString)")
+        )
+        t.checkEqual(result.status, .unsupported,
+                     "a model without T2V capability is never offered as Ready")
+
+        // A legacy H3 state without the model-specific key is ambiguous
+        // between Standard and High Quality and must not make either picker
+        // entry appear Ready.
+        let h3Defaults = UserDefaults(suiteName: "test.h3.readiness.\(UUID().uuidString)")!
+        let h3Root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LTXTests-h3-readiness-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: h3Root, withIntermediateDirectories: true)
+        defer {
+            h3Defaults.removePersistentDomain(forName: h3Defaults.description)
+            try? FileManager.default.removeItem(at: h3Root)
+        }
+        h3Defaults.set(h3Root.path, forKey: MiniMaxH3Configuration.modelDirectoryKey)
+        h3Defaults.set("/bin/sh", forKey: MiniMaxH3Configuration.runtimeExecutablePathKey)
+        h3Defaults.set(MiniMaxH3RuntimeState.ready.rawValue,
+                       forKey: MiniMaxH3Configuration.lastReadinessStateKey)
+        let h3Standard = ModelRegistry(userDefaults: h3Defaults)
+            .descriptor(id: MiniMaxH3Configuration.standardModelID)!
+        let ambiguous = ModelReadinessResolver.evaluate(
+            model: h3Standard, userDefaults: h3Defaults)
+        t.checkEqual(ambiguous.status, .serverModelMismatch,
+                     "legacy H3 Ready state without a model ID is not trusted")
+        h3Defaults.set(MiniMaxH3Configuration.standardModelID,
+                       forKey: MiniMaxH3Configuration.lastReadinessModelIDKey)
+        let matched = ModelReadinessResolver.evaluate(
+            model: h3Standard, userDefaults: h3Defaults)
+        t.checkEqual(matched.status, .ready,
+                     "model-specific H3 readiness can make the matching model Ready")
+    }
+
     t.suite("Adapter registry") {
         let registry = ModelRegistry(userDefaults: defaults)
         let adapters = AdapterRegistry()

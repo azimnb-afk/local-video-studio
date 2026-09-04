@@ -498,7 +498,7 @@ final class ModelRegistry {
             throw ModelPolicyError.modelNotRegistered(modelID: modelID)
         }
         if !model.isOfficial {
-            if model.id == MiniMaxH3Configuration.modelID {
+            if MiniMaxH3Configuration.isMiniMaxH3(modelID: model.id) {
                 return
             }
             let allowCustom = customModelsEnabled ?? FeatureFlags.isEnabled(.customModelsV1, userDefaults: userDefaults)

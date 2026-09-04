@@ -79,7 +79,7 @@ struct PromptInputView: View {
     /// not mutate the user's Custom fields: selecting a preset is sufficient
     /// to make its effective profile visible to preflight UI.
     private var preflightSettings: ResolvedGenerationSettings {
-        if selectedModelID == MiniMaxH3Configuration.modelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: selectedModelID) {
             let request = makeGenerationRequest(parameters: parameters)
             let resolved = (try? MiniMaxH3DurationPolicy.applying(to: request)) ?? request
             return ResolvedGenerationSettings(
@@ -205,7 +205,7 @@ struct PromptInputView: View {
     }
 
     private var isMiniMaxH3Selected: Bool {
-        selectedModelID == MiniMaxH3Configuration.modelID
+        MiniMaxH3Configuration.isMiniMaxH3(modelID: selectedModelID)
     }
 
     private var qualityModeRaw: String { selectedPreset.qualityMode.rawValue }
@@ -542,7 +542,7 @@ struct PromptInputView: View {
                         .font(.caption.bold())
 
                         Text(disableAudio
-                            ? (selectedModelID == MiniMaxH3Configuration.modelID
+                            ? (MiniMaxH3Configuration.isMiniMaxH3(modelID: selectedModelID)
                                 ? "Audio will be omitted from the saved MP4. The current H3 runtime still returns audio internally."
                                 : "Audio generation is disabled. Video will be silent (faster).")
                             : "Synchronized audio will be generated automatically.")
@@ -741,11 +741,7 @@ struct PromptInputView: View {
             if modelRegistryEnabled || autoQualityEnabled || isMiniMaxH3Selected {
                 HStack(spacing: 16) {
                     if modelRegistryEnabled {
-                        Picker("Model", selection: $selectedModelID) {
-                            ForEach(ModelRegistry.shared.selectableModels()) { model in
-                                Text(model.displayName).tag(model.id)
-                            }
-                        }
+                        ReadyModelPicker(selection: $selectedModelID)
                         .pickerStyle(.menu)
                         .fixedSize()
                         .help("Select active generation model from the registry.")
@@ -931,7 +927,7 @@ struct PromptInputView: View {
         previewError = nil
         enhancedPreview = nil
         do {
-            if selectedModelID == MiniMaxH3Configuration.modelID {
+            if MiniMaxH3Configuration.isMiniMaxH3(modelID: selectedModelID) {
                 await MainActor.run {
                     enhancedPreview = MiniMaxH3PromptCompiler.compile(
                         rendererNeutralPrompt: prompt,

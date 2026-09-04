@@ -317,7 +317,7 @@ private struct OneShotView: View {
     private var minimaxH3Tier: MiniMaxH3ResolutionTier { MiniMaxH3ResolutionTier(rawValue: minimaxH3OneShotTierRaw) ?? .tier2 }
 
     private var resolutionSummary: String {
-        if modelID == MiniMaxH3Configuration.modelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
             let orientation = SourceImageOrientationResolver.resolve(path: storedStartingImagePath.isEmpty ? nil : storedStartingImagePath)
             return minimaxH3Preset.effectiveSummary(
                 orientation: orientation,
@@ -374,7 +374,7 @@ private struct OneShotView: View {
                     )
                 startingImageSection
                 HStack(spacing: 16) {
-                    if modelID != MiniMaxH3Configuration.modelID {
+                    if !MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
                         Picker("Preset", selection: $presetRaw) {
                             ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
                         }
@@ -383,10 +383,8 @@ private struct OneShotView: View {
                             ForEach(MiniMaxH3Preset.allCases) { Text($0.displayName).tag($0.rawValue) }
                         }
                     }
-                    Picker("Model", selection: $modelID) {
-                        ForEach(ModelRegistry.shared.selectableModels()) { Text($0.displayName).tag($0.id) }
-                    }
-                    if modelID != MiniMaxH3Configuration.modelID {
+                    ReadyModelPicker(selection: $modelID)
+                    if !MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
                         HStack {
                             Text("Target Duration")
                             Stepper(
@@ -403,7 +401,7 @@ private struct OneShotView: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
 
-                if modelID == MiniMaxH3Configuration.modelID && minimaxH3Preset == .custom {
+                if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) && minimaxH3Preset == .custom {
                     VStack(alignment: .leading, spacing: 10) {
                         Picker("Resolution Tier", selection: $minimaxH3OneShotTierRaw) {
                             ForEach(MiniMaxH3ResolutionTier.allCases) { Text($0.displayName).tag($0.rawValue) }
@@ -442,7 +440,7 @@ private struct OneShotView: View {
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
                 }
 
-                if preset == .custom && modelID != MiniMaxH3Configuration.modelID {
+                if preset == .custom && !MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
                     HStack {
                         Text(resolutionSummary)
                             .font(.caption.monospaced())
@@ -568,7 +566,7 @@ private struct OneShotView: View {
         let resolvedTargetDuration: Double?
         let resolvedH3RequestedDuration: Double?
 
-        if modelID == MiniMaxH3Configuration.modelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
             resolvedPresetRaw = minimaxH3OneShotPresetRaw
             resolvedQualityModeRaw = QualityMode.auto.rawValue
             requestParameters.fps = 24
@@ -765,7 +763,7 @@ struct ModelStatusView: View {
     }
 
     private var usesPersistentH3Server: Bool {
-        selectedModelID == MiniMaxH3Configuration.modelID
+        MiniMaxH3Configuration.isMiniMaxH3(modelID: selectedModelID)
     }
 
     var body: some View {
@@ -813,7 +811,7 @@ struct ModelStatusView: View {
 
             if !displayInfo.isCustom && !usesPersistentH3Server
                 && generationService.isModelLoaded {
-                Text("Model files are downloaded on first generation if cache is missing.")
+                Text("Prepare model files in Settings before generation; generation never downloads weights automatically.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -980,7 +978,7 @@ struct GenerateView: View {
 
     private var parametersPanel: some View {
         Group {
-            if selectedModelID == MiniMaxH3Configuration.modelID {
+            if MiniMaxH3Configuration.isMiniMaxH3(modelID: selectedModelID) {
                 miniMaxH3ParametersPanel
             } else if presetRaw == GenerationPreset.custom.rawValue {
                 ParametersView(parameters: $parameters)

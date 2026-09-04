@@ -26,6 +26,9 @@ enum MiniMaxH3Configuration {
     static let endpointKey = "minimaxH3Endpoint"
     static let lastReadinessStateKey = "minimaxH3LastReadinessState"
     static let lastReadinessDetailKey = "minimaxH3LastReadinessDetail"
+    /// The last readiness probe is model-specific (Standard and High Quality
+    /// share the same server endpoint but not the same weights).
+    static let lastReadinessModelIDKey = "minimaxH3LastReadinessModelID"
     static let externalLegacyEndpoint = "http://127.0.0.1:11235"
     static let developmentManagedEndpoint = "http://127.0.0.1:11236"
     static let personalManagedEndpoint = "http://127.0.0.1:11237"
@@ -719,13 +722,18 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
     /// opens Preferences; this is the generation-time counterpart so the
     /// user sees the real Stopped -> Starting -> Ready/Failed transition
     /// instead of a stale snapshot from the last time Settings was opened.
-    func recordReadiness(state: MiniMaxH3RuntimeState, detail: String) {
+    func recordReadiness(state: MiniMaxH3RuntimeState, detail: String, modelID: String? = nil) {
         userDefaults.set(state.rawValue, forKey: MiniMaxH3Configuration.lastReadinessStateKey)
         userDefaults.set(detail, forKey: MiniMaxH3Configuration.lastReadinessDetailKey)
+        let effectiveModelID = modelID
+            ?? userDefaults.string(forKey: LTXModelCatalog.selectedModelIDKey)
+        if let effectiveModelID {
+            userDefaults.set(effectiveModelID, forKey: MiniMaxH3Configuration.lastReadinessModelIDKey)
+        }
     }
 
-    private func recordReadiness(_ status: MiniMaxH3RuntimeStatus) {
-        recordReadiness(state: status.state, detail: status.detail)
+    private func recordReadiness(_ status: MiniMaxH3RuntimeStatus, modelID: String? = nil) {
+        recordReadiness(state: status.state, detail: status.detail, modelID: modelID)
     }
 
     /// If this manager owns the H3 server process and it has since exited,
@@ -828,7 +836,7 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
         progress: @escaping (Double, String) -> Void = { _, _ in }
     ) async throws -> MiniMaxH3RuntimeStatus {
         let initial = await status(snapshot: snapshot, transport: transport)
-        recordReadiness(initial)
+        recordReadiness(initial, modelID: snapshot.targetModelID)
         if initial.isReady { return initial }
         if initial.state == .wrongModel {
             if ownedServerIsRunning {
@@ -852,11 +860,11 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
         let runtime = try resolveRuntimeExecutable(configuredPath: snapshot.runtimeExecutablePath)
         let model = try resolveModelDirectory(snapshot.modelDirectory)
 
-        recordReadiness(state: .starting, detail: "Starting the MiniMax H3 local server…")
+        recordReadiness(state: .starting, detail: "Starting the MiniMax H3 local server…", modelID: snapshot.targetModelID)
         do {
             try startOwnedServer(runtime: runtime, model: model, endpoint: snapshot.endpoint)
         } catch let error as MiniMaxH3Error {
-            recordReadiness(state: .failed, detail: error.localizedDescription)
+            recordReadiness(state: .failed, detail: error.localizedDescription, modelID: snapshot.targetModelID)
             throw error
         }
         progress(0.01, "Starting the MiniMax H3 local server…")
@@ -867,12 +875,12 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
                 try await Task.sleep(nanoseconds: 1_000_000_000)
                 let current = await status(snapshot: snapshot, transport: transport)
                 if current.isReady {
-                    recordReadiness(current)
+                    recordReadiness(current, modelID: snapshot.targetModelID)
                     return current
                 }
                 if current.state == .wrongModel {
                     stopOwnedServer()
-                    recordReadiness(current)
+                    recordReadiness(current, modelID: snapshot.targetModelID)
                     let expected = MiniMaxH3Configuration.expectedServerModelIDs(for: snapshot.targetModelID).first
                         ?? MiniMaxH3Configuration.expectedServerModelID
                     throw MiniMaxH3Error.wrongModel(
@@ -884,7 +892,7 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
                     let detail = tail.isEmpty
                         ? "The mlx-serve process exited before becoming ready."
                         : "The mlx-serve process exited before becoming ready: \(tail)"
-                    recordReadiness(state: .failed, detail: detail)
+                    recordReadiness(state: .failed, detail: detail, modelID: snapshot.targetModelID)
                     throw MiniMaxH3Error.runtimeStartFailed(detail)
                 }
             }
@@ -893,7 +901,7 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
             throw MiniMaxH3Error.cancelled
         }
         stopOwnedServer()
-        recordReadiness(state: .failed, detail: "Timed out while loading the configured model.")
+        recordReadiness(state: .failed, detail: "Timed out while loading the configured model.", modelID: snapshot.targetModelID)
         throw MiniMaxH3Error.runtimeStartFailed("Timed out while loading the configured model.")
     }
 

@@ -3,16 +3,16 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'v0.9.0-preview.*'
 
 permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build and Notarize
-    runs-on: macos-14  # Apple Silicon runner
-    
+  source-preview:
+    name: Build unsigned macOS preview
+    runs-on: macos-14
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -22,125 +22,57 @@ jobs:
         with:
           xcode-version: latest-stable
 
-      - name: Import Code Signing Certificate
+      - name: Build app and package unsigned preview
+        shell: bash
         env:
-          CERTIFICATE_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERT }}
-          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          VERSION: ${{ github.ref_name }}
+          BUILD_NUMBER: ${{ github.run_number }}
         run: |
-          # Create temporary keychain
-          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
-          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          
-          # Import certificate
-          CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
-          echo -n "$CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
-          security import $CERTIFICATE_PATH -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
-          security list-keychain -d user -s $KEYCHAIN_PATH
-          
-          # Allow codesign to access keychain
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          set -euo pipefail
+          VERSION="${VERSION#v}"
+          BUILD_ROOT="$RUNNER_TEMP/local-video-studio-build"
+          DERIVED_DATA="$BUILD_ROOT/DerivedData"
+          APP_PATH="$DERIVED_DATA/Build/Products/Release/Local Video Studio.app"
+          ZIP_PATH="dist/LocalVideoStudio-${VERSION}-unsigned.zip"
 
-      - name: Build and Sign App
-        env:
-          CODE_SIGN_IDENTITY: ${{ secrets.CODE_SIGN_IDENTITY }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          
-          # Build archive
-          cd LTXVideoGenerator
-          xcodebuild -project LTXVideoGenerator.xcodeproj \
+          rm -rf "$BUILD_ROOT" dist
+          mkdir -p dist
+
+          xcodebuild \
+            -project LTXVideoGenerator/LTXVideoGenerator.xcodeproj \
             -scheme LTXVideoGenerator \
             -configuration Release \
-            -archivePath ../build/LTXVideoGenerator.xcarchive \
-            archive \
-            CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            MARKETING_VERSION="$VERSION"
-          
-          cd ..
-          
-          # Export app from archive
-          mkdir -p build dist
-          cp -R "build/LTXVideoGenerator.xcarchive/Products/Applications/LTXVideoGenerator.app" "build/Local Video Studio.app"
-          
-          # Verify app exists
-          ls -la "build/Local Video Studio.app"
-          
-          echo "Build complete"
+            -derivedDataPath "$DERIVED_DATA" \
+            -destination 'platform=macOS' \
+            PRODUCT_BUNDLE_IDENTIFIER=com.localvideostudio.personal \
+            PRODUCT_NAME='Local Video Studio' \
+            INFOPLIST_KEY_CFBundleDisplayName='Local Video Studio' \
+            MARKETING_VERSION="$VERSION" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            build
 
-      - name: Notarize App
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          APP_PATH="build/Local Video Studio.app"
-          
-          # Create zip for notarization
-          ditto -c -k --keepParent "$APP_PATH" build/app.zip
-          
-          # Submit for notarization
-          xcrun notarytool submit build/app.zip \
-            --apple-id "$APPLE_ID" \
-            --password "$APPLE_ID_PASSWORD" \
-            --team-id "$APPLE_TEAM_ID" \
-            --wait
-          
-          # Staple the ticket
-          xcrun stapler staple "$APP_PATH"
+          test -d "$APP_PATH"
+          ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
+          shasum -a 256 "$ZIP_PATH" > "${ZIP_PATH}.sha256"
+          echo "Packaged $ZIP_PATH"
 
-      - name: Create DMG
-        env:
-          CODE_SIGN_IDENTITY: ${{ secrets.CODE_SIGN_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          DMG_NAME="LocalVideoStudio-${VERSION}.dmg"
-          
-          # Create DMG
-          hdiutil create -volname "Local Video Studio" \
-            -srcfolder "build/Local Video Studio.app" \
-            -ov \
-            -format UDZO \
-            "dist/${DMG_NAME}"
-          
-          # Sign DMG
-          codesign --force --sign "$CODE_SIGN_IDENTITY" "dist/${DMG_NAME}"
-          
-          # Notarize DMG
-          xcrun notarytool submit "dist/${DMG_NAME}" \
-            --apple-id "$APPLE_ID" \
-            --password "$APPLE_ID_PASSWORD" \
-            --team-id "$APPLE_TEAM_ID" \
-            --wait
-          
-          # Staple DMG
-          xcrun stapler staple "dist/${DMG_NAME}"
-          
-          # Generate checksum
-          shasum -a 256 "dist/${DMG_NAME}" > "dist/${DMG_NAME}.sha256"
-          
-          echo "DMG_NAME=${DMG_NAME}" >> $GITHUB_ENV
-
-      - name: Create Release
+      - name: Publish preview release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/*.dmg
-            dist/*.sha256
-          generate_release_notes: true
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }} — Unsigned macOS Preview
+          body: |
+            This is an unsigned macOS preview build for Apple Silicon.
 
-      - name: Cleanup Keychain
-        if: always()
-        run: |
-          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+            Download `LocalVideoStudio-*-unsigned.zip`, expand it, and use Finder's **Open** command the first time to approve the unsigned local preview. No model weights are bundled; configure local models in Preferences.
+
+            A Developer ID signed/notarized distribution is not provided by this preview workflow.
+          files: |
+            dist/*.zip
+            dist/*.sha256
+          draft: false
+          prerelease: true
+          generate_release_notes: false

@@ -1,4 +1,14 @@
+import AppKit
 import SwiftUI
+
+final class LocalVideoStudioAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillTerminate(_ notification: Notification) {
+        // Only a process launched and tracked by this app instance is stopped.
+        // A compatible mlx-serve found at the endpoint remains externally
+        // owned and is never terminated here.
+        MiniMaxH3RuntimeManager.shared.stopOwnedServer()
+    }
+}
 
 // SPM_BUILD: the CLT/SPM harness builds these sources as a library for
 // compile-checking and unit tests; the @main entry point only exists in the
@@ -7,6 +17,7 @@ import SwiftUI
 @main
 #endif
 struct LTXVideoGeneratorApp: App {
+    @NSApplicationDelegateAdaptor(LocalVideoStudioAppDelegate.self) private var appDelegate
     
     init() {
         // Don't configure Python here - defer until after subprocess validation
@@ -96,11 +107,16 @@ struct RootView: View {
                 
                 guard !hasCheckedPython else { return }
                 hasCheckedPython = true
+
+                let usesMiniMaxH3 = GenerationModelResolver.backend(
+                    for: UserDefaults.standard.string(forKey: LTXModelCatalog.selectedModelIDKey)
+                ) == .minimaxH3
                 
                 await healthManager.refresh()
                 if !healthManager.canStartGeneration {
                     healthManager.showSetupWizard = true
-                } else if let savedPath = UserDefaults.standard.string(forKey: "pythonPath") {
+                } else if !usesMiniMaxH3,
+                          let savedPath = UserDefaults.standard.string(forKey: "pythonPath") {
                     let result = await PythonEnvironment.shared.validateWithSubprocess(path: savedPath, automaticInstallAndUpgrade: false)
                     if result.success, let details = result.details {
                         PythonEnvironment.shared.configureForPythonKit(details: details)

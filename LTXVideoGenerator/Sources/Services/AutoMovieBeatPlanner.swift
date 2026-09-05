@@ -142,6 +142,14 @@ enum AutoMovieBeatPlanner {
 /// before Plan Preview or GenerationRequest construction sees it. A Director
 /// plan is left at its original shot count whenever that count can represent
 /// the target; only an impossible count is merged or split.
+///
+/// The target total is then divided across shots by weight, not evenly: each
+/// shot's visible action-beat count, resolved purpose, and the Director's own
+/// per-shot duration (already on `shot.durationSeconds` when this runs) all
+/// feed `allocationSignal(for:)`, so a shot with more to show or an explicit
+/// longer intent draws a larger share of the total than a brief insert or
+/// reaction does — while every shot still lands inside the backend's frame
+/// range, and the sum still lands on the requested total exactly.
 enum AutoMovieDurationPlanner {
     static let minimumFrameCount = 25
     static let maximumFrameCount = 241
@@ -176,19 +184,181 @@ enum AutoMovieDurationPlanner {
             shots = input
         }
 
-        // The feasible-count calculation guarantees this even allocation stays
-        // within the backend's 25...241 frame range.
-        let baseUnits = targetUnits / shots.count
-        let remainder = targetUnits % shots.count
+        // feasibleCount's derivation above guarantees
+        // shots.count * minimumUnits <= targetUnits <= shots.count * maximumUnits,
+        // so a weighted allocation that keeps every shot inside
+        // minimumUnits...maximumUnits and still sums to targetUnits always exists.
+        let signals = shots.map(allocationSignal(for:))
+        let unitsPerShot = allocateUnits(
+            weights: signals.map(\.weight), targetUnits: targetUnits,
+            minimumUnits: minimumUnits, maximumUnits: maximumUnits)
         for index in shots.indices {
-            let units = baseUnits + (index < remainder ? 1 : 0)
-            let frameCount = min(maximumFrameCount, max(minimumFrameCount, units * frameStride + 1))
+            let frameCount = min(maximumFrameCount, max(minimumFrameCount, unitsPerShot[index] * frameStride + 1))
             // Store the visual time span. PromptCompiler maps it back to the
             // exact 8n+1 frame count, while Plan Preview sums to the target.
             shots[index].durationSeconds = Double(frameCount - 1) / Double(fps)
+            shots[index].actionBeatCount = signals[index].beatCount
             shots[index].index = index
         }
         return shots
+    }
+
+    /// Normalizes Auto Movie shots specifically for MiniMax H3 presets using
+    /// the deterministic MiniMaxH3DurationSolver to approximate requested total
+    /// duration as closely as possible within the 17k+5 frame grid.
+    static func normalizeForH3(
+        shots input: [Shot],
+        targetDurationSeconds: Double,
+        preset: MiniMaxH3Preset,
+        customDurationSeconds: Double? = nil
+    ) -> [Shot] {
+        guard !input.isEmpty, targetDurationSeconds.isFinite, targetDurationSeconds > 0 else {
+            return input
+        }
+
+        let optimalFrames = MiniMaxH3DurationSolver.solve(
+            targetDurationSeconds: targetDurationSeconds,
+            preset: preset,
+            customDurationSeconds: customDurationSeconds
+        )
+
+        let targetCount = optimalFrames?.count ?? min(12, max(1, input.count))
+
+        var shots: [Shot]
+        if input.count > targetCount {
+            shots = merge(input, toCount: targetCount)
+        } else if input.count < targetCount {
+            shots = split(input, toCount: targetCount)
+        } else {
+            shots = input
+        }
+
+        let signals = shots.map(allocationSignal(for:))
+
+        if let optimalFrames, optimalFrames.count == shots.count {
+            let sortedIndicesByWeight = shots.indices.sorted { (i1: Int, i2: Int) -> Bool in
+                if signals[i1].weight != signals[i2].weight {
+                    return signals[i1].weight > signals[i2].weight
+                }
+                return i1 < i2
+            }
+            let sortedFrames = optimalFrames.sorted(by: >)
+            var assignedFrames = [Int](repeating: 0, count: shots.count)
+            for (rank, shotIdx) in sortedIndicesByWeight.enumerated() {
+                assignedFrames[shotIdx] = sortedFrames[rank]
+            }
+
+            for index in shots.indices {
+                let f = assignedFrames[index]
+                shots[index].effectiveFrames = f
+                shots[index].actualDurationSeconds = Double(f) / 24.0
+                shots[index].durationSeconds = Double(f) / 24.0
+                shots[index].actionBeatCount = signals[index].beatCount
+                shots[index].index = index
+            }
+        } else {
+            let safeMaxSeconds = (preset == .custom) ? min(6.0, max(1.0, customDurationSeconds ?? 4.0)) : preset.perShotSafeMaxDurationSeconds
+            let safeMaxFrames = MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: safeMaxSeconds)
+            for index in shots.indices {
+                shots[index].effectiveFrames = safeMaxFrames
+                shots[index].actualDurationSeconds = Double(safeMaxFrames) / 24.0
+                shots[index].durationSeconds = Double(safeMaxFrames) / 24.0
+                shots[index].actionBeatCount = signals[index].beatCount
+                shots[index].index = index
+            }
+        }
+
+        ContinuityChainPolicy.updateContinueChainIndices(shots: &shots)
+        return shots
+    }
+
+    /// How many seconds a shot's own content wants (`weight`, used only in
+    /// relative proportion to other shots — its unit does not matter to the
+    /// allocator), and the visible action-beat count behind that number, kept
+    /// so Plan Preview and the validator can display the same figure this
+    /// planner used rather than recomputing it.
+    private static func allocationSignal(for shot: Shot) -> (weight: Double, beatCount: Int) {
+        let beats = CapabilityAwareShotPlanner.visibleBeatCount(in: shot.summary)
+        var baseline: Double
+        switch beats {
+        case ..<1: baseline = 4
+        case 1: baseline = 5
+        case 2: baseline = 6.5
+        case 3: baseline = 8
+        default: baseline = 9.5
+        }
+
+        // Purpose narrows the baseline toward this shot kind's natural
+        // length: a detail insert or transition wants brevity even if its
+        // text happens to read as multi-beat; a performance or dialogue
+        // exchange wants room even at a single beat.
+        switch shot.shotPurpose {
+        case .detail: baseline = min(baseline, 3.5)
+        case .transition: baseline = min(baseline, 4)
+        case .reaction: baseline = min(baseline, 5)
+        case .establish: baseline = min(baseline, 6)
+        case .performance, .dialogue: baseline = max(baseline, 6)
+        case .action, .reveal, nil: break
+        }
+
+        // The Director's own stated intent for this shot (already resolved
+        // onto `durationSeconds` before this planner runs) is blended in
+        // rather than substituted outright, so one unusual value cannot
+        // dominate the shot's share on its own.
+        if shot.durationSeconds.isFinite, shot.durationSeconds > 0 {
+            baseline = (baseline + shot.durationSeconds) / 2
+        }
+        return (weight: min(10, max(3, baseline)), beatCount: beats)
+    }
+
+    /// Distributes `targetUnits` across shots in proportion to `weights`,
+    /// while keeping every shot within `minimumUnits...maximumUnits`. Starts
+    /// from each shot's floored ideal share, then closes the rounding gap by
+    /// giving (or taking back) one unit at a time, largest fractional
+    /// remainder first, exactly the classic largest-remainder method. The
+    /// caller's feasibility invariant (see `normalize` above) guarantees a
+    /// shot with room to absorb or give up a unit always exists while the
+    /// gap is still open.
+    private static func allocateUnits(
+        weights: [Double],
+        targetUnits: Int,
+        minimumUnits: Int,
+        maximumUnits: Int
+    ) -> [Int] {
+        let count = weights.count
+        guard count > 0 else { return [] }
+        guard count > 1 else {
+            return [min(maximumUnits, max(minimumUnits, targetUnits))]
+        }
+
+        let totalWeight = weights.reduce(0, +)
+        let normalizedWeights = totalWeight > 0 ? weights : [Double](repeating: 1, count: count)
+        let normalizedTotal = normalizedWeights.reduce(0, +)
+
+        let idealShares = normalizedWeights.map { Double(targetUnits) * $0 / normalizedTotal }
+        var units = idealShares.map { min(maximumUnits, max(minimumUnits, Int($0.rounded(.down)))) }
+        let ascendingByRemainder = idealShares.enumerated()
+            .sorted { ($0.element - $0.element.rounded(.down)) < ($1.element - $1.element.rounded(.down)) }
+            .map(\.offset)
+
+        var deficit = targetUnits - units.reduce(0, +)
+        if deficit > 0 {
+            let order = Array(ascendingByRemainder.reversed())
+            var cursor = 0
+            while deficit > 0 {
+                let index = order[cursor % count]
+                if units[index] < maximumUnits { units[index] += 1; deficit -= 1 }
+                cursor += 1
+            }
+        } else if deficit < 0 {
+            var cursor = 0
+            while deficit < 0 {
+                let index = ascendingByRemainder[cursor % count]
+                if units[index] > minimumUnits { units[index] -= 1; deficit += 1 }
+                cursor += 1
+            }
+        }
+        return units
     }
 
     private static func units(forFrameCount frameCount: Int) -> Int {

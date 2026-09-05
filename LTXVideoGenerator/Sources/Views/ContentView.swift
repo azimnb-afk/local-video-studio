@@ -21,6 +21,7 @@ struct ContentView: View {
     // and bridge through a `@State` binding the children already expect.
     @State private var parameters: GenerationParameters = SessionSettings.loadParameters()
     @AppStorage("generationPreset") private var generationPresetRaw = GenerationPreset.standard.rawValue
+    @AppStorage("minimaxH3GenerationPreset") private var h3PresetRaw = MiniMaxH3Preset.standard.rawValue
     @State private var showError = false
 
     init() {
@@ -67,7 +68,7 @@ struct ContentView: View {
             }
         }
     }
-    
+
     var body: some View {
         NavigationSplitView {
             sidebarContent
@@ -92,7 +93,7 @@ struct ContentView: View {
         // displays (e.g. 13" MacBook Air with a non-default text size). Inner
         // panes are scrollable, so the Generate button stays reachable.
         .frame(
-            minWidth: 900,
+            minWidth: 1040,
             idealWidth: 1280,
             minHeight: 480,
             idealHeight: 800,
@@ -116,7 +117,7 @@ struct ContentView: View {
             UserDefaults.standard.set(destination.rawValue, forKey: SessionSettings.selectedTabKey)
         }
     }
-    
+
     @ObservedObject private var productionQueue = ProductionQueueService.shared
 
     private var sidebarContent: some View {
@@ -152,7 +153,7 @@ struct ContentView: View {
         .frame(width: 320)
         .background(Color(nsColor: .windowBackgroundColor))
     }
-    
+
     private var tabSelector: some View {
         VStack(spacing: 4) {
             ForEach(visibleTabs, id: \.self) { tab in
@@ -169,7 +170,7 @@ struct ContentView: View {
         }
         .padding()
     }
-    
+
     @ViewBuilder
     private var detailContent: some View {
         switch navigation.selection {
@@ -220,7 +221,7 @@ struct SidebarButton: View {
     let isSelected: Bool
     var badge: Int?
     let action: () -> Void
-    
+
     var body: some View {
         Button(action: action) {
             buttonContent
@@ -228,7 +229,7 @@ struct SidebarButton: View {
         .buttonStyle(.plain)
         .foregroundStyle(isSelected ? .primary : .secondary)
     }
-    
+
     private var buttonContent: some View {
         HStack {
             Image(systemName: icon)
@@ -252,7 +253,7 @@ struct SidebarButton: View {
         )
         .contentShape(Rectangle())
     }
-    
+
     @ViewBuilder
     private var badgeView: some View {
         if let badge = badge, badge > 0 {
@@ -298,16 +299,35 @@ private struct OneShotView: View {
     @State private var isPlanning = false
     @State private var targetDuration = 5.0
     @AppStorage("oneShotGenerationPreset") private var presetRaw = GenerationPreset.standard.rawValue
+    @AppStorage("minimaxH3OneShotPreset") private var minimaxH3OneShotPresetRaw = MiniMaxH3Preset.standard.rawValue
+    @AppStorage("minimaxH3OneShotTier") private var minimaxH3OneShotTierRaw = MiniMaxH3ResolutionTier.tier2.rawValue
+    @AppStorage("minimaxH3OneShotCustomDuration") private var minimaxH3OneShotCustomDuration = 3.75
+    @AppStorage("minimaxH3OneShotCustomSteps") private var minimaxH3OneShotCustomSteps = 16
+    @AppStorage("minimaxH3OneShotCustomFast") private var minimaxH3OneShotCustomFast = true
     @AppStorage(LTXModelCatalog.selectedModelIDKey) private var modelID = LTXModelCatalog.defaultModelID
     @AppStorage(LTXTextEncoderCatalog.selectedTextEncoderIDKey) private var textEncoderID = LTXTextEncoderCatalog.defaultTextEncoderID
     @AppStorage("oneShotStartingImagePath") private var storedStartingImagePath = ""
     @State private var audioEnabled = true
+    @State private var directorEnabled = true
     @State private var startingImageThumbnail: NSImage?
     @State private var startingImageError: String?
 
     private var preset: GenerationPreset { GenerationPreset(rawValue: presetRaw) ?? .standard }
+    private var minimaxH3Preset: MiniMaxH3Preset { MiniMaxH3Preset(rawValue: minimaxH3OneShotPresetRaw) ?? .standard }
+    private var minimaxH3Tier: MiniMaxH3ResolutionTier { MiniMaxH3ResolutionTier(rawValue: minimaxH3OneShotTierRaw) ?? .tier2 }
 
     private var resolutionSummary: String {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
+            let orientation = SourceImageOrientationResolver.resolve(path: storedStartingImagePath.isEmpty ? nil : storedStartingImagePath)
+            return minimaxH3Preset.effectiveSummary(
+                orientation: orientation,
+                isAutoMovie: false,
+                customTier: minimaxH3Tier,
+                customDurationSeconds: minimaxH3OneShotCustomDuration,
+                customSteps: minimaxH3OneShotCustomSteps,
+                customFast: minimaxH3OneShotCustomFast
+            )
+        }
         guard preset != .custom else {
             return "Custom: \(parameters.width)×\(parameters.height), \(parameters.numFrames) frames, \(parameters.fps) fps, \(parameters.numInferenceSteps) steps"
         }
@@ -326,7 +346,8 @@ private struct OneShotView: View {
         let resolved = GenerationSettingsResolver.resolveForPreflight(request: request).request
         let orientation = resolved.presetResolutionOrientation?.displayName
             .map { " · \($0)" } ?? ""
-        return "\(preset.summary) · Effective \(resolved.parameters.width)×\(resolved.parameters.height)\(orientation)"
+        let durationFormatted = String(format: "%.1fs", Double(resolved.parameters.numFrames) / Double(resolved.parameters.fps))
+        return "\(preset.displayName) · Effective \(resolved.parameters.width)×\(resolved.parameters.height)\(orientation) · \(resolved.parameters.numInferenceSteps) steps · \(durationFormatted)"
     }
 
     var body: some View {
@@ -353,20 +374,73 @@ private struct OneShotView: View {
                     )
                 startingImageSection
                 HStack(spacing: 16) {
-                    Picker("Preset", selection: $presetRaw) {
-                        ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
+                    if !MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
+                        Picker("Preset", selection: $presetRaw) {
+                            ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
+                        }
+                    } else {
+                        Picker("Preset", selection: $minimaxH3OneShotPresetRaw) {
+                            ForEach(MiniMaxH3Preset.allCases) { Text($0.displayName).tag($0.rawValue) }
+                        }
                     }
-                    Picker("Model", selection: $modelID) {
-                        ForEach(ModelRegistry.shared.selectableModels()) { Text($0.displayName).tag($0.id) }
-                    }
-                    HStack {
-                        Text("Target Duration")
-                        Stepper("\(targetDuration, specifier: "%.0f")s", value: $targetDuration, in: 1...10)
+                    ReadyModelPicker(selection: $modelID)
+                    if !MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
+                        HStack {
+                            Text("Target Duration")
+                            Stepper(
+                                "\(targetDuration, specifier: "%.0f")s",
+                                value: $targetDuration,
+                                in: 1...OneShotDurationPolicy.maximumSelectableSeconds(for: modelID))
+                        }
                     }
                     Toggle("Audio", isOn: $audioEnabled)
+                    Toggle("Director", isOn: $directorEnabled)
                     Spacer()
                 }
-                if preset == .custom {
+                Text(directorEnabled ? "Director ON: AI interprets and directs the shot." : "Director OFF: Uses your prompt directly without AI planning.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+
+                if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) && minimaxH3Preset == .custom {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Picker("Resolution Tier", selection: $minimaxH3OneShotTierRaw) {
+                            ForEach(MiniMaxH3ResolutionTier.allCases) { Text($0.displayName).tag($0.rawValue) }
+                        }
+                        .pickerStyle(.segmented)
+
+                        HStack(spacing: 20) {
+                            Stepper(
+                                "Duration: \(minimaxH3OneShotCustomDuration, specifier: "%.1f")s (\(MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: minimaxH3OneShotCustomDuration)) frames)",
+                                value: $minimaxH3OneShotCustomDuration,
+                                in: 1.0...5.9,
+                                step: 0.5
+                            )
+                            Stepper(
+                                "Inference Steps: \(minimaxH3OneShotCustomSteps)",
+                                value: $minimaxH3OneShotCustomSteps,
+                                in: 8...24,
+                                step: 1
+                            )
+                            Toggle("Fast Mode", isOn: $minimaxH3OneShotCustomFast)
+                        }
+
+                        if MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: minimaxH3OneShotCustomDuration) {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.yellow)
+                                Text("5秒以上のH3動画では、後半にかけて細部や人物の一貫性が低下する場合があります。最高品質には3〜4秒を推奨します。")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(8)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.yellow.opacity(0.1)))
+                        }
+                    }
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+                }
+
+                if preset == .custom && !MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
                     HStack {
                         Text(resolutionSummary)
                             .font(.caption.monospaced())
@@ -388,10 +462,6 @@ private struct OneShotView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                // A running generation does not block submission: this button
-                // enqueues a production job, and the queue is what decides when
-                // it runs. It stays disabled only while this One Shot's own
-                // planning is in flight, or when the input itself is unusable.
                 .disabled(!GenerationSubmissionPolicy.canSubmit(
                     prompt: brief,
                     isPreparing: isPlanning,
@@ -406,6 +476,9 @@ private struct OneShotView: View {
         }
         .onChange(of: audioEnabled) { old, new in
             if old != new { presetRaw = GenerationPreset.custom.rawValue }
+        }
+        .onChange(of: modelID) { _, _ in
+            Task { await DependencyHealthManager.shared.refresh() }
         }
         .onAppear(perform: refreshStartingImage)
     }
@@ -456,6 +529,13 @@ private struct OneShotView: View {
             Text("Optional visual anchor for the first frame. It guides image-conditioned generation and does not guarantee character identity.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            if let recommendation = MiniMaxH3ProductPolicy.recommendation(
+                modelID: modelID,
+                context: .oneShot,
+                hasImage: !storedStartingImagePath.isEmpty
+            ) {
+                MiniMaxH3ImageGroundingRecommendationView(recommendation: recommendation)
+            }
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
@@ -477,60 +557,141 @@ private struct OneShotView: View {
             return
         }
         let trimmed = brief.trimmingCharacters(in: .whitespacesAndNewlines)
-        isPlanning = true
-        status = "Planning locally…"
-        Task {
-            defer { isPlanning = false }
-            do {
-                var requestParameters = parameters
-                if preset != .custom {
-                    requestParameters.numFrames = PromptCompiler.frameCount(forSeconds: targetDuration, fps: requestParameters.fps)
-                }
-                let baseRequest = GenerationRequest(
-                    prompt: trimmed,
-                    brief: trimmed,
-                    sourceImagePath: validatedStartingImage,
-                    disableAudio: !audioEnabled,
-                    modelId: modelID,
-                    textEncoderId: textEncoderID,
-                    parameters: requestParameters,
-                    qualityMode: preset.qualityMode.rawValue,
-                    preset: preset.rawValue,
-                    targetDurationSeconds: preset == .custom ? nil : targetDuration,
-                    generationSource: "oneShot"
-                )
-                let (request, _, providerName) = try await LocalDirector().makeRequest(
-                    brief: trimmed,
-                    base: baseRequest
-                )
-                // The file may have moved while local planning was running.
-                // Re-check immediately before queue insertion; never downgrade
-                // a selected Starting Image request to text-only.
-                _ = try OneShotStartingImagePreflight.validatedPath(request.sourceImagePath)
-                // Planning has already happened, so the job carries the finished
-                // request: what was queued is exactly what renders, even if the
-                // brief is edited while it waits.
-                var snapshot = ProductionJobSnapshot()
-                snapshot.brief = trimmed
-                snapshot.prompt = request.prompt
-                snapshot.pendingRequests = [request]
-                snapshot.seed = request.parameters.seed
-                ProductionQueueService.shared.enqueue(ProductionJob(
-                    kind: .oneShot,
-                    title: trimmed.count > 60 ? String(trimmed.prefix(60)) + "…" : trimmed,
-                    snapshot: snapshot))
-                status = validatedStartingImage == nil
-                    ? "Planned via \(providerName); queued text-only generation"
-                    : "Planned via \(providerName); queued with Starting Image"
-            } catch let error as OneShotStartingImageError {
-                startingImageThumbnail = nil
-                startingImageError = error.localizedDescription
-                status = error.localizedDescription
-            } catch let error as DirectorError {
-                status = error.localizedDescription
-            } catch {
-                status = "Planning failed: \(error.localizedDescription)"
+
+        var requestParameters = parameters
+        let orientation = SourceImageOrientationResolver.resolve(path: validatedStartingImage)
+
+        let resolvedPresetRaw: String
+        let resolvedQualityModeRaw: String
+        let resolvedTargetDuration: Double?
+        let resolvedH3RequestedDuration: Double?
+
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
+            resolvedPresetRaw = minimaxH3OneShotPresetRaw
+            resolvedQualityModeRaw = QualityMode.auto.rawValue
+            requestParameters.fps = 24
+
+            switch minimaxH3Preset {
+            case .quick:
+                let dims = MiniMaxH3ResolutionTier.tier1.dimensions(for: orientation)
+                requestParameters.width = dims.width
+                requestParameters.height = dims.height
+                requestParameters.numInferenceSteps = 8
+                requestParameters.numFrames = 73
+                resolvedTargetDuration = 3.0
+                resolvedH3RequestedDuration = 3.0
+            case .standard:
+                let dims = MiniMaxH3ResolutionTier.tier2.dimensions(for: orientation)
+                requestParameters.width = dims.width
+                requestParameters.height = dims.height
+                requestParameters.numInferenceSteps = 16
+                requestParameters.numFrames = 90
+                resolvedTargetDuration = 3.75
+                resolvedH3RequestedDuration = 3.75
+            case .high:
+                let dims = MiniMaxH3ResolutionTier.tier2.dimensions(for: orientation)
+                requestParameters.width = dims.width
+                requestParameters.height = dims.height
+                requestParameters.numInferenceSteps = 20
+                requestParameters.numFrames = 90
+                resolvedTargetDuration = 3.75
+                resolvedH3RequestedDuration = 3.75
+            case .custom:
+                let dims = minimaxH3Tier.dimensions(for: orientation)
+                requestParameters.width = dims.width
+                requestParameters.height = dims.height
+                requestParameters.numInferenceSteps = max(8, min(24, minimaxH3OneShotCustomSteps))
+                requestParameters.numFrames = MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: minimaxH3OneShotCustomDuration)
+                resolvedTargetDuration = nil
+                resolvedH3RequestedDuration = minimaxH3OneShotCustomDuration
             }
+        } else {
+            resolvedPresetRaw = preset.rawValue
+            resolvedQualityModeRaw = preset.qualityMode.rawValue
+            resolvedTargetDuration = preset == .custom ? nil : targetDuration
+            resolvedH3RequestedDuration = nil
+            if preset != .custom {
+                let maxFrames = OneShotDurationPolicy.maximumFrameCount(for: modelID) ?? PromptCompiler.defaultMaximumFrameCount
+                requestParameters.numFrames = PromptCompiler.frameCount(
+                    forSeconds: targetDuration,
+                    fps: requestParameters.fps,
+                    maximumFrameCount: maxFrames
+                )
+            }
+        }
+
+        let baseRequest = GenerationRequest(
+            prompt: trimmed,
+            brief: trimmed,
+            sourceImagePath: validatedStartingImage,
+            presetResolutionOrientation: orientation,
+            disableAudio: !audioEnabled,
+            modelId: modelID,
+            textEncoderId: textEncoderID,
+            parameters: requestParameters,
+            qualityMode: resolvedQualityModeRaw,
+            preset: resolvedPresetRaw,
+            targetDurationSeconds: resolvedTargetDuration,
+            generationSource: "oneShot",
+            minimaxH3RequestedDurationSeconds: resolvedH3RequestedDuration,
+            minimaxH3Fast: minimaxH3Preset == .custom ? minimaxH3OneShotCustomFast : true
+        )
+
+        if directorEnabled {
+            // Director ON: Creative LocalDirector planning with LLM
+            isPlanning = true
+            status = "Planning locally…"
+            Task {
+                defer { isPlanning = false }
+                do {
+                    let (request, _, providerName) = try await LocalDirector().makeRequest(
+                        brief: trimmed,
+                        base: baseRequest
+                    )
+                    // The file may have moved while local planning was running.
+                    // Re-check immediately before queue insertion; never downgrade
+                    // a selected Starting Image request to text-only.
+                    _ = try OneShotStartingImagePreflight.validatedPath(request.sourceImagePath)
+                    // Planning has already happened, so the job carries the finished
+                    // request: what was queued is exactly what renders, even if the
+                    // brief is edited while it waits.
+                    var snapshot = ProductionJobSnapshot()
+                    snapshot.brief = trimmed
+                    snapshot.prompt = request.prompt
+                    snapshot.pendingRequests = [request]
+                    snapshot.seed = request.parameters.seed
+                    ProductionQueueService.shared.enqueue(ProductionJob(
+                        kind: .oneShot,
+                        title: trimmed.count > 60 ? String(trimmed.prefix(60)) + "…" : trimmed,
+                        snapshot: snapshot))
+                    status = validatedStartingImage == nil
+                        ? "Planned via \(providerName); queued text-only generation"
+                        : "Planned via \(providerName); queued with Starting Image"
+                } catch let error as OneShotStartingImageError {
+                    startingImageThumbnail = nil
+                    startingImageError = error.localizedDescription
+                    status = error.localizedDescription
+                } catch let error as DirectorError {
+                    status = error.localizedDescription
+                } catch {
+                    status = "Planning failed: \(error.localizedDescription)"
+                }
+            }
+        } else {
+            // Director OFF: Direct user prompt via CanonicalShotRequestBuilder (0 LLM invocations)
+            let (request, _) = LocalDirector.makeDirectRequest(prompt: trimmed, base: baseRequest)
+            var snapshot = ProductionJobSnapshot()
+            snapshot.brief = trimmed
+            snapshot.prompt = request.prompt
+            snapshot.pendingRequests = [request]
+            snapshot.seed = request.parameters.seed
+            ProductionQueueService.shared.enqueue(ProductionJob(
+                kind: .oneShot,
+                title: trimmed.count > 60 ? String(trimmed.prefix(60)) + "…" : trimmed,
+                snapshot: snapshot))
+            status = validatedStartingImage == nil
+                ? "Direct shot enqueued for generation."
+                : "Direct shot with Starting Image enqueued for generation."
         }
     }
 
@@ -600,7 +761,11 @@ struct ModelStatusView: View {
             generationServiceLoaded: generationService.isModelLoaded
         )
     }
-    
+
+    private var usesPersistentH3Server: Bool {
+        MiniMaxH3Configuration.isMiniMaxH3(modelID: selectedModelID)
+    }
+
     var body: some View {
         VStack(spacing: 8) {
             // Model variant indicator
@@ -617,7 +782,7 @@ struct ModelStatusView: View {
                     .background(Capsule().fill(Color.orange.opacity(0.2)))
                     .foregroundStyle(.orange)
             }
-            
+
             // Model status
             HStack(spacing: 8) {
                 Circle()
@@ -627,7 +792,7 @@ struct ModelStatusView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                if !displayInfo.isCustom {
+                if !displayInfo.isCustom && !usesPersistentH3Server {
                     if !generationService.isModelLoaded {
                         Button("Load") {
                             Task { await generationService.loadModel() }
@@ -644,15 +809,16 @@ struct ModelStatusView: View {
                 }
             }
 
-            if !displayInfo.isCustom && generationService.isModelLoaded {
-                Text("Model files are downloaded on first generation if cache is missing.")
+            if !displayInfo.isCustom && !usesPersistentH3Server
+                && generationService.isModelLoaded {
+                Text("Prepare model files in Settings before generation; generation never downloads weights automatically.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            
+
             Divider()
-            
+
             // API Server toggle
             HStack(spacing: 8) {
                 Circle()
@@ -767,7 +933,10 @@ struct GenerateView: View {
     @Binding var parameters: GenerationParameters
     var onSubmissionQueued: () -> Void = {}
     @AppStorage("generationPreset") private var presetRaw = GenerationPreset.standard.rawValue
-    
+    @AppStorage("minimaxH3GenerationPreset") private var h3PresetRaw = MiniMaxH3Preset.standard.rawValue
+    @AppStorage("minimaxH3GenerationCustomFast") private var h3CustomFast = true
+    @AppStorage(LTXModelCatalog.selectedModelIDKey) private var selectedModelID = LTXModelCatalog.defaultModelID
+
     var body: some View {
         VStack(spacing: 0) {
             BilingualPageHeader(
@@ -784,7 +953,7 @@ struct GenerateView: View {
             }
         }
     }
-    
+
     private var promptArea: some View {
         // Issue #52: wrap the prompt + actions in a vertical ScrollView so the
         // Generate button stays reachable when the window is shorter than the
@@ -804,31 +973,198 @@ struct GenerateView: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .frame(minWidth: 400, idealWidth: 500)
+        .frame(minWidth: 400, idealWidth: 500, maxWidth: .infinity)
     }
-    
+
     private var parametersPanel: some View {
         Group {
-            if presetRaw == GenerationPreset.custom.rawValue {
+            if MiniMaxH3Configuration.isMiniMaxH3(modelID: selectedModelID) {
+                miniMaxH3ParametersPanel
+            } else if presetRaw == GenerationPreset.custom.rawValue {
                 ParametersView(parameters: $parameters)
             } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    let preset = GenerationPreset(rawValue: presetRaw) ?? .standard
-                    Label("\(preset.displayName) Preset", systemImage: "slider.horizontal.3")
-                        .font(.headline)
-                    Text(preset.summary)
-                        .foregroundStyle(.secondary)
-                    Divider()
-                    Text("Manual resolution, frames, FPS and steps are available with Custom. The finished video records the requested settings, selected effective profile and actual MP4 metadata.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        let preset = GenerationPreset(rawValue: presetRaw) ?? .standard
+                        Label("\(preset.displayName) Preset", systemImage: "slider.horizontal.3")
+                            .font(.headline)
+                        Text(preset.summary)
+                            .foregroundStyle(.secondary)
+                        Divider()
+                        Text("Manual resolution, frames, FPS and steps are available with Custom. The finished video records the requested settings, selected effective profile and actual MP4 metadata.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding()
             }
         }
-        .frame(width: 300)
+        .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var selectedH3Preset: MiniMaxH3Preset {
+        MiniMaxH3Preset(rawValue: h3PresetRaw) ?? .standard
+    }
+
+    private var miniMaxH3ParametersPanel: some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 14) {
+                Label("MiniMax H3 (Experimental)", systemImage: "film.stack")
+                    .font(.headline)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Active Preset: \(selectedH3Preset.displayName)")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    Text(selectedH3Preset.summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Divider()
+
+                if selectedH3Preset == .custom {
+                    // Resolution Tier Selector
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Resolution Tier", systemImage: "aspectratio")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Picker("", selection: Binding(
+                            get: {
+                                (parameters.width >= 640 || parameters.height >= 640)
+                                    ? MiniMaxH3ResolutionTier.tier2
+                                    : MiniMaxH3ResolutionTier.tier1
+                            },
+                            set: { tier in
+                                if tier == .tier2 {
+                                    if parameters.height > parameters.width {
+                                        parameters.width = 384
+                                        parameters.height = 640
+                                    } else {
+                                        parameters.width = 640
+                                        parameters.height = 384
+                                    }
+                                } else {
+                                    if parameters.height > parameters.width {
+                                        parameters.width = 288
+                                        parameters.height = 512
+                                    } else {
+                                        parameters.width = 512
+                                        parameters.height = 288
+                                    }
+                                }
+                            }
+                        )) {
+                            Text("Tier 1 (512p)").tag(MiniMaxH3ResolutionTier.tier1)
+                            Text("Tier 2 (640p)").tag(MiniMaxH3ResolutionTier.tier2)
+                        }
+                        .pickerStyle(.segmented)
+
+                        let isPortrait = parameters.height > parameters.width
+                        let isTier2 = parameters.width >= 640 || parameters.height >= 640
+                        let dimensionsText = isPortrait
+                            ? (isTier2 ? "384×640 · Portrait" : "288×512 · Portrait")
+                            : (isTier2 ? "640×384 · Landscape" : "512×288 · Landscape")
+                        Text(dimensionsText)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    // Custom Duration Stepper (1.0s to 5.9s)
+                    VStack(alignment: .leading, spacing: 6) {
+                        let requestedSec = Double(parameters.numFrames) / 24.0
+                        let clampedSec = max(1.0, min(5.9, requestedSec))
+                        let legalFrames = MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: clampedSec)
+                        HStack {
+                            Text("Duration: \(clampedSec, specifier: "%.1f")s (\(legalFrames) frames)")
+                                .font(.subheadline)
+                            Spacer()
+                            Stepper(
+                                "",
+                                value: Binding(
+                                    get: { max(1.0, min(5.9, Double(parameters.numFrames) / 24.0)) },
+                                    set: { parameters.numFrames = max(1, Int(($0 * 24.0).rounded())) }
+                                ),
+                                in: 1.0...5.9,
+                                step: 0.5)
+                            .labelsHidden()
+                        }
+
+                        if MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: clampedSec) {
+                            HStack(alignment: .top, spacing: 6) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                    .font(.caption)
+                                Text("5秒以上のH3動画では、後半にかけて細部や人物の一貫性が低下する場合があります。最高品質には3〜4秒を推奨します。")
+                                    .font(.caption2)
+                                    .foregroundStyle(.orange)
+                            }
+                            .padding(8)
+                            .background(Color.orange.opacity(0.1))
+                            .cornerRadius(6)
+                        }
+                    }
+
+                    // Custom Steps Stepper (8 to 24)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Inference Steps: \(parameters.numInferenceSteps > 0 ? parameters.numInferenceSteps : 16)")
+                                .font(.subheadline)
+                            Spacer()
+                            Stepper(
+                                "",
+                                value: Binding(
+                                    get: { max(8, min(24, parameters.numInferenceSteps > 0 ? parameters.numInferenceSteps : 16)) },
+                                    set: { parameters.numInferenceSteps = max(8, min(24, $0)) }
+                                ),
+                                in: 8...24,
+                                step: 1)
+                            .labelsHidden()
+                        }
+                    }
+
+                    // Fast Mode Toggle
+                    Toggle("Fast Mode", isOn: $h3CustomFast)
+                        .font(.subheadline)
+                } else {
+                    Text("Fixed execution settings are optimized for this preset. For manual resolution tiers, duration, and steps, choose Custom.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Seed", systemImage: "dice")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        TextField("Random", value: $parameters.seed, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(minWidth: 100, maxWidth: 140)
+                        Button {
+                            parameters.seed = Int.random(in: 0..<Int(Int32.max))
+                        } label: {
+                            Image(systemName: "dice.fill")
+                        }
+                        .buttonStyle(.borderless)
+                        if parameters.seed != nil {
+                            Button {
+                                parameters.seed = nil
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                }
+
+                Spacer()
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 
@@ -840,9 +1176,9 @@ struct TipsView: View {
         "Use the same seed to regenerate similar results",
         "Negative prompts help remove unwanted elements"
     ]
-    
+
     @State private var currentTip = 0
-    
+
     var body: some View {
         HStack {
             Image(systemName: "lightbulb.fill")
@@ -859,7 +1195,7 @@ struct TipsView: View {
                 .fill(Color.yellow.opacity(0.1))
         )
     }
-    
+
     private var nextButton: some View {
         Button {
             withAnimation {

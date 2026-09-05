@@ -79,6 +79,18 @@ private struct ProductionQueueRow: View {
             if let progress = job.progressText, !job.state.isTerminal {
                 Text(progress).font(.caption2).foregroundStyle(.secondary)
             }
+            if job.state == .running,
+               MiniMaxH3Configuration.isMiniMaxH3(modelID: job.snapshot.modelID),
+               let startedAt = job.startedAt {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(MiniMaxH3ProgressPresentation.elapsedText(
+                        since: startedAt,
+                        now: context.date
+                    ))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                }
+            }
             if let reason = job.failureReason {
                 Text(reason)
                     .font(.caption2)

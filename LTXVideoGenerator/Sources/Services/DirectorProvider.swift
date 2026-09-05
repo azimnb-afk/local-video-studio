@@ -20,6 +20,8 @@ protocol DirectorProvider {
     /// is true: constraining a plain-text protocol to JSON makes it impossible
     /// for the model to answer in that protocol at all.
     func complete(system: String, prompt: String, expectsJSON: Bool) async throws -> String
+    /// Cancellation-aware completion that hooks active URLSessionDataTask to handle.
+    func complete(system: String, prompt: String, expectsJSON: Bool, handle: DirectorPlanningHandle?) async throws -> String
     /// Unload/terminate the underlying model so LTX gets the memory back.
     func terminate() async
 }
@@ -28,6 +30,10 @@ extension DirectorProvider {
     /// Providers that do not distinguish response formats answer both the same.
     func complete(system: String, prompt: String, expectsJSON: Bool) async throws -> String {
         try await complete(system: system, prompt: prompt)
+    }
+
+    func complete(system: String, prompt: String, expectsJSON: Bool, handle: DirectorPlanningHandle?) async throws -> String {
+        try await complete(system: system, prompt: prompt, expectsJSON: expectsJSON)
     }
 
     var modelIdentifier: String? { nil }
@@ -87,6 +93,13 @@ struct DirectorSetupSnapshot: Equatable {
                               fallbackReason: nil)
     }
 
+    /// Display-only family recognition for the model that will actually plan
+    /// next (nil when no Local AI model is effective, e.g. Basic mode or an
+    /// unreachable server). Never used to change planning behavior.
+    var modelProfile: DirectorModelProfile? {
+        DirectorModelProfile.detect(modelIdentifier: effectiveModel)
+    }
+
     var userStatus: String {
         switch availability {
         case .checking: return "Checking Director availability…"
@@ -116,13 +129,42 @@ protocol DirectorEnvironmentClient {
 /// Loopback-only Ollama environment client. It never starts Ollama, invokes a
 /// shell, downloads a model, or contacts a cloud service.
 final class OllamaDirectorEnvironmentClient: DirectorEnvironmentClient {
-    static let endpoint = URL(string: "http://127.0.0.1:11434")!
-    private let session: URLSession
+    static let defaultEndpoint = URL(string: "http://127.0.0.1:11434")!
+    static let endpointUserDefaultsKey = "directorOllamaEndpoint"
 
-    init(session: URLSession = OllamaDirectorProvider.defaultSession) { self.session = session }
+    private let explicitEndpoint: URL?
+    private let session: URLSession
+    /// Re-read from UserDefaults on every access (mirrors
+    /// `OllamaDirectorProvider.model`'s pattern) rather than cached at init,
+    /// so changing the endpoint in Preferences takes effect on the very
+    /// next planning attempt without reconstructing this client.
+    private var endpoint: URL {
+        explicitEndpoint ?? Self.configuredEndpoint()
+    }
+
+    init(endpoint: URL? = nil, session: URLSession = OllamaDirectorProvider.defaultSession) {
+        self.explicitEndpoint = endpoint
+        self.session = session
+    }
+
+    /// The currently configured Local AI Director endpoint. Falls back to
+    /// the loopback default when nothing is saved — true for every existing
+    /// installation — or when the saved value somehow fails validation. That
+    /// fallback only guards a read of an already-persisted value; the
+    /// Preferences UI itself never persists an endpoint that failed
+    /// `DirectorEndpointValidator`, so a user's explicitly-entered invalid
+    /// endpoint is never silently swapped for this default without them
+    /// seeing the validation error first.
+    static func configuredEndpoint(userDefaults: UserDefaults = .standard) -> URL {
+        guard let raw = userDefaults.string(forKey: endpointUserDefaultsKey),
+              let url = DirectorEndpointValidator.normalizedURL(from: raw) else {
+            return defaultEndpoint
+        }
+        return url
+    }
 
     func installedModels() async throws -> [String] {
-        var request = URLRequest(url: Self.endpoint.appendingPathComponent("api/tags"))
+        var request = URLRequest(url: endpoint.appendingPathComponent("api/tags"))
         request.timeoutInterval = 2
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
@@ -331,6 +373,7 @@ enum DirectorError: Error, Equatable {
     case providerFailed(String)
     case basicNormalizationFailed(String)
     case unsupportedRenderLanguage(String)
+    case cancelled
 }
 
 extension DirectorError: LocalizedError {
@@ -346,6 +389,8 @@ extension DirectorError: LocalizedError {
             return message
         case .unsupportedRenderLanguage(let message):
             return message
+        case .cancelled:
+            return "Planning was cancelled"
         }
     }
 }
@@ -372,7 +417,7 @@ final class OllamaDirectorProvider: DirectorProvider {
     var modelIdentifier: String? { model }
 
     init(model: String? = nil,
-         baseURL: URL = OllamaDirectorEnvironmentClient.endpoint,
+         baseURL: URL = OllamaDirectorEnvironmentClient.configuredEndpoint(),
          session: URLSession = OllamaDirectorProvider.defaultSession) {
         self.explicitModel = model
         self.baseURL = baseURL
@@ -392,6 +437,13 @@ final class OllamaDirectorProvider: DirectorProvider {
     }
 
     func complete(system: String, prompt: String, expectsJSON: Bool) async throws -> String {
+        try await complete(system: system, prompt: prompt, expectsJSON: expectsJSON, handle: nil)
+    }
+
+    func complete(system: String, prompt: String, expectsJSON: Bool, handle: DirectorPlanningHandle?) async throws -> String {
+        if handle?.isCancelled == true || Task.isCancelled {
+            throw DirectorError.cancelled
+        }
         var request = URLRequest(url: baseURL.appendingPathComponent("api/generate"))
         request.httpMethod = "POST"
         request.timeoutInterval = 300
@@ -417,11 +469,35 @@ final class OllamaDirectorProvider: DirectorProvider {
             body["format"] = "json"
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw DirectorError.providerFailed("Ollama HTTP error")
+
+        return try await withCheckedThrowingContinuation { continuation in
+            if handle?.isCancelled == true || Task.isCancelled {
+                continuation.resume(throwing: DirectorError.cancelled)
+                return
+            }
+            let task = session.dataTask(with: request) { data, response, error in
+                if let error = error {
+                    if (error as? URLError)?.code == .cancelled || handle?.isCancelled == true || Task.isCancelled {
+                        continuation.resume(throwing: DirectorError.cancelled)
+                    } else {
+                        continuation.resume(throwing: error)
+                    }
+                    return
+                }
+                guard let http = response as? HTTPURLResponse, http.statusCode == 200, let data = data else {
+                    continuation.resume(throwing: DirectorError.providerFailed("Ollama HTTP error"))
+                    return
+                }
+                do {
+                    let text = try Self.completionText(from: data)
+                    continuation.resume(returning: text)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+            handle?.registerURLSessionTask(task)
+            task.resume()
         }
-        return try Self.completionText(from: data)
     }
 
     /// Extracts structured content from Ollama's outer response envelope.
@@ -490,6 +566,11 @@ final class EnvironmentDirectorProvider: DirectorProvider {
     func complete(system: String, prompt: String, expectsJSON: Bool) async throws -> String {
         guard let provider else { throw DirectorError.noProviderAvailable }
         return try await provider.complete(system: system, prompt: prompt, expectsJSON: expectsJSON)
+    }
+
+    func complete(system: String, prompt: String, expectsJSON: Bool, handle: DirectorPlanningHandle?) async throws -> String {
+        guard let provider else { throw DirectorError.noProviderAvailable }
+        return try await provider.complete(system: system, prompt: prompt, expectsJSON: expectsJSON, handle: handle)
     }
 
     func terminate() async {

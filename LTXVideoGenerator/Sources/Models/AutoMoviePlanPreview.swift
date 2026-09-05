@@ -18,11 +18,23 @@ struct AutoMoviePlanPreview: Equatable {
         var cameraMovement: String
         /// What this shot will start from, in the user's words.
         var sourceDescription: String
-        /// Continue vs cut, as planned.
+        /// Continue vs cut for a future shot, or the historical source used by
+        /// an already-generated shot.
         var continuityIntent: String
         /// True once this shot has a completed take, so the preview can say
         /// what is already done rather than implying everything is pending.
         var isGenerated: Bool
+        /// Short human phrase ("Performance", "Reaction", ...), empty when no
+        /// purpose was resolved (kept out of older previews' assumptions).
+        var purposeLabel: String = ""
+        /// Director-authored ending state, empty when none was given.
+        var endStateText: String = ""
+        /// Planned legal frames (e.g. 90, 73, 56 for H3 17k+5)
+        var effectiveFrames: Int? = nil
+        /// Projected exact duration
+        var actualDurationSeconds: Double? = nil
+        /// Continuity chain index
+        var continueChainIndex: Int? = nil
 
         /// "~5 sec" — never a frame-exact claim.
         var approximateDurationText: String {
@@ -53,7 +65,7 @@ struct AutoMoviePlanPreview: Equatable {
         var preview = AutoMoviePlanPreview()
         preview.rows = project.shots.enumerated().map { index, shot in
             let effectiveMode = AutoMovieRunCoordinator.shared
-                .resolvedContinuityMode(forShotAt: index, in: project)
+                .displayedAutoMovieContinuityMode(forShotAt: index, in: project)
             let resolution = LTXContinuityResolver.resolve(
                 shot: shot, shotIndex: index,
                 hasOpeningReference: hasOpeningReference,
@@ -78,7 +90,12 @@ struct AutoMoviePlanPreview: Equatable {
                 cameraMovement: shot.camera.movement,
                 sourceDescription: source,
                 continuityIntent: effectiveMode.displayName,
-                isGenerated: shot.takes.contains { $0.status == .completed }
+                isGenerated: shot.takes.contains { $0.status == .completed },
+                purposeLabel: shot.shotPurpose?.shortLabel ?? "",
+                endStateText: shot.endStateSummary ?? "",
+                effectiveFrames: shot.effectiveFrames,
+                actualDurationSeconds: shot.actualDurationSeconds,
+                continueChainIndex: shot.continueChainIndex
             )
         }
         return preview
@@ -106,10 +123,23 @@ enum AutoMoviePlanEditor {
     /// Shot 1 can never continue, and `auto` remains Director-only rather than
     /// a user-facing third state in Phase B.
     ///
+    /// Since Cut-Aware Continuity, Auto Movie Shot 2+ can be edited to Cut:
+    /// Auto Movie remains a single continuous sequence by default
+    /// (`AutoMovieRunCoordinator.autoMovieContinuityMode` still resolves
+    /// `.continueFromPrevious` unless this exact shot is explicitly `.cut`),
+    /// but a user (or a Director plan left unpromoted by
+    /// `ContinuityReconciler`) may now mark an individual shot Cut without
+    /// starting a separate Auto Movie. A Cut shot may optionally carry its own
+    /// New Start Frame (set separately; see `FilmProjectStore.importNewStartFrame`),
+    /// falling back to Character Anchor re-anchoring or plain text-to-video —
+    /// never the previous shot's frame.
+    ///
     /// Any prepared last-frame or refresh state belongs to the old choice and
     /// is invalidated. The managed pixels may remain as independent project
     /// files, but no future request can reach them through this shot. Existing
     /// Take snapshots are immutable history and are deliberately untouched.
+    /// The shot's New Start Frame, if any, is a plain user-chosen asset and is
+    /// NOT cleared by a mode toggle — it simply goes unused while not Cut.
     @discardableResult
     static func applyContinuityMode(
         project: inout FilmProject,

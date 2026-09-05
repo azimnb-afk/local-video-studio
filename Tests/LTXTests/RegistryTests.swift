@@ -20,6 +20,36 @@ func runRegistryTests(_ t: TestKit) {
         t.checkEqual(custom?.isOfficial, false, "custom model is not official")
     }
 
+    t.suite("Backend descriptor compatibility") {
+        t.check(GenerationBackendKind.ltx2MLX.matches(descriptorBackend: "ltx-2-mlx"),
+                "descriptor backend name ltx-2-mlx maps to the ltx2MLX backend")
+        t.check(GenerationBackendKind.ltx2MLX.matches(descriptorBackend: "ltx2MLX"),
+                "diagnostic raw backend name ltx2MLX maps to the ltx2MLX backend")
+        t.check(!GenerationBackendKind.ltx2MLX.matches(descriptorBackend: "mlx-video-with-audio"),
+                "official backend is not misclassified as ltx2MLX")
+    }
+
+    t.suite("Local model display identity") {
+        let suiteName = "LTXTests.display-name-\(UUID().uuidString)"
+        let profileDefaults = UserDefaults(suiteName: suiteName)!
+        defer { profileDefaults.removePersistentDomain(forName: suiteName) }
+        let profile = CustomModelProfile(
+            displayName: "Custom LTX-2 MLX Model",
+            modelPath: "/Users/test/.cache/huggingface/models--MLXBits--ltx-2.3-10eros-v1.3-dmd-mlx-q4/")
+        try? CustomModelProfileStore.addProfile(profile, userDefaults: profileDefaults)
+        let descriptor = ModelRegistry(userDefaults: profileDefaults).descriptor(id: profile.modelID)
+        t.checkEqual(descriptor?.localModelFolderName,
+                     "models--MLXBits--ltx-2.3-10eros-v1.3-dmd-mlx-q4",
+                     "custom descriptor exposes only the local model folder name")
+        t.checkEqual(descriptor?.selectionDisplayName,
+                     "Custom LTX-2 MLX Model · models--MLXBits--ltx-2.3-10eros-v1.3-dmd-mlx-q4",
+                     "custom picker label includes the model folder name")
+
+        let official = ModelRegistry(userDefaults: profileDefaults).descriptor(id: LTXModelCatalog.defaultModelID)!
+        t.checkEqual(official.selectionDisplayName, official.displayName,
+                     "official model labels remain unchanged")
+    }
+
     t.suite("Model Policy and Generation Validation") {
         let registry = ModelRegistry(userDefaults: defaults)
         // official model passes validation
@@ -92,13 +122,67 @@ func runRegistryTests(_ t: TestKit) {
     t.suite("Selectable models / flags") {
         let registry = ModelRegistry(userDefaults: defaults)
         FeatureFlags.disableAll(userDefaults: defaults)
-        let officialOnly = registry.selectableModels(customModelsEnabled: false)
-        t.checkEqual(officialOnly.count, LTXModelCatalog.all.count, "flags OFF → official models only")
+        let defaultAvailable = registry.selectableModels(customModelsEnabled: false)
+        t.checkEqual(defaultAvailable.count, LTXModelCatalog.all.count + 3,
+                     "flags OFF → official models + built-in experimental renderers (LTX 2.5 + H3 Standard + H3 HQ)")
+        t.check(defaultAvailable.contains { $0.id == MiniMaxH3Configuration.modelID },
+                "flags OFF → built-in MiniMax H3 remains visible")
+        t.check(defaultAvailable.contains { $0.id == MiniMaxH3Configuration.highQualityModelID },
+                "flags OFF → built-in MiniMax H3 High Quality remains visible")
         
         FeatureFlags.set(.customModelsV1, enabled: true, userDefaults: defaults)
-        t.checkEqual(registry.selectableModels(customModelsEnabled: true).count, LTXModelCatalog.all.count + 1,
+        t.checkEqual(registry.selectableModels(customModelsEnabled: true).count, LTXModelCatalog.all.count + 4,
                      "customModels ON → custom model visible")
         FeatureFlags.disableAll(userDefaults: defaults)
+    }
+
+    t.suite("Model readiness policy") {
+        let readinessRegistry = ModelRegistry(userDefaults: defaults)
+        t.check(ModelReadinessStatus.ready.canGenerate,
+                "only Ready models can be selected for generation")
+        t.check(!ModelReadinessStatus.notDownloaded.canGenerate,
+                "not-downloaded models are setup-only")
+        t.check(!ModelReadinessStatus.serverNotRunning.canGenerate,
+                "H3 server-not-running models are setup-only")
+
+        var unsupported = readinessRegistry.descriptor(id: LTXModelCatalog.defaultModelID)!
+        unsupported.capabilities.textToVideo = false
+        let result = ModelReadinessResolver.evaluate(
+            model: unsupported,
+            userDefaults: defaults,
+            fileManager: .default,
+            hubDirectory: URL(fileURLWithPath: "/private/tmp/ltx-tests-no-cache-\(UUID().uuidString)")
+        )
+        t.checkEqual(result.status, .unsupported,
+                     "a model without T2V capability is never offered as Ready")
+
+        // A legacy H3 state without the model-specific key is ambiguous
+        // between Standard and High Quality and must not make either picker
+        // entry appear Ready.
+        let h3Defaults = UserDefaults(suiteName: "test.h3.readiness.\(UUID().uuidString)")!
+        let h3Root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LTXTests-h3-readiness-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: h3Root, withIntermediateDirectories: true)
+        defer {
+            h3Defaults.removePersistentDomain(forName: h3Defaults.description)
+            try? FileManager.default.removeItem(at: h3Root)
+        }
+        h3Defaults.set(h3Root.path, forKey: MiniMaxH3Configuration.modelDirectoryKey)
+        h3Defaults.set("/bin/sh", forKey: MiniMaxH3Configuration.runtimeExecutablePathKey)
+        h3Defaults.set(MiniMaxH3RuntimeState.ready.rawValue,
+                       forKey: MiniMaxH3Configuration.lastReadinessStateKey)
+        let h3Standard = ModelRegistry(userDefaults: h3Defaults)
+            .descriptor(id: MiniMaxH3Configuration.standardModelID)!
+        let ambiguous = ModelReadinessResolver.evaluate(
+            model: h3Standard, userDefaults: h3Defaults)
+        t.checkEqual(ambiguous.status, .serverModelMismatch,
+                     "legacy H3 Ready state without a model ID is not trusted")
+        h3Defaults.set(MiniMaxH3Configuration.standardModelID,
+                       forKey: MiniMaxH3Configuration.lastReadinessModelIDKey)
+        let matched = ModelReadinessResolver.evaluate(
+            model: h3Standard, userDefaults: h3Defaults)
+        t.checkEqual(matched.status, .ready,
+                     "model-specific H3 readiness can make the matching model Ready")
     }
 
     t.suite("Adapter registry") {
@@ -129,8 +213,70 @@ func runRegistryTests(_ t: TestKit) {
         t.checkEqual(AppStorageDirectory.legacyFolderName, "LTXVideoGenerator", "legacy folder name preserved")
         t.checkEqual(AppStorageDirectory.personalFolderName, "LocalVideoStudio", "personal folder name defined")
         t.checkEqual(AppStorageDirectory.devFolderName, "LocalVideoStudioDev", "dev folder name defined")
+        t.checkEqual(AppStorageDirectory.profile(bundleIdentifier: "com.localvideostudio"), .personal,
+                     "Personal bundle resolves only to Personal profile")
+        t.checkEqual(AppStorageDirectory.profile(bundleIdentifier: "com.localvideostudio.dev"), .development,
+                     "Dev bundle resolves only to Dev profile")
+        t.checkEqual(AppStorageDirectory.profile(bundleIdentifier: nil), .bundleless,
+                     "missing bundle identity resolves to isolated bundle-less profile")
+
+        let fakeSupport = URL(fileURLWithPath: "/Users/test/Library/Application Support", isDirectory: true)
+        let fakeTemporary = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+        let personalRoot = AppStorageDirectory.resolvedRootURL(
+            bundleIdentifier: "com.localvideostudio",
+            environment: [:],
+            applicationSupportDirectory: fakeSupport,
+            temporaryDirectory: fakeTemporary,
+            processIdentifier: 42)
+        let devRoot = AppStorageDirectory.resolvedRootURL(
+            bundleIdentifier: "com.localvideostudio.dev",
+            environment: [:],
+            applicationSupportDirectory: fakeSupport,
+            temporaryDirectory: fakeTemporary,
+            processIdentifier: 42)
+        let fallbackRoot = AppStorageDirectory.resolvedRootURL(
+            bundleIdentifier: nil,
+            environment: [:],
+            applicationSupportDirectory: fakeSupport,
+            temporaryDirectory: fakeTemporary,
+            processIdentifier: 42)
+        let explicitTestRoot = AppStorageDirectory.resolvedRootURL(
+            bundleIdentifier: nil,
+            environment: [AppStorageDirectory.testRootEnvironmentKey: "/tmp/explicit-ltx-tests"],
+            applicationSupportDirectory: fakeSupport,
+            temporaryDirectory: fakeTemporary,
+            processIdentifier: 42)
+        t.checkEqual(personalRoot.path, fakeSupport.appendingPathComponent("LocalVideoStudio").path,
+                     "Personal bundle retains the Personal Application Support root")
+        t.checkEqual(devRoot.path, fakeSupport.appendingPathComponent("LocalVideoStudioDev").path,
+                     "Dev bundle retains the isolated Dev Application Support root")
+        t.checkEqual(fallbackRoot.path, "/private/tmp/LocalVideoStudio-Bundleless-42",
+                     "bundle-less process without an override fails safe to PID-scoped temporary storage")
+        t.check(!fallbackRoot.path.contains("Application Support/LocalVideoStudio"),
+                "bundle-less fallback cannot resolve into Personal Application Support")
+        t.checkEqual(explicitTestRoot.path, "/tmp/explicit-ltx-tests",
+                     "explicit test storage remains authoritative for bundle-less tests")
+
         t.check(!AppStorageDirectory.root.path.isEmpty, "AppStorageDirectory root is valid")
-        t.check(!AppStorageDirectory.keychainService.isEmpty, "keychain service name is valid")
+        if let isolatedRoot = ProcessInfo.processInfo.environment[
+            AppStorageDirectory.testRootEnvironmentKey
+        ] {
+            t.checkEqual(
+                AppStorageDirectory.root.standardizedFileURL.path,
+                URL(fileURLWithPath: isolatedRoot).standardizedFileURL.path,
+                "bundle-less test executable uses the isolated storage override")
+        }
+        t.checkEqual(
+            AppStorageDirectory.keychainServiceName(
+                bundleIdentifier: "com.localvideostudio.dev", processIdentifier: 42),
+            AppStorageDirectory.devServiceName,
+            "Dev bundle uses only the Dev Keychain namespace")
+        let bundlelessKeychain = AppStorageDirectory.keychainServiceName(
+            bundleIdentifier: nil, processIdentifier: 42)
+        t.check(bundlelessKeychain.hasPrefix(AppStorageDirectory.bundlelessServiceNamePrefix),
+                "bundle-less process uses an isolated Keychain namespace")
+        t.check(bundlelessKeychain != AppStorageDirectory.personalServiceName,
+                "bundle-less process can never use the Personal Keychain service")
     }
 
     t.suite("Codable migration") {
@@ -223,6 +369,110 @@ func runRegistryTests(_ t: TestKit) {
         }
         FeatureFlags.set(.modelRegistryV1, enabled: true, userDefaults: fresh)
         t.check(FeatureFlags.isEnabled(.modelRegistryV1, userDefaults: fresh), "flag can be re-enabled")
+    }
+
+    t.suite("Custom profile execution boundary (adapter, not just resolver)") {
+        // Regression coverage for a real bug: GenerationModelResolver already
+        // resolved custom_profile_<UUID> correctly, but the actual execution
+        // path used by Generate/One Shot/Storyboard/Auto Movie goes through
+        // ModelRegistry -> AdapterRegistry -> LTX2MLXAdapter (gated by
+        // modelRegistryV1, which defaults ON) — a completely separate
+        // boundary that re-derived its LTXModel from LTX2MLXModelCatalog
+        // instead of the already-resolved ModelDescriptor. That catalog only
+        // ever knew the single legacy custom-model slot and LTX-2.5
+        // Experimental, so every per-profile ID hit "is not a registered
+        // ltx-2-mlx model" before it ever reached the backend. Fixture names
+        // are neutral by design — this is purely a plumbing bug, never keyed
+        // on any specific model name or path.
+        let profileSuite = "LTXTests.customProfileBoundary.\(UUID().uuidString)"
+        let profileDefaults = UserDefaults(suiteName: profileSuite)!
+        defer { profileDefaults.removePersistentDomain(forName: profileSuite) }
+
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LTXTests-custom-profile-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let profileA = CustomModelProfile(displayName: "Custom Profile A", modelPath: tmpDir.appendingPathComponent("profile-a").path)
+        let profileB = CustomModelProfile(displayName: "Custom Profile B", modelPath: tmpDir.appendingPathComponent("profile-b").path)
+        try? CustomModelProfileStore.addProfile(profileA, userDefaults: profileDefaults)
+        try? CustomModelProfileStore.addProfile(profileB, userDefaults: profileDefaults)
+
+        let registry = ModelRegistry(userDefaults: profileDefaults)
+
+        // 1 & 3. Descriptor resolves with the correct backend and its OWN local path.
+        let descriptorA = registry.descriptor(id: profileA.modelID)
+        t.checkEqual(descriptorA?.runtime.backend, "ltx-2-mlx", "custom profile A resolves to the ltx-2-mlx backend")
+        t.checkEqual(descriptorA?.localPath, profileA.modelPath, "custom profile A descriptor carries its own local path")
+
+        // 8. Multi-profile selection: each resolves to itself, never another profile.
+        let descriptorB = registry.descriptor(id: profileB.modelID)
+        t.checkEqual(descriptorB?.localPath, profileB.modelPath, "custom profile B descriptor carries its own local path, not A's")
+        t.check(descriptorA?.localPath != descriptorB?.localPath, "two custom profiles resolve to distinct local paths")
+
+        // 5. No default-backend fallback for a custom profile.
+        switch GenerationModelResolver.resolve(modelID: profileA.modelID, registry: registry, userDefaults: profileDefaults) {
+        case .runnable(let runnable):
+            t.checkEqual(runnable.backend, .ltx2MLX, "custom profile routes to ltx2MLX, never the default backend")
+        case .unsupported:
+            t.check(false, "custom profile A must be runnable")
+        }
+
+        // 6. Missing/deleted custom profile still fails closed.
+        let missingID = CustomModelProfile.idPrefix + UUID().uuidString
+        t.check(registry.descriptor(id: missingID) == nil, "an unregistered custom profile ID has no descriptor")
+        switch GenerationModelResolver.resolve(modelID: missingID, registry: registry, userDefaults: profileDefaults) {
+        case .runnable:
+            t.check(false, "an unregistered custom profile must not resolve as runnable")
+        case .unsupported(let reason):
+            t.checkEqual(reason, .unknownModel(modelID: missingID),
+                         "an unregistered custom profile is reported unknown, never silently substituted")
+        }
+
+        // 7. Built-in models keep using the fast catalog path (unaffected by the fallback).
+        let officialAdapter = AdapterRegistry()
+        let officialDescriptor = registry.descriptor(id: LTXModelCatalog.defaultModelID)!
+        t.check(officialAdapter.adapter(for: officialDescriptor) is OfficialMLXAudioAdapter,
+                "built-in LTX-2.3 model still routes through the official adapter, unaffected by this fix")
+
+        // THE CORE REGRESSION: LTX2MLXAdapter must not reject a real custom
+        // profile with "is not a registered ltx-2-mlx model" — it must get
+        // past the catalog lookup and fail (if at all) for an environment
+        // reason (missing runtime/model components in this test sandbox),
+        // never for an identity reason.
+        guard let descriptor = descriptorA else {
+            t.check(false, "custom profile A descriptor must exist for the adapter regression check")
+            return
+        }
+        let adapter = LTX2MLXAdapter()
+        t.check(adapter.supports(model: descriptor), "LTX2MLXAdapter supports a per-profile custom model, not just the legacy slot")
+
+        let request = GenerationRequest(prompt: "test prompt", modelId: profileA.modelID, userDefaults: profileDefaults)
+        // 9. Archive/project identity stays the stable profile ID even though
+        // execution will use the resolved local path, never the ID itself.
+        t.checkEqual(request.modelId, profileA.modelID, "request modelId stays the stable custom profile ID for Archive/history identity")
+        t.checkEqual(request.customModelProfileID, profileA.id, "request binds to the correct profile UUID")
+        t.checkEqual(request.customModelLocalPath, profileA.modelPath, "request carries the resolved local model path")
+
+        let sem = DispatchSemaphore(value: 0)
+        var caughtError: Error?
+        Task {
+            do {
+                _ = try await adapter.generate(
+                    request: request,
+                    model: descriptor,
+                    outputPath: tmpDir.appendingPathComponent("out.mp4").path,
+                    progressHandler: { _, _ in }
+                )
+            } catch {
+                caughtError = error
+            }
+            sem.signal()
+        }
+        sem.wait()
+        let errorDescription = caughtError.map { String(describing: $0) } ?? ""
+        t.check(!errorDescription.contains("is not a registered ltx-2-mlx model"),
+                "custom profile is no longer rejected as an unregistered ltx-2-mlx model (got: \(errorDescription.isEmpty ? "no error" : errorDescription))")
     }
 
     t.suite("Custom Model seed configuration") {

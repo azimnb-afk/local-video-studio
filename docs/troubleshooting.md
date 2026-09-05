@@ -239,7 +239,7 @@ LTX-2 is a 19B parameter model. Minimum/recommended RAM varies by which model yo
 
 **Check:**
 1. Look in your configured output directory
-2. Or check the default: `~/Library/Application Support/LTXVideoGenerator/Videos/`
+2. Or check the default: `~/Library/Application Support/LocalVideoStudio/Videos/` (or `LocalVideoStudioDev` for a development build)
 3. Verify the video file exists
 
 ---

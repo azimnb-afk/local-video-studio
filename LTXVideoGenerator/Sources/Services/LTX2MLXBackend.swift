@@ -32,7 +32,8 @@ struct LTX2MLXBackend {
         outputPath: String,
         seed: Int,
         width: Int,
-        height: Int
+        height: Int,
+        effectiveSourceImagePath: String? = nil
     ) -> [String] {
         var args = [
             "generate",
@@ -48,8 +49,12 @@ struct LTX2MLXBackend {
             // distilled two-stage pipeline is the one it was packaged for.
             "--distilled",
         ]
-        if let sourceImage = request.sourceImagePath, !sourceImage.isEmpty {
+        let sourceImage = effectiveSourceImagePath ?? request.sourceImagePath
+        if let sourceImage, !sourceImage.isEmpty {
             args.append(contentsOf: ["--image", sourceImage])
+        }
+        if request.disableAudio {
+            args.append("--no-audio")
         }
         return args
     }
@@ -105,10 +110,26 @@ struct LTX2MLXBackend {
         }
 
         let params = request.parameters
-        // ltx-2-mlx works in multiples of 32; the app already snaps to 64.
-        let width = (params.width / 32) * 32
-        let height = (params.height / 32) * 32
+        let alignment = ModelAwareResolutionAlignment.align(
+            requestedWidth: params.width,
+            requestedHeight: params.height,
+            modelID: request.modelId,
+            isContinuation: request.isContinuation
+        )
+        let width = alignment.generation.width
+        let height = alignment.generation.height
         let seed = params.seed ?? Int.random(in: 0..<Int(Int32.max))
+
+        var effectiveSourceImage = request.sourceImagePath
+        if let rawPath = request.sourceImagePath?.trimmingCharacters(in: .whitespacesAndNewlines), !rawPath.isEmpty {
+            if let prepared = try? ImageConditioningPreparer.shared.prepare(
+                sourceURL: URL(fileURLWithPath: rawPath),
+                targetWidth: width,
+                targetHeight: height
+            ) {
+                effectiveSourceImage = prepared.preparedURL.path
+            }
+        }
 
         for note in Self.settingsMismatch(request: request).notes {
             progressHandler(0.02, note)
@@ -116,7 +137,8 @@ struct LTX2MLXBackend {
 
         let args = Self.arguments(
             request: request, modelDirectory: modelDirectory, outputPath: outputPath,
-            seed: seed, width: width, height: height
+            seed: seed, width: width, height: height,
+            effectiveSourceImagePath: effectiveSourceImage
         )
         progressHandler(0.05, "Starting generation on \(GenerationBackendKind.ltx2MLX.displayName)…")
 
@@ -128,6 +150,13 @@ struct LTX2MLXBackend {
         guard fileManager.fileExists(atPath: outputPath), size > 0 else {
             throw LTXError.generationFailed(
                 "\(GenerationBackendKind.ltx2MLX.displayName) reported success but wrote no video to \(outputPath)."
+            )
+        }
+        if request.filmProjectID == nil {
+            _ = try? PostGenerationCropService.applyCropIfNeeded(
+                videoPath: outputPath,
+                alignment: alignment,
+                fileManager: fileManager
             )
         }
         progressHandler(1.0, "Generation complete.")
@@ -163,6 +192,12 @@ struct LTX2MLXBackend {
             env["PATH"] = (prepend + [existing]).filter { !$0.isEmpty }.joined(separator: ":")
         }
         return env
+    }
+
+    private let processTracker = ProcessCancellationTracker()
+
+    func cancelActiveGeneration() {
+        processTracker.cancel()
     }
 
     private func run(
@@ -203,24 +238,44 @@ struct LTX2MLXBackend {
                 text.components(separatedBy: "\n").forEach(note)
             }
 
-            process.terminationHandler = { finished in
+            process.terminationHandler = { [weak processTracker] finished in
                 outPipe.fileHandleForReading.readabilityHandler = nil
                 errPipe.fileHandleForReading.readabilityHandler = nil
-                if finished.terminationStatus == 0 {
+                let wasCancelled = processTracker?.isCancelled == true
+                processTracker?.unregister(finished)
+                if wasCancelled {
+                    continuation.resume(throwing: LTXError.cancelled)
+                } else if finished.terminationStatus == 0 {
                     continuation.resume()
                 } else {
                     lock.lock()
                     let detail = tail.suffix(12).joined(separator: "\n")
                     lock.unlock()
-                    continuation.resume(throwing: LTXError.generationFailed(
-                        "\(GenerationBackendKind.ltx2MLX.displayName) exited with code "
-                        + "\(finished.terminationStatus).\n\(detail)"
-                    ))
+                    // .uncaughtSignal means the OS killed the process — the
+                    // reported terminationStatus is the raw signal number
+                    // (confirmed via a direct reproduction: signal 9/SIGKILL,
+                    // consistent with a memory/swap exhaustion kill, not the
+                    // tool's own Python exit code). Distinguishing this from
+                    // an ordinary non-zero exit is worth a clearer message;
+                    // it is not evidence of an application bug on its own.
+                    let message: String
+                    if finished.terminationReason == .uncaughtSignal {
+                        message = "\(GenerationBackendKind.ltx2MLX.displayName) was terminated by the "
+                            + "system (signal \(finished.terminationStatus)). This commonly indicates "
+                            + "memory or swap pressure — try a lower resolution/frame count, close other "
+                            + "memory-heavy apps, or free up disk space (swap capacity is disk-backed)."
+                            + "\n\(detail)"
+                    } else {
+                        message = "\(GenerationBackendKind.ltx2MLX.displayName) exited with code "
+                            + "\(finished.terminationStatus).\n\(detail)"
+                    }
+                    continuation.resume(throwing: LTXError.generationFailed(message))
                 }
             }
 
             do {
                 try process.run()
+                processTracker.register(process)
             } catch {
                 continuation.resume(throwing: LTXError.generationFailed(
                     "Could not start \(GenerationBackendKind.ltx2MLX.displayName) at \(executable): "

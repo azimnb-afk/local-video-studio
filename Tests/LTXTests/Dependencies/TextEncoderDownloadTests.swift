@@ -118,7 +118,8 @@ func runTextEncoderDownloadTests(_ t: TestKit) {
                 modelChecker: FakeModelChecker(),
                 optionalServiceChecker: FakeOptionalServiceChecker()
             )
-            let coordinator = TextEncoderDownloadCoordinator(downloader: fake, healthManager: manager, isCached: { _ in false })
+            let testStorageChecker = StorageHealthService(capacityProvider: MockDiskCapacityProvider(defaultCapacity: 100 * 1024 * 1024 * 1024))
+            let coordinator = TextEncoderDownloadCoordinator(downloader: fake, healthManager: manager, storageChecker: testStorageChecker, isCached: { _ in false })
             await withSelection(encoderA.id) {
                 await coordinator.startDownload()
             }
@@ -137,7 +138,8 @@ func runTextEncoderDownloadTests(_ t: TestKit) {
                 modelChecker: FakeModelChecker(),
                 optionalServiceChecker: FakeOptionalServiceChecker()
             )
-            let coordinator = TextEncoderDownloadCoordinator(downloader: fake, healthManager: manager, isCached: { _ in false })
+            let testStorageChecker = StorageHealthService(capacityProvider: MockDiskCapacityProvider(defaultCapacity: 100 * 1024 * 1024 * 1024))
+            let coordinator = TextEncoderDownloadCoordinator(downloader: fake, healthManager: manager, storageChecker: testStorageChecker, isCached: { _ in false })
             UserDefaults.standard.set(encoderA.id, forKey: selectionKey)
             UserDefaults.standard.set(encoderB.id, forKey: selectionKey) // switched before any download happened
             await coordinator.startDownload()
@@ -156,7 +158,8 @@ func runTextEncoderDownloadTests(_ t: TestKit) {
                 modelChecker: FakeModelChecker(),
                 optionalServiceChecker: FakeOptionalServiceChecker()
             )
-            let coordinator = TextEncoderDownloadCoordinator(downloader: fake, healthManager: manager, isCached: { _ in false })
+            let testStorageChecker = StorageHealthService(capacityProvider: MockDiskCapacityProvider(defaultCapacity: 100 * 1024 * 1024 * 1024))
+            let coordinator = TextEncoderDownloadCoordinator(downloader: fake, healthManager: manager, storageChecker: testStorageChecker, isCached: { _ in false })
             var observedDuringInvocation: TextEncoderDownloadState?
             fake.onInvoked = { observedDuringInvocation = coordinator.state }
             await withSelection(encoderA.id) {
@@ -183,7 +186,8 @@ func runTextEncoderDownloadTests(_ t: TestKit) {
                 modelChecker: FakeModelChecker(),
                 optionalServiceChecker: FakeOptionalServiceChecker()
             )
-            let coordinator = TextEncoderDownloadCoordinator(downloader: fake, healthManager: manager, isCached: { _ in false })
+            let testStorageChecker = StorageHealthService(capacityProvider: MockDiskCapacityProvider(defaultCapacity: 100 * 1024 * 1024 * 1024))
+            let coordinator = TextEncoderDownloadCoordinator(downloader: fake, healthManager: manager, storageChecker: testStorageChecker, isCached: { _ in false })
             await withSelection(encoderA.id) {
                 await coordinator.startDownload()
             }
@@ -213,7 +217,8 @@ func runTextEncoderDownloadTests(_ t: TestKit) {
             await manager.refresh() // establishes the pre-download "missing" state, as the wizard would show
             t.checkEqual(manager.canStartGeneration, false, "blocked before the download")
 
-            let coordinator = TextEncoderDownloadCoordinator(downloader: fake, healthManager: manager, isCached: { _ in false })
+            let testStorageChecker = StorageHealthService(capacityProvider: MockDiskCapacityProvider(defaultCapacity: 100 * 1024 * 1024 * 1024))
+            let coordinator = TextEncoderDownloadCoordinator(downloader: fake, healthManager: manager, storageChecker: testStorageChecker, isCached: { _ in false })
             await withSelection(encoderA.id) { await coordinator.startDownload() }
 
             t.checkEqual(coordinator.state, .succeeded, "coordinator reached .succeeded")
@@ -233,7 +238,8 @@ func runTextEncoderDownloadTests(_ t: TestKit) {
                 modelChecker: FakeModelChecker(),
                 optionalServiceChecker: FakeOptionalServiceChecker()
             )
-            let coordinator = TextEncoderDownloadCoordinator(downloader: fake, healthManager: manager, isCached: { _ in true })
+            let testStorageChecker = StorageHealthService(capacityProvider: MockDiskCapacityProvider(defaultCapacity: 100 * 1024 * 1024 * 1024))
+            let coordinator = TextEncoderDownloadCoordinator(downloader: fake, healthManager: manager, storageChecker: testStorageChecker, isCached: { _ in true })
             await withSelection(encoderA.id) { await coordinator.startDownload() }
             t.checkEqual(fake.invokedRepositories, [], "no network/subprocess call was made for an already-cached repo")
             t.checkEqual(coordinator.state, .succeeded, "an already-cached encoder is reported succeeded without downloading")
@@ -253,7 +259,8 @@ func runTextEncoderDownloadTests(_ t: TestKit) {
                 modelChecker: FakeModelChecker(),
                 optionalServiceChecker: FakeOptionalServiceChecker()
             )
-            let coordinator = TextEncoderDownloadCoordinator(downloader: fake, healthManager: manager, isCached: { _ in false })
+            let testStorageChecker = StorageHealthService(capacityProvider: MockDiskCapacityProvider(defaultCapacity: 100 * 1024 * 1024 * 1024))
+            let coordinator = TextEncoderDownloadCoordinator(downloader: fake, healthManager: manager, storageChecker: testStorageChecker, isCached: { _ in false })
             UserDefaults.standard.removeObject(forKey: LTXTextEncoderCatalog.customTextEncoderRepoKey)
             await withSelection("custom") { await coordinator.startDownload() }
             t.checkEqual(fake.invokedRepositories, [], "no download attempted for an unset custom repo")
@@ -281,7 +288,8 @@ func runTextEncoderDownloadTests(_ t: TestKit) {
                 modelChecker: models9,
                 optionalServiceChecker: FakeOptionalServiceChecker()
             )
-            let coordinator = TextEncoderDownloadCoordinator(downloader: fake, healthManager: manager, isCached: { _ in false })
+            let testStorageChecker = StorageHealthService(capacityProvider: MockDiskCapacityProvider(defaultCapacity: 100 * 1024 * 1024 * 1024))
+            let coordinator = TextEncoderDownloadCoordinator(downloader: fake, healthManager: manager, storageChecker: testStorageChecker, isCached: { _ in false })
             await withSelection(encoderA.id) { await coordinator.startDownload() }
             t.checkEqual(coordinator.state, .failed("Repository not found"), "first attempt surfaces a concise failure")
             t.checkEqual(manager.canStartGeneration, false, "a failed download does not become Ready")
@@ -308,7 +316,8 @@ func runTextEncoderDownloadTests(_ t: TestKit) {
                 modelChecker: FakeModelChecker(),
                 optionalServiceChecker: FakeOptionalServiceChecker()
             )
-            let coordinator = TextEncoderDownloadCoordinator(downloader: fake, healthManager: manager, isCached: { _ in false })
+            let testStorageChecker = StorageHealthService(capacityProvider: MockDiskCapacityProvider(defaultCapacity: 100 * 1024 * 1024 * 1024))
+            let coordinator = TextEncoderDownloadCoordinator(downloader: fake, healthManager: manager, storageChecker: testStorageChecker, isCached: { _ in false })
             await withSelection(encoderA.id) { await coordinator.startDownload() }
             t.checkEqual(coordinator.state, .failed("boom"), "failed as scripted")
 
@@ -318,9 +327,9 @@ func runTextEncoderDownloadTests(_ t: TestKit) {
         }
         while !done10 { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) }
 
-        // --- Generate gating asymmetry (items 21-24; video model unaffected) ---
+        // --- Generate gating: both model and encoder must be explicitly ready ---
 
-        print("Test 11: a missing text encoder blocks Generate even though a missing video model alone would not")
+        print("Test 11: a missing text encoder or video model blocks Generate")
         var done11 = false
         Task { @MainActor in
             let videoMissingOnly = FakeModelChecker()
@@ -333,7 +342,7 @@ func runTextEncoderDownloadTests(_ t: TestKit) {
                 optionalServiceChecker: FakeOptionalServiceChecker()
             )
             await managerVideoMissing.refresh()
-            t.checkEqual(managerVideoMissing.canStartGeneration, true, "video model missing alone still allows the attempt (unchanged first-use download semantics)")
+            t.checkEqual(managerVideoMissing.canStartGeneration, false, "video model missing blocks the attempt until explicit setup")
 
             let textMissingOnly = FakeModelChecker()
             textMissingOnly.videoStatus = .ready

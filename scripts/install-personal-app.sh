@@ -54,17 +54,28 @@ if [ "${SHOULD_CLEAN}" = true ]; then
     BUILD_ACTION="clean build"
 fi
 
+# CFBundleDisplayName alone is not enough: on current macOS the menu bar
+# application menu (top-left, bold) reads CFBundleName, not
+# CFBundleDisplayName — verified empirically via System Events (the "displayed
+# name" showed the correct name while the actual app menu title still showed
+# LTXVideoGenerator until CFBundleName was also fixed). With
+# GENERATE_INFOPLIST_FILE=YES, Xcode always derives CFBundleName from
+# PRODUCT_NAME (INFOPLIST_KEY_CFBundleName has no effect on it), so
+# PRODUCT_NAME is overridden too. This also renames CFBundleExecutable — the
+# Xcode project's own target/module name is untouched. The renamed .app is
+# then copied to "Local Video Studio.app" below either way.
 xcodebuild \
     -project "${PROJECT_PATH}" \
     -scheme "${SCHEME}" \
     -configuration "${CONFIGURATION}" \
     -destination "platform=macOS" \
     PRODUCT_BUNDLE_IDENTIFIER="com.localvideostudio.personal" \
+    PRODUCT_NAME="Local Video Studio" \
     INFOPLIST_KEY_CFBundleDisplayName="Local Video Studio" \
     CODE_SIGNING_ALLOWED=NO \
     ${BUILD_ACTION}
 
-BUILD_SETTINGS=$(xcodebuild -project "${PROJECT_PATH}" -scheme "${SCHEME}" -configuration "${CONFIGURATION}" -destination "platform=macOS" -showBuildSettings 2>/dev/null)
+BUILD_SETTINGS=$(xcodebuild -project "${PROJECT_PATH}" -scheme "${SCHEME}" -configuration "${CONFIGURATION}" -destination "platform=macOS" PRODUCT_NAME="Local Video Studio" -showBuildSettings 2>/dev/null)
 TARGET_BUILD_DIR=$(echo "${BUILD_SETTINGS}" | awk -F ' = ' '/^[[:space:]]*TARGET_BUILD_DIR / {print $2; exit}')
 FULL_PRODUCT_NAME=$(echo "${BUILD_SETTINGS}" | awk -F ' = ' '/^[[:space:]]*FULL_PRODUCT_NAME / {print $2; exit}')
 BUILT_APP="${TARGET_BUILD_DIR}/${FULL_PRODUCT_NAME}"
@@ -73,6 +84,9 @@ if [ ! -d "${BUILT_APP}" ]; then
     echo "Error: Build succeeded but .app bundle was not found at ${BUILT_APP}" >&2
     exit 1
 fi
+
+echo "==> Embedding and ad-hoc signing the verified MiniMax H3 runtime payload..."
+"${SCRIPT_DIR}/embed-minimax-h3-runtime.sh" "${BUILT_APP}" "-" local
 
 # Defensive path verification
 if [ -z "${TARGET_APP:-}" ] || [ "${TARGET_APP}" = "/" ] || [ "${TARGET_APP}" = "${HOME}" ] || [ "${TARGET_APP}" != "${HOME}/Applications/Local Video Studio.app" ]; then

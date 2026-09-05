@@ -42,9 +42,13 @@ struct PreferencesView: View {
     @State private var isTestingElevenLabs = false
     @State private var elevenLabsTestResult: (success: Bool, message: String)?
     @State private var showResetConfirm = false
+    @StateObject private var textEncoderDownloads = TextEncoderDownloadCoordinator.shared
 
     private var selectedModel: LTXModel {
-        LTXModelCatalog.resolvedModel(id: selectedModelID)
+        if case .runnable(let runnable) = GenerationModelResolver.resolve(modelID: selectedModelID) {
+            return runnable.model
+        }
+        return LTXModelCatalog.defaultModel
     }
 
     private var selectedTextEncoder: LTXTextEncoder {
@@ -263,8 +267,8 @@ struct PreferencesView: View {
                 
                 Section("Model") {
                     Picker("Model", selection: $selectedModelID) {
-                        ForEach(LTXModelCatalog.all) { model in
-                            Text("\(model.displayName) (\(model.downloadSize))").tag(model.id)
+                        ForEach(ModelRegistry.shared.selectableModels()) { model in
+                            Text(model.displayName).tag(model.id)
                         }
                     }
                     .pickerStyle(.menu)
@@ -275,10 +279,17 @@ struct PreferencesView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(selectedModel.displayName)
                                 .font(.caption.bold())
-                            BilingualSettingDescription(
-                                english: "Uses \(selectedModel.repo) (\(selectedModel.downloadSize) download). Model cached in ~/.cache/huggingface/",
-                                japanese: "\(selectedModel.repo)を使用します（ダウンロード容量: \(selectedModel.downloadSize)）。Modelは~/.cache/huggingface/に保存されます。"
-                            )
+                            if MiniMaxH3Configuration.isMiniMaxH3(modelID: selectedModelID) {
+                                BilingualSettingDescription(
+                                    english: "Uses the separately configured local mlx-serve runtime and H3 model directory. No model is downloaded by this selection.",
+                                    japanese: "個別設定したローカルmlx-serveランタイムとH3モデルフォルダを使用します。この選択によるモデルの自動ダウンロードはありません。"
+                                )
+                            } else {
+                                BilingualSettingDescription(
+                                    english: "Uses \(selectedModel.repo) (\(selectedModel.downloadSize) download). Model cached in ~/.cache/huggingface/",
+                                    japanese: "\(selectedModel.repo)を使用します（ダウンロード容量: \(selectedModel.downloadSize)）。Modelは~/.cache/huggingface/に保存されます。"
+                                )
+                            }
                         }
                     }
                     .padding(.vertical, 4)
@@ -299,57 +310,83 @@ struct PreferencesView: View {
                         CustomLTX2MLXRuntimeSection(executablePath: $ltx2mlxExecutablePath)
                     }
 
-                    Picker("Text Encoder", selection: $selectedTextEncoderID) {
-                        ForEach(LTXTextEncoderCatalog.all) { textEncoder in
-                            Text("\(textEncoder.displayName) (\(textEncoder.downloadSize))").tag(textEncoder.id)
-                        }
-                    }
-                    .pickerStyle(.menu)
-
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "textformat.abc")
-                            .foregroundStyle(.blue)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(selectedTextEncoder.displayName)
-                                .font(.caption.bold())
+                    if MiniMaxH3Configuration.isMiniMaxH3(modelID: selectedModelID) {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "textformat.abc")
+                                .foregroundStyle(.secondary)
                             BilingualSettingDescription(
-                                english: "Uses \(selectedTextEncoder.repo) for generation prompt encoding.",
-                                japanese: "生成プロンプトのエンコードに\(selectedTextEncoder.repo)を使用します。"
+                                english: "MiniMax H3 uses the text encoder bundled in its separately configured model pack. The LTX Text Encoder setting is not used.",
+                                japanese: "MiniMax H3は個別設定したmodel pack内蔵のtext encoderを使用します。LTX Text Encoder設定は使用されません。"
                             )
-                            if let tips = selectedTextEncoder.tips,
-                               let japaneseTips = selectedTextEncoderJapaneseTips {
+                        }
+                        .padding(.vertical, 4)
+                    } else {
+                        Picker("LTX Text Encoder", selection: $selectedTextEncoderID) {
+                            ForEach(LTXTextEncoderCatalog.all) { textEncoder in
+                                Text("\(textEncoder.displayName) (\(textEncoder.downloadSize))").tag(textEncoder.id)
+                            }
+                        }
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "textformat.abc")
+                                .foregroundStyle(.blue)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(selectedTextEncoder.displayName)
+                                    .font(.caption.bold())
                                 BilingualSettingDescription(
-                                    english: tips,
-                                    japanese: japaneseTips
+                                    english: "Uses \(selectedTextEncoder.repo) for generation prompt encoding.",
+                                    japanese: "生成プロンプトのエンコードに\(selectedTextEncoder.repo)を使用します。"
+                                )
+                                if let tips = selectedTextEncoder.tips,
+                                   let japaneseTips = selectedTextEncoderJapaneseTips {
+                                    BilingualSettingDescription(english: tips, japanese: japaneseTips)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+
+                        textEncoderDownloadControl
+
+                        if let qualityWarning = selectedTextEncoder.qualityWarning {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                Text(qualityWarning)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        if selectedTextEncoderID == "custom" {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Custom text encoder repo (Hugging Face id)")
+                                    .font(.caption.bold())
+                                TextField("e.g. mlx-community/gemma-3-12b-it-4bit", text: $customTextEncoderRepo)
+                                    .textFieldStyle(.roundedBorder)
+                                BilingualSettingDescription(
+                                    english: "Generation never downloads weights automatically. Use the explicit Download action above for the selected MLX-compatible Gemma repo.",
+                                    japanese: "生成時に重みを自動ダウンロードすることはありません。選択したMLX互換Gemma repoは、上の明示的なダウンロード操作で準備してください。"
                                 )
                             }
                         }
                     }
-                    .padding(.vertical, 4)
 
-                    if let qualityWarning = selectedTextEncoder.qualityWarning {
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                            Text(qualityWarning)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                    // This setting only reaches LTXBridge (LTX-2.3 / LTX-2
+                    // Unified). A custom LTX-2 MLX profile — including any
+                    // LTX-2.5 model — runs on the separate ltx-2-mlx managed
+                    // runtime above, which resolves its own text encoder
+                    // internally and never reads this choice. Stated plainly
+                    // rather than left implicit, since the two sections sit
+                    // right next to each other on this screen.
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "info.circle")
+                            .foregroundStyle(.secondary)
+                        BilingualSettingDescription(
+                            english: "Applies only to official LTX-2.3 / LTX-2 Unified models. LTX-2.5/custom profiles and MiniMax H3 resolve text internally; this setting has no effect on them.",
+                            japanese: "公式LTX-2.3 / LTX-2 Unifiedモデルにのみ適用されます。LTX-2.5・カスタムプロファイル・MiniMax H3は内部でテキスト処理を解決するため、この設定は影響しません。"
+                        )
                     }
+                    .padding(.vertical, 2)
 
-                    if selectedTextEncoderID == "custom" {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Custom text encoder repo (Hugging Face id)")
-                                .font(.caption.bold())
-                            TextField("e.g. mlx-community/gemma-3-12b-it-4bit", text: $customTextEncoderRepo)
-                                .textFieldStyle(.roundedBorder)
-                            BilingualSettingDescription(
-                                english: "The app does not download weights until you run a generation. Use any MLX-compatible Gemma repo your Python environment supports.",
-                                japanese: "生成を実行するまでweightsはダウンロードされません。現在のPython環境が対応するMLX互換Gemma repoを指定してください。"
-                            )
-                        }
-                    }
-                    
                     Toggle("Auto-load model on startup", isOn: $autoLoadModel)
                 }
                 .onChange(of: selectedModelID) { _, _ in
@@ -585,6 +622,49 @@ struct PreferencesView: View {
             Text("This clears the persisted prompt, generation parameters, audio settings, prompt-enhancement toggles, and model/text-encoder selections. Python path, output directory, and ElevenLabs API key are preserved.")
         }
     }
+
+    @ViewBuilder
+    private var textEncoderDownloadControl: some View {
+        HStack(alignment: .center, spacing: 8) {
+            switch textEncoderDownloads.state {
+            case .idle, .succeeded:
+                Button(textEncoderDownloads.state == .succeeded
+                       ? "Download Again"
+                       : "Download Text Encoder (\(selectedTextEncoder.downloadSize))") {
+                    Task { await textEncoderDownloads.startDownload() }
+                }
+                .controlSize(.small)
+                if case .succeeded = textEncoderDownloads.state {
+                    Text("Prepared locally")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+            case .downloading(let progress, let message):
+                if let progress {
+                    ProgressView(value: progress)
+                        .frame(maxWidth: 180)
+                    Text("Downloading… \(Int(progress * 100))%")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            case .failed(let reason):
+                Button("Retry Download") {
+                    Task { await textEncoderDownloads.retry() }
+                }
+                .controlSize(.small)
+                Text(reason)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .lineLimit(2)
+            }
+        }
+    }
     
     private func pathTypeIcon(_ type: PythonEnvironment.PythonPathType) -> String {
         switch type {
@@ -812,12 +892,15 @@ struct PreferencesView: View {
 private struct DirectorPreferencesView: View {
     @AppStorage(DirectorMode.userDefaultsKey) private var modeRaw = DirectorMode.auto.rawValue
     @AppStorage(DirectorEnvironmentService.modelUserDefaultsKey) private var directorModel = ""
+    @AppStorage(OllamaDirectorEnvironmentClient.endpointUserDefaultsKey) private var endpointRaw = ""
 
     @State private var snapshot = DirectorSetupSnapshot.checking(mode: .auto)
     @State private var isRefreshing = false
     @State private var isTesting = false
     @State private var testResult: (success: Bool, message: String)?
     @State private var showAdvanced = false
+    @State private var endpointDraft = ""
+    @State private var endpointError: String?
 
     private let environment = DirectorEnvironmentService()
 
@@ -864,6 +947,22 @@ private struct DirectorPreferencesView: View {
                 }
 
                 if mode != .basic {
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField("Ollama Endpoint", text: $endpointDraft)
+                            .onChange(of: endpointDraft) { _, newValue in
+                                applyEndpointDraft(newValue)
+                            }
+                        if let endpointError {
+                            Label(endpointError, systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                        BilingualSettingDescription(
+                            english: "Local AI Director connects to an Ollama server. The default is the Ollama server running on this Mac.",
+                            japanese: "Local AI DirectorはOllamaサーバーに接続します。既定値はこのMac上で動作するOllamaサーバーです。"
+                        )
+                    }
+
                     Picker("Director Model", selection: modelSelection) {
                         if snapshot.installedModels.isEmpty {
                             Text("No installed models").tag("")
@@ -897,7 +996,7 @@ private struct DirectorPreferencesView: View {
 
             DisclosureGroup("Advanced", isExpanded: $showAdvanced) {
                 VStack(alignment: .leading, spacing: 6) {
-                    LabeledContent("Endpoint", value: OllamaDirectorEnvironmentClient.endpoint.absoluteString)
+                    LabeledContent("Endpoint", value: OllamaDirectorEnvironmentClient.configuredEndpoint().absoluteString)
                     LabeledContent("Technical Status", value: snapshot.technicalStatus)
                     LabeledContent("Installed Models", value: "\(snapshot.installedModels.count)")
                 }
@@ -907,7 +1006,14 @@ private struct DirectorPreferencesView: View {
             }
         }
         .formStyle(.grouped)
-        .task { await refresh() }
+        .task {
+            if endpointDraft.isEmpty {
+                endpointDraft = endpointRaw.isEmpty
+                    ? OllamaDirectorEnvironmentClient.defaultEndpoint.absoluteString
+                    : endpointRaw
+            }
+            await refresh()
+        }
         .onChange(of: modeRaw) { _, _ in
             testResult = nil
             Task { await refresh() }
@@ -915,6 +1021,24 @@ private struct DirectorPreferencesView: View {
         .onChange(of: directorModel) { _, _ in
             testResult = nil
             Task { await refresh() }
+        }
+    }
+
+    /// Validates on every keystroke but only ever persists (and refreshes
+    /// against) a value that passed validation — an invalid draft shows
+    /// `endpointError` and leaves the last-known-good endpoint untouched
+    /// rather than silently falling back to the default.
+    private func applyEndpointDraft(_ newValue: String) {
+        do {
+            let validated = try DirectorEndpointValidator.validate(newValue)
+            endpointError = nil
+            guard endpointRaw != validated.absoluteString else { return }
+            endpointRaw = validated.absoluteString
+            testResult = nil
+            Task { await refresh() }
+        } catch {
+            endpointError = (error as? DirectorEndpointValidator.ValidationError)?.errorDescription
+                ?? error.localizedDescription
         }
     }
 
@@ -929,6 +1053,11 @@ private struct DirectorPreferencesView: View {
                 Label("Ready", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
                 Text(model).font(.caption).foregroundStyle(.secondary)
+                if let profile = snapshot.modelProfile, profile.family != .other {
+                    Text("Recognized as a \(profile.family.displayName) model.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         case .basicOnly:
             Label("Basic Director — Ready", systemImage: "checkmark.circle.fill")

@@ -170,7 +170,11 @@ func runAdaptiveContinuityStrengthTests(_ t: TestKit) {
         t.checkEqual(standardPending.first?.parameters.imageStrength, 0.8,
                      "A: an ordinary continuation keeps the standard strength")
 
-        // F. A cut inherits nothing and gets no adaptive strength.
+        // F. Since Cut-Aware Continuity, a stored Cut on Auto Movie Shot 2+ is
+        // honored: the shot does not inherit, so the adaptive reframe/standard
+        // strength logic (which only ever applies to an inherited frame) never
+        // engages — the framing jump is irrelevant, and imageStrength stays at
+        // its default (1.0), matching plain text-to-video.
         let cutStore = makeStore("cut")
         var cutProject = makeProject(store: cutStore, secondScale: "extreme-close-up")
         cutProject.shots[1].continuityMode = .cut
@@ -178,9 +182,10 @@ func runAdaptiveContinuityStrengthTests(_ t: TestKit) {
         completeFirstShot(store: cutStore, projectID: cutProject.id)
         var cutPending: [GenerationRequest] = []
         _ = AutoMovieRunCoordinator(store: cutStore).advance(projectID: cutProject.id) { cutPending = $0 }
-        t.check(cutPending.first?.sourceImagePath == nil, "F: a cut inherits no image")
+        t.check(cutPending.first?.sourceImagePath == nil,
+                "F: a stored Cut prevents inheritance on Auto Movie Shot 2+")
         t.checkEqual(cutPending.first?.parameters.imageStrength, 1.0,
-                     "F: a cut keeps the default strength")
+                     "F: with no source image the adaptive reframe strength never applies")
 
         // G. The first shot is never adapted.
         let firstStore = makeStore("first")

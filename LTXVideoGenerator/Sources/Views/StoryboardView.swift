@@ -20,6 +20,9 @@ struct StoryboardView: View {
     @State private var statusMessage: String?
     @State private var isAssembling = false
     @State private var isCreating = false
+    @State private var planningPhase: DirectorPlanningPhase = .idle
+    @State private var planningElapsedSeconds = 0
+    @State private var planningHandle: DirectorPlanningHandle?
     private let mode: StoryboardWorkspaceMode
 
     init() { self.mode = .storyboard }
@@ -34,15 +37,17 @@ struct StoryboardView: View {
         selectedProjectID.flatMap { store.project(id: $0) }
     }
 
+    @State private var creationErrorMessage: String?
+
     var body: some View {
         VStack(spacing: 0) {
             BilingualPageHeader(
-                title: mode == .hybrid ? "Auto Movie (Sora 2-like)" : "Storyboard",
+                title: mode == .hybrid ? "Auto Movie" : "Storyboard",
                 englishDescription: mode == .hybrid
-                    ? "Turn a simple idea into multiple connected shots and automatically assemble them into a complete video."
+                    ? "Create longer sequences with automatic shot-to-shot continuity from the previous final frame."
                     : "Build and manage a video as multiple shots, takes, and characters.",
                 japaneseDescription: mode == .hybrid
-                    ? "簡単なアイデアから連続した複数のショットを生成し、1本の動画として自動で仕上げます。"
+                    ? "前のショットの最終フレームを引き継ぎ、連続したショットでより長い映像シーケンスを自動生成します。"
                     : "複数のショット・テイク・キャラクターを管理しながら映像を制作します。"
             )
             .padding(.horizontal, 24)
@@ -67,7 +72,14 @@ struct StoryboardView: View {
         .onAppear(perform: refresh)
         .onReceive(refreshTimer) { _ in refresh() }
         .sheet(isPresented: $showNewProjectSheet) {
-            NewStoryboardSheet(isCreating: $isCreating, mode: mode) { projectID, title, brief, settings, characterBible, generateFirstPass, openingReferenceURL in
+            NewStoryboardSheet(
+                isCreating: $isCreating,
+                planningPhase: $planningPhase,
+                planningElapsedSeconds: $planningElapsedSeconds,
+                planningHandle: $planningHandle,
+                errorMessage: $creationErrorMessage,
+                mode: mode
+            ) { projectID, title, brief, settings, characterBible, generateFirstPass, openingReferenceURL, directorEnabled in
                 createProject(
                     projectID: projectID,
                     title: title,
@@ -75,7 +87,8 @@ struct StoryboardView: View {
                     settings: settings,
                     characterBible: characterBible,
                     generateFirstPass: generateFirstPass,
-                    openingReferenceURL: openingReferenceURL
+                    openingReferenceURL: openingReferenceURL,
+                    directorEnabled: directorEnabled
                 )
             }
         }
@@ -190,12 +203,32 @@ struct StoryboardView: View {
         settings: ProjectSettings,
         characterBible: CharacterBible,
         generateFirstPass: Bool,
-        openingReferenceURL: URL? = nil
+        openingReferenceURL: URL? = nil,
+        directorEnabled: Bool = true
     ) {
         isCreating = true
-        statusMessage = "Planning storyboard…"
-        Task {
-            defer { isCreating = false }
+        creationErrorMessage = nil
+        planningPhase = .preparing
+        planningElapsedSeconds = 0
+        let handle = DirectorPlanningHandle()
+        planningHandle = handle
+        statusMessage = (mode == .hybrid && !directorEnabled)
+            ? "Structuring movie shots…"
+            : "Preparing Local Director…"
+
+        let planningTask = Task { @MainActor in
+            let timerTask = Task { @MainActor in
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    if Task.isCancelled { break }
+                    planningElapsedSeconds += 1
+                }
+            }
+            defer {
+                timerTask.cancel()
+                isCreating = false
+                planningHandle = nil
+            }
             do {
                 // The opening reference is imported and read *before* planning.
                 // When the Director ran first it invented a costume from the
@@ -211,8 +244,10 @@ struct StoryboardView: View {
                         // Never fall through to text-to-video: the user asked
                         // the movie to open on a specific image.
                         store.removeUncommittedProjectAssets(projectID: projectID)
-                        statusMessage = (error as? LocalizedError)?.errorDescription
+                        let msg = (error as? LocalizedError)?.errorDescription
                             ?? "Could not import the opening reference image. The Auto Movie was not created."
+                        statusMessage = msg
+                        creationErrorMessage = msg
                         return
                     }
                     if let importedOpeningReference {
@@ -226,17 +261,32 @@ struct StoryboardView: View {
                 let planningBible = OpeningReferenceSync.seedBible(
                     from: openingAppearance, existing: characterBible)
 
-                statusMessage = "Planning storyboard…"
+                if handle.isCancelled || Task.isCancelled {
+                    throw DirectorError.cancelled
+                }
+
+                let progressCallback: (DirectorPlanningPhase, String) -> Void = { phase, message in
+                    Task { @MainActor in
+                        planningPhase = phase
+                        statusMessage = message
+                    }
+                }
+
                 var (project, violations, _) = mode == .hybrid
                     ? try await HybridProjectCoordinator().makeProject(
                         projectID: projectID, title: title, brief: brief,
                         settings: settings, characterBible: planningBible,
-                        openingSceneEvidence: openingAppearance
+                        openingSceneEvidence: openingAppearance,
+                        directorEnabled: directorEnabled,
+                        handle: handle,
+                        progressCallback: progressCallback
                     )
                     : try await StoryboardDirector().makeProject(
                         projectID: projectID, title: title, brief: brief,
                         settings: settings, characterBible: planningBible,
-                        openingSceneEvidence: openingAppearance
+                        openingSceneEvidence: openingAppearance,
+                        handle: handle,
+                        progressCallback: progressCallback
                     )
                 project.workflowMode = mode.workflowValue
                 if mode == .hybrid {
@@ -277,7 +327,7 @@ struct StoryboardView: View {
                         snapshot.textEncoderID = settings.textEncoderID
                         snapshot.audioEnabled = settings.audioEnabled
                         snapshot.targetDurationSeconds = settings.targetDurationSeconds
-                        snapshot.directorMode = directorModeForSnapshot
+                        snapshot.directorMode = directorEnabled ? directorModeForSnapshot : "direct"
                         // The opening reference and character anchor are already
                         // project-managed copies, so recording their paths keeps
                         // the job deterministic without duplicating image bytes.
@@ -302,19 +352,41 @@ struct StoryboardView: View {
                 let warnings = violations.filter { $0.severity == .warning }.count
                 let errors = violations.filter { $0.severity == .error }.count
                 let planningSource: String
-                switch project.planningMode {
-                case "basic": planningSource = "Basic Director"
-                case "fallback": planningSource = "Basic Director fallback"
-                default: planningSource = "Local AI Director"
+                if mode == .hybrid && !directorEnabled {
+                    planningSource = "Direct"
+                } else {
+                    switch project.planningMode {
+                    case "basic": planningSource = "Basic Director"
+                    case "fallback": planningSource = "Basic Director fallback"
+                    default: planningSource = "Local AI Director"
+                    }
                 }
                 statusMessage = "Planned \(project.shots.count) shots via \(planningSource)"
                     + (mode == .hybrid && generateFirstPass ? "; queued one take per shot sequentially" : "")
                     + (violations.isEmpty ? "" : " (\(errors) continuity errors, \(warnings) warnings)")
+                planningPhase = .completed
+                creationErrorMessage = nil
                 showNewProjectSheet = false
+            } catch let error as StructuralMoviePlannerError {
+                planningPhase = .failed
+                statusMessage = error.userFacingDescription
+                creationErrorMessage = error.userFacingDescription
+                store.removeUncommittedProjectAssets(projectID: projectID)
             } catch {
-                statusMessage = "Storyboard planning failed: \(error.localizedDescription)"
+                if (error as? DirectorError) == .cancelled || handle.isCancelled || Task.isCancelled {
+                    planningPhase = .cancelled
+                    statusMessage = "Planning cancelled."
+                    creationErrorMessage = nil
+                    store.removeUncommittedProjectAssets(projectID: projectID)
+                } else {
+                    planningPhase = .failed
+                    let msg = "Storyboard planning failed: \(error.localizedDescription)"
+                    statusMessage = msg
+                    creationErrorMessage = msg
+                }
             }
         }
+        handle.registerTask(planningTask)
     }
 }
 
@@ -324,19 +396,34 @@ private struct NewStoryboardSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var generationService: GenerationService
     @Binding var isCreating: Bool
+    @Binding var planningPhase: DirectorPlanningPhase
+    @Binding var planningElapsedSeconds: Int
+    @Binding var planningHandle: DirectorPlanningHandle?
+    @Binding var errorMessage: String?
     let mode: StoryboardWorkspaceMode
-    let onCreate: (UUID, String, String, ProjectSettings, CharacterBible, Bool, URL?) -> Void
+    let onCreate: (UUID, String, String, ProjectSettings, CharacterBible, Bool, URL?, Bool) -> Void
 
     @State private var title = ""
     @State private var brief = ""
     @State private var presetRaw = GenerationPreset.standard.rawValue
-    @State private var modelID = LTXModelCatalog.selectedModel().id
+    @State private var modelID = UserDefaults.standard.string(
+        forKey: LTXModelCatalog.selectedModelIDKey) ?? LTXModelCatalog.defaultModelID
     @State private var audioEnabled = true
+    @State private var directorEnabled = true
     @State private var targetDuration = 20.0
     @State private var generateFirstPass = true
     @State private var width = 768
     @State private var height = 512
+    /// Custom width/height are seeded from the preset the user was already on,
+    /// oriented to the Opening Reference. Once the user picks a size themselves
+    /// that explicit choice wins and is never re-seeded.
+    @State private var userEditedDimensions = false
     @State private var characterBible = CharacterBible()
+    @State private var minimaxH3PresetRaw = MiniMaxH3Preset.standard.rawValue
+    @State private var minimaxH3TierRaw = MiniMaxH3ResolutionTier.tier2.rawValue
+    @State private var minimaxH3Steps: Int = 16
+    @State private var minimaxH3CustomDuration: Double = 3.75
+    @State private var minimaxH3CustomFast: Bool = true
     /// Held as a plain URL until Create: nothing is copied into a project while
     /// the sheet is open, so cancelling leaves no managed asset behind.
     @State private var openingReferenceURL: URL?
@@ -350,12 +437,21 @@ private struct NewStoryboardSheet: View {
         DirectorMode(rawValue: directorModeRaw) ?? .auto
     }
 
+    private var minimaxH3Preset: MiniMaxH3Preset {
+        MiniMaxH3Preset(rawValue: minimaxH3PresetRaw) ?? .standard
+    }
+
+    private var minimaxH3Tier: MiniMaxH3ResolutionTier {
+        MiniMaxH3ResolutionTier(rawValue: minimaxH3TierRaw) ?? .tier2
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(mode == .hybrid ? "New Auto Movie" : "New Storyboard")
                 .font(.headline)
             TextField("Title", text: $title)
                 .textFieldStyle(.roundedBorder)
+                .disabled(isCreating)
             Text("Brief — what is this short film about?")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -364,83 +460,250 @@ private struct NewStoryboardSheet: View {
                 .frame(height: 110)
                 .padding(6)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+                .disabled(isCreating)
             CharacterBibleDraftSection(
                 projectID: projectID,
                 bible: $characterBible,
-                generationActive: generationService.isProcessing
+                generationActive: generationService.isProcessing || isCreating
             )
             HStack {
-                Picker("Preset", selection: $presetRaw) {
-                    ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
+                if !MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
+                    Picker("Preset", selection: $presetRaw) {
+                        ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
+                    }
+                } else {
+                    Picker("Preset", selection: $minimaxH3PresetRaw) {
+                        ForEach(MiniMaxH3Preset.allCases) { Text($0.displayName).tag($0.rawValue) }
+                    }
                 }
-                Picker("Model", selection: $modelID) {
-                    ForEach(ModelRegistry.shared.selectableModels()) { Text($0.displayName).tag($0.id) }
-                }
+                ReadyModelPicker(selection: $modelID)
                 Toggle("Audio", isOn: $audioEnabled)
                     .onChange(of: audioEnabled) { old, new in
-                        if old != new { presetRaw = GenerationPreset.custom.rawValue }
+                        // Audio is a Custom-only control, so changing it drops
+                        // the project onto Custom. Carry the preset's *oriented*
+                        // size across that transition: seeding the raw landscape
+                        // default here would silently turn a portrait Opening
+                        // Reference into a landscape movie, which is exactly what
+                        // the user did not ask for by touching the Audio toggle.
+                        if old != new && !MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
+                            seedCustomDimensionsFromCurrentPreset()
+                            presetRaw = GenerationPreset.custom.rawValue
+                        }
                     }
             }
-            if presetRaw == GenerationPreset.custom.rawValue {
+            .disabled(isCreating)
+            .onChange(of: presetRaw) { old, new in
+                if old != new, new == GenerationPreset.custom.rawValue {
+                    seedCustomDimensions(from: GenerationPreset(rawValue: old) ?? .standard)
+                }
+            }
+            .onChange(of: openingReferenceURL) { _, _ in
+                // A reference chosen after landing on Custom still decides the
+                // canvas, as long as the user has not picked a size themselves.
+                if presetRaw == GenerationPreset.custom.rawValue { reseedCustomDimensions() }
+            }
+
+            if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
+                let orientation = SourceImageOrientationResolver.resolve(path: openingReferenceURL?.path)
+                Text(minimaxH3Preset.effectiveSummary(
+                    orientation: orientation,
+                    isAutoMovie: mode == .hybrid,
+                    customTier: minimaxH3Tier,
+                    customDurationSeconds: minimaxH3CustomDuration,
+                    customSteps: minimaxH3Steps,
+                    customFast: minimaxH3CustomFast
+                ))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                if minimaxH3Preset == .custom {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Picker("Resolution Tier", selection: $minimaxH3TierRaw) {
+                            ForEach(MiniMaxH3ResolutionTier.allCases) { Text($0.displayName).tag($0.rawValue) }
+                        }
+                        .pickerStyle(.segmented)
+
+                        HStack(spacing: 20) {
+                            Stepper(
+                                "Per-Shot Target: \(minimaxH3CustomDuration, specifier: "%.1f")s (\(MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: minimaxH3CustomDuration)) frames)",
+                                value: $minimaxH3CustomDuration,
+                                in: 1.0...5.9,
+                                step: 0.5
+                            )
+                            Stepper(
+                                "Inference Steps: \(minimaxH3Steps)",
+                                value: $minimaxH3Steps,
+                                in: 8...24,
+                                step: 1
+                            )
+                            Toggle("Fast Mode", isOn: $minimaxH3CustomFast)
+                        }
+
+                        if MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: minimaxH3CustomDuration) {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.yellow)
+                                Text(mode == .hybrid
+                                     ? "1ショットあたり5秒以上のH3動画では、後半にかけて細部や人物の一貫性が低下する場合があります。最高品質には3〜4秒/ショットを推奨します。"
+                                     : "5秒以上のH3動画では、後半にかけて細部や人物の一貫性が低下する場合があります。最高品質には3〜4秒を推奨します。")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(8)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.yellow.opacity(0.1)))
+                        }
+                    }
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+                    .disabled(isCreating)
+                }
+            } else if presetRaw == GenerationPreset.custom.rawValue {
                 HStack {
                     Picker("Width", selection: $width) {
                         ForEach([320, 512, 640, 768, 896, 1024], id: \.self) { Text("\($0)").tag($0) }
                     }
+                    .onChange(of: width) { old, new in
+                        if old != new { userEditedDimensions = true }
+                    }
                     Picker("Height", selection: $height) {
                         ForEach([320, 384, 512, 576, 768, 1024, 1080], id: \.self) { Text("\($0)").tag($0) }
+                    }
+                    .onChange(of: height) { old, new in
+                        if old != new { userEditedDimensions = true }
                     }
                     Text(effectiveResolutionText(width: width, height: height))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .disabled(isCreating)
             }
             if mode == .hybrid {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Opening Reference Image (Optional)").font(.subheadline.bold())
                     OpeningReferencePicker(selection: $openingReferenceURL, compact: true)
                     OpeningReferenceExplanation()
+                    if let recommendation = MiniMaxH3ProductPolicy.recommendation(
+                        modelID: modelID,
+                        context: .autoMovie,
+                        hasImage: openingReferenceURL != nil
+                    ) {
+                        MiniMaxH3ImageGroundingRecommendationView(recommendation: recommendation)
+                    }
                 }
+                .disabled(isCreating)
                 Stepper("Target Duration: \(targetDuration, specifier: "%.0f")s", value: $targetDuration, in: 5...60, step: 5)
+                    .disabled(isCreating)
                 Toggle("Generate first pass after planning", isOn: $generateFirstPass)
                     .help("Turn off to review the Character Bible, shot assignments and compiled prompts before rendering.")
+                    .disabled(isCreating)
             }
             VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Picker("Director", selection: $directorModeRaw) {
-                        Text("Auto").tag(DirectorMode.auto.rawValue)
-                        Text("Local AI").tag(DirectorMode.localAI.rawValue)
-                        Text("Basic").tag(DirectorMode.basic.rawValue)
-                    }
-                    .pickerStyle(.segmented)
-                    if isCheckingDirector { ProgressView().controlSize(.small) }
-                }
-                HStack(spacing: 6) {
-                    Image(systemName: directorStatusIcon)
-                        .foregroundStyle(directorStatusColor)
-                    Text(directorStatusText)
-                        .font(.caption)
+                if mode == .hybrid {
+                    Toggle("Director", isOn: $directorEnabled)
+                        .disabled(isCreating)
+                    Text(directorEnabled
+                         ? "Director ON: AI plans and directs the movie."
+                         : "Director OFF: Uses your prompt structure directly.")
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
-                Text("Local AI can improve planning. Basic Director works without additional setup.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                if directorEnabled {
+                    HStack {
+                        Picker(mode == .hybrid ? "Director Mode" : "Director", selection: $directorModeRaw) {
+                            Text("Auto").tag(DirectorMode.auto.rawValue)
+                            Text("Local AI").tag(DirectorMode.localAI.rawValue)
+                            Text("Basic").tag(DirectorMode.basic.rawValue)
+                        }
+                        .pickerStyle(.segmented)
+                        .disabled(isCreating)
+                        if isCheckingDirector { ProgressView().controlSize(.small) }
+                    }
+                    HStack(spacing: 6) {
+                        Image(systemName: directorStatusIcon)
+                            .foregroundStyle(directorStatusColor)
+                        Text(directorStatusText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("Local AI can improve planning. Basic Director works without additional setup.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
+
+            if isCreating {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(planningPhase.displayName)
+                            .font(.subheadline.bold())
+                        Spacer()
+                        Text(formatPlanningTime(planningElapsedSeconds))
+                            .font(.subheadline.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Spacer()
+                        Button {
+                            planningPhase = .cancelling
+                            planningHandle?.cancel()
+                        } label: {
+                            if planningPhase == .cancelling {
+                                HStack(spacing: 4) {
+                                    ProgressView().controlSize(.mini)
+                                    Text("Cancelling…")
+                                }
+                            } else {
+                                Text("Cancel Planning")
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(planningPhase == .cancelling)
+                    }
+                }
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
+                    .disabled(isCreating)
                 Button {
                     var settings = ProjectSettings.usingCurrentSelections()
-                    let preset = GenerationPreset(rawValue: presetRaw) ?? .standard
-                    settings.applyPreset(preset)
-                    settings.modelID = modelID
-                    // Audio remains a deliberate choice for Quick (C3 with
-                    // audio, C2 without it). Width and height are Custom-only
-                    // controls, so never overwrite a selected preset with
-                    // stale sheet state.
-                    settings.audioEnabled = audioEnabled
-                    if preset == .custom {
-                        settings.width = width
-                        settings.height = height
+                    if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
+                        settings.modelID = modelID
+                        settings.minimaxH3Preset = minimaxH3PresetRaw
+                        settings.minimaxH3CustomTier = minimaxH3TierRaw
+                        settings.minimaxH3CustomSteps = minimaxH3Steps
+                        settings.minimaxH3CustomDuration = minimaxH3CustomDuration
+                        settings.fps = 24
+                        if minimaxH3Tier == .tier2 {
+                            settings.width = 640
+                            settings.height = 384
+                        } else {
+                            settings.width = 512
+                            settings.height = 288
+                        }
+                        settings.numInferenceSteps = (minimaxH3Preset == .custom) ? minimaxH3Steps : (minimaxH3Preset == .high ? 12 : (minimaxH3Preset == .quick ? 8 : 10))
+                        settings.audioEnabled = audioEnabled
+                    } else {
+                        let preset = GenerationPreset(rawValue: presetRaw) ?? .standard
+                        settings.applyPreset(preset)
+                        settings.modelID = modelID
+                        settings.audioEnabled = audioEnabled
+                        if preset == .custom {
+                            settings.width = width
+                            settings.height = height
+                        }
                     }
                     settings.targetDurationSeconds = mode == .hybrid ? targetDuration : nil
                     onCreate(
@@ -450,7 +713,8 @@ private struct NewStoryboardSheet: View {
                         settings,
                         characterBible,
                         generateFirstPass,
-                        mode == .hybrid ? openingReferenceURL : nil
+                        mode == .hybrid ? openingReferenceURL : nil,
+                        mode == .hybrid ? directorEnabled : true
                     )
                 } label: {
                     if isCreating {
@@ -478,10 +742,24 @@ private struct NewStoryboardSheet: View {
         }
     }
 
+    private func formatPlanningTime(_ seconds: Int) -> String {
+        let m = seconds / 60
+        let s = seconds % 60
+        if m > 0 {
+            return "\(m)m \(s)s"
+        } else {
+            return "\(s)s"
+        }
+    }
+
     private var directorStatusText: String {
         switch directorSnapshot.availability {
         case .checking: return "Checking Director availability…"
-        case .localAIReady(let model): return "Local AI Ready · \(model)"
+        case .localAIReady(let model):
+            let family = directorSnapshot.modelProfile?.family
+            return (family != nil && family != .other)
+                ? "Local AI Ready · \(model) (\(family!.displayName))"
+                : "Local AI Ready · \(model)"
         case .localAIModelMissing: return "Basic Director · Local AI model unavailable"
         case .localAIServerUnavailable: return "Basic Director · No setup required"
         case .basicOnly: return "Basic Director · No setup required"
@@ -509,6 +787,41 @@ private struct NewStoryboardSheet: View {
         isCheckingDirector = true
         directorSnapshot = await directorEnvironment.refresh(mode: directorMode)
         isCheckingDirector = false
+    }
+
+    /// Seeds the Custom size from the preset that is currently selected.
+    private func seedCustomDimensionsFromCurrentPreset() {
+        seedCustomDimensions(from: GenerationPreset(rawValue: presetRaw) ?? .standard)
+    }
+
+    /// Seeds the Custom size from `preset`, oriented to the Opening Reference,
+    /// unless the user has already chosen a size themselves.
+    private func seedCustomDimensions(from preset: GenerationPreset) {
+        guard !userEditedDimensions else { return }
+        guard let dimensions = GenerationSettingsResolver.orientedPresetDimensions(
+            preset: preset,
+            orientation: currentReferenceOrientation,
+            modelID: modelID,
+            audioEnabled: audioEnabled
+        ) else { return }
+        width = dimensions.width
+        height = dimensions.height
+    }
+
+    /// Re-seeds after the Opening Reference changes while already on Custom.
+    private func reseedCustomDimensions() {
+        guard !userEditedDimensions else { return }
+        // The preset is already Custom here, so there is no preset size left to
+        // read. Standard is the size Custom was seeded from in every path that
+        // can reach this point (the sheet opens on Standard).
+        seedCustomDimensions(from: .standard)
+    }
+
+    /// Auto Movie is led by its Opening Reference; a Storyboard has none, so it
+    /// keeps whatever the user set explicitly.
+    private var currentReferenceOrientation: SourceImageOrientation {
+        guard mode == .hybrid, let openingReferenceURL else { return .none }
+        return SourceImageOrientationResolver.resolve(url: openingReferenceURL)
     }
 
     private func effectiveResolutionText(width: Int, height: Int) -> String {
@@ -567,6 +880,7 @@ private struct ProjectDetailView: View {
                     AutoMoviePlanPreviewSection(project: project, onChanged: onChanged)
                     OpeningReferenceSection(project: project, onChanged: onChanged)
                     CharacterAnchorSection(project: project, onChanged: onChanged)
+                    ProjectIdentityAnchorSection(project: project, onChanged: onChanged)
                 }
                 Divider()
                 ForEach(project.shots) { shot in
@@ -775,38 +1089,125 @@ private struct ProjectSettingsEditor: View {
     let onChanged: () -> Void
 
     @State private var expanded = true
+    @ObservedObject private var readinessStore = ModelReadinessStore.shared
     private let store = FilmProjectStore.shared
 
     var body: some View {
         DisclosureGroup("Project Settings", isExpanded: $expanded) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 16) {
-                    Picker("Preset", selection: binding(
-                        get: { project.settings.resolvedPreset.rawValue },
-                        set: { raw, settings in settings.applyPreset(GenerationPreset(rawValue: raw) ?? .standard) }
-                    )) {
-                        ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
+                    if !MiniMaxH3Configuration.isMiniMaxH3(modelID: project.settings.modelID) {
+                        Picker("Preset", selection: binding(
+                            get: { project.settings.resolvedPreset.rawValue },
+                            set: { raw, settings in
+                                let next = GenerationPreset(rawValue: raw) ?? .standard
+                                seedCustomDimensionsIfEnteringCustom(next: next, settings: &settings)
+                                settings.applyPreset(next)
+                            }
+                        )) {
+                            ForEach(GenerationPreset.allCases) { Text($0.displayName).tag($0.rawValue) }
+                        }
+                    } else {
+                        Picker("Preset", selection: binding(
+                            get: { project.settings.resolvedMiniMaxH3Preset.rawValue },
+                            set: { raw, settings in
+                                settings.minimaxH3Preset = raw
+                            }
+                        )) {
+                            ForEach(MiniMaxH3Preset.allCases) { Text($0.displayName).tag($0.rawValue) }
+                        }
                     }
                     Picker("Model", selection: binding(
                         get: { project.settings.modelID },
                         set: { $1.modelID = $0 }
                     )) {
-                        ForEach(ModelRegistry.shared.selectableModels()) { Text($0.displayName).tag($0.id) }
+                        let entries = readinessStore.pickerModels(selectedID: project.settings.modelID)
+                        if entries.isEmpty {
+                            Text(readinessStore.isRefreshing ? "Checking models…" : "No ready models — open Settings")
+                                .tag(project.settings.modelID)
+                                .disabled(true)
+                        } else {
+                            ForEach(entries, id: \.model.id) { entry in
+                                Text(entry.readiness.canGenerate
+                                     ? entry.model.displayName
+                                     : "\(entry.model.displayName) (Unavailable)")
+                                    .tag(entry.model.id)
+                                    .disabled(!entry.readiness.canGenerate)
+                            }
+                        }
                     }
                     Toggle("Audio", isOn: binding(
                         get: { project.settings.resolvedAudioEnabled },
                         set: { value, settings in
                             settings.audioEnabled = value
-                            settings.markCustom()
+                            if !MiniMaxH3Configuration.isMiniMaxH3(modelID: settings.modelID) {
+                                seedCustomDimensionsIfEnteringCustom(next: .custom, settings: &settings)
+                                settings.markCustom()
+                            }
                         }
                     ))
                     Spacer()
                 }
-                Text(project.settings.resolvedPreset.summary)
+                Text(MiniMaxH3Configuration.isMiniMaxH3(modelID: project.settings.modelID)
+                     ? project.settings.resolvedMiniMaxH3Preset.summary
+                     : project.settings.resolvedPreset.summary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                if project.settings.resolvedPreset == .custom {
+                if MiniMaxH3Configuration.isMiniMaxH3(modelID: project.settings.modelID)
+                    && project.settings.resolvedMiniMaxH3Preset == .custom {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Picker("Resolution Tier", selection: binding(
+                            get: { project.settings.minimaxH3CustomTier ?? MiniMaxH3ResolutionTier.tier2.rawValue },
+                            set: { $1.minimaxH3CustomTier = $0 }
+                        )) {
+                            ForEach(MiniMaxH3ResolutionTier.allCases) { Text($0.displayName).tag($0.rawValue) }
+                        }
+                        .pickerStyle(.segmented)
+
+                        HStack(spacing: 20) {
+                            Stepper(
+                                "Per-Shot Target: \(project.settings.minimaxH3CustomDuration ?? 3.75, specifier: "%.1f")s",
+                                value: binding(
+                                    get: { project.settings.minimaxH3CustomDuration ?? 3.75 },
+                                    set: { $1.minimaxH3CustomDuration = $0 }
+                                ),
+                                in: 1.0...5.9,
+                                step: 0.5
+                            )
+                            Stepper(
+                                "Inference Steps: \(project.settings.minimaxH3CustomSteps ?? 16)",
+                                value: binding(
+                                    get: { project.settings.minimaxH3CustomSteps ?? 16 },
+                                    set: { $1.minimaxH3CustomSteps = $0 }
+                                ),
+                                in: 8...24,
+                                step: 1
+                            )
+                            Toggle("Fast Mode", isOn: binding(
+                                get: { project.settings.minimaxH3CustomFast ?? true },
+                                set: { $1.minimaxH3CustomFast = $0 }
+                            ))
+                        }
+
+                        if MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: project.settings.minimaxH3CustomDuration ?? 3.75) {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.yellow)
+                                Text("5秒以上のH3動画では、後半にかけて細部や人物の一貫性が低下する場合があります。最高品質には3〜4秒を推奨します。")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(8)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.yellow.opacity(0.1)))
+                        }
+                    }
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+                }
+
+                if project.settings.resolvedPreset == .custom
+                    && !MiniMaxH3Configuration.isMiniMaxH3(modelID: project.settings.modelID) {
                     HStack(spacing: 12) {
                         Picker("Width", selection: customBinding(\.width)) {
                             ForEach([320, 512, 640, 768, 896, 1024], id: \.self) { Text("\($0)").tag($0) }
@@ -828,10 +1229,26 @@ private struct ProjectSettingsEditor: View {
             .padding(.top, 8)
         }
         .font(.headline)
+        .task { await readinessStore.refreshIfNeeded() }
     }
 
     private var resolutionSummary: String {
         let settings = project.settings
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: settings.modelID) {
+            let orientation = FilmProjectResolutionOrientationResolver.resolve(project: project, store: store)
+            let tier = MiniMaxH3ResolutionTier(rawValue: settings.minimaxH3CustomTier ?? "") ?? .tier2
+            let dur = settings.minimaxH3CustomDuration ?? 3.75
+            let steps = settings.minimaxH3CustomSteps ?? 16
+            let fast = settings.minimaxH3CustomFast ?? true
+            return settings.resolvedMiniMaxH3Preset.effectiveSummary(
+                orientation: orientation,
+                isAutoMovie: project.workflowMode == "hybrid",
+                customTier: tier,
+                customDurationSeconds: dur,
+                customSteps: steps,
+                customFast: fast
+            ) + " → Actual shown per completed Take"
+        }
         if settings.resolvedPreset == .custom {
             let effectiveWidth = (settings.width / 64) * 64
             let effectiveHeight = (settings.height / 64) * 64
@@ -857,7 +1274,7 @@ private struct ProjectSettingsEditor: View {
         )
         let resolved = GenerationSettingsResolver.resolveForPreflight(request: request).request
         let orientationLabel = orientation.displayName.map { " · \($0)" } ?? ""
-        return "Effective \(resolved.parameters.width)×\(resolved.parameters.height)\(orientationLabel) → Actual shown per completed Take"
+        return "\(settings.resolvedPreset.displayName) · Effective \(resolved.parameters.width)×\(resolved.parameters.height)\(orientationLabel) · \(resolved.parameters.numInferenceSteps) steps → Actual shown per completed Take"
     }
 
     private func save(_ change: (inout ProjectSettings) -> Void) {
@@ -866,6 +1283,22 @@ private struct ProjectSettingsEditor: View {
         updated.touch()
         store.save(updated)
         onChanged()
+    }
+
+    /// Materializes the preset's oriented size into the project before it
+    /// becomes Custom. Custom keeps whatever dimensions it holds, so the size
+    /// the project was actually generating at has to be written down at the
+    /// moment it stops being derived — otherwise the stored landscape default
+    /// silently wins over a portrait Opening Reference.
+    private func seedCustomDimensionsIfEnteringCustom(
+        next: GenerationPreset,
+        settings: inout ProjectSettings
+    ) {
+        guard next == .custom else { return }
+        settings.materializeOrientedSizeBeforeCustom(
+            orientation: FilmProjectResolutionOrientationResolver.resolve(
+                project: project, store: store)
+        )
     }
 
     private func binding<Value>(
@@ -1121,7 +1554,7 @@ private struct ShotCard: View {
     @ViewBuilder
     private var continuityBadge: some View {
         let resolved = AutoMovieRunCoordinator.shared
-            .resolvedContinuityMode(forShotAt: shot.index, in: project)
+            .displayedAutoMovieContinuityMode(forShotAt: shot.index, in: project)
         if let blocked = shot.continuityBlockedReason {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
@@ -2256,6 +2689,7 @@ private struct TakeRow: View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 8) {
                 statusIcon
+                conditioningBadge
                 Text("Seed \(take.seed)")
                     .font(.caption.monospaced())
                 if let preset = take.preset.flatMap(GenerationPreset.init(rawValue:)) {
@@ -2335,6 +2769,40 @@ private struct TakeRow: View {
     }
 
     @ViewBuilder
+    private var conditioningBadge: some View {
+        if take.reanchorApplied == true {
+            if (take.continueChainIndex ?? 0) == 0 && shot.index > 0 {
+                Text("RE-ANCHOR")
+                    .font(.system(size: 9, weight: .bold))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.purple.opacity(0.15))
+                    .foregroundStyle(.purple)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                    .help("Reapplies Project Identity Reference on natural cut")
+            } else {
+                Text("ANCHOR")
+                    .font(.system(size: 9, weight: .bold))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.blue.opacity(0.15))
+                    .foregroundStyle(.blue)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                    .help("Uses Project Identity Reference")
+            }
+        } else if take.conditioningStrategy == "previousFinalFrame" {
+            Text("CONTINUE")
+                .font(.system(size: 9, weight: .bold))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(Color.teal.opacity(0.15))
+                .foregroundStyle(.teal)
+                .clipShape(RoundedRectangle(cornerRadius: 3))
+                .help("Continues from previous shot's final frame")
+        }
+    }
+
+    @ViewBuilder
     private var diagnosticsDisclosure: some View {
         if take.generationSourceDiagnostics != nil || take.generationRuntimeDiagnostics != nil {
             DisclosureGroup(diagnosticsHeading) {
@@ -2386,6 +2854,13 @@ private struct TakeRow: View {
                         }
                         if let videoFacts = runtimeVideoFacts(runtime) {
                             Text("Video: \(videoFacts)")
+                        }
+                        if let frames = runtime.effectiveFrameCount {
+                            let chain = runtime.effectiveChainWindows.map { " · chain \($0)" } ?? ""
+                            Text("H3 effective timing: \(frames) frames\(chain)")
+                        }
+                        if let backendKind = runtime.backendKind {
+                            Text("Renderer: \(GenerationBackendKind(rawValue: backendKind)?.displayName ?? backendKind)")
                         }
                         Text("Backend: \(runtime.backendResult.displayName)\(runtime.backendExitCode.map { " · exit \($0)" } ?? "")")
                         if let stage = runtime.failureStage {

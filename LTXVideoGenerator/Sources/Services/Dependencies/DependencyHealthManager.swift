@@ -7,19 +7,14 @@ public enum SetupStatus: Equatable {
     case invalid(String)
     case unsupported(String)
 
-    /// True for `.ready` (already available locally) and `.missing` (a valid,
-    /// registered selection that simply isn't downloaded yet). A generation
-    /// attempt is what actually triggers the download for official models
-    /// (the Python backend fetches from Hugging Face on first use), so
-    /// "not yet downloaded" must not block the attempt that downloads it.
-    /// `.invalid`/`.unsupported` (e.g. an unregistered model id) describe a
-    /// real problem a generation attempt cannot resolve, so those still block.
-    /// `.checking` blocks until the first check completes.
+    /// Only `.ready` is generation-safe. A missing model is a setup action,
+    /// not a reason to start a generation that would unexpectedly download
+    /// many gigabytes in the background.
     var allowsGenerationAttempt: Bool {
         switch self {
-        case .ready, .missing:
+        case .ready:
             return true
-        case .checking, .invalid, .unsupported:
+        case .missing, .checking, .invalid, .unsupported:
             return false
         }
     }
@@ -46,7 +41,7 @@ public enum SetupRequirement: String, CaseIterable, Hashable {
         switch self {
         case .python: return "Python Environment"
         case .ffmpeg: return "FFmpeg"
-        case .videoModel: return "LTX Video Model"
+        case .videoModel: return "Video Model"
         case .textEncoder: return "Text Encoder"
         case .localDirector: return "Local Director (Ollama)"
         case .vision: return "Character Sheet Analysis"
@@ -93,17 +88,9 @@ public class DependencyHealthManager: ObservableObject {
 
     /// True when a generation attempt may be started.
     ///
-    /// The video model keeps the original first-use-download semantics: a
-    /// selected-but-not-yet-downloaded video model ("Download Required")
-    /// does not block this, since starting generation is still what triggers
-    /// that model's download via the Python backend (unchanged).
-    ///
-    /// The text encoder does NOT get that same allowance: it has an
-    /// explicit, user-initiated Download flow now (see
-    /// `TextEncoderDownloadCoordinator`), so a missing text encoder should
-    /// route the user to that Download action instead of quietly falling
-    /// back to an implicit download hidden inside a generation run. Only a
-    /// `.ready` text encoder allows an attempt.
+    /// Missing model files must be prepared explicitly from Settings. This
+    /// keeps generation from becoming an implicit download workflow for either
+    /// the video model or its text encoder.
     @Published public private(set) var canStartGeneration: Bool = false
 
     @Published public private(set) var isChecking: Bool = false
@@ -131,12 +118,20 @@ public class DependencyHealthManager: ObservableObject {
     
     public func refresh() async {
         isChecking = true
+
+        let usesH3 = GenerationModelResolver.backend(
+            for: UserDefaults.standard.string(forKey: LTXModelCatalog.selectedModelIDKey)
+        ) == .minimaxH3
         
         // Timeout each task to 10 seconds to avoid permanent spinners
-        async let pythonTask = runWithTimeout(seconds: 15) { await self.pythonChecker.check() } ?? .invalid("Python check timed out")
+        async let pythonTask = usesH3
+            ? SetupStatus.ready
+            : (runWithTimeout(seconds: 15) { await self.pythonChecker.check() } ?? .invalid("Python check timed out"))
         async let ffmpegTask = runWithTimeout(seconds: 5) { await self.ffmpegChecker.check() } ?? .invalid("FFmpeg check timed out")
         async let videoModelTask = runWithTimeout(seconds: 5) { await self.modelChecker.checkVideoModel() } ?? .invalid("Model check timed out")
-        async let textEncoderTask = runWithTimeout(seconds: 5) { await self.modelChecker.checkTextEncoder() } ?? .invalid("Encoder check timed out")
+        async let textEncoderTask = usesH3
+            ? SetupStatus.ready
+            : (runWithTimeout(seconds: 5) { await self.modelChecker.checkTextEncoder() } ?? .invalid("Encoder check timed out"))
         async let directorTask = runWithTimeout(seconds: 5) { await self.optionalServiceChecker.checkLocalDirector() } ?? .missing("Ollama check timed out")
         async let visionTask = runWithTimeout(seconds: 5) { await self.optionalServiceChecker.checkVision() } ?? .missing("Vision check timed out")
         
@@ -165,7 +160,7 @@ public class DependencyHealthManager: ObservableObject {
         self.canStartGeneration =
             pythonStatus == .ready &&
             ffmpegStatus == .ready &&
-            videoModelStatus.allowsGenerationAttempt &&
+            videoModelStatus == .ready &&
             textEncoderStatus == .ready
 
         isChecking = false

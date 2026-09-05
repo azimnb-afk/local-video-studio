@@ -50,6 +50,20 @@ final class StoryboardDirector {
         var dialogue: [OneShotPlan.DialogueLine]?
         var audioCues: [String]?
         var explicitChanges: [String]?
+        /// Why this shot exists: establish|performance|action|reaction|detail|
+        /// transition|reveal|dialogue. Optional and advisory — an absent or
+        /// unrecognized value falls back to deterministic inference
+        /// (`AutoMoviePurposePlanner.infer`), so older plans and the no-LLM
+        /// Basic Template (which never sets this) are unaffected.
+        var purpose: String?
+        /// Short phrase for the physical/emotional state this shot ends in
+        /// (e.g. "standing still, facing the camera, smiling"). Optional and
+        /// advisory: absent means no explicit ending state was authored, not
+        /// that the shot has none. `PromptCompiler` only adds an ending-state
+        /// sentence when this is present; the next shot's actual continuity
+        /// state still comes from `explicitChanges`/`ContinuityEngine`, not
+        /// from parsing this free text.
+        var endState: String?
         /// Local AI should return stable UUID strings. String is used at the
         /// transport boundary so unknown IDs/names can be repaired safely.
         var characterIDs: [String]?
@@ -85,11 +99,13 @@ final class StoryboardDirector {
                        "props":[],"propOwner":{},"wetness":{},"injuries":{},"dialogueState":"","storyState":""},
       "shots": [
         {"title":"...","summary":"present-tense visible action","durationSeconds":5,
+         "purpose":"establish|performance|action|reaction|detail|transition|reveal|dialogue",
+         "endState":"short phrase: physical/emotional state at the end of the shot",
          "shotScale":"extreme-wide|wide|medium-wide|medium|medium-close-up|close-up|extreme-close-up",
          "angle":"low|eye-level|high|overhead","movement":"static|pan|tilt|dolly|track|handheld",
          "motionTempo":"slow|normal|fast","cameraTempo":"static|slow|normal|fast",
          "playbackStyle":"realTime|slowMotion|fastMotion",
-         "lighting":"...","dialogue":[{"speaker":"Name","text":"line"}],"audioCues":["..."],
+         "lighting":"...","dialogue":[{"speaker":"Name","text":"line","sourceId":"D1 (optional)"}],"audioCues":["..."],
          "explicitChanges":["location=...","outfit:CharacterID=...","prop+:item"],
          "characterIDs":["exact-character-uuid"],
          "continuity":"continue|cut"}
@@ -100,8 +116,33 @@ final class StoryboardDirector {
     outfit:CharacterID=, position:CharacterID=, condition:CharacterID=,
     wet:CharacterID=, injury:CharacterID=,
     prop+:item, prop-:item, propOwner:item=Name, dialogueState=, storyState=.
-    2 to 8 shots. Keep user-provided dialogue verbatim.
+    2 to 8 shots. Keep user-provided dialogue verbatim. If EXPLICIT_DIALOGUE_SOURCES
+    lists an ID for a line's exact words, set that dialogue entry's "sourceId"
+    to that ID instead of retyping the words, and never invent an ID it did
+    not list.
+    "purpose" states why the shot exists, not what it looks like — pick the
+    one that best matches the shot's actual job in the sequence.
+    Prefer fewer, longer shots over many short ones when one continuous
+    behavioral arc can carry a beat — for example "walks, slows, and comes to
+    a stop" is one shot, not three. A shot asking for several unrelated
+    actions (walk, then sit, then pick something up, then wave) should become
+    more than one shot instead of one shot with everything packed in.
+    durationSeconds should reflect what the shot actually needs: roughly 3
+    seconds for a brief detail or insert, 5 to 8 seconds for an ordinary
+    action or performance beat, up to about 10 seconds for one continuous
+    action or a dialogue line that needs the time. The app fits your total
+    to the requested movie length afterward, so state the duration each shot
+    genuinely wants rather than dividing the total evenly.
+    For a shot longer than a brief detail, write "summary" as one continuous
+    arc rather than a single static instant: how it begins, how it develops,
+    how it ends — for example "she walks at a relaxed pace, gradually slows,
+    and comes to a natural stop" instead of just "she walks". "endState"
+    then names the state that arc lands on. Keep the arc to ONE line of
+    development: a shot that needs several distinct beats to reach its
+    ending should become more than one shot instead of one shot narrating
+    all of them.
     \(PerShotAudioPolicy.directorInstruction)
+    \(CharacterContinuitySafetyPolicy.directorInstruction)
     Motion tempo describes how quickly the subject acts. Camera tempo describes
     camera pacing independently. Playback style is realTime unless the brief
     explicitly asks for slow motion, fast motion, or time-lapse. Words such as
@@ -201,13 +242,28 @@ final class StoryboardDirector {
         }
     }
 
+    private static func isCancellationError(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if (error as? DirectorError) == .cancelled { return true }
+        if (error as? URLError)?.code == .cancelled { return true }
+        return false
+    }
+
     /// Brief → validated storyboard draft. Provider terminated before return.
     func draft(
         brief: String,
         characterBible: CharacterBible = CharacterBible(),
         openingSceneEvidence: OpeningReferenceAppearance? = nil,
-        targetDurationSeconds: Double? = nil
+        targetDurationSeconds: Double? = nil,
+        handle: DirectorPlanningHandle? = nil,
+        progressCallback: ((DirectorPlanningPhase, String) -> Void)? = nil
     ) async throws -> (draft: StoryboardDraft, providerName: String) {
+        if handle?.isCancelled == true || Task.isCancelled {
+            progressCallback?(.cancelled, "Planning cancelled")
+            throw DirectorError.cancelled
+        }
+        progressCallback?(.preparing, "Preparing Local Director…")
+
         diagnostics = []
         lastProviderModel = nil
         lastPlanningMode = nil
@@ -217,6 +273,10 @@ final class StoryboardDirector {
         var lastError: Error = DirectorError.noProviderAvailable
         var precedingProviderFailed = false
         for provider in providers {
+            if handle?.isCancelled == true || Task.isCancelled {
+                progressCallback?(.cancelled, "Planning cancelled")
+                throw DirectorError.cancelled
+            }
             if let model = provider.modelIdentifier { lastProviderModel = model }
             guard await provider.isAvailable() else {
                 record(.ollamaRequestFailed, provider: provider.name, attempt: 0,
@@ -243,7 +303,9 @@ final class StoryboardDirector {
                     draft = try await draftWithProvider(
                         provider, brief: brief, characterBible: characterBible,
                         openingSceneEvidence: openingSceneEvidence,
-                        targetDurationSeconds: targetDurationSeconds)
+                        targetDurationSeconds: targetDurationSeconds,
+                        handle: handle,
+                        progressCallback: progressCallback)
                 } else {
                     // Capability negotiation: start from what this model was
                     // last seen to handle, and if that protocol fails in
@@ -257,13 +319,22 @@ final class StoryboardDirector {
                     var localDraft: StoryboardDraft?
                     var localError: Error?
                     for planProtocol in order {
+                        if handle?.isCancelled == true || Task.isCancelled {
+                            progressCallback?(.cancelled, "Planning cancelled")
+                            throw DirectorError.cancelled
+                        }
+                        let phase: DirectorPlanningPhase = planProtocol == .structuredJSON ? .structuredPlanning : .textProtocolPlanning
+                        progressCallback?(phase, phase.displayName)
+
                         let diagnosticMark = diagnostics.count
                         do {
                             localDraft = try await draftWithProvider(
                                 provider, brief: brief, characterBible: characterBible,
                                 openingSceneEvidence: openingSceneEvidence,
                                 targetDurationSeconds: targetDurationSeconds,
-                                planProtocol: planProtocol)
+                                planProtocol: planProtocol,
+                                handle: handle,
+                                progressCallback: progressCallback)
                             lastProtocol = planProtocol
                             if !model.isEmpty {
                                 // Remember a downgrade so the next run starts
@@ -272,6 +343,11 @@ final class StoryboardDirector {
                             }
                             break
                         } catch {
+                            if Self.isCancellationError(error) || handle?.isCancelled == true || Task.isCancelled {
+                                await provider.terminate()
+                                progressCallback?(.cancelled, "Planning cancelled")
+                                throw DirectorError.cancelled
+                            }
                             localError = error
                             if preferredProtocolFallbackReason == nil {
                                 preferredProtocolFallbackReason = diagnostics[diagnosticMark...]
@@ -299,6 +375,10 @@ final class StoryboardDirector {
                 return (draft, provider.name)
             } catch {
                 await provider.terminate()
+                if Self.isCancellationError(error) || handle?.isCancelled == true || Task.isCancelled {
+                    progressCallback?(.cancelled, "Planning cancelled")
+                    throw DirectorError.cancelled
+                }
                 lastError = error
                 precedingProviderFailed = true
             }
@@ -332,7 +412,9 @@ final class StoryboardDirector {
         characterBible: CharacterBible,
         openingSceneEvidence: OpeningReferenceAppearance? = nil,
         targetDurationSeconds: Double? = nil,
-        planProtocol: LocalDirectorProtocol = .structuredJSON
+        planProtocol: LocalDirectorProtocol = .structuredJSON,
+        handle: DirectorPlanningHandle? = nil,
+        progressCallback: ((DirectorPlanningPhase, String) -> Void)? = nil
     ) async throws -> StoryboardDraft {
         var prompt = DirectorPlanFormat.userPrompt(
             for: planProtocol, brief: brief,
@@ -341,14 +423,21 @@ final class StoryboardDirector {
             targetDurationSeconds: targetDurationSeconds)
         var lastFailure = ""
         for attempt in 0...maxRepairAttempts {
+            if handle?.isCancelled == true || Task.isCancelled {
+                throw DirectorError.cancelled
+            }
             let response: String
             do {
                 response = try await provider.complete(
                     system: DirectorPlanFormat.systemPrompt(for: planProtocol, characterBible: characterBible),
                     prompt: prompt,
-                    expectsJSON: planProtocol == .structuredJSON
+                    expectsJSON: planProtocol == .structuredJSON,
+                    handle: handle
                 )
             } catch {
+                if Self.isCancellationError(error) || handle?.isCancelled == true || Task.isCancelled {
+                    throw DirectorError.cancelled
+                }
                 let stage: FailureStage
                 if case DirectorError.noResponse = error {
                     stage = .noResponse
@@ -370,12 +459,19 @@ final class StoryboardDirector {
                        message: error.localizedDescription)
                 throw error
             }
+
+            if handle?.isCancelled == true || Task.isCancelled {
+                throw DirectorError.cancelled
+            }
+
+            progressCallback?(.parsing, "Parsing director plan…")
             appendDebugRawResponse(response, provider: provider.name, attempt: attempt)
 
             let parsed = DirectorPlanFormat.parse(response, as: planProtocol, brief: brief)
             if var draft = parsed.draft {
                 let repair = Self.repairSemantics(draft, brief: brief)
                 draft = repair.draft
+                draft = Self.repairOverloadedShots(draft).draft
                 let issues = Self.validate(draft)
                 if issues.isEmpty { return draft }
                 lastFailure = issues.joined(separator: ", ")
@@ -514,11 +610,87 @@ final class StoryboardDirector {
                 changed = true
             }
             if let duration = draft.shots[index].durationSeconds, duration < 1 || duration > 10 {
-                draft.shots[index].durationSeconds = min(6, max(1, duration))
+                // Matches validate()'s accepted [1,10] range (previously
+                // clamped to [1,6] here, silently discarding a Director's
+                // longer duration intent before the adaptive planner ever
+                // saw it — see AutoMovieDurationPlanner.normalize).
+                draft.shots[index].durationSeconds = min(10, max(1, duration))
                 changed = true
             }
         }
         return (draft, changed)
+    }
+
+    /// Structural repair for a shot that packs too many independent actions
+    /// into one beat (`CapabilityAwareShotPlanner.visibleBeatCount` at or
+    /// above its established `maxVisibleBeats` threshold — the same signal
+    /// already used elsewhere to flag an overloaded shot). Splits ONLY the
+    /// offending shot into two consecutive shots at its middle clause
+    /// boundary, rather than asking the model to try again, so this can
+    /// never loop: each shot is visited exactly once and a produced half is
+    /// never itself re-split, since there is only one pass.
+    /// Internal, not private — matches `TextProtocolPlanParser`'s pattern of
+    /// keeping deterministic, side-effect-free helpers directly testable.
+    static func repairOverloadedShots(_ input: StoryboardDraft) -> (draft: StoryboardDraft, changed: Bool) {
+        var result: [ShotPlanDraft] = []
+        var changed = false
+        for shot in input.shots {
+            // Leave room under validate()'s 12-shot cap; an already-full
+            // draft keeps its overloaded shot rather than failing outright.
+            guard result.count < 11,
+                  CapabilityAwareShotPlanner.visibleBeatCount(in: shot.summary)
+                      >= CapabilityAwareShotPlanner.maxVisibleBeats,
+                  let halves = splitOverloadedShot(shot) else {
+                result.append(shot)
+                continue
+            }
+            result.append(halves.first)
+            result.append(halves.second)
+            changed = true
+        }
+        guard changed else { return (input, false) }
+        var draft = input
+        draft.shots = result
+        return (draft, true)
+    }
+
+    /// Splits at the middle clause boundary of `summary`. Camera, characters
+    /// and audio stay identical on both halves — varying them without a real
+    /// signal to base the choice on would be a guess, not a repair. State
+    /// that only makes sense once (explicitChanges, endState, dialogue) moves
+    /// to whichever half it actually completes on. Nil when the summary has
+    /// no clause separator to split on.
+    private static func splitOverloadedShot(
+        _ shot: ShotPlanDraft
+    ) -> (first: ShotPlanDraft, second: ShotPlanDraft)? {
+        let clauses = shot.summary
+            .components(separatedBy: CharacterSet(charactersIn: ".;,"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.rangeOfCharacter(from: .letters) != nil }
+        guard clauses.count >= 2 else { return nil }
+        let mid = clauses.count / 2
+        let firstHalf = clauses[..<mid].joined(separator: ", ")
+        let secondHalf = clauses[mid...].joined(separator: ", ")
+        guard !firstHalf.isEmpty, !secondHalf.isEmpty else { return nil }
+
+        let halfDuration = max(1, (shot.durationSeconds ?? 6) / 2)
+
+        var first = shot
+        first.summary = firstHalf
+        first.durationSeconds = halfDuration
+        first.endState = nil
+        first.explicitChanges = nil
+
+        var second = shot
+        second.title = shot.title.isEmpty ? shot.title : "\(shot.title) (cont.)"
+        second.summary = secondHalf
+        second.durationSeconds = halfDuration
+        // The same beat continuing, regardless of what the original shot's
+        // own continuity was — that value stays on the first half above.
+        second.continuity = "continue"
+        second.dialogue = nil
+
+        return (first, second)
     }
 
     private static func normalizeSchema(_ source: [String: Any], brief: String) -> [String: Any] {
@@ -626,13 +798,33 @@ final class StoryboardDirector {
         settings: ProjectSettings = ProjectSettings(),
         characterBible: CharacterBible = CharacterBible(),
         openingSceneEvidence: OpeningReferenceAppearance? = nil,
-        capabilityAwarePlanning: Bool = false
+        capabilityAwarePlanning: Bool = false,
+        handle: DirectorPlanningHandle? = nil,
+        progressCallback: ((DirectorPlanningPhase, String) -> Void)? = nil
     ) async throws -> (project: FilmProject, violations: [ContinuityEngine.Violation], providerName: String) {
+        let planningStartedAt = Date()
         let (rawDraft, providerName) = try await self.draft(
             brief: brief, characterBible: characterBible,
             openingSceneEvidence: openingSceneEvidence,
-            targetDurationSeconds: capabilityAwarePlanning ? settings.targetDurationSeconds : nil)
+            targetDurationSeconds: capabilityAwarePlanning ? settings.targetDurationSeconds : nil,
+            handle: handle,
+            progressCallback: progressCallback)
+        let planningDurationSeconds = Date().timeIntervalSince(planningStartedAt)
+
+        if handle?.isCancelled == true || Task.isCancelled {
+            progressCallback?(.cancelled, "Planning cancelled")
+            throw DirectorError.cancelled
+        }
+        progressCallback?(.applying, "Applying storyboard…")
         var draft = rawDraft
+
+        // The Director (Structured JSON or Text Protocol — both converge to
+        // this same draft type) may relay the user's explicit quoted
+        // dialogue with different punctuation, translation, or paraphrase.
+        // The brief's exact wording is authoritative; this only replaces
+        // dialogue text when a clear structural correspondence exists and
+        // never changes camera/action/duration/continuity fields.
+        draft.shots = ExactDialogueReconciler.reconcile(shots: draft.shots, brief: brief)
 
         // Auto Movie steers the plan toward shots this profile actually renders
         // before anything is compiled, so the prompt, the camera fields and the
@@ -646,6 +838,7 @@ final class StoryboardDirector {
         }
 
         var project = FilmProject(id: projectID, title: title)
+        project.reanchorPolicy = .automatic
         project.settings = settings
         project.directorProvider = providerName
         project.directorModel = lastProviderModel
@@ -656,6 +849,16 @@ final class StoryboardDirector {
         project.effectiveDirectorMode = providerName == "template"
             ? DirectorMode.basic.rawValue
             : DirectorMode.localAI.rawValue
+        // Display-only; never influences which protocol/provider was used.
+        project.directorProfile = providerName == "template"
+            ? nil
+            : DirectorModelProfile.detect(modelIdentifier: lastProviderModel)?.displayName
+        project.directorPlanningDurationSeconds = planningDurationSeconds
+        // Reproducibility/debugging only, matching directorProfile's scope:
+        // absent for Basic Director, since it never talks to Ollama at all.
+        project.directorEndpointSnapshot = providerName == "template"
+            ? nil
+            : OllamaDirectorEnvironmentClient.configuredEndpoint().absoluteString
         project.storyBible = StoryBible(
             logline: draft.logline,
             synopsis: draft.synopsis ?? "",
@@ -678,16 +881,37 @@ final class StoryboardDirector {
         )
         var previousMotionProfile: MotionTempoProfile?
         let japaneseHandling = JapaneseDialogueHandling(rawValue: settings.japaneseHandling) ?? .native
+        // Same deterministic call DirectorPlanFormat's knowledgeBlock(for:)
+        // already makes on this brief when building the Director's prompt —
+        // recorded here so the plan that was actually informed by these
+        // entries says so, rather than leaving consultedKnowledgeIDs (which
+        // exists and is persisted) permanently empty. Diagnostic only: never
+        // read by prompt compilation or generation.
+        let consultedKnowledgeIDs = AutoMovieKnowledgeBase.retrieve(for: brief).map(\.id)
 
         for (index, shotDraft) in draft.shots.enumerated() {
             var shot = Shot(index: index, title: shotDraft.title, summary: shotDraft.summary)
-            shot.durationSeconds = min(6, max(1, shotDraft.durationSeconds ?? 5))
+            // [1,10] matches validate()'s accepted range. This value is the
+            // Director's stated intent; for Auto Movie it is one input (not
+            // the final answer) to AutoMovieDurationPlanner.normalize below,
+            // which fits the whole movie's shots to the requested length.
+            shot.durationSeconds = min(10, max(1, shotDraft.durationSeconds ?? 5))
             // The first shot has nothing to continue from. Unknown or missing
             // planner values fall back to `auto`, which the run coordinator
             // resolves deterministically (and conservatively) at generation time.
             shot.continuityMode = index == 0
                 ? .cut
                 : ShotContinuityMode(rawValue: (shotDraft.continuity ?? "").lowercased()) ?? .auto
+            shot.shotPurpose = AutoMoviePurposePlanner.resolvePurpose(
+                stated: shotDraft.purpose,
+                summary: shotDraft.summary,
+                dialogue: shotDraft.dialogue ?? [],
+                isFirstShot: index == 0,
+                isCut: shot.continuityMode == .cut
+            )
+            let trimmedEndState = shotDraft.endState?.trimmingCharacters(in: .whitespacesAndNewlines)
+            shot.endStateSummary = (trimmedEndState?.isEmpty ?? true) ? nil : trimmedEndState
+            shot.consultedKnowledgeIDs = consultedKnowledgeIDs
             let motionProfile = MotionTempoPlanningPolicy.resolve(
                 draft: shotDraft,
                 brief: brief,
@@ -697,10 +921,21 @@ final class StoryboardDirector {
             shot.motionTempo = motionProfile.motionTempo
             shot.cameraTempo = motionProfile.cameraTempo
             shot.playbackStyle = motionProfile.playbackStyle
+            let plannedMovement = shotDraft.movement ?? "static"
+            let plannedAngle = shotDraft.angle ?? "eye-level"
             shot.camera = CameraPlan(
                 shotScale: shotDraft.shotScale ?? "medium",
-                angle: shotDraft.angle ?? "eye-level",
-                movement: shotDraft.movement ?? "static"
+                // Auto Movie only: nudge a generic default angle/movement
+                // toward one that supports the shot's purpose. Manual
+                // Storyboard keeps the Director's/user's exact choice,
+                // matching how CapabilityAwareShotPlanner is already scoped
+                // below.
+                angle: capabilityAwarePlanning
+                    ? AutoMoviePurposePlanner.nudgedAngle(current: plannedAngle, purpose: shot.shotPurpose ?? .action)
+                    : plannedAngle,
+                movement: capabilityAwarePlanning
+                    ? AutoMoviePurposePlanner.nudgedMovement(current: plannedMovement, purpose: shot.shotPurpose ?? .action)
+                    : plannedMovement
             )
             shot.audio = AudioPlan(
                 dialogue: (shotDraft.dialogue ?? []).map {
@@ -757,15 +992,26 @@ final class StoryboardDirector {
                 lighting: shotDraft.lighting ?? nextState.lighting,
                 dialogue: (shotDraft.dialogue ?? []),
                 audioCues: shotDraft.audioCues ?? [],
-                durationIntentSeconds: shot.durationSeconds
+                durationIntentSeconds: shot.durationSeconds,
+                endState: shot.endStateSummary
             )
             let context = ContinuityEngine.promptContext(for: nextState, bible: bible)
-            let compiled = PromptCompiler.compile(
-                plan: plan,
-                options: PromptCompiler.Options(
+            let compiled: String
+            if MiniMaxH3Configuration.isMiniMaxH3(modelID: project.settings.modelID) {
+                compiled = MiniMaxH3PromptCompiler.compile(
+                    plan: plan,
+                    isImageToVideo: shot.continuityMode == .continueFromPrevious
+                        || shot.startingImageReferenceAssetID != nil,
                     japaneseHandling: japaneseHandling,
                     perShotAudioPolicy: .naturalProductionSoundNoMusic)
-            )
+            } else {
+                compiled = PromptCompiler.compile(
+                    plan: plan,
+                    options: PromptCompiler.Options(
+                        japaneseHandling: japaneseHandling,
+                        perShotAudioPolicy: .naturalProductionSoundNoMusic)
+                )
+            }
             shot.baseCompiledPrompt = context.isEmpty ? compiled : context + " " + compiled
             shot.compiledPrompt = shot.baseCompiledPrompt ?? compiled
 
@@ -786,6 +1032,8 @@ final class StoryboardDirector {
 
         CharacterPromptPipeline.recompile(project: &project)
         violations.append(contentsOf: ContinuityEngine.monotonyWarnings(shots: project.shots))
+        violations.append(contentsOf: ShotPlanValidator.validate(shots: project.shots, brief: brief))
+        progressCallback?(.completed, "Plan ready")
         return (project, violations, providerName)
     }
 
@@ -970,6 +1218,28 @@ final class TemplateStoryboardProvider: DirectorProvider {
     func terminate() async {}
 
     static func explicitBeats(from brief: String) -> [String] {
+        let pattern = #"(?i)(?:^|(?<=[\n\.;]))\s*(?:shot\s*\d+[:\s\-\.]+|最初のショット[:\s\-\.]*|次のショット[:\s\-\.]*|最後のショット[:\s\-\.]*)"#
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+            let nsString = brief as NSString
+            let matches = regex.matches(in: brief, options: [], range: NSRange(location: 0, length: nsString.length))
+            if matches.count >= 2 {
+                var beats: [String] = []
+                for i in 0..<matches.count {
+                    let start = matches[i].range.location + matches[i].range.length
+                    let end = (i + 1 < matches.count) ? matches[i + 1].range.location : nsString.length
+                    if end > start {
+                        let beat = nsString.substring(with: NSRange(location: start, length: end - start)).trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !beat.isEmpty {
+                            beats.append(beat)
+                        }
+                    }
+                }
+                if beats.count >= 2 {
+                    return Array(beats.prefix(8))
+                }
+            }
+        }
+
         let lines = brief.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -1013,8 +1283,23 @@ final class HybridProjectCoordinator {
         brief: String,
         settings: ProjectSettings,
         characterBible: CharacterBible = CharacterBible(),
-        openingSceneEvidence: OpeningReferenceAppearance? = nil
+        openingSceneEvidence: OpeningReferenceAppearance? = nil,
+        directorEnabled: Bool = true,
+        handle: DirectorPlanningHandle? = nil,
+        progressCallback: ((DirectorPlanningPhase, String) -> Void)? = nil
     ) async throws -> (project: FilmProject, violations: [ContinuityEngine.Violation], providerName: String) {
+        if !directorEnabled {
+            return try await makeDirectProject(
+                projectID: projectID,
+                title: title,
+                brief: brief,
+                settings: settings,
+                characterBible: characterBible,
+                handle: handle,
+                progressCallback: progressCallback
+            )
+        }
+
         var (project, violations, providerName) = try await director.makeProject(
             projectID: projectID, title: title, brief: brief,
             settings: settings, characterBible: characterBible,
@@ -1022,7 +1307,9 @@ final class HybridProjectCoordinator {
             // Auto Movie only. The same pass runs for the local AI planner and
             // for the no-LLM template, so generation feasibility does not depend
             // on whether a local model happened to be available.
-            capabilityAwarePlanning: true
+            capabilityAwarePlanning: true,
+            handle: handle,
+            progressCallback: progressCallback
         )
         let target = min(60, max(5, settings.targetDurationSeconds ?? 20))
         let desiredCount = min(12, max(1, Int(ceil(target / 5))))
@@ -1067,17 +1354,185 @@ final class HybridProjectCoordinator {
         // Provider output is advisory; this deterministic pass is the single
         // source of truth for the complete-movie target shown in Plan Preview
         // and later converted to GenerationRequests.
-        project.shots = AutoMovieDurationPlanner.normalize(
-            shots: project.shots,
-            targetDurationSeconds: target,
-            fps: settings.fps
-        )
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: settings.modelID) {
+            project.shots = AutoMovieDurationPlanner.normalizeForH3(
+                shots: project.shots,
+                targetDurationSeconds: target,
+                preset: settings.resolvedMiniMaxH3Preset,
+                customDurationSeconds: settings.minimaxH3CustomDuration
+            )
+        } else {
+            project.shots = AutoMovieDurationPlanner.normalize(
+                shots: project.shots,
+                targetDurationSeconds: target,
+                fps: settings.fps
+            )
+        }
         project.shots = ContinuityReconciler.reconcile(shots: project.shots)
+        ContinuityChainPolicy.updateContinueChainIndices(shots: &project.shots)
         project.workflowMode = "hybrid"
         for index in project.shots.indices {
             CharacterPromptPipeline.recompilePlan(project: &project, shotIndex: index)
         }
-        violations.append(contentsOf: ContinuityEngine.monotonyWarnings(shots: project.shots))
+        // Not re-run here: director.makeProject() above already appended
+        // monotonyWarnings for these shots, and nothing between there and
+        // here (duration normalization, continuity reconciliation, prompt
+        // recompilation) touches shotScale/angle/movement — so a second call
+        // would only repeat the same messages. Confirmed duplicated in real
+        // Auto Movie planning output before this fix.
         return (project, violations, providerName)
+    }
+
+    private func makeDirectProject(
+        projectID: UUID,
+        title: String,
+        brief: String,
+        settings: ProjectSettings,
+        characterBible: CharacterBible,
+        handle: DirectorPlanningHandle?,
+        progressCallback: ((DirectorPlanningPhase, String) -> Void)?
+    ) async throws -> (project: FilmProject, violations: [ContinuityEngine.Violation], providerName: String) {
+        if handle?.isCancelled == true || Task.isCancelled {
+            progressCallback?(.cancelled, "Planning cancelled")
+            throw DirectorError.cancelled
+        }
+        progressCallback?(.preparing, "Structuring movie shots…")
+
+        let plan = try StructuralMoviePlanner.plan(prompt: brief)
+
+        let target = min(60, max(5, settings.targetDurationSeconds ?? 20))
+        let effectiveMaxSecondsPerShot: Double
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: settings.modelID) {
+            let h3Preset = settings.resolvedMiniMaxH3Preset
+            effectiveMaxSecondsPerShot = (h3Preset == .custom)
+                ? min(5.9, max(1.0, settings.minimaxH3CustomDuration ?? 3.75))
+                : max(107.0 / 24.0, h3Preset.perShotSafeMaxDurationSeconds)
+        } else {
+            effectiveMaxSecondsPerShot = Double(AutoMovieDurationPlanner.maximumFrameCount - 1) / Double(max(1, settings.fps))
+        }
+
+        try StructuralMoviePlanner.validateCapacity(
+            requestedTotalDuration: target,
+            shotCount: plan.segments.count,
+            maximumSecondsPerShot: effectiveMaxSecondsPerShot
+        )
+
+        var shots: [Shot] = []
+
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: settings.modelID) {
+            let h3Preset = settings.resolvedMiniMaxH3Preset
+            var initialShots: [Shot] = []
+            for (index, segment) in plan.segments.enumerated() {
+                var shot = Shot(index: index)
+                shot.title = "Shot \(index + 1)"
+                shot.summary = segment.literalPrompt
+                shot.compiledPrompt = segment.literalPrompt
+                shot.baseCompiledPrompt = segment.literalPrompt
+                shot.plannedContinuityMode = segment.transition
+                shot.continuityMode = segment.transition
+                shot.continuityReconciliationReason = segment.structuralBoundaryReason
+                shot.camera = CameraPlan()
+                shot.takes = []
+                shot.selectedTakeID = nil
+                initialShots.append(shot)
+            }
+
+            shots = AutoMovieDurationPlanner.normalizeForH3(
+                shots: initialShots,
+                targetDurationSeconds: target,
+                preset: h3Preset,
+                customDurationSeconds: settings.minimaxH3CustomDuration
+            )
+        } else {
+            let effectiveMaxSecondsPerShot = Double(AutoMovieDurationPlanner.maximumFrameCount - 1) / Double(max(1, settings.fps))
+
+            try StructuralMoviePlanner.validateCapacity(
+                requestedTotalDuration: target,
+                shotCount: plan.segments.count,
+                maximumSecondsPerShot: effectiveMaxSecondsPerShot
+            )
+
+            let fps = max(1, settings.fps)
+            let frameStride = 8
+            let minimumFrameCount = AutoMovieDurationPlanner.minimumFrameCount // 25
+            let maximumFrameCount = AutoMovieDurationPlanner.maximumFrameCount // 241
+            let minimumUnits = (minimumFrameCount - 1) / frameStride
+            let maximumUnits = (maximumFrameCount - 1) / frameStride
+            let targetUnits = max(
+                minimumUnits,
+                Int((target * Double(fps) / Double(frameStride)).rounded())
+            )
+
+            let unitsPerShot = allocateEqualUnits(
+                count: plan.segments.count,
+                targetUnits: targetUnits,
+                minimumUnits: minimumUnits,
+                maximumUnits: maximumUnits
+            )
+
+            for (index, segment) in plan.segments.enumerated() {
+                let unit = unitsPerShot[index]
+                let frameCount = min(maximumFrameCount, max(minimumFrameCount, unit * frameStride + 1))
+                let duration = Double(frameCount - 1) / Double(fps)
+
+                var shot = Shot(index: index)
+                shot.title = "Shot \(index + 1)"
+                shot.summary = segment.literalPrompt
+                shot.compiledPrompt = segment.literalPrompt
+                shot.baseCompiledPrompt = segment.literalPrompt
+                shot.durationSeconds = duration
+                shot.plannedContinuityMode = segment.transition
+                shot.continuityMode = segment.transition
+                shot.continuityReconciliationReason = segment.structuralBoundaryReason
+                shot.camera = CameraPlan()
+                shot.takes = []
+                shot.selectedTakeID = nil
+                shots.append(shot)
+            }
+        }
+
+        if handle?.isCancelled == true || Task.isCancelled {
+            progressCallback?(.cancelled, "Planning cancelled")
+            throw DirectorError.cancelled
+        }
+
+        progressCallback?(.applying, "Applying structured shots…")
+
+        var project = FilmProject(id: projectID, title: title)
+        project.reanchorPolicy = .automatic
+        project.settings = settings
+        project.characterBible = characterBible
+        project.shots = shots
+        ContinuityChainPolicy.updateContinueChainIndices(shots: &project.shots)
+        project.workflowMode = "hybrid"
+        project.directorProvider = "Direct"
+        project.planningMode = "Direct (No Director)"
+
+        return (project, [], "Direct")
+    }
+
+    private func allocateEqualUnits(
+        count: Int,
+        targetUnits: Int,
+        minimumUnits: Int,
+        maximumUnits: Int
+    ) -> [Int] {
+        guard count > 0 else { return [] }
+        guard count > 1 else {
+            return [min(maximumUnits, max(minimumUnits, targetUnits))]
+        }
+
+        let baseUnits = targetUnits / count
+        var remainder = targetUnits % count
+        var units = [Int](repeating: min(maximumUnits, max(minimumUnits, baseUnits)), count: count)
+
+        for i in 0..<count {
+            if remainder > 0 && units[i] < maximumUnits {
+                units[i] += 1
+                remainder -= 1
+            }
+        }
+
+        return units
     }
 }

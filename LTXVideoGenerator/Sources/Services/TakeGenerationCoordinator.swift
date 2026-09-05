@@ -45,6 +45,7 @@ final class TakeGenerationCoordinator {
         case continuityImageUnavailable(UUID)
         case characterAnchorUnavailable(CharacterAnchorIssue)
         case openingReferenceUnavailable(OpeningReferenceIssue)
+        case newStartFrameUnavailable(UUID)
 
         var errorDescription: String? {
             switch self {
@@ -62,6 +63,8 @@ final class TakeGenerationCoordinator {
                 return "Character Anchor cannot be used: \(issue.message) Choose another reference or turn the anchor off."
             case .openingReferenceUnavailable(let issue):
                 return "Opening Reference Image cannot be used: \(issue.message) Choose another image or clear it."
+            case .newStartFrameUnavailable(let id):
+                return "Shot (\(id.uuidString.prefix(6))) is Cut with a New Start Frame set, but that image is missing or unreadable. Choose a New Start Frame again."
             }
         }
     }
@@ -93,14 +96,19 @@ final class TakeGenerationCoordinator {
         }
         let mayInheritPreviousShot: Bool
         if project.workflowMode == AutoMovieRunCoordinator.autoMovieWorkflowMode {
+            // Since preview.3, Auto Movie always continues from Shot 2 on —
+            // see `AutoMovieRunCoordinator.autoMovieContinuityMode`.
             mayInheritPreviousShot = AutoMovieRunCoordinator(store: store)
-                .resolvedContinuityMode(forShotAt: shotIndex, in: project)
+                .autoMovieContinuityMode(forShotAt: shotIndex, in: project)
                 == .continueFromPrevious
         } else {
             // Preserve legacy/manual Storyboard behaviour: absent/auto modes
             // may use a prepared path, but an explicit Cut never may.
             mayInheritPreviousShot = shotIndex > 0 && project.shots[shotIndex].continuityMode != .cut
         }
+        // Derived, not stored: true exactly when this shot is explicitly Cut
+        // (never for Shot 1, which has no previous shot to cut away from).
+        let isCut = !mayInheritPreviousShot && shotIndex > 0
 
         // Auto Movie's first run, Shot-card Regenerate, and bulk regeneration
         // all end here. Refresh the inherited frame at this shared boundary so
@@ -121,13 +129,6 @@ final class TakeGenerationCoordinator {
         }
 
         let shot = project.shots[shotIndex]
-        // The Director compiler normally stores this policy on every new
-        // Storyboard/Auto Movie Shot. Apply it again at the immutable Take
-        // boundary so a legacy project (or a Shot created by an older app
-        // build) cannot reach either backend without the current product audio
-        // policy. Direct Generate never passes through this coordinator.
-        let generationPrompt = PerShotAudioPolicy.naturalProductionSoundNoMusic
-            .applyingPromptGuard(to: shot.compiledPrompt)
         let settings = project.settings
         let projectResolutionOrientation = FilmProjectResolutionOrientationResolver.resolve(
             project: project, store: store)
@@ -136,22 +137,50 @@ final class TakeGenerationCoordinator {
 
         // Starting image precedence:
         //   1. the shot's explicit user/CharacterBible selection
-        //   2. a frame inherited from the previous shot (continuity chain)
-        //   3. none — ordinary text-to-video
+        //   2. a Cut shot's own explicit New Start Frame (never the previous
+        //      shot's output)
+        //   3. a frame inherited from the previous shot (continuity chain)
+        //   4. a Cut shot without a New Start Frame may re-anchor identity via
+        //      the Character Anchor, same as the opening shot
+        //   5. none — ordinary text-to-video
         // A shot that is supposed to continue but has an unusable inherited
-        // frame is rejected rather than quietly rendered as text-to-video.
+        // frame is rejected rather than quietly rendered as text-to-video; the
+        // same applies to a Cut shot whose New Start Frame is set but unusable.
+        // Determine transition intent for re-anchor decision
+        let transitionIntent: ShotContinuityMode = mayInheritPreviousShot ? .continueFromPrevious : .cut
+        let previousChainIndex: Int
+        if shotIndex > 0 {
+            previousChainIndex = project.shots[shotIndex - 1].continuitySourceTake?.continueChainIndex
+                ?? project.shots[shotIndex - 1].continueChainIndex ?? 0
+        } else {
+            previousChainIndex = 0
+        }
+
+        let hasExplicitShotSource = (shot.startingImageReferenceAssetID != nil)
+            || (isCut && shot.newStartFrameRelativePath != nil && !shot.newStartFrameRelativePath!.isEmpty)
+        let hasIdentityRefresh = mayInheritPreviousShot
+            && shot.identityRefreshAnchorRelativePath != nil
+            && !shot.identityRefreshAnchorRelativePath!.isEmpty
+
+        let reanchorDecision = IdentityReanchorEngine.decide(
+            reanchorPolicy: project.reanchorPolicy,
+            identityAnchor: project.identityAnchor,
+            shotIndex: shotIndex,
+            transitionIntent: transitionIntent,
+            previousContinueChainIndex: previousChainIndex,
+            maxContinueChainLength: project.maxContinueChainLength,
+            hasExplicitShotSource: hasExplicitShotSource,
+            hasIdentityRefreshAsset: hasIdentityRefresh
+        )
+
         var sourceImagePath: String? = nil
-        // Only a frame inherited from the previous shot gets the calibrated
-        // continuity strength; an image the user chose keeps the existing
-        // exact-first-frame behaviour.
         var usesInheritedContinuityFrame = false
         var effectiveSource: LTXContinuitySource = .none
-        // The optional Character Anchor sits between the two: it applies to the
-        // opening shot only, never overrides an image the user picked for that
-        // shot, and is never re-injected into a later shot, which continues to
-        // inherit from the shot before it.
         var usesCharacterAnchor = false
         var usesOpeningReference = false
+        var preparedAnchorWidth: Int? = nil
+        var preparedAnchorHeight: Int? = nil
+
         if let assetID = shot.startingImageReferenceAssetID {
             guard let (_, asset) = project.findReferenceAsset(id: assetID) else {
                 throw CoordinatorError.startingImageNotFound(assetID)
@@ -163,18 +192,48 @@ final class TakeGenerationCoordinator {
             }
             sourceImagePath = url.path
             effectiveSource = .explicitStartingImage
-        } else if mayInheritPreviousShot,
+        } else if isCut,
+                  let newStartRelativePath = shot.newStartFrameRelativePath,
+                  !newStartRelativePath.isEmpty {
+            guard let url = store.managedProjectAssetURL(projectID: projectID, relativePath: newStartRelativePath),
+                  ContinuityFrameExtractor.isUsableImage(atPath: url.path) else {
+                throw CoordinatorError.newStartFrameUnavailable(shotID)
+            }
+            sourceImagePath = url.path
+            effectiveSource = .newStartFrame
+        } else if hasIdentityRefresh,
                   let refreshPath = shot.identityRefreshAnchorRelativePath,
-                  !refreshPath.isEmpty,
                   let url = store.managedProjectAssetURL(projectID: projectID, relativePath: refreshPath),
                   ContinuityFrameExtractor.isUsableImage(atPath: url.path) {
-            // A refresh anchor is only ever created when the frame this shot
-            // would otherwise inherit could not carry the character into a
-            // closer framing. It conditions like an inherited frame, so the
-            // camera and action still move on.
             sourceImagePath = url.path
             usesInheritedContinuityFrame = true
             effectiveSource = .identityRefreshAnchor
+        } else if reanchorDecision.shouldApplyAnchor, let anchor = project.identityAnchor {
+            // Apply model-aware prepared Project Identity Anchor
+            if let preparedURL = try? PreparedIdentityAnchorService.shared.prepareAnchor(
+                anchor: anchor,
+                projectID: projectID,
+                requestedWidth: settings.width,
+                requestedHeight: settings.height,
+                modelID: settings.modelID,
+                store: store
+            ), FileManager.default.fileExists(atPath: preparedURL.path) {
+                sourceImagePath = preparedURL.path
+                usesCharacterAnchor = true
+                effectiveSource = .characterAnchor
+                if let probe = MediaProbe.probe(path: preparedURL.path) {
+                    preparedAnchorWidth = probe.width
+                    preparedAnchorHeight = probe.height
+                }
+            } else {
+                // Fallback to original anchor path if preparation failed
+                if let originalURL = store.managedProjectAssetURL(projectID: projectID, relativePath: anchor.projectRelativePath),
+                   FileManager.default.fileExists(atPath: originalURL.path) {
+                    sourceImagePath = originalURL.path
+                    usesCharacterAnchor = true
+                    effectiveSource = .characterAnchor
+                }
+            }
         } else if mayInheritPreviousShot,
                   let relativePath = shot.continuityImageRelativePath {
             guard let url = store.managedProjectAssetURL(projectID: projectID, relativePath: relativePath),
@@ -187,9 +246,6 @@ final class TakeGenerationCoordinator {
         } else if shotIndex == 0,
                   let openingReference = CharacterAnchorResolver.resolveOpeningReference(
                       project: project, store: store) {
-            // A scene-like still the user picked is the most explicit statement
-            // of how the movie should open, so it outranks the Character Bible
-            // anchor below.
             switch openingReference {
             case .success(let url):
                 sourceImagePath = url.path
@@ -198,7 +254,7 @@ final class TakeGenerationCoordinator {
             case .failure(let issue):
                 throw CoordinatorError.openingReferenceUnavailable(issue)
             }
-        } else if shotIndex == 0, project.characterAnchor.isActive {
+        } else if (shotIndex == 0 || isCut), project.characterAnchor.isActive {
             switch CharacterAnchorResolver.resolve(project: project, store: store) {
             case .resolved(let anchor):
                 sourceImagePath = anchor.fileURL.path
@@ -220,40 +276,85 @@ final class TakeGenerationCoordinator {
             )
         }
 
+        var conditioningStrength: Double? = nil
+        if usesOpeningReference {
+            conditioningStrength = OpeningReferencePolicy.openingImageStrength
+        } else if usesCharacterAnchor {
+            conditioningStrength = CharacterAnchorPolicy.openingImageStrength
+        } else if usesInheritedContinuityFrame {
+            conditioningStrength = ContinuityStrengthResolver.strength(for: continuityStrengthPolicy)
+        }
+        let conditioningImage = ResolvedShotConditioningImage(
+            path: sourceImagePath,
+            imageStrength: conditioningStrength,
+            effectiveSource: effectiveSource
+        )
+
         var requests: [GenerationRequest] = []
         for i in 0..<count {
             let seed = baseSeed.map { $0 + i } ?? Int.random(in: 0..<Int(Int32.max))
-            var params = GenerationParameters.default
-            params.width = settings.width
-            params.height = settings.height
-            params.fps = settings.fps
-            params.numFrames = settings.resolvedPreset == .custom
-                ? (settings.numFrames ?? PromptCompiler.frameCount(forSeconds: shot.durationSeconds, fps: settings.fps))
-                : PromptCompiler.frameCount(forSeconds: shot.durationSeconds, fps: settings.fps)
-            params.numInferenceSteps = settings.resolvedInferenceSteps
-            params.seed = seed
-            if usesOpeningReference {
-                // The user chose this frame as the movie's first frame, so it
-                // is conditioned exactly like an explicit Starting Image.
-                params.imageStrength = OpeningReferencePolicy.openingImageStrength
-            } else if usesCharacterAnchor {
-                // A character sheet extraction is a posed figure on a plain
-                // background. Pinning it as an exact first frame drags that
-                // whole plate into the movie, so the anchor conditions more
-                // loosely than a user-chosen starting image: enough to carry
-                // face, hair and costume, little enough for the shot to be a
-                // shot.
-                params.imageStrength = CharacterAnchorPolicy.openingImageStrength
-            } else if usesInheritedContinuityFrame {
-                // Pinning the first frame exactly (1.0) preserved the scene but
-                // froze the composition, so continuing shots never progressed.
-                // The calibrated value keeps the set, wardrobe and lighting
-                // while letting the camera and action move on, and a shot that
-                // also asks for a large framing change gets the looser anchor.
-                params.imageStrength = ContinuityStrengthResolver.strength(for: continuityStrengthPolicy)
+            let takeID = UUID()
+
+            let resolvedPresetRaw: String
+            let resolvedQualityMode: String?
+            let resolvedSteps: Int
+            let resolvedFps: Int
+            let resolvedH3RequestedDuration: Double?
+            let resolvedH3Fast: Bool?
+
+            if MiniMaxH3Configuration.isMiniMaxH3(modelID: settings.modelID) {
+                let h3Preset = settings.resolvedMiniMaxH3Preset
+                resolvedPresetRaw = h3Preset.rawValue
+                resolvedQualityMode = QualityMode.auto.rawValue
+                resolvedFps = 24
+                resolvedH3RequestedDuration = shot.durationSeconds
+                resolvedH3Fast = h3Preset == .custom ? (settings.minimaxH3CustomFast ?? true) : true
+                if h3Preset == .custom {
+                    resolvedSteps = max(8, min(24, settings.minimaxH3CustomSteps ?? 16))
+                } else if h3Preset == .high {
+                    resolvedSteps = 20
+                } else if h3Preset == .quick {
+                    resolvedSteps = 8
+                } else {
+                    resolvedSteps = 16
+                }
+            } else {
+                resolvedPresetRaw = settings.resolvedPreset.rawValue
+                resolvedQualityMode = settings.qualityMode
+                resolvedSteps = settings.resolvedInferenceSteps
+                resolvedFps = settings.fps
+                resolvedH3RequestedDuration = nil
+                resolvedH3Fast = nil
             }
 
-            let take = Take(
+            let spec = CanonicalShotSpecification(
+                prompt: shot.compiledPrompt,
+                modelID: settings.modelID,
+                textEncoderID: settings.textEncoderID,
+                preset: resolvedPresetRaw,
+                qualityMode: resolvedQualityMode,
+                width: settings.width,
+                height: settings.height,
+                fps: resolvedFps,
+                numInferenceSteps: resolvedSteps,
+                targetDurationSeconds: shot.durationSeconds,
+                numFramesOverride: settings.resolvedPreset == .custom ? settings.numFrames : nil,
+                audioEnabled: settings.resolvedAudioEnabled,
+                seed: seed,
+                conditioningImage: conditioningImage,
+                orientation: projectResolutionOrientation,
+                generationSource: generationSource,
+                projectID: projectID,
+                shotID: shotID,
+                takeID: takeID,
+                minimaxH3RequestedDurationSeconds: resolvedH3RequestedDuration,
+                minimaxH3Fast: resolvedH3Fast
+            )
+
+            let (request, params, generationPrompt) = CanonicalShotRequestBuilder.buildRequest(from: spec)
+
+            var take = Take(
+                id: takeID,
                 shotID: shotID,
                 modelID: settings.modelID,
                 seed: seed,
@@ -265,7 +366,9 @@ final class TakeGenerationCoordinator {
                 requestedWidth: params.width,
                 requestedHeight: params.height,
                 fps: params.fps,
-                requestedDuration: Double(params.numFrames) / Double(params.fps),
+                requestedDuration: MiniMaxH3Configuration.isMiniMaxH3(modelID: settings.modelID)
+                    ? (targetDuration ?? Double(params.numFrames) / Double(params.fps))
+                    : Double(params.numFrames) / Double(params.fps),
                 targetDurationSeconds: targetDuration,
                 status: .queued,
                 startingImageReferenceAssetID: shot.startingImageReferenceAssetID,
@@ -278,24 +381,19 @@ final class TakeGenerationCoordinator {
                     sourceImagePath: sourceImagePath
                 )
             )
-            project.shots[shotIndex].takes.append(take)
+            take.transitionIntent = transitionIntent.rawValue
+            take.conditioningStrategy = reanchorDecision.conditioningStrategy.rawValue
+            take.continueChainIndex = reanchorDecision.resultingContinueChainIndex
+            take.identityAnchorID = project.identityAnchor?.id
+            take.temporalSourceShotID = (mayInheritPreviousShot && shotIndex > 0) ? project.shots[shotIndex - 1].id : nil
+            take.reanchorApplied = reanchorDecision.reanchorApplied
+            take.reanchorReason = reanchorDecision.reason.rawValue
+            take.reanchorRecommended = reanchorDecision.shouldRecommendReanchor
+            take.preparedAnchorWidth = preparedAnchorWidth
+            take.preparedAnchorHeight = preparedAnchorHeight
 
-            let request = GenerationRequest(
-                prompt: generationPrompt,
-                sourceImagePath: sourceImagePath,
-                presetResolutionOrientation: projectResolutionOrientation,
-                disableAudio: !settings.resolvedAudioEnabled,
-                modelId: settings.modelID,
-                textEncoderId: settings.textEncoderID,
-                parameters: params,
-                qualityMode: settings.qualityMode,
-                preset: settings.resolvedPreset.rawValue,
-                targetDurationSeconds: targetDuration,
-                generationSource: generationSource,
-                filmProjectID: projectID,
-                shotID: shotID,
-                takeID: take.id
-            )
+            project.shots[shotIndex].continueChainIndex = reanchorDecision.resultingContinueChainIndex
+            project.shots[shotIndex].takes.append(take)
             project.jobs.append(GenerationJob(
                 projectID: projectID, shotID: shotID, takeID: take.id,
                 requestID: request.id
@@ -384,7 +482,7 @@ final class TakeGenerationCoordinator {
         take.generationStartedAt = startedAt
         take.generationCompletedAt = nil
         take.generationTime = nil
-        take.generationRuntimeDiagnostics = GenerationRuntimeDiagnostics(
+        var runtime = GenerationRuntimeDiagnostics(
             status: .running,
             startedAt: startedAt,
             finishedAt: nil,
@@ -409,6 +507,9 @@ final class TakeGenerationCoordinator {
             outputExists: false,
             outputMetadataReadable: nil
         )
+        runtime.effectiveFrameCount = request.minimaxH3ExpectedFrames
+        runtime.effectiveChainWindows = request.minimaxH3ChainWindows
+        take.generationRuntimeDiagnostics = runtime
         project.shots[shotIndex].takes[takeIndex] = take
         for jobIndex in project.jobs.indices where project.jobs[jobIndex].takeID == takeID {
             project.jobs[jobIndex].state = .running
@@ -446,9 +547,17 @@ final class TakeGenerationCoordinator {
         take.seed = result.seed
         take.effectiveWidth = result.effectiveWidth
         take.effectiveHeight = result.effectiveHeight
+        take.finalWidth = result.finalWidth
+        take.finalHeight = result.finalHeight
         take.actualWidth = result.actualWidth ?? mediaInfo?.width
         take.actualHeight = result.actualHeight ?? mediaInfo?.height
         take.actualDuration = result.actualDuration ?? mediaInfo?.durationSeconds
+        take.alignmentApplied = result.alignmentApplied
+        take.alignmentMultiple = result.alignmentMultiple
+        take.cropTop = result.cropTop
+        take.cropBottom = result.cropBottom
+        take.cropLeft = result.cropLeft
+        take.cropRight = result.cropRight
         take.modelRevision = result.modelRevision
         take.quantization = result.quantization
         take.preset = result.preset ?? take.preset
@@ -469,7 +578,7 @@ final class TakeGenerationCoordinator {
         if let mediaInfo {
             take.audioMetadata = mediaInfo
         }
-        take.generationRuntimeDiagnostics = GenerationRuntimeDiagnostics(
+        var runtime = GenerationRuntimeDiagnostics(
             status: .succeeded,
             startedAt: startedAt,
             finishedAt: finalizedAt,
@@ -478,8 +587,16 @@ final class TakeGenerationCoordinator {
             requestedHeight: previousRuntime?.requestedHeight ?? take.requestedHeight,
             effectiveWidth: result.effectiveWidth ?? effectiveDimension(result.parameters.width),
             effectiveHeight: result.effectiveHeight ?? effectiveDimension(result.parameters.height),
+            finalWidth: result.finalWidth,
+            finalHeight: result.finalHeight,
             actualWidth: mediaInfo?.width ?? result.actualWidth,
             actualHeight: mediaInfo?.height ?? result.actualHeight,
+            alignmentApplied: result.alignmentApplied,
+            alignmentMultiple: result.alignmentMultiple,
+            cropTop: result.cropTop,
+            cropBottom: result.cropBottom,
+            cropLeft: result.cropLeft,
+            cropRight: result.cropRight,
             requestedFrames: requestedFrames,
             requestedDurationSeconds: requestedDuration,
             actualDurationSeconds: mediaInfo?.durationSeconds ?? result.actualDuration,
@@ -494,6 +611,11 @@ final class TakeGenerationCoordinator {
             outputExists: outputExists,
             outputMetadataReadable: actualMetadataWasRead
         )
+        runtime.effectiveFrameCount = result.effectiveFrameCount
+            ?? previousRuntime?.effectiveFrameCount
+        runtime.effectiveChainWindows = result.effectiveChainWindows
+            ?? previousRuntime?.effectiveChainWindows
+        take.generationRuntimeDiagnostics = runtime
         project.shots[shotIndex].takes[takeIndex] = take
         for jobIndex in project.jobs.indices where project.jobs[jobIndex].takeID == takeID {
             project.jobs[jobIndex].state = .completed
@@ -554,7 +676,7 @@ final class TakeGenerationCoordinator {
         take.generationStartedAt = startedAt
         take.generationCompletedAt = finalizedAt
         take.generationTime = elapsed
-        take.generationRuntimeDiagnostics = GenerationRuntimeDiagnostics(
+        var runtime = GenerationRuntimeDiagnostics(
             status: .failed,
             startedAt: startedAt,
             finishedAt: finalizedAt,
@@ -579,6 +701,11 @@ final class TakeGenerationCoordinator {
             outputExists: outputExists,
             outputMetadataReadable: outputExists ? mediaInfo != nil : false
         )
+        runtime.effectiveFrameCount = previousRuntime?.effectiveFrameCount
+            ?? request.minimaxH3ExpectedFrames
+        runtime.effectiveChainWindows = previousRuntime?.effectiveChainWindows
+            ?? request.minimaxH3ChainWindows
+        take.generationRuntimeDiagnostics = runtime
         project.shots[shotIndex].takes[takeIndex] = take
         for jobIndex in project.jobs.indices where project.jobs[jobIndex].takeID == takeID {
             project.jobs[jobIndex].state = .failed

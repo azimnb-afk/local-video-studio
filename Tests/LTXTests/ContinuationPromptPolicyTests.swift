@@ -33,8 +33,12 @@ func runContinuationPromptPolicyTests(_ t: TestKit) {
         let after = [state(id, costume: "navy sailor vest, cream cape")]
         let context = ContinuationPromptPolicy.changeFocusedContext(before: before, after: after)
 
-        t.checkEqual(context, ContinuationPromptPolicy.continuityStatement,
-                     "D-071: an unchanged character contributes only the continuity statement")
+        t.checkEqual(
+            context,
+            "\(ContinuationPromptPolicy.continuityStatement) \(ContinuationPromptPolicy.unchangedAppearanceStatement)",
+            "D-071: an unchanged character contributes only the continuity statement plus the generic " +
+            "unchanged-appearance anchor — never a restatement of specific costume text"
+        )
         t.check(!context.lowercased().contains("navy"),
                 "the costume the frame already shows is not restated")
         t.check(!context.contains("Current costume:"),
@@ -90,8 +94,11 @@ func runContinuationPromptPolicyTests(_ t: TestKit) {
         let cleared = ContinuationPromptPolicy.changeFocusedContext(
             before: [state(id, costume: "navy vest")],
             after: [state(id, costume: "")])
-        t.checkEqual(cleared, ContinuationPromptPolicy.continuityStatement,
-                     "an emptied costume is treated as unknown, not as a change to nothing")
+        t.checkEqual(
+            cleared,
+            "\(ContinuationPromptPolicy.continuityStatement) \(ContinuationPromptPolicy.unchangedAppearanceStatement)",
+            "an emptied costume is treated as unknown, not as a change to nothing"
+        )
     }
 
     t.suite("Continuation prompt policy — end to end through the compiler") {

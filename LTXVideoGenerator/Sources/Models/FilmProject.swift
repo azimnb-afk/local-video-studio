@@ -525,8 +525,16 @@ struct Take: Codable, Equatable, Identifiable {
     var requestedHeight: Int
     var effectiveWidth: Int?
     var effectiveHeight: Int?
+    var finalWidth: Int?
+    var finalHeight: Int?
     var actualWidth: Int?
     var actualHeight: Int?
+    var alignmentApplied: Bool?
+    var alignmentMultiple: Int?
+    var cropTop: Int?
+    var cropBottom: Int?
+    var cropLeft: Int?
+    var cropRight: Int?
 
     var fps: Int
     var requestedDuration: Double
@@ -558,6 +566,127 @@ struct Take: Codable, Equatable, Identifiable {
     /// diagnostics safely remain "unavailable" rather than being guessed from
     /// current settings or a later output file.
     var generationRuntimeDiagnostics: GenerationRuntimeDiagnostics?
+
+    // Identity Keyframe & Re-anchor provenance foundation (optional for backward compatibility).
+    var transitionIntent: String?
+    var conditioningStrategy: String?
+    var continueChainIndex: Int?
+    var identityAnchorID: UUID?
+    var temporalSourceShotID: UUID?
+    var reanchorApplied: Bool?
+    var reanchorReason: String?
+    var reanchorRecommended: Bool?
+    var preparedAnchorWidth: Int?
+    var preparedAnchorHeight: Int?
+}
+
+// MARK: - Identity Keyframe & Conditioning Models
+
+/// Project-level immutable identity anchor (source of truth for character/subject consistency).
+public struct ProjectIdentityAnchor: Codable, Equatable, Sendable {
+    public let id: UUID
+    public var projectRelativePath: String
+    public var characterName: String?
+    public var createdTimestamp: Date
+    public var originalWidth: Int?
+    public var originalHeight: Int?
+
+    public init(
+        id: UUID = UUID(),
+        projectRelativePath: String,
+        characterName: String? = nil,
+        createdTimestamp: Date = Date(),
+        originalWidth: Int? = nil,
+        originalHeight: Int? = nil
+    ) {
+        self.id = id
+        self.projectRelativePath = projectRelativePath
+        self.characterName = characterName
+        self.createdTimestamp = createdTimestamp
+        self.originalWidth = originalWidth
+        self.originalHeight = originalHeight
+    }
+}
+
+/// Project-level policy for automatic re-anchoring across long continuation chains.
+public enum IdentityReanchorPolicy: String, Codable, Sendable, CaseIterable, Equatable {
+    case off = "off"
+    case automatic = "automatic"
+    case manual = "manual"
+}
+
+/// Role of a conditioning asset in video generation.
+public enum ConditioningRole: String, Codable, Sendable, Equatable {
+    case temporalStart
+    case temporalEnd
+    case identityReference
+}
+
+/// Provenance kind of the conditioning source asset.
+public enum ConditioningSourceKind: String, Codable, Sendable, Equatable {
+    case userProvided
+    case projectContinuityFrame
+    case storyboardAsset
+    case identityAnchor
+    case identityRefresh
+}
+
+/// A concrete conditioning asset reference with role and source details.
+public struct ConditioningAsset: Codable, Sendable, Equatable {
+    public let id: UUID
+    public var role: ConditioningRole
+    public var sourceKind: ConditioningSourceKind
+    public var originalPath: String
+    public var preparedPath: String?
+    public var sourceShotID: UUID?
+    public var sourceTakeID: UUID?
+    public var conditioningStrength: Double
+
+    public init(
+        id: UUID = UUID(),
+        role: ConditioningRole,
+        sourceKind: ConditioningSourceKind,
+        originalPath: String,
+        preparedPath: String? = nil,
+        sourceShotID: UUID? = nil,
+        sourceTakeID: UUID? = nil,
+        conditioningStrength: Double = 0.8
+    ) {
+        self.id = id
+        self.role = role
+        self.sourceKind = sourceKind
+        self.originalPath = originalPath
+        self.preparedPath = preparedPath
+        self.sourceShotID = sourceShotID
+        self.sourceTakeID = sourceTakeID
+        self.conditioningStrength = conditioningStrength
+    }
+}
+
+/// Multi-role conditioning plan for a single shot generation request.
+public struct ShotConditioningPlan: Codable, Sendable, Equatable {
+    public var temporalStart: ConditioningAsset?
+    public var temporalEnd: ConditioningAsset?
+    public var identityReference: ConditioningAsset?
+
+    public init(
+        temporalStart: ConditioningAsset? = nil,
+        temporalEnd: ConditioningAsset? = nil,
+        identityReference: ConditioningAsset? = nil
+    ) {
+        self.temporalStart = temporalStart
+        self.temporalEnd = temporalEnd
+        self.identityReference = identityReference
+    }
+
+    public var isConditioned: Bool {
+        temporalStart != nil || temporalEnd != nil || identityReference != nil
+    }
+
+    public var effectivePrimaryImagePath: String? {
+        temporalStart?.preparedPath ?? temporalStart?.originalPath
+            ?? identityReference?.preparedPath ?? identityReference?.originalPath
+    }
 }
 
 // MARK: - Continuity chain
@@ -582,6 +711,50 @@ enum ShotContinuityMode: String, Codable, CaseIterable {
         case .auto: return "Auto"
         case .continueFromPrevious: return "Continue"
         case .cut: return "Cut"
+        }
+    }
+}
+
+/// Why a planned shot exists, independent of its camera/duration/continuity
+/// fields. Auto Movie Quality V1: knowing a shot's purpose is what lets
+/// duration and camera planning be purposeful instead of arbitrary — an
+/// ESTABLISH shot and a REACTION shot want different things from both.
+///
+/// Deliberately not surfaced as primary UI vocabulary yet (Plan Preview shows
+/// a short human summary derived from it, not the raw case name); this is
+/// planning-internal taxonomy the Director and the deterministic planners
+/// share, matching how `ShotContinuityMode`/`CameraPlan` already work.
+enum ShotPurpose: String, Codable, CaseIterable, Equatable {
+    /// Opens a scene/location; camera tends to be static, pan, or slow dolly.
+    case establish
+    /// Subtle acting carries the shot — a pause, a look, a small change in
+    /// expression. Wants a locked or slow push-in camera, more time.
+    case performance
+    /// Physical action/movement is the content. Tracking or lateral follow.
+    case action
+    /// A response to something that just happened. Close/medium, restrained
+    /// camera so the reaction itself stays legible.
+    case reaction
+    /// A close, specific detail (an object, a hand, a small gesture).
+    case detail
+    /// Connective tissue between beats; usually brief.
+    case transition
+    /// A visual reveal — a new character, place, or object coming into view.
+    case reveal
+    /// A character is speaking; duration should respect the line's length.
+    case dialogue
+
+    /// Short, human phrase for Plan Preview — not the raw case name.
+    var shortLabel: String {
+        switch self {
+        case .establish: return "Establishing"
+        case .performance: return "Performance"
+        case .action: return "Action"
+        case .reaction: return "Reaction"
+        case .detail: return "Detail"
+        case .transition: return "Transition"
+        case .reveal: return "Reveal"
+        case .dialogue: return "Dialogue"
         }
     }
 }
@@ -689,6 +862,16 @@ struct Shot: Codable, Equatable, Identifiable {
     /// Set when a `continue` shot cannot resolve its inherited frame.
     var continuityBlockedReason: ContinuityBlockReason?
 
+    // MARK: New Start Frame (Cut only)
+
+    /// Project-relative path of an explicit starting image for this shot when
+    /// it is Cut. Distinct from `continuityImageRelativePath`: this is never
+    /// extracted from a previous take, only imported by the user, and it is
+    /// only ever consulted when this shot's effective continuity mode is
+    /// `.cut`. Absent means Cut falls back to Character Anchor re-anchoring
+    /// or, failing that, plain text-to-video — never the previous frame.
+    var newStartFrameRelativePath: String?
+
     // MARK: Capability-aware planning (Auto Movie only, both optional)
 
     /// The framing the Director asked for, when the capability pass planned a
@@ -696,6 +879,38 @@ struct Shot: Codable, Equatable, Identifiable {
     var originalCameraScale: String?
     /// Why the effective plan differs from the planned one.
     var capabilityAdjustmentReason: String?
+
+    // MARK: Quality V1 (Auto Movie adaptive planning, all optional/additive —
+    // absent in projects created before the feature existed, matching every
+    // other continuity-chain/capability field above)
+
+    /// Why this shot exists. Nil for projects planned before this existed, or
+    /// for manual Storyboard shots where purpose inference was not run.
+    var shotPurpose: ShotPurpose?
+    /// Visible action-beat count the adaptive duration planner measured for
+    /// this shot's final (post-merge/split) summary — kept for Plan Preview
+    /// and for the validator, so both read the same number the planner used
+    /// rather than recomputing it and risking drift.
+    var actionBeatCount: Int?
+    /// Filmmaking-knowledge entry IDs consulted while planning this shot, for
+    /// diagnostics only (never shown as raw IDs in default UI, never a path).
+    var consultedKnowledgeIDs: [String] = []
+    /// Short phrase for the physical/emotional state this shot ends in
+    /// (Director-authored, or nil when none was given — never fabricated).
+    /// This shot's own end state is the next shot's start state: state
+    /// propagation between shots already happens structurally through
+    /// `continuityBefore`/`explicitChanges`/`ContinuityEngine`; this field is
+    /// the short human-readable summary of that same chain, kept for Plan
+    /// Preview and for the compiled prompt's closing sentence.
+    var endStateSummary: String?
+
+    // MARK: - Continuity Chain & Exact Frame Provenance
+    /// Number of consecutive previous shots continuing into this one (0 for Cut or opening shot, 1 for 1st continue, 2 for 2nd continue, etc.)
+    var continueChainIndex: Int?
+    /// Exact planned frame count on legal hardware grid (e.g. 90, 73, 56 for H3 17k+5)
+    var effectiveFrames: Int?
+    /// Exact projected or actual duration derived from effectiveFrames / fps
+    var actualDurationSeconds: Double?
 
     var selectedTake: Take? {
         guard let selectedTakeID else { return nil }
@@ -738,8 +953,13 @@ struct Shot: Codable, Equatable, Identifiable {
         continuityImageRelativePath: String? = nil,
         continuitySourceTakeID: UUID? = nil,
         continuityBlockedReason: ContinuityBlockReason? = nil,
+        newStartFrameRelativePath: String? = nil,
         originalCameraScale: String? = nil,
-        capabilityAdjustmentReason: String? = nil
+        capabilityAdjustmentReason: String? = nil,
+        shotPurpose: ShotPurpose? = nil,
+        actionBeatCount: Int? = nil,
+        consultedKnowledgeIDs: [String] = [],
+        endStateSummary: String? = nil
     ) {
         self.id = id
         self.index = index
@@ -765,8 +985,13 @@ struct Shot: Codable, Equatable, Identifiable {
         self.continuityImageRelativePath = continuityImageRelativePath
         self.continuitySourceTakeID = continuitySourceTakeID
         self.continuityBlockedReason = continuityBlockedReason
+        self.newStartFrameRelativePath = newStartFrameRelativePath
         self.originalCameraScale = originalCameraScale
         self.capabilityAdjustmentReason = capabilityAdjustmentReason
+        self.shotPurpose = shotPurpose
+        self.actionBeatCount = actionBeatCount
+        self.consultedKnowledgeIDs = consultedKnowledgeIDs
+        self.endStateSummary = endStateSummary
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -778,10 +1003,13 @@ struct Shot: Codable, Equatable, Identifiable {
              continuityMode, plannedContinuityMode, continuityReconciliationReason,
              continuityImageRelativePath,
              continuitySourceTakeID, continuityBlockedReason,
+             newStartFrameRelativePath,
              originalCameraScale, capabilityAdjustmentReason,
              identityRefreshAnchorRelativePath, identityRefreshAnchorOrigin,
              identityRefreshAnchorSourceShotID, identityRefreshSourceTakeID,
-             identityRefreshNote
+             identityRefreshNote,
+             shotPurpose, actionBeatCount, consultedKnowledgeIDs, endStateSummary,
+             effectiveFrames, actualDurationSeconds, continueChainIndex
     }
 
     init(from decoder: Decoder) throws {
@@ -822,8 +1050,22 @@ struct Shot: Codable, Equatable, Identifiable {
             String.self, forKey: .identityRefreshNote)
         continuitySourceTakeID = try container.decodeIfPresent(UUID.self, forKey: .continuitySourceTakeID)
         continuityBlockedReason = try container.decodeIfPresent(ContinuityBlockReason.self, forKey: .continuityBlockedReason)
+        // Absent in every project written before Cut-Aware Continuity; those
+        // simply have no New Start Frame, which is correct for them.
+        newStartFrameRelativePath = try container.decodeIfPresent(
+            String.self, forKey: .newStartFrameRelativePath)
         originalCameraScale = try container.decodeIfPresent(String.self, forKey: .originalCameraScale)
         capabilityAdjustmentReason = try container.decodeIfPresent(String.self, forKey: .capabilityAdjustmentReason)
+        // Absent in every project planned before Quality V1; those simply
+        // have no purpose/beat-count/knowledge metadata, which is correct
+        // for them (see the field doc comments above).
+        shotPurpose = try container.decodeIfPresent(ShotPurpose.self, forKey: .shotPurpose)
+        actionBeatCount = try container.decodeIfPresent(Int.self, forKey: .actionBeatCount)
+        consultedKnowledgeIDs = try container.decodeIfPresent([String].self, forKey: .consultedKnowledgeIDs) ?? []
+        endStateSummary = try container.decodeIfPresent(String.self, forKey: .endStateSummary)
+        effectiveFrames = try container.decodeIfPresent(Int.self, forKey: .effectiveFrames)
+        actualDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .actualDurationSeconds)
+        continueChainIndex = try container.decodeIfPresent(Int.self, forKey: .continueChainIndex)
     }
 }
 
@@ -845,9 +1087,18 @@ struct ProjectSettings: Codable, Equatable {
     var targetDurationSeconds: Double?
     var globalBGMGenre: String?   // project-level BGM (applied at final assembly)
     var japaneseHandling: String = JapaneseDialogueHandling.native.rawValue
+    var minimaxH3Preset: String?
+    var minimaxH3CustomTier: String?
+    var minimaxH3CustomSteps: Int?
+    var minimaxH3CustomDuration: Double?
+    var minimaxH3CustomFast: Bool?
 
     var resolvedPreset: GenerationPreset {
         GenerationPreset.resolving(presetRaw: preset, qualityModeRaw: qualityMode)
+    }
+
+    var resolvedMiniMaxH3Preset: MiniMaxH3Preset {
+        minimaxH3Preset.flatMap { MiniMaxH3Preset(rawValue: $0) } ?? .standard
     }
 
     var resolvedAudioEnabled: Bool { audioEnabled ?? true }
@@ -860,7 +1111,9 @@ struct ProjectSettings: Codable, Equatable {
     /// Codable defaults above remain stable for legacy project migration.
     static func usingCurrentSelections(userDefaults: UserDefaults = .standard) -> ProjectSettings {
         var settings = ProjectSettings()
-        settings.modelID = LTXModelCatalog.selectedModel(userDefaults: userDefaults).id
+        let selectedID = userDefaults.string(forKey: LTXModelCatalog.selectedModelIDKey)
+        settings.modelID = selectedID.flatMap { ModelRegistry.shared.descriptor(id: $0)?.id }
+            ?? LTXModelCatalog.defaultModelID
         settings.textEncoderID = LTXTextEncoderCatalog.selectedTextEncoder(userDefaults: userDefaults).id
         return settings
     }
@@ -899,6 +1152,31 @@ struct ProjectSettings: Codable, Equatable {
 
     mutating func markCustom() {
         applyPreset(.custom)
+    }
+
+    /// Writes down the size this project is *actually* generating at, before it
+    /// becomes an explicit Custom size.
+    ///
+    /// Custom keeps whatever dimensions it holds so an explicit user size beats
+    /// automatic orientation. That makes the switch onto Custom lossy: the
+    /// stored `width`/`height` are the preset's landscape base, while the real
+    /// canvas is that base oriented to the source image. Freezing without
+    /// resolving first silently turns a portrait project landscape, which is
+    /// what a user hit by only toggling Audio.
+    ///
+    /// No-op when already Custom (nothing left to derive) and when the preset
+    /// has no oriented size to offer.
+    mutating func materializeOrientedSizeBeforeCustom(orientation: SourceImageOrientation) {
+        let previous = resolvedPreset
+        guard previous != .custom else { return }
+        guard let dimensions = GenerationSettingsResolver.orientedPresetDimensions(
+            preset: previous,
+            orientation: orientation,
+            modelID: modelID,
+            audioEnabled: resolvedAudioEnabled
+        ) else { return }
+        width = dimensions.width
+        height = dimensions.height
     }
 }
 
@@ -943,6 +1221,20 @@ struct FilmProject: Codable, Equatable, Identifiable {
     var fallbackReason: String?
     var requestedDirectorMode: String?
     var effectiveDirectorMode: String?
+    /// Display-only recognized model family/name (e.g. "Qwen Director
+    /// (qwen3.6-claw-fast:latest)"), derived from `directorModel` at plan
+    /// time. Never influences planning; observability only. Absent for
+    /// projects planned before this field existed or for Basic Director.
+    var directorProfile: String?
+    /// Wall-clock seconds the Director spent producing this plan (Structured
+    /// JSON + Text Protocol + Basic Fallback attempts combined). Absent for
+    /// projects planned before this field existed.
+    var directorPlanningDurationSeconds: Double?
+    /// The Ollama endpoint this plan's Local AI provider was configured to
+    /// use (e.g. "http://127.0.0.1:11434"), for reproducibility/debugging
+    /// only — never used to change planning behavior. Absent for Basic
+    /// Director plans and for projects planned before this field existed.
+    var directorEndpointSnapshot: String?
     var settings: ProjectSettings = ProjectSettings()
     var storyBible: StoryBible = StoryBible()
     var characterBible: CharacterBible = CharacterBible()
@@ -987,19 +1279,35 @@ struct FilmProject: Codable, Equatable, Identifiable {
     /// behavior to before this field existed.
     var finalAudio: FinalAudioSettings = FinalAudioSettings()
 
+    /// Project-level immutable identity anchor (Character Keyframe).
+    /// Optional; absent in older projects.
+    var identityAnchor: ProjectIdentityAnchor?
+
+    /// Policy for automatic/manual re-anchoring across long continuation chains.
+    /// Absent in legacy projects; decodes as `.off` to preserve previous behavior.
+    var reanchorPolicy: IdentityReanchorPolicy = .off
+
+    /// Maximum consecutive CONTINUE shots before a re-anchor is recommended/scheduled.
+    var maxContinueChainLength: Int = 3
+
     init(id: UUID = UUID(), title: String) {
         self.id = id
         self.title = title
+        // Generic initialization defaults to .off; Auto Movie creation flow explicitly sets .automatic
+        self.reanchorPolicy = .off
+        self.maxContinueChainLength = 3
     }
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, id, title, createdAt, updatedAt, workflowMode,
              directorProvider, directorModel, planningMode, fallbackReason,
-             requestedDirectorMode, effectiveDirectorMode, directorProtocol, settings,
+             requestedDirectorMode, effectiveDirectorMode, directorProtocol,
+             directorProfile, directorPlanningDurationSeconds, directorEndpointSnapshot, settings,
              storyBible, characterBible, shots, jobs,
              lastAssemblySignature, assembledMoviePath, assembledAt,
              continuityChainEnabled, characterAnchor, openingReferenceImage,
-             openingReferenceAppearance, characterOpeningConsistency, finalAudio
+             openingReferenceAppearance, characterOpeningConsistency, finalAudio,
+             identityAnchor, reanchorPolicy, maxContinueChainLength
     }
 
     init(from decoder: Decoder) throws {
@@ -1018,6 +1326,9 @@ struct FilmProject: Codable, Equatable, Identifiable {
         fallbackReason = try container.decodeIfPresent(String.self, forKey: .fallbackReason)
         requestedDirectorMode = try container.decodeIfPresent(String.self, forKey: .requestedDirectorMode)
         effectiveDirectorMode = try container.decodeIfPresent(String.self, forKey: .effectiveDirectorMode)
+        directorProfile = try container.decodeIfPresent(String.self, forKey: .directorProfile)
+        directorPlanningDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .directorPlanningDurationSeconds)
+        directorEndpointSnapshot = try container.decodeIfPresent(String.self, forKey: .directorEndpointSnapshot)
         settings = try container.decodeIfPresent(ProjectSettings.self, forKey: .settings) ?? ProjectSettings()
         storyBible = try container.decodeIfPresent(StoryBible.self, forKey: .storyBible) ?? StoryBible()
         characterBible = try container.decodeIfPresent(CharacterBible.self, forKey: .characterBible) ?? CharacterBible()
@@ -1041,6 +1352,10 @@ struct FilmProject: Codable, Equatable, Identifiable {
         // with BGM off, reproducing their exact previous assembly output.
         finalAudio = try container.decodeIfPresent(FinalAudioSettings.self, forKey: .finalAudio)
             ?? FinalAudioSettings()
+        identityAnchor = try container.decodeIfPresent(ProjectIdentityAnchor.self, forKey: .identityAnchor)
+        // CRITICAL backward-compatibility: legacy projects missing reanchorPolicy decode as .off
+        reanchorPolicy = try container.decodeIfPresent(IdentityReanchorPolicy.self, forKey: .reanchorPolicy) ?? .off
+        maxContinueChainLength = try container.decodeIfPresent(Int.self, forKey: .maxContinueChainLength) ?? 3
     }
 
     mutating func touch() {

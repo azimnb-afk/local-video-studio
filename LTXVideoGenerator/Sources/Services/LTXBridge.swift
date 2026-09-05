@@ -23,34 +23,6 @@ enum LTXError: LocalizedError, Equatable {
     }
 }
 
-private final class ActiveGenerationProcessController: @unchecked Sendable {
-    private let lock = NSLock()
-    private var process: Process?
-
-    func set(_ process: Process) {
-        lock.lock()
-        self.process = process
-        lock.unlock()
-    }
-
-    func clear(_ process: Process) {
-        lock.lock()
-        if self.process === process {
-            self.process = nil
-        }
-        lock.unlock()
-    }
-
-    func cancel() {
-        lock.lock()
-        let process = self.process
-        lock.unlock()
-        if process?.isRunning == true {
-            process?.terminate()
-        }
-    }
-}
-
 // Use subprocess to run MLX-based generation
 class LTXBridge {
     static let shared = LTXBridge()
@@ -107,7 +79,7 @@ class LTXBridge {
     private(set) var isModelLoaded = false
     private var pythonHome: String?
     private var pythonExecutable: String?
-    private let activeGenerationProcess = ActiveGenerationProcessController()
+    private let activeGenerationProcess = ProcessCancellationTracker()
     
     private init() {
         setupPythonPaths()
@@ -190,8 +162,7 @@ class LTXBridge {
             throw LTXError.pythonNotConfigured
         }
         
-        let selectedModel = LTXModelCatalog.selectedModel()
-        progressHandler("MLX environment ready. Model will download on first generation (\(selectedModel.downloadSize)).")
+        progressHandler("MLX environment ready. Prepare the selected model in Settings before generation.")
         isModelLoaded = true
     }
     
@@ -207,10 +178,14 @@ class LTXBridge {
         }
         
         let params = request.parameters
-        // These are the exact dimensions passed to mlx_video below. Image
-        // conditioning must target this effective canvas, not a preset label.
-        let genWidth = (params.width / 64) * 64
-        let genHeight = (params.height / 64) * 64
+        let alignment = ModelAwareResolutionAlignment.align(
+            requestedWidth: params.width,
+            requestedHeight: params.height,
+            modelID: request.modelId,
+            isContinuation: request.isContinuation
+        )
+        let genWidth = alignment.generation.width
+        let genHeight = alignment.generation.height
         let seed = params.seed ?? Int.random(in: 0..<Int(Int32.max))
         
         // Resolve through the one boundary that knows what the installed
@@ -245,6 +220,23 @@ class LTXBridge {
         guard !textEncoderRepo.isEmpty else {
             throw LTXError.generationFailed(
                 "Set a text encoder Hugging Face repo in Preferences → General (pick a preset or fill in Custom)."
+            )
+        }
+        // Generation is an execution step, never an implicit model installer.
+        // The Python backend's `from_pretrained` path can otherwise start a
+        // multi-gigabyte Hugging Face download before the first frame exists.
+        // Keep this guard after backend resolution so custom LTX-2-MLX models
+        // continue through their own local/readiness contract above.
+        let hubDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cache/huggingface/hub")
+        guard HuggingFaceCacheChecker.isCached(repository: modelRepo, hubDirectory: hubDirectory) else {
+            throw LTXError.modelLoadFailed(
+                "Model \(selectedModel.displayName) is not prepared locally. Open Settings → Models & Features and download it explicitly before generating."
+            )
+        }
+        guard HuggingFaceCacheChecker.isCached(repository: textEncoderRepo, hubDirectory: hubDirectory) else {
+            throw LTXError.modelLoadFailed(
+                "Text Encoder \(selectedTextEncoder.displayName) is not prepared locally. Open Settings → General and download it explicitly before generating."
             )
         }
         let (effectiveTilingMode, appliedTilingRecovery) = GenerationFailureRecovery.effectiveTilingMode(
@@ -859,6 +851,12 @@ except Exception as e:
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let videoPath = json["video_path"] as? String,
                let resultSeed = json["seed"] as? Int {
+                if request.filmProjectID == nil {
+                    _ = try? PostGenerationCropService.applyCropIfNeeded(
+                        videoPath: videoPath,
+                        alignment: alignment
+                    )
+                }
                 progressHandler(1.0, "Complete!")
                 // Safe to read without lock: runPython has completed, no more stderr callbacks
                 return (videoPath, resultSeed, capturedEnhancedPrompt)
@@ -1030,12 +1028,17 @@ except Exception as e:
                     try? startLog.write(toFile: logFile, atomically: false, encoding: .utf8)
                     
                     try process.run()
-                    processController.set(process)
-                    defer { processController.clear(process) }
+                    processController.register(process)
+                    defer { processController.unregister(process) }
                     process.waitUntilExit()
                     
                     stderrPipe.fileHandleForReading.readabilityHandler = nil
                     
+                    if processController.isCancelled {
+                        continuation.resume(throwing: LTXError.cancelled)
+                        return
+                    }
+
                     let outputData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
                     let output = String(data: outputData, encoding: .utf8) ?? ""
                     

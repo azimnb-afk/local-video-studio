@@ -13,12 +13,25 @@ enum GenerationBackendKind: String, Codable, Equatable, CaseIterable {
     case mlxVideoWithAudio
     /// Pure-MLX LTX-2 port (github.com/dgrauet/ltx-2-mlx). Runs custom MLX models.
     case ltx2MLX
+    /// Local mlx-serve HTTP runtime for the MiniMax H3 FL2VA model pack.
+    case minimaxH3
 
     var displayName: String {
         switch self {
         case .mlxVideoWithAudio: return "mlx-video-with-audio"
         case .ltx2MLX: return "ltx-2-mlx"
+        case .minimaxH3: return "MiniMax H3 / mlx-serve"
         }
+    }
+
+    /// Model descriptors predate this enum and persist their backend as a
+    /// human-readable runtime name (for example, `ltx-2-mlx`) while archived
+    /// generation diagnostics use the enum raw value (`ltx2MLX`). Keep both
+    /// spellings equivalent when a descriptor is routed through readiness or
+    /// another registry boundary.
+    func matches(descriptorBackend backend: String) -> Bool {
+        let normalized = backend.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == rawValue.lowercased() || normalized == displayName.lowercased()
     }
 }
 
@@ -45,6 +58,9 @@ enum CustomLTX2MLXModelCatalog {
     static func model(id: String, userDefaults: UserDefaults = .standard) -> LTXModel? {
         if id == customModelID {
             return customModel(userDefaults: userDefaults)
+        }
+        if id == LTX25ModelCatalog.ltx25ExperimentalID {
+            return LTX25ModelCatalog.ltx25Experimental
         }
         return nil
     }
@@ -101,28 +117,32 @@ enum LTX2MLXRuntime {
 
     // MARK: Runtime
 
-    static func executablePath(userDefaults: UserDefaults = .standard) -> String? {
-        guard let path = userDefaults.string(forKey: executablePathKey),
-              !path.trimmingCharacters(in: .whitespaces).isEmpty
-        else { return nil }
-        return path
+    static func executablePath(
+        userDefaults: UserDefaults = .standard,
+        manager: LTX2MLXRuntimeManager = .shared
+    ) -> String? {
+        let status = manager.evaluateStatus(userDefaults: userDefaults)
+        return status.executablePath
     }
 
     static func runtimeReadiness(
         userDefaults: UserDefaults = .standard,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        manager: LTX2MLXRuntimeManager = .shared
     ) -> ComponentReadiness {
-        guard let path = executablePath(userDefaults: userDefaults) else {
-            return .missing("The ltx-2-mlx runtime is not configured. Set its path in Preferences → General.")
+        let status = manager.evaluateStatus(userDefaults: userDefaults)
+        switch status {
+        case .ready(let path, _):
+            return .ready(path)
+        case .notInstalled:
+            return .missing("The ltx-2-mlx runtime is not configured or installed. Set its path or install in Preferences → Models & Features.")
+        case .outdated(_, let current, let req, let missing):
+            return .missing("The ltx-2-mlx runtime is outdated (v\(current) -> v\(req), missing \(missing.joined(separator: ", "))). Update it in Preferences → Models & Features.")
+        case .broken(let reason):
+            return .missing("The ltx-2-mlx runtime has an issue: \(reason)")
+        case .installing(_, let step):
+            return .missing("The ltx-2-mlx runtime is currently installing (\(step))…")
         }
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else {
-            return .missing("The configured ltx-2-mlx runtime was not found at \(path).")
-        }
-        guard fileManager.isExecutableFile(atPath: path) else {
-            return .missing("The configured ltx-2-mlx runtime at \(path) is not executable.")
-        }
-        return .ready(path)
     }
 
     // MARK: Model
@@ -189,6 +209,24 @@ enum LTX2MLXRuntime {
 
     static func hasRequiredComponents(in directory: URL, fileManager: FileManager = .default) -> Bool {
         guard let files = try? fileManager.contentsOfDirectory(atPath: directory.path) else { return false }
+
+        // GGUF model files (e.g. LTX-2.5-Distilled-Q4_K_M.gguf) resolve most components dynamically,
+        // but the runtime's Video VAE decoder never falls back to an external cache (weights differ
+        // between model versions and a wrong cross-version match would load silently — see
+        // VideoDecoder.load()'s allow_external_cache_fallback=False in the runtime). It must be
+        // present directly in this folder, matching the same filename patterns the runtime accepts.
+        let hasGGUF = files.contains { name in
+            name.hasSuffix(".gguf") && fileSize(of: directory.appendingPathComponent(name)) > 0
+        }
+        if hasGGUF {
+            let hasVideoVAE = files.contains { name in
+                (name == "vae_decoder.safetensors" ||
+                 name.contains("video-vae-conv") ||
+                 name.contains("vae_decoder")) &&
+                fileSize(of: directory.appendingPathComponent(name)) > 0
+            }
+            return hasVideoVAE
+        }
 
         // 1. Must contain at least one valid transformer safetensors file (e.g. transformer.safetensors,
         // transformer-distilled.safetensors, transformer-distilled-1.1.safetensors).
@@ -313,15 +351,18 @@ final class CustomModelDownloadCoordinator: ObservableObject {
 
     private let downloader: TextEncoderDownloading
     private let isCached: (String) -> Bool
+    public var storageChecker: StorageHealthService
 
     init(
         downloader: TextEncoderDownloading? = nil,
-        isCached: ((String) -> Bool)? = nil
+        isCached: ((String) -> Bool)? = nil,
+        storageChecker: StorageHealthService = .shared
     ) {
         self.downloader = downloader ?? DefaultTextEncoderDownloader()
         self.isCached = isCached ?? { repository in
             LTX2MLXRuntime.cachedModelDirectory(repository: repository) != nil
         }
+        self.storageChecker = storageChecker
     }
 
     /// Only ever called from an explicit user action.
@@ -335,6 +376,16 @@ final class CustomModelDownloadCoordinator: ObservableObject {
             state = .succeeded
             return
         }
+
+        // Authoritative storage preflight check on model cache destination volume
+        let hfCacheURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cache/huggingface/hub")
+        let storageStatus = storageChecker.check(url: hfCacheURL, for: .modelDownload(expectedBytes: nil))
+        if storageStatus.isBlocked {
+            state = .failed(storageStatus.message ?? "Not enough disk space for model download.")
+            return
+        }
+
         state = .downloading(progress: nil, message: "Starting download…")
         let result = await downloader.download(repository: repository) { [weak self] progress, message in
             Task { @MainActor in

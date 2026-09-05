@@ -23,6 +23,7 @@ enum ModelPolicyError: Error, Equatable {
     case blockedModel(modelID: String)
     case modelNotRegistered(modelID: String)
     case modelUnverified(modelID: String)
+    case imageToVideoUnsupported(modelID: String)
 
     var userMessage: String {
         switch self {
@@ -34,6 +35,8 @@ enum ModelPolicyError: Error, Equatable {
             return "Model '\(id)' is not in the model registry."
         case .modelUnverified(let id):
             return "Model '\(id)' has not passed runtime verification yet."
+        case .imageToVideoUnsupported(let id):
+            return "Model '\(id)' does not support Image-to-Video generation."
         }
     }
 }
@@ -64,6 +67,9 @@ struct RuntimeCompatibility: Codable, Equatable, Hashable {
     /// True only after verification.
     var verified: Bool
     var verificationNotes: String?
+    /// Renderer-scoped launch configuration. Optional for every legacy model.
+    var executablePath: String? = nil
+    var endpoint: String? = nil
 }
 
 struct ModelLicenseMetadata: Codable, Equatable, Hashable {
@@ -110,6 +116,29 @@ struct ModelDescriptor: Identifiable, Codable, Equatable, Hashable {
     var legacyCatalogModel: LTXModel? {
         LTXModelCatalog.model(id: id)
     }
+
+    /// A concise model-folder name for user-supplied local models.
+    ///
+    /// Keep the editable profile name as the primary label, but include the
+    /// final path component so similarly named profiles can be distinguished
+    /// in generation pickers without exposing the user's full local path.
+    var localModelFolderName: String? {
+        guard policy.contentClassification == .custom,
+              let localPath,
+              !localPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+
+        let name = URL(fileURLWithPath: localPath).standardizedFileURL.lastPathComponent
+        guard !name.isEmpty, name != "/", name != "." else { return nil }
+        return name
+    }
+
+    /// Display label used by model lists and generation pickers.
+    var selectionDisplayName: String {
+        guard let localModelFolderName else { return displayName }
+        return "\(displayName) · \(localModelFolderName)"
+    }
 }
 
 struct ModelInstallRecord: Codable, Equatable {
@@ -146,9 +175,52 @@ final class ModelRegistry {
         self.userDefaults = userDefaults
         seedOfficialModels()
         seedCustomModel()
+        seedMiniMaxH3()
     }
 
     // MARK: Seeding
+
+    private func ltx25Descriptor() -> ModelDescriptor {
+        let model = LTX25ModelCatalog.ltx25Experimental
+        return ModelDescriptor(
+            id: model.id,
+            displayName: model.displayName,
+            repository: model.repo,
+            revision: "main",
+            localPath: nil,
+            quantization: nil,
+            precision: "bf16",
+            estimatedModelSizeGB: 25,
+            recommendedUnifiedMemoryGB: 64,
+            minimumUnifiedMemoryGB: 32,
+            architecture: ArchitectureDescriptor(
+                modelFamily: "LTX",
+                modelVersion: "2.5",
+                modelType: "unified-av"
+            ),
+            capabilities: CapabilitySet(
+                textToVideo: true,
+                imageToVideo: true,
+                synchronizedAudio: false,
+                keyframes: true,
+                firstLastFrame: true,
+                continuation: true
+            ),
+            runtime: RuntimeCompatibility(
+                backend: "ltx-2-mlx",
+                minimumBackendVersion: "0.14.19",
+                verified: true,
+                verificationNotes: "Experimental LTX-2.5 support on MLX backend."
+            ),
+            policy: .general,
+            license: ModelLicenseMetadata(
+                name: "LTX-2.5 Community License",
+                url: "https://huggingface.co/\(model.repo)",
+                requiresAcknowledgement: false
+            ),
+            isOfficial: false
+        )
+    }
 
     private func seedOfficialModels() {
         for legacy in LTXModelCatalog.all {
@@ -231,20 +303,156 @@ final class ModelRegistry {
         )
     }
 
+    private func seedMiniMaxH3() {
+        let standardConfig = MiniMaxH3Configuration.Snapshot.current(forModelID: MiniMaxH3Configuration.standardModelID, userDefaults: userDefaults)
+        descriptors[MiniMaxH3Configuration.standardModelID] = ModelDescriptor(
+            id: MiniMaxH3Configuration.standardModelID,
+            displayName: MiniMaxH3Configuration.standardDisplayName,
+            repository: MiniMaxH3Configuration.standardExpectedServerModelID,
+            revision: nil,
+            localPath: standardConfig.modelDirectory,
+            quantization: "2-bit",
+            precision: nil,
+            // Full local pack: transformer (4-bit) + text encoder (2-bit) + video/audio VAEs.
+            estimatedModelSizeGB: 33.0,
+            recommendedUnifiedMemoryGB: 48,
+            minimumUnifiedMemoryGB: 32,
+            architecture: ArchitectureDescriptor(
+                modelFamily: "MiniMax H3",
+                modelVersion: "H3",
+                modelType: "AudioVideo"
+            ),
+            capabilities: CapabilitySet(
+                textToVideo: true,
+                imageToVideo: true,
+                synchronizedAudio: true,
+                keyframes: true,
+                firstLastFrame: false,
+                continuation: true
+            ),
+            runtime: RuntimeCompatibility(
+                backend: GenerationBackendKind.minimaxH3.rawValue,
+                minimumBackendVersion: "26.8.9",
+                verified: true,
+                verificationNotes: "Experimental local renderer (Standard 4-bit DiT). T2V, single-image FL2VA/I2V, native audio and chain_windows are verified; REF2VA and motion context are unsupported.",
+                executablePath: standardConfig.runtimeExecutablePath,
+                endpoint: standardConfig.endpoint
+            ),
+            policy: .general,
+            license: ModelLicenseMetadata(
+                name: "MiniMax model license — see the local model card",
+                url: nil,
+                requiresAcknowledgement: false
+            ),
+            isOfficial: false
+        )
+
+        let hqConfig = MiniMaxH3Configuration.Snapshot.current(forModelID: MiniMaxH3Configuration.highQualityModelID, userDefaults: userDefaults)
+        descriptors[MiniMaxH3Configuration.highQualityModelID] = ModelDescriptor(
+            id: MiniMaxH3Configuration.highQualityModelID,
+            displayName: MiniMaxH3Configuration.highQualityDisplayName,
+            repository: MiniMaxH3Configuration.highQualityExpectedServerModelID,
+            revision: nil,
+            localPath: hqConfig.modelDirectory,
+            quantization: "8-bit",
+            precision: nil,
+            // High Quality local pack: transformer (8-bit) + text encoder (2-bit) + video/audio VAEs.
+            estimatedModelSizeGB: 49.0,
+            recommendedUnifiedMemoryGB: 48,
+            minimumUnifiedMemoryGB: 32,
+            architecture: ArchitectureDescriptor(
+                modelFamily: "MiniMax H3",
+                modelVersion: "H3",
+                modelType: "AudioVideo"
+            ),
+            capabilities: CapabilitySet(
+                textToVideo: true,
+                imageToVideo: true,
+                synchronizedAudio: true,
+                keyframes: true,
+                firstLastFrame: false,
+                continuation: true
+            ),
+            runtime: RuntimeCompatibility(
+                backend: GenerationBackendKind.minimaxH3.rawValue,
+                minimumBackendVersion: "26.8.9",
+                verified: true,
+                verificationNotes: "Experimental local renderer (High Quality 8-bit DiT). Higher precision facial detail and dynamic range. 48GB+ unified memory recommended.",
+                executablePath: hqConfig.runtimeExecutablePath,
+                endpoint: hqConfig.endpoint
+            ),
+            policy: .general,
+            license: ModelLicenseMetadata(
+                name: "MiniMax model license — see the local model card",
+                url: nil,
+                requiresAcknowledgement: false
+            ),
+            isOfficial: false
+        )
+    }
+
+    private func profileDescriptor(for profile: CustomModelProfile) -> ModelDescriptor {
+        ModelDescriptor(
+            id: profile.modelID,
+            displayName: profile.displayName,
+            repository: "user-supplied/\(profile.id.uuidString.lowercased())",
+            revision: nil,
+            localPath: profile.modelPath,
+            quantization: "q4",
+            precision: nil,
+            estimatedModelSizeGB: 14,
+            recommendedUnifiedMemoryGB: 32,
+            minimumUnifiedMemoryGB: 24,
+            architecture: ArchitectureDescriptor(modelFamily: profile.modelFamily, modelVersion: "2.3", modelType: "unified-av"),
+            capabilities: CapabilitySet(textToVideo: true, imageToVideo: true, synchronizedAudio: true),
+            runtime: RuntimeCompatibility(
+                backend: profile.runtimeKind,
+                minimumBackendVersion: "0.14.19",
+                verified: true,
+                verificationNotes: "Runs on user-configured \(profile.runtimeKind) runtime with custom profile weights."
+            ),
+            policy: .custom,
+            license: ModelLicenseMetadata(
+                name: "User-supplied model profile",
+                url: nil,
+                requiresAcknowledgement: false
+            ),
+            isOfficial: false
+        )
+    }
+
     // MARK: Lookup
 
     func descriptor(id: String) -> ModelDescriptor? {
         if id == Self.customModelID {
             seedCustomModel()
         }
+        if id == LTX25ModelCatalog.ltx25ExperimentalID {
+            return ltx25Descriptor()
+        }
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: id) {
+            seedMiniMaxH3()
+        }
+        if let profile = CustomModelProfileStore.profile(forModelID: id, userDefaults: userDefaults) {
+            return profileDescriptor(for: profile)
+        }
         return descriptors[id]
+    }
+
+    func register(descriptor: ModelDescriptor) {
+        descriptors[descriptor.id] = descriptor
     }
 
     /// Resolves a ModelDescriptor tailored for an immutable GenerationRequest,
     /// honoring any frozen local snapshot path or pinned revision.
     func descriptor(for request: GenerationRequest) -> ModelDescriptor? {
         guard var desc = descriptor(id: request.modelId) else { return nil }
-        if request.modelId == Self.customModelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: request.modelId) {
+            desc.localPath = request.minimaxH3ModelDirectory
+            desc.runtime.executablePath = request.minimaxH3RuntimeExecutablePath
+            desc.runtime.endpoint = request.minimaxH3Endpoint
+        }
+        if request.modelId == Self.customModelID || request.modelId.hasPrefix(CustomModelProfile.idPrefix) {
             if let frozenPath = request.customModelLocalPath, !frozenPath.isEmpty {
                 desc.localPath = frozenPath
             }
@@ -256,19 +464,51 @@ final class ModelRegistry {
     }
 
     func refreshVerification(from lab: CompatibilityLab) {
-        for (id, model) in descriptors where !model.isOfficial {
+        for (id, model) in descriptors
+        where !model.isOfficial && !MiniMaxH3Configuration.isMiniMaxH3(modelID: id) {
             descriptors[id]?.runtime.verified = lab.isVerified(modelID: id)
         }
     }
 
     /// Models visible for selection.
     /// - Official models are always listed.
-    /// - Custom models are listed when customModelsV1 is enabled.
+    /// - LTX-2.5 (Experimental) is listed as an experimental capability model.
+    /// - MiniMax H3 (Standard and High Quality) are listed as experimental built-in models.
+    /// - Custom models and profiles are listed when customModelsV1 is enabled.
     func selectableModels(customModelsEnabled: Bool? = nil) -> [ModelDescriptor] {
         let allowCustom = customModelsEnabled ?? FeatureFlags.isEnabled(.customModelsV1, userDefaults: userDefaults)
-        return descriptors.values
+        var models = Array(descriptors.values)
+        if let ltx25 = descriptor(id: LTX25ModelCatalog.ltx25ExperimentalID) {
+            if !models.contains(where: { $0.id == ltx25.id }) {
+                models.append(ltx25)
+            }
+        }
+        if let h3 = descriptor(id: MiniMaxH3Configuration.standardModelID),
+           !models.contains(where: { $0.id == h3.id }) {
+            models.append(h3)
+        }
+        if let hq = descriptor(id: MiniMaxH3Configuration.highQualityModelID),
+           !models.contains(where: { $0.id == hq.id }) {
+            models.append(hq)
+        }
+        if allowCustom {
+            let profiles = CustomModelProfileStore.loadProfiles(userDefaults: userDefaults).filter(\.isEnabled)
+            if !profiles.isEmpty {
+                // When profiles exist, use profiles instead of the legacy single custom model descriptor
+                models.removeAll { $0.id == Self.customModelID }
+                for profile in profiles {
+                    let desc = profileDescriptor(for: profile)
+                    if !models.contains(where: { $0.id == desc.id }) {
+                        models.append(desc)
+                    }
+                }
+            }
+        }
+        return models
             .filter { model in
                 if model.isOfficial { return true }
+                if model.id == LTX25ModelCatalog.ltx25ExperimentalID { return true }
+                if MiniMaxH3Configuration.isMiniMaxH3(modelID: model.id) { return true }
                 return allowCustom
             }
             .sorted { ($0.isOfficial ? 0 : 1, $0.id) < ($1.isOfficial ? 0 : 1, $1.id) }
@@ -281,6 +521,9 @@ final class ModelRegistry {
             throw ModelPolicyError.modelNotRegistered(modelID: modelID)
         }
         if !model.isOfficial {
+            if MiniMaxH3Configuration.isMiniMaxH3(modelID: model.id) {
+                return
+            }
             let allowCustom = customModelsEnabled ?? FeatureFlags.isEnabled(.customModelsV1, userDefaults: userDefaults)
             guard allowCustom else {
                 throw ModelPolicyError.modelUnverified(modelID: modelID)
@@ -301,6 +544,9 @@ final class ModelRegistry {
         try validatePolicy(modelID: request.modelId, customModelsEnabled: allowCustom)
         guard let model = descriptor(for: request) else {
             throw ModelPolicyError.modelNotRegistered(modelID: request.modelId)
+        }
+        if request.isImageToVideo && !model.capabilities.imageToVideo {
+            throw ModelPolicyError.imageToVideoUnsupported(modelID: request.modelId)
         }
         return model
     }

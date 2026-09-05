@@ -163,6 +163,11 @@ enum MotionTempoPromptPolicy {
 /// dialogue and audio in one description (official LTX prompt guidance).
 enum PromptCompiler {
 
+    /// Historical, production-wide default ceiling (10.04s @ 24fps).
+    public static let defaultMaximumFrameCount = 241
+    /// Explicit One Shot ceiling for LTX models (15.04s @ 24fps).
+    public static let oneShotMaximumFrameCount = 361
+
     struct Options {
         var isImageToVideo: Bool = false
         var japaneseHandling: JapaneseDialogueHandling = .native
@@ -186,6 +191,11 @@ enum PromptCompiler {
         }
         if let motion = plan.motion, !motion.isEmpty {
             sentences.append(formatMotionSentence(motion))
+        }
+        if let endState = plan.endState?.trimmingCharacters(in: .whitespacesAndNewlines), !endState.isEmpty {
+            // Stated once, plainly: this is where the continuous action lands,
+            // not a second description competing with the action sentence.
+            sentences.append("By the end of the shot: \(endState)")
         }
         if let lighting = plan.lighting, !lighting.isEmpty {
             sentences.append(formatLightingSentence(lighting))
@@ -251,12 +261,17 @@ enum PromptCompiler {
     }
 
     /// Suggested frame count for a duration intent (24fps, backend-friendly
-    /// 8k+1 frame counts: 25/49/73/97/121...).
-    static func frameCount(forSeconds seconds: Double, fps: Int = 24) -> Int {
+    /// 8k+1 frame counts: 25/49/73/97/121... up to maximumFrameCount).
+    /// Default maximum is 241 frames (10.04s).
+    static func frameCount(
+        forSeconds seconds: Double,
+        fps: Int = 24,
+        maximumFrameCount: Int = defaultMaximumFrameCount
+    ) -> Int {
         let raw = max(1, Int((seconds * Double(fps)).rounded()))
-        // Round to nearest 8n+1, clamp to the app's supported range.
+        // Round to nearest 8n+1, clamp to the requested supported range.
         let n = max(0, Int((Double(raw - 1) / 8.0).rounded()))
-        return min(241, max(25, n * 8 + 1))
+        return min(maximumFrameCount, max(25, n * 8 + 1))
     }
 
     private static func formatCameraSentence(_ camera: String) -> String {
@@ -350,12 +365,20 @@ enum CharacterPromptPipeline {
                     language: $0.language, romanization: $0.romanization)
             },
             audioCues: shot.audio.sfx,
-            durationIntentSeconds: shot.durationSeconds
+            durationIntentSeconds: shot.durationSeconds,
+            endState: shot.endStateSummary
         )
         let options = PromptCompiler.Options(
             japaneseHandling: JapaneseDialogueHandling(rawValue: project.settings.japaneseHandling) ?? .native,
             perShotAudioPolicy: .naturalProductionSoundNoMusic)
-        let compiled = PromptCompiler.compile(plan: plan, options: options)
+        let compiled = MiniMaxH3Configuration.isMiniMaxH3(modelID: project.settings.modelID)
+            ? MiniMaxH3PromptCompiler.compile(
+                plan: plan,
+                isImageToVideo: shot.continuityMode == .continueFromPrevious
+                    || shot.startingImageReferenceAssetID != nil,
+                japaneseHandling: options.japaneseHandling,
+                perShotAudioPolicy: options.perShotAudioPolicy)
+            : PromptCompiler.compile(plan: plan, options: options)
         let context = ContinuityEngine.promptContext(for: snapshot, bible: project.characterBible)
         shot.baseCompiledPrompt = context.isEmpty ? compiled : context + " " + compiled
         project.shots[shotIndex] = shot
@@ -455,5 +478,34 @@ private extension String {
     var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
     func prefixText(_ limit: Int) -> String {
         count <= limit ? self : String(prefix(limit)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
+    }
+}
+
+// ============================================================================
+// ONE SHOT DURATION POLICY
+// ============================================================================
+
+/// Authoritative duration and frame limit policy for One Shot generation.
+///
+/// Encapsulates model-specific capability ceilings for single-shot generation
+/// so UI, Preflight (AutoQualityEngine), and Execution (LocalDirector) share
+/// exactly one single source of truth.
+enum OneShotDurationPolicy {
+
+    /// Maximum user-facing selectable duration in seconds.
+    static func maximumSelectableSeconds(for modelID: String) -> Double {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
+            return Double(Int(MiniMaxH3DurationPolicy.maximumDurationSeconds.rounded(.down)))
+        }
+        return 15.0
+    }
+
+    /// Technical maximum frame ceiling for single-shot LTX generation (361 frames @ 24fps).
+    /// Returns `nil` for MiniMax H3, allowing H3's standalone chain policy to govern.
+    static func maximumFrameCount(for modelID: String) -> Int? {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
+            return nil
+        }
+        return PromptCompiler.oneShotMaximumFrameCount
     }
 }

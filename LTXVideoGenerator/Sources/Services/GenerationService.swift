@@ -10,6 +10,7 @@ class GenerationService: ObservableObject {
     @Published private(set) var statusMessage: String = ""
     @Published private(set) var isModelLoaded = false
     @Published private(set) var isProcessing = false
+    @Published private(set) var currentRequestStartedAt: Date?
     @Published var error: LTXError?
 
     /// The last film run outcome the render queue could not report. See
@@ -48,6 +49,13 @@ class GenerationService: ObservableObject {
     /// preset is active. Resolve here so every producer (Generate, One Shot,
     /// Storyboard, Hybrid, History) shares the same preflight boundary.
     private func requestForQueue(_ request: GenerationRequest) -> GenerationRequest {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: request.modelId) {
+            // Preserve the user's immutable Requested snapshot in the queue.
+            // H3 resolution happens once at the execution boundary below;
+            // replacing the queued request here would collapse Requested and
+            // Effective in Archive/runtime diagnostics.
+            return request
+        }
         guard FeatureFlags.isEnabled(.autoQualityV1) else { return request }
         return GenerationSettingsResolver.resolveForPreflight(request: request).request
     }
@@ -67,14 +75,16 @@ class GenerationService: ObservableObject {
     
     func cancelCurrent() {
         bridge.cancelActiveGeneration()
+        AdapterRegistry.shared.cancelActiveGeneration()
         processingTask?.cancel()
         if var request = currentRequest {
             request.status = .cancelled
             currentRequest = nil
         }
         isProcessing = false
+        currentRequestStartedAt = nil
         progress = 0
-        statusMessage = ""
+        statusMessage = "Generation cancelled"
     }
     
     func moveUp(_ request: GenerationRequest) {
@@ -144,7 +154,15 @@ class GenerationService: ObservableObject {
         isProcessing = true
         progress = 0
         let diagnosticsRequest = queue[index]
+        let selectedBackend = GenerationModelResolver.backend(for: diagnosticsRequest.modelId)
+        let usesMiniMaxH3 = selectedBackend == .minimaxH3
         let executionStartedAt = Date()
+        currentRequestStartedAt = executionStartedAt
+        defer {
+            if currentRequestStartedAt == executionStartedAt {
+                currentRequestStartedAt = nil
+            }
+        }
         if FeatureFlags.isEnabled(.filmProjectV1), diagnosticsRequest.takeID != nil {
             TakeGenerationCoordinator().recordExecutionStarted(
                 request: diagnosticsRequest,
@@ -152,8 +170,10 @@ class GenerationService: ObservableObject {
             )
         }
         
-        // Ensure Python packages (including mlx-video-with-audio min version) match the path in Settings — no manual Validate required.
-        if let pythonPath = UserDefaults.standard.string(forKey: "pythonPath"), !pythonPath.isEmpty {
+        // H3 owns a separate mlx-serve runtime and never depends on LTX's
+        // Python/text-encoder environment.
+        if !usesMiniMaxH3,
+           let pythonPath = UserDefaults.standard.string(forKey: "pythonPath"), !pythonPath.isEmpty {
             statusMessage = "Checking Python environment..."
             let ensure = await PythonEnvironment.shared.ensureReadyForGeneration(path: pythonPath)
             if !ensure.success {
@@ -176,7 +196,7 @@ class GenerationService: ObservableObject {
             if let details = ensure.details {
                 PythonEnvironment.shared.configureForPythonKit(details: details)
             }
-        } else {
+        } else if !usesMiniMaxH3 {
             queue[index].status = .failed
             error = .pythonNotConfigured
             if FeatureFlags.isEnabled(.filmProjectV1), diagnosticsRequest.takeID != nil {
@@ -195,7 +215,7 @@ class GenerationService: ObservableObject {
         }
         
         // Load model if needed
-        if !isModelLoaded {
+        if !usesMiniMaxH3 && !isModelLoaded {
             await loadModel()
             guard isModelLoaded else {
                 if FeatureFlags.isEnabled(.filmProjectV1), diagnosticsRequest.takeID != nil {
@@ -228,6 +248,21 @@ class GenerationService: ObservableObject {
             // Ensure directory exists
             try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
         }
+
+        // Authoritative storage preflight check before launching heavy Python backend
+        let storageStatus = StorageHealthService.shared.check(url: outputDir, for: .videoGeneration(expectedTakes: max(1, queue.count)))
+        if storageStatus.isBlocked {
+            let errorMsg = storageStatus.message ?? "Not enough disk space for generation"
+            queue[index].status = .failed
+            self.error = .generationFailed(errorMsg)
+            statusMessage = errorMsg
+            currentRequest = nil
+            isProcessing = false
+            progress = 0
+            queue.removeAll { $0.status != .pending }
+            return
+        }
+
         let filename = "\(request.id.uuidString).mp4"
         let outputPath = outputDir.appendingPathComponent(filename).path
         var effectiveParametersForDiagnostics = request.parameters
@@ -242,7 +277,8 @@ class GenerationService: ObservableObject {
 
             var resolvedDescriptor: ModelDescriptor?
             let runGeneration: (GenerationRequest) async throws -> (videoPath: String, seed: Int, enhancedPrompt: String?) = { [bridge] req in
-                if FeatureFlags.isEnabled(.modelRegistryV1) {
+                if FeatureFlags.isEnabled(.modelRegistryV1)
+                    || MiniMaxH3Configuration.isMiniMaxH3(modelID: req.modelId) {
                     // Registry path: policy + verification enforced at the service
                     // layer, then routed through the adapter boundary. Official
                     // models still end up in the same LTXBridge fast path.
@@ -278,7 +314,14 @@ class GenerationService: ObservableObject {
             var autoQualityEngine: AutoQualityEngine?
             var effectiveProfile: QualityProfile?
             var effectiveProfileReason = "Direct request parameters (Auto Quality disabled)"
-            if FeatureFlags.isEnabled(.autoQualityV1) {
+            if usesMiniMaxH3 {
+                effectiveRequest = try MiniMaxH3DurationPolicy.applying(to: request)
+                effectiveParametersForDiagnostics = effectiveRequest.parameters
+                let presetName = (MiniMaxH3Preset(rawValue: effectiveRequest.preset ?? "") ?? .standard).displayName
+                effectiveProfileReason = "MiniMax H3 \(presetName) preset policy (\(effectiveRequest.parameters.width)×\(effectiveRequest.parameters.height) · \(effectiveRequest.parameters.fps) fps · \(effectiveRequest.parameters.numInferenceSteps) steps)"
+                let chain = effectiveRequest.minimaxH3ChainWindows ?? 1
+                statusMessage = "MiniMax H3: \(effectiveRequest.minimaxH3ExpectedFrames ?? effectiveRequest.parameters.numFrames) effective frames · chain \(chain)"
+            } else if FeatureFlags.isEnabled(.autoQualityV1) {
                 let engine = AutoQualityEngine()
                 let resolution = try GenerationSettingsResolver.resolve(
                     request: request,
@@ -409,8 +452,10 @@ class GenerationService: ObservableObject {
             
             // Generate voiceover if text is provided
             if request.hasVoiceover {
-                let requestModel = LTXModelCatalog.resolvedModel(id: request.modelId)
-                let voiceoverNote = requestModel.supportsBuiltInAudio ? " (layering over built-in audio)" : ""
+                let hasBuiltInAudio = ModelRegistry.shared.descriptor(id: request.modelId)?
+                    .capabilities.synchronizedAudio
+                    ?? LTXModelCatalog.resolvedModel(id: request.modelId).supportsBuiltInAudio
+                let voiceoverNote = hasBuiltInAudio ? " (layering over built-in audio)" : ""
                 statusMessage = "Generating voiceover\(voiceoverNote)..."
                 do {
                     let source = AudioSource(rawValue: request.voiceoverSource) ?? .mlxAudio
@@ -452,15 +497,34 @@ class GenerationService: ObservableObject {
             
             // Director-extension metadata (backward-compatible optional fields).
             // Applied last so intermediate rebuilds (thumbnail, voiceover, music)
-            // cannot drop it.
-            generationResult.effectiveWidth = (effectiveRequest.parameters.width / 64) * 64
-            generationResult.effectiveHeight = (effectiveRequest.parameters.height / 64) * 64
+            let alignment = ModelAwareResolutionAlignment.align(
+                requestedWidth: request.parameters.width,
+                requestedHeight: request.parameters.height,
+                modelID: request.modelId,
+                isContinuation: request.isContinuation
+            )
+            generationResult.requestedWidth = alignment.requested.width
+            generationResult.requestedHeight = alignment.requested.height
+            generationResult.effectiveWidth = alignment.generation.width
+            generationResult.effectiveHeight = alignment.generation.height
+            generationResult.finalWidth = alignment.finalOutput.width
+            generationResult.finalHeight = alignment.finalOutput.height
+            generationResult.alignmentApplied = alignment.crop?.hasCrop ?? false
+            generationResult.alignmentMultiple = alignment.alignmentMultiple
+            generationResult.cropTop = alignment.crop?.top
+            generationResult.cropBottom = alignment.crop?.bottom
+            generationResult.cropLeft = alignment.crop?.left
+            generationResult.cropRight = alignment.crop?.right
             if let mediaInfo = MediaProbe.probe(path: generationResult.videoPath) {
                 generationResult.actualWidth = mediaInfo.width
                 generationResult.actualHeight = mediaInfo.height
                 generationResult.actualFPS = mediaInfo.fps
                 generationResult.actualDuration = mediaInfo.durationSeconds
+                generationResult.actualFrameCount = mediaInfo.frameCount
             }
+            generationResult.backendKind = selectedBackend?.rawValue
+            generationResult.effectiveFrameCount = effectiveRequest.minimaxH3ExpectedFrames
+            generationResult.effectiveChainWindows = effectiveRequest.minimaxH3ChainWindows
             generationResult.modelRevision = request.modelRevision ?? resolvedDescriptor?.revision
             generationResult.quantization = request.quantization ?? resolvedDescriptor?.quantization
             generationResult.qualityMode = request.qualityMode
@@ -468,9 +532,8 @@ class GenerationService: ObservableObject {
             generationResult.effectiveProfileID = effectiveProfile?.id
             generationResult.effectiveProfileName = effectiveProfile?.displayName
             generationResult.effectiveProfileReason = effectiveProfileReason
-            generationResult.requestedWidth = request.parameters.width
-            generationResult.requestedHeight = request.parameters.height
-            generationResult.requestedDurationSeconds = request.requestedDurationSeconds
+            generationResult.requestedDurationSeconds = effectiveRequest.minimaxH3RequestedDurationSeconds
+                ?? request.requestedDurationSeconds
             generationResult.targetDurationSeconds = request.targetDurationSeconds
             generationResult.audioEnabled = !effectiveRequest.disableAudio
             generationResult.generationSource = request.generationSource
@@ -510,6 +573,13 @@ class GenerationService: ObservableObject {
                 effectiveParameters: effectiveParametersForDiagnostics,
                 outputPath: outputPath
             )
+        } catch let err as LTXError where err == .cancelled {
+            recordCancellation(
+                request: request,
+                at: index,
+                effectiveParameters: effectiveParametersForDiagnostics,
+                outputPath: outputPath
+            )
         } catch let err as LTXError {
             queue[index].status = .failed
             error = err
@@ -538,6 +608,7 @@ class GenerationService: ObservableObject {
         
         currentRequest = nil
         isProcessing = false
+        currentRequestStartedAt = nil
         progress = 0
         
         // Remove completed/failed/cancelled from queue
@@ -561,11 +632,16 @@ class GenerationService: ObservableObject {
         let coordinator = AutoMovieRunCoordinator.shared
 
         for projectID in projectIDs {
-            // Adaptive Identity Refresh runs here, between one shot finishing
-            // and the next being planned: the take is where the starting image
-            // is chosen, so this is the last moment it can be influenced. It is
-            // a stage inside this job — it renders through the same serialized
-            // path and never becomes a second queued job.
+            // Adaptive Identity Refresh would run here, between one shot
+            // finishing and the next being planned — the take is where the
+            // starting image is chosen, so this is the last moment it could be
+            // influenced. Since preview.3, Auto Movie's own policy always
+            // inherits the immediately previous shot's frame directly and
+            // never opts into this, so `prepareNextShotContinuity` returns nil
+            // unconditionally and this branch never fires today. It stays
+            // wired, as a stage inside this job — rendering through the same
+            // serialized path and never becoming a second queued job — for any
+            // future caller that opts back in.
             if FeatureFlags.isEnabled(.adaptiveIdentityRefresh),
                let shotIndex = coordinator.prepareNextShotContinuity(projectID: projectID) {
                 Task { @MainActor [weak self] in
@@ -688,7 +764,10 @@ class GenerationService: ObservableObject {
     ) {
         let p = request.parameters
         let target = request.targetDurationSeconds.map { String(format: "%.3f", $0) } ?? "none"
-        let requested = String(format: "%.3f", request.requestedDurationSeconds)
+        let semanticRequestedDuration = request.minimaxH3RequestedDurationSeconds
+            ?? request.targetDurationSeconds
+            ?? request.requestedDurationSeconds
+        let requested = String(format: "%.3f", semanticRequestedDuration)
         print("[ResolvedGenerationSettings] source=\(request.generationSource ?? "unknown") attempt=\(attempt) preset=\(request.preset ?? "none") quality=\(request.qualityMode ?? "none") profile=\(profile?.id ?? "manual") reason=\(reason) width=\(p.width) height=\(p.height) frames=\(p.numFrames) fps=\(p.fps) steps=\(p.numInferenceSteps) audio=\(!request.disableAudio) targetDuration=\(target) requestedDuration=\(requested) model=\(request.modelId) seed=\(p.seed.map(String.init) ?? "random")")
     }
 }

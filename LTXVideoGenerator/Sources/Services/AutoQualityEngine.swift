@@ -50,6 +50,50 @@ enum SourceImageOrientationResolver {
         if let value = value as? NSNumber { return value.intValue }
         return value as? Int
     }
+
+    /// Swaps width and height if the current dimensions conflict with the
+    /// imported source image's visual orientation (portrait vs landscape).
+    /// Square or missing sources leave dimensions untouched.
+    static func orientedDimensions(
+        width: Int,
+        height: Int,
+        sourceOrientation: SourceImageOrientation
+    ) -> (width: Int, height: Int) {
+        guard width > 0, height > 0 else { return (width, height) }
+        let currentIsLandscape = width > height
+        let currentIsPortrait = height > width
+
+        switch sourceOrientation {
+        case .portrait:
+            if currentIsLandscape {
+                return (width: height, height: width)
+            }
+        case .landscape:
+            if currentIsPortrait {
+                return (width: height, height: width)
+            }
+        case .square, .none:
+            break
+        }
+        return (width: width, height: height)
+    }
+
+    /// Swaps width and height in `parameters` if they conflict with the
+    /// imported source image's visual orientation.
+    static func orientedParameters(
+        for parameters: GenerationParameters,
+        sourceOrientation: SourceImageOrientation
+    ) -> GenerationParameters {
+        let (newW, newH) = orientedDimensions(
+            width: parameters.width,
+            height: parameters.height,
+            sourceOrientation: sourceOrientation
+        )
+        var params = parameters
+        params.width = newW
+        params.height = newH
+        return params
+    }
 }
 
 /// Resolves a generation request to a concrete quality profile using
@@ -236,11 +280,61 @@ enum GenerationSettingsResolver {
         }
     }
 
+    /// The size a preset actually generates at for a given source orientation.
+    ///
+    /// Custom deliberately keeps whatever dimensions the user typed (see the
+    /// `.advanced` early return in `resolve`), which means a UI that drops the
+    /// project onto Custom has to carry the oriented size across that
+    /// transition itself — otherwise a portrait Opening Reference silently
+    /// becomes a landscape movie. This resolves through the same
+    /// `resolve(request:engine:snapshot:)` path the real generation uses, so
+    /// the orientation rule has exactly one implementation.
+    ///
+    /// Returns `nil` for `.custom`, which has no preset size to inherit.
+    static func orientedPresetDimensions(
+        preset: GenerationPreset,
+        orientation: SourceImageOrientation,
+        modelID: String,
+        audioEnabled: Bool,
+        engine: AutoQualityEngine = AutoQualityEngine(),
+        snapshot: MemorySnapshot = MemoryMonitor.shared.snapshot()
+    ) -> (width: Int, height: Int)? {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
+            let h3Preset = MiniMaxH3Preset(rawValue: preset.rawValue) ?? .standard
+            guard h3Preset != .custom else { return nil }
+            let tier: MiniMaxH3ResolutionTier = (h3Preset == .quick) ? .tier1 : .tier2
+            let dims = tier.dimensions(for: orientation)
+            return (dims.width, dims.height)
+        }
+        guard preset != .custom else { return nil }
+        let request = GenerationRequest(
+            prompt: "Preset dimension preflight",
+            presetResolutionOrientation: orientation,
+            disableAudio: !audioEnabled,
+            modelId: modelID,
+            qualityMode: preset.qualityMode.rawValue,
+            preset: preset.rawValue
+        )
+        let resolved = resolveForPreflight(request: request, engine: engine, snapshot: snapshot)
+        guard resolved.profile != nil else { return nil }
+        return (resolved.request.parameters.width, resolved.request.parameters.height)
+    }
+
     static func resolve(
         request: GenerationRequest,
         engine: AutoQualityEngine,
         snapshot: MemorySnapshot
     ) throws -> ResolvedGenerationSettings {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: request.modelId) {
+            let oriented = try MiniMaxH3DurationPolicy.applying(to: request)
+            let presetName = (MiniMaxH3Preset(rawValue: oriented.preset ?? "") ?? .standard).displayName
+            return ResolvedGenerationSettings(
+                request: oriented,
+                profile: nil,
+                attemptLadder: [],
+                reason: "MiniMax H3 \(presetName) preset policy (\(oriented.parameters.width)×\(oriented.parameters.height) · \(oriented.parameters.fps) fps · \(oriented.parameters.numInferenceSteps) steps)"
+            )
+        }
         guard let rawMode = request.qualityMode,
               let mode = QualityMode(rawValue: rawMode) else {
             return ResolvedGenerationSettings(
@@ -317,7 +411,11 @@ enum GenerationSettingsResolver {
             }
         }
         if let target = request.targetDurationSeconds {
-            parameters.numFrames = PromptCompiler.frameCount(forSeconds: target, fps: profile.fps)
+            let maxFrames = request.generationSource == "oneShot"
+                ? (OneShotDurationPolicy.maximumFrameCount(for: request.modelId) ?? PromptCompiler.defaultMaximumFrameCount)
+                : PromptCompiler.defaultMaximumFrameCount
+            parameters.numFrames = PromptCompiler.frameCount(
+                forSeconds: target, fps: profile.fps, maximumFrameCount: maxFrames)
         }
         return GenerationRequest(
             id: request.id,

@@ -1,12 +1,14 @@
-# Local Video Studio for Mac — AutoMovie Edition
+# Local Video Studio for Mac
 
 [![macOS](https://img.shields.io/badge/macOS-14.0+-blue.svg)](https://www.apple.com/macos/)
 [![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-M1%2FM2%2FM3%2FM4-orange.svg)](https://support.apple.com/en-us/HT211814)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/Release-v0.9.0--preview.2-purple.svg)](RELEASE_NOTES_v0.9.0-preview.2.md)
+[![Release](https://img.shields.io/badge/Release-v0.9.0--preview.18-purple.svg)](RELEASE_NOTES_v0.9.0-preview.18.md)
 
-Apple Silicon Macで、画像1枚＋短い指示からローカルAI動画を生成。
-LTX-2.3、Custom MLX Models、Auto Movie、Local AI Director対応。
+**Create longer AI video sequences locally on Apple Silicon.**
+
+ハイスペックなGPU PCなしで、Apple Silicon Mac上で長いAI動画シーケンスを手軽にローカル生成。
+Auto Movieのshot-to-shot continuityとローカルモデルの自由度を活用して、連続した映像作品を制作できます。
 
 > **Independent Project Disclaimer**: Local Video Studio is an independent open-source community project and is not affiliated with, sponsored by, or endorsed by Lightricks Ltd., Google LLC, or Apple Inc.
 >
@@ -16,20 +18,31 @@ LTX-2.3、Custom MLX Models、Auto Movie、Local AI Director対応。
 
 ## What It Does
 
-Local Video Studio for Mac is a native macOS desktop studio for on-device AI video generation powered by Apple Silicon (MLX). It transforms single reference images and concise text prompts into multi-shot cinematic sequences with synchronized audio, persistent character continuity, and automated shot direction.
+Local Video Studio for Mac is a native desktop studio designed for on-device AI video generation powered by Apple Silicon (MLX). It enables creators to produce **longer, more consistent multi-shot video sequences** without needing a high-end discrete GPU PC or paying for cloud generation APIs.
 
-Generation runs **locally on your Mac** via Apple Silicon unified memory—no remote server GPU subscription required.
+Rather than trying to generate an entire film in a single unwieldy diffusion pass, Local Video Studio uses an **Auto Movie workflow**: it plans a sequence of connected shots, renders each shot locally, and automatically passes the **final frame of the previous shot** as the starting visual anchor for the next shot. This builds longer video sequences while significantly improving visual continuity across takes.
+
+Runs local generation on Apple Silicon unified memory with no required cloud generation API.
+
+---
+
+## Key Pillars
+
+1. **Longer Video Sequences**: Generate connected multi-shot stories sequentially via Auto Movie instead of being limited to isolated few-second clips.
+2. **Visual Continuity**: Automatically conditions each new shot on the final frame of the previous selected take to help reduce visual drift across the sequence.
+3. **Local Freedom**: Run on Apple Silicon unified memory with no cloud generation fees, complete data privacy, and full freedom to bring compatible local models.
 
 ---
 
 ## Features
 
 - **Native macOS Interface**: Built in SwiftUI with native performance, real-time generation previews, and background job queuing.
-- **Auto Movie Director**: Turn a single prompt or opening reference image into a multi-beat cinematic story. Plans camera angles, shot scales, and action pacing.
-- **Local AI Director with Text Protocol Fallback**: Connects to local LLM providers (Ollama / Local AI) with dual-protocol negotiation (Structured JSON + Text Protocol fallback) and 300-second timeout support for large reasoning models.
+- **Auto Movie Shot-to-Shot Continuity**: Creates connected multi-shot sequences where each new shot continues directly from the previous shot's final frame to improve visual consistency.
+- **Local AI Director Planning**: Connects to local LLM providers (Ollama / Local AI) with dual-protocol negotiation (Structured JSON + Text Protocol fallback) and live phase/elapsed-time progress tracking.
+- **Safe Generation & Planning Cancellation**: Sub-second cancellation for both running generation processes and Director planning tasks, safely advancing queued jobs.
+- **Storage Health Preflight Guards**: Automatically checks destination volume capacity before generation, model downloads, or final assembly to reduce storage-related failures.
 - **Storyboard Workflow**: Build multi-shot films shot-by-shot with full manual control over prompts, takes, and camera direction.
-- **Shot Continuity (Last-Frame I2V)**: Seamlessly carries the selected take's final frame into subsequent shots as an image conditioning anchor with adaptive strength.
-- **Character & Scene Consistency**: Opening Reference analysis extracts environment, lighting, subject state, and visible clothing evidence to ground scene continuity across takes.
+- **Compatible Local Model Freedom**: Run official supported models (LTX-2.3 Distilled Q4 / Unified), user-configured custom LTX-2 MLX models, or existing local model folders directly without redownloading.
 - **Selected Take Precedence**: Generate multiple takes per shot and mark your preferred version for downstream continuity and Final Assembly.
 - **Source Orientation Presets**: Automatically adapts generation resolutions (16:9 landscape vs 9:16 portrait) based on input source image aspect ratios.
 - **Motion Tempo Control**: Contextual motion pacing instructions preserved across multi-shot sequences.
@@ -39,16 +52,13 @@ Generation runs **locally on your Mac** via Apple Silicon unified memory—no re
   - **Dialogue Separation**: Retains user dialogue verbatim in its original language.
   - **Fail-Closed Safety**: Rejects un-translatable descriptive non-English text to prevent renderer hallucination.
 - **Enhanced Prompt Sanitizer**: Strips chat-template special tokens (`<end_of_turn>`, `<|eot_id|>`, `</s>`, etc.) and constrains local LLM semantic over-expansion.
-- **Existing Local Model Support**: Directly pick local weight folders for custom LTX-2 MLX models without redownloading.
 - **Immutable Queued Snapshots**: Freezes model configurations into queued generation jobs, ensuring queue items execute with their original model even if UI selections change.
-- **Live Sidebar Model Indicator**: Real-time display reflecting active UI model selection and environment readiness.
 - **Integrated Audio Pipeline**:
   - **Native Synchronized Audio**: Per-shot natural sound effects generated directly by the underlying model.
   - **No-BGM Policy v2**: Prompt-level suppression of unwanted background music to keep speech/SFX clean.
   - **Final Audio Layer**: Global BGM and Ambience track mixing via local `ffmpeg`.
 - **Production Queue**: Asynchronous background generation queue with take management, cancellation, and retry capabilities.
 - **Video Archive & History**: Centralized library to inspect, play back, export, and manage generated takes and project assemblies.
-- **Custom LTX-2 MLX Support**: Configure arbitrary compatible fine-tuned models locally via the secondary `ltx-2-mlx` backend without code modification.
 
 ---
 
@@ -60,8 +70,11 @@ Generation runs **locally on your Mac** via Apple Silicon unified memory—no re
 | **LTX-2 Unified** | LTX-2 AV | `mlx-video-with-audio` | Supported (Official) | 48–64 GB Unified Memory |
 | **LTX-2.3 Unified** | LTX-2.3 AV | `mlx-video-with-audio` | Supported (Beta) | 48–64 GB Unified Memory |
 | **Custom LTX-2 MLX Model** | LTX-2 Derived | `ltx-2-mlx` | Supported (User-Configurable) | 24–32 GB Unified Memory |
+| **LTX-2.5 (Experimental)** | LTX-2.5 GGUF (Distilled) | `ltx-2-mlx` (app-managed runtime) | Experimental | 32 GB+ Unified Memory |
 
 *Note: Custom LTX-2 MLX models can be configured in Preferences > Models & Features and run via the isolated `ltx-2-mlx` backend using either Hugging Face repositories or existing local directories.*
+
+*LTX-2.5 is experimental and may currently be significantly slower to generate than LTX-2.3. LTX-2.3 remains the stable, default model for everyday use. See [LTX-2.5 Experimental Setup](#ltx-25-experimental-setup) below.*
 
 ---
 
@@ -106,7 +119,7 @@ Builds the Debug application with isolated development state (`com.localvideostu
 ### 3. Direct Generate
 1. Switch to **Direct Generate** in the sidebar.
 2. Enter a prompt or drop a source image.
-3. Click **Generate** to create your first single-shot video.
+3. Click **Generate** to create a single-shot video clip.
 
 ### 4. Try One Shot
 1. Switch to **One Shot**.
@@ -115,26 +128,46 @@ Builds the Debug application with isolated development state (`com.localvideostu
 ### 5. Create an Auto Movie
 1. Switch to **Auto Movie**.
 2. Set an **Opening Reference image** and enter a brief narrative (e.g., "A detective investigates an abandoned train platform in the rain").
-3. Click **Plan Movie** to inspect the Local AI Director's beat plan.
-4. Click **Generate Movie** to render shots sequentially to the Production Queue.
+3. Click **Plan Movie** to review the Local AI Director's shot beats.
+4. Click **Generate Movie** to render shots sequentially to the Production Queue with automatic shot-to-shot visual continuity.
+
+---
+
+## LTX-2.5 Experimental Setup
+
+LTX-2.5 support is **experimental** and off the stable path by default. LTX-2.3 remains the recommended model for everyday use — try LTX-2.5 once your Python setup above is working.
+
+The runtime (the isolated Python environment that runs the model) and the model weights (the GGUF file you generate from) are two separate things you set up independently:
+
+1. Open **Preferences** (⌘,) → **Models & Features**.
+2. Under the LTX-2.5 section, click **Install Runtime**. This creates an isolated, app-managed Python environment just for LTX-2.5 — it does not touch your Python setup from step 2 above. Installation is explicit; the app never downloads it silently.
+3. Once the runtime shows **Ready**, add an **LTX-2.5 Custom Model Profile** pointing at a folder containing both an LTX-2.5 Distilled GGUF file (for example, from a `Distilled-GGUF` folder downloaded from Hugging Face) **and** a Video VAE decoder file (`vae_decoder.safetensors`, or the official combined VAE file matching `*video-vae-conv*`) placed directly in the same folder. The GGUF file alone is not enough — video output requires the Video VAE decoder, and the app will report the profile as not ready until it is present. You can save up to 5 model profiles.
+4. Select **LTX-2.5 (Experimental)** as the model on the Generate, One Shot, Auto Movie, or Storyboard screen and generate as usual.
+5. Runtime and model status are shown separately in Models & Features (**Runtime Not Installed / Ready / Update Required / Broken**, and per-profile model readiness), so you can tell which one needs attention if generation is blocked.
+
+LTX-2.5 may currently be significantly slower to generate than LTX-2.3, and its GGUF files are large — an internal SSD with sufficient free space is recommended.
 
 ---
 
 ## Auto Movie Workflow
 
-1. **Opening Reference Grounding**: Drop a starting image. The vision engine analyzes scene environment, lighting, subject state, visible clothing, and key objects.
-2. **Director Beat Planning**: The Local AI Director formats structured shot beats consistent with the opening visual state. If Structured JSON fails, it automatically succeeds via Text Protocol.
-3. **CUT / CONTINUE Strategy**:
-   - **CONTINUE**: Automatically passes the last frame of the previous shot as the starting image for continuous action.
-   - **CUT**: Transitions camera angles or locations without image conditioning.
-4. **Assembly**: Automatically combines selected takes into a single continuous film with audio crossfades via `ffmpeg`.
+Auto Movie is designed to build **one continuous, connected sequence**:
+
+1. **Opening Reference Grounding**: Drop a starting image (or use prompt-only mode). The first shot begins from this visual state.
+2. **Director Beat Planning**: The Local AI Director breaks the story into sequential beats. Live progress shows current planning phase and elapsed time.
+3. **Sequential Shot-to-Shot Continuity**:
+   - **Shot 1**: Synthesizes the opening scene from your prompt or opening reference still.
+   - **Shot 2+**: Automatically extracts the **actual final frame** from the preceding selected take and uses it as the starting visual anchor for the next shot.
+4. **Final Assembly**: Automatically concatenates selected takes into a single movie file with audio crossfades via `ffmpeg`.
+
+*Note: For scenes requiring large camera resets, location jumps, or different environments, create separate Auto Movie or One Shot projects and combine them in your preferred video editor.*
 
 ---
 
 ## Director Modes
 
 - **Auto**: Automatically selects the best available director provider.
-- **Local AI**: Connects to localhost Ollama (`qwen3.6`, `gemma3`, `llama3`, `qwen2.5`). Employs Structured JSON with automatic Text Protocol negotiation and 300s timeout support for reasoning models.
+- **Local AI**: Connects to localhost Ollama (`qwen3.6`, `gemma3`, `llama3`, `qwen2.5`). Employs Structured JSON with automatic Text Protocol negotiation, live progress tracking, and safe cancellation.
 - **Basic (Deterministic)**: Template-based director with Apple on-device translation ensuring reliable shot planning without requiring an external LLM server.
 
 ---
@@ -144,7 +177,7 @@ Builds the Debug application with isolated development state (`com.localvideostu
 - **Direct Generate**: Rapid single-prompt text-to-video or image-to-video generation.
 - **One Shot**: Guided single-scene generation with camera motion and style presets.
 - **Storyboard**: Granular multi-shot project builder with manual prompt editing, take branching, and individual shot regeneration.
-- **Auto Movie / Hybrid**: Automated narrative scriptwriting, character grounding, and multi-shot batch rendering.
+- **Auto Movie**: Automated narrative shot planning, sequential previous-frame continuity, and batch rendering into a complete sequence.
 
 ---
 
@@ -185,18 +218,19 @@ All generation requests are dispatched to a resilient background queue:
 
 ## Known Issues & Limitations
 
+- **Visual Continuity is Model-Dependent**: Strict previous-frame conditioning anchors each shot's opening image to the previous take's final frame to reduce visual drift, but diffusion models do not provide deterministic biometric identity locking.
+- **Continuous Sequence Focus**: Auto Movie is designed to build a single continuous sequence. Strong previous-frame conditioning can make large camera/scene transitions harder within one Auto Movie sequence. For distinct scenes or location jumps, create separate sequences and combine them in a video editor.
+- **Storage Preflight Scope**: Storage preflight checks help reduce storage-related failures before generation, model downloads, or assembly start. However, external applications writing to the same disk can still affect available capacity during long rendering runs.
 - **No-BGM is Best-Effort with Built-in Audio**: Negative prompting strongly suppresses BGM in the prompt plumbing, but acoustic output is model-dependent and music suppression cannot be guaranteed by the diffusion weights. For guaranteed music-free output, turn **Built-in Audio OFF** and use **Final Audio** or external diegetic audio tracks.
 - **Apple On-Device Translation Availability**: Native programmatic platform translation requires supported macOS versions (macOS 26.0+); on unsupported or earlier macOS releases, non-English descriptive inputs fail-closed safely rather than leaking raw Japanese to the renderer.
-- **Motion Tempo Continuity**: Motion tempo shapes prompt dynamics across shots, but true physical momentum continuation remains bounded by Last-Frame I2V conditioning.
-- **Identity Consistency vs Face Lock**: Character Bible grounding maintains costume and appearance consistency, but diffusion models do not provide deterministic biometric Face Lock.
-- **External Dependency**: `ffmpeg` is required for multi-shot assembly and must be installed separately by the user.
-- **Hardware Intensive**: Local generation fully utilizes GPU and unified memory. Close heavy applications during multi-shot rendering.
+- **External Dependency**: `ffmpeg` is required for multi-shot assembly and frame extraction and must be installed separately by the user (`brew install ffmpeg`).
+- **Hardware & Memory Requirements**: Local video synthesis fully utilizes GPU and unified memory. Performance and available model options vary depending on your Mac's hardware configuration and memory size.
 
 ---
 
 ## Privacy & Local-First Architecture
 
-- **100% Local Inference**: Video generation, text embedding, Local Director LLM, Apple on-device translation, and final movie assembly execute completely on your Mac.
+- **Local-First Processing**: Video generation, text embedding, Local Director LLM, Apple on-device translation, and final movie assembly execute locally on your Mac with no required cloud generation API.
 - **Zero Telemetry**: No analytics, crash telemetry, or tracking pings are embedded in the codebase.
 - **Secure Credential Storage**: Optional ElevenLabs API keys are stored securely in macOS Keychain with isolated namespaces for Personal and Dev apps.
 - **Optional Cloud APIs**: ElevenLabs voiceover and music are strictly opt-in and only invoked if you explicitly provide an API key.
@@ -205,8 +239,8 @@ All generation requests are dispatched to a resilient background queue:
 
 ## Development Status
 
-- **Current Version**: `v0.9.0-preview.2` (Public Preview Release Candidate)
-- **Status**: Feature Frozen for Preview Hardening.
+- **Current Version**: `v0.9.0-preview.18` (Public Preview)
+- **Branch**: `director-extensions`
 
 ---
 

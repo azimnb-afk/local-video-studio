@@ -68,6 +68,66 @@ func runCinematicProgressionTests(_ t: TestKit) {
         t.checkEqual(unchanged, legacyPlan, "invalid legacy target leaves the plan unchanged")
     }
 
+    t.suite("Auto Movie target duration — adaptive weighting (Quality V1)") {
+        // F. A shot with more visible action beats draws a longer share of
+        // the shared budget than a single quiet beat, instead of the
+        // identical even share every shot used to receive regardless of
+        // content.
+        let mixedBeats: [Shot] = [
+            Shot(index: 0, title: "Quiet", summary: "She smiles.", durationSeconds: 5),
+            Shot(index: 1, title: "Busy",
+                 summary: "She grabs her keys, opens the door, steps outside, and locks it behind her.",
+                 durationSeconds: 5),
+        ]
+        let weighted = AutoMovieDurationPlanner.normalize(
+            shots: mixedBeats, targetDurationSeconds: 16, fps: 24)
+        t.checkEqual(weighted.count, 2, "F: shot count unchanged by weighting")
+        t.check(weighted[1].durationSeconds > weighted[0].durationSeconds,
+                "F: the busier shot draws a longer share than the quiet one")
+        t.check(abs(weighted.map(\.durationSeconds).reduce(0, +) - 16) < 0.001,
+                "F: weighted allocation still sums exactly to the target")
+
+        // G. Purpose narrows duration toward its natural length even when
+        // beat count alone would not distinguish two shots.
+        let byPurpose: [Shot] = [
+            Shot(index: 0, title: "Insert", summary: "A key turns in the lock.",
+                 durationSeconds: 5, shotPurpose: .detail),
+            Shot(index: 1, title: "Beat", summary: "A key turns in the lock.",
+                 durationSeconds: 5, shotPurpose: .performance),
+        ]
+        let purposed = AutoMovieDurationPlanner.normalize(
+            shots: byPurpose, targetDurationSeconds: 16, fps: 24)
+        t.check(purposed[1].durationSeconds > purposed[0].durationSeconds,
+                "G: a performance beat outlasts a detail insert given identical text")
+
+        // H. The Director's own stated per-shot intent — already resolved
+        // onto durationSeconds before normalize runs — still shifts the
+        // split. This is exactly the signal the previous purely-even
+        // allocator discarded.
+        let byStatedIntent: [Shot] = [
+            Shot(index: 0, title: "Short", summary: "The door opens.", durationSeconds: 3),
+            Shot(index: 1, title: "Long", summary: "The door opens.", durationSeconds: 9),
+        ]
+        let stated = AutoMovieDurationPlanner.normalize(
+            shots: byStatedIntent, targetDurationSeconds: 16, fps: 24)
+        t.check(stated[1].durationSeconds > stated[0].durationSeconds,
+                "H: higher Director-stated duration still draws more after normalization")
+
+        // I. Every allocated shot stays inside the backend frame range, and
+        // normalize records the action-beat count it measured for each shot
+        // so Plan Preview and the validator can read the same figure back
+        // rather than recomputing it.
+        let mixed = mixedBeats + byPurpose + byStatedIntent
+        let all = AutoMovieDurationPlanner.normalize(
+            shots: mixed, targetDurationSeconds: 40, fps: 24)
+        t.check(all.allSatisfy {
+            let frames = PromptCompiler.frameCount(forSeconds: $0.durationSeconds, fps: 24)
+            return frames >= 25 && frames <= 241 && (frames - 1) % 8 == 0
+        }, "I: every weighted shot still uses a supported 8n+1 frame count")
+        t.check(all.allSatisfy { $0.actionBeatCount != nil },
+                "I: normalize records the action-beat count it measured for every shot")
+    }
+
     t.suite("Cinematic progression — beat planner") {
         // E. The no-LLM fallback must not emit the same action for every shot.
         let brief = "A young woman walks toward an old stone library."

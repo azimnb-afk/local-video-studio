@@ -92,6 +92,25 @@ func runLTX2MLXBackendTests(_ t: TestKit) {
         let defaults = UserDefaults(suiteName: "ltx2mlx-local-\(UUID().uuidString)")!
         defaults.set(executable, forKey: LTX2MLXRuntime.executablePathKey)
 
+        // A saved CustomModelProfile persists the runtime using the descriptor
+        // spelling `ltx-2-mlx`, while GenerationBackendKind's raw value is
+        // `ltx2MLX`. Readiness must recognize the persisted spelling so an
+        // update cannot make an existing profile disappear from the picker.
+        let profileDefaults = UserDefaults(suiteName: "ltx2mlx-profile-readiness-\(UUID().uuidString)")!
+        defer { profileDefaults.removePersistentDomain(forName: profileDefaults.description) }
+        profileDefaults.set(executable, forKey: LTX2MLXRuntime.executablePathKey)
+        let profile = CustomModelProfile(displayName: "Persisted LTX-2.3 Profile", modelPath: validLocalDir.path)
+        try? CustomModelProfileStore.addProfile(profile, userDefaults: profileDefaults)
+        let profileRegistry = ModelRegistry(userDefaults: profileDefaults)
+        if let profileDescriptor = profileRegistry.descriptor(id: profile.modelID) {
+            let profileReadiness = ModelReadinessResolver.evaluate(
+                model: profileDescriptor, userDefaults: profileDefaults)
+            t.checkEqual(profileReadiness.status, .ready,
+                         "persisted ltx-2-mlx profile remains Ready after registry/readiness update")
+        } else {
+            t.check(false, "persisted custom profile descriptor remains registered")
+        }
+
         // 1. Default source mode is huggingFace
         t.checkEqual(LTX2MLXRuntime.customModelSourceMode(userDefaults: defaults), .huggingFace,
                      "default custom model source mode is huggingFace")
@@ -197,6 +216,37 @@ func runLTX2MLXBackendTests(_ t: TestKit) {
         readiness = LTX2MLXRuntime.readiness(userDefaults: defaults)
         t.check(!readiness.canGenerate, "missing VAE decoder is rejected")
         t.check(!readiness.model.isReady, "missing VAE decoder reported not ready")
+
+        // 13. GGUF-only directory without a Video VAE file is rejected (not "Ready").
+        // The runtime's VideoDecoder never falls back to an external cache for this
+        // component, so a GGUF folder without its own VAE file cannot generate.
+        let ggufNoVaeDir = tempDir.appendingPathComponent("local-gguf-no-vae-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: ggufNoVaeDir, withIntermediateDirectories: true)
+        try? Data("gguf-weights".utf8).write(to: ggufNoVaeDir.appendingPathComponent("transformer-distilled-q4.gguf"))
+        defaults.set(ggufNoVaeDir.path, forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+        readiness = LTX2MLXRuntime.readiness(userDefaults: defaults)
+        t.check(!readiness.canGenerate, "GGUF folder without Video VAE cannot generate")
+        t.check(!readiness.model.isReady, "GGUF folder without Video VAE reported not ready")
+
+        // 14. GGUF directory with vae_decoder.safetensors alongside it is accepted.
+        let ggufWithVaeDir = tempDir.appendingPathComponent("local-gguf-vae-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: ggufWithVaeDir, withIntermediateDirectories: true)
+        try? Data("gguf-weights".utf8).write(to: ggufWithVaeDir.appendingPathComponent("transformer-distilled-q4.gguf"))
+        try? Data("vae-weights".utf8).write(to: ggufWithVaeDir.appendingPathComponent("vae_decoder.safetensors"))
+        defaults.set(ggufWithVaeDir.path, forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+        readiness = LTX2MLXRuntime.readiness(userDefaults: defaults)
+        t.check(readiness.canGenerate, "GGUF folder with Video VAE decoder can generate")
+        t.check(readiness.model.isReady, "GGUF folder with Video VAE decoder reported ready")
+
+        // 15. GGUF directory with the official combined VAE file (video-vae-conv naming) is accepted.
+        let ggufWithOfficialVaeDir = tempDir.appendingPathComponent("local-gguf-official-vae-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: ggufWithOfficialVaeDir, withIntermediateDirectories: true)
+        try? Data("gguf-weights".utf8).write(to: ggufWithOfficialVaeDir.appendingPathComponent("transformer-distilled-q4.gguf"))
+        try? Data("vae-weights".utf8).write(to: ggufWithOfficialVaeDir.appendingPathComponent("ltx-2.5-video-vae-conv-bf16.safetensors"))
+        defaults.set(ggufWithOfficialVaeDir.path, forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+        readiness = LTX2MLXRuntime.readiness(userDefaults: defaults)
+        t.check(readiness.canGenerate, "GGUF folder with official video-vae-conv file can generate")
+        t.check(readiness.model.isReady, "GGUF folder with official video-vae-conv file reported ready")
     }
 
     t.suite("Custom model gating") {
@@ -311,6 +361,25 @@ func runLTX2MLXBackendTests(_ t: TestKit) {
             request: cutRequest, modelDirectory: "/m", outputPath: "/o.mp4",
             seed: 1, width: 512, height: 288)
         t.check(!cutArgs.contains("--image"), "CUT shot passes no inherited image")
+
+        // Generate Audio toggle: disableAudio must reach the runtime as
+        // --no-audio, and must NOT appear when audio is requested. Before
+        // this fix, LTX2MLXBackend.arguments() never read disableAudio at
+        // all, so LTX-2.5 generated audio unconditionally regardless of the
+        // toggle.
+        let audioOffRequest = GenerationRequest(
+            prompt: "p", disableAudio: true, modelId: customModel.id)
+        let audioOffArgs = LTX2MLXBackend.arguments(
+            request: audioOffRequest, modelDirectory: "/m", outputPath: "/o.mp4",
+            seed: 1, width: 512, height: 288)
+        t.check(audioOffArgs.contains("--no-audio"), "disableAudio=true reaches the runtime as --no-audio")
+
+        let audioOnRequest = GenerationRequest(
+            prompt: "p", disableAudio: false, modelId: customModel.id)
+        let audioOnArgs = LTX2MLXBackend.arguments(
+            request: audioOnRequest, modelDirectory: "/m", outputPath: "/o.mp4",
+            seed: 1, width: 512, height: 288)
+        t.check(!audioOnArgs.contains("--no-audio"), "disableAudio=false never appends --no-audio")
     }
 
     t.suite("Custom model provenance persistence") {

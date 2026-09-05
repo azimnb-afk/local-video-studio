@@ -62,7 +62,7 @@ final class LocalDirectorCompatibilityService {
     init(userDefaults: UserDefaults = .standard,
          prober: LocalDirectorProbing? = nil,
          providerKind: String = "ollama",
-         endpoint: String = OllamaDirectorEnvironmentClient.endpoint.absoluteString) {
+         endpoint: String = OllamaDirectorEnvironmentClient.configuredEndpoint().absoluteString) {
         self.userDefaults = userDefaults
         self.prober = prober ?? OllamaLocalDirectorProber()
         self.providerKind = providerKind

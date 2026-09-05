@@ -15,6 +15,7 @@ final class FinalAssemblyService {
         case bgmFileMissing(String)
         case bgmProbeFailed(String)
         case bgmMixFailed(String)
+        case insufficientDiskSpace(String)
     }
 
     struct AssemblyPlan: Equatable {
@@ -73,9 +74,24 @@ final class FinalAssemblyService {
     /// concatenated movie at `outputPath` as before Global BGM existed — no
     /// extra ffmpeg pass runs at all. Only when BGM is on and an asset is
     /// resolvable does a second, post-assembly mix pass run.
-    static func assemble(project: FilmProject, outputPath: String, store: FilmProjectStore = .shared) throws -> MediaInfo {
+    static func assemble(
+        project: FilmProject,
+        outputPath: String,
+        store: FilmProjectStore = .shared,
+        storageChecker: StorageHealthService = .shared
+    ) throws -> MediaInfo {
         let assemblyPlan = try plan(for: project)
         guard let ffmpeg = ffmpegPath() else { throw AssemblyError.ffmpegNotFound }
+
+        // Authoritative storage preflight check on output and working volume
+        let outputURL = URL(fileURLWithPath: outputPath)
+        let totalInputBytes = assemblyPlan.inputPaths.reduce(Int64(0)) { total, path in
+            total + ((try? FileManager.default.attributesOfItem(atPath: path)[.size] as? NSNumber)?.int64Value ?? 0)
+        }
+        let storageStatus = storageChecker.check(url: outputURL, for: .finalAssembly(sourceFileBytes: totalInputBytes))
+        if storageStatus.isBlocked {
+            throw AssemblyError.insufficientDiskSpace(storageStatus.message ?? "Not enough disk space for final assembly.")
+        }
 
         let workDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("ltx-assembly-\(UUID().uuidString)", isDirectory: true)
@@ -161,14 +177,27 @@ final class FinalAssemblyService {
                 throw AssemblyError.bgmProbeFailed(mixedOutputPath)
             }
             try replaceFile(at: outputPath, with: mixedOutputPath)
-            return mixedInfo
         } else {
             try replaceFile(at: outputPath, with: concatOutputPath)
-            guard let info = MediaProbe.probe(path: outputPath) else {
-                throw AssemblyError.probeFailed(outputPath)
-            }
-            return info
         }
+
+        // Apply final model-aware resolution crop once to the assembled movie if needed
+        let alignment = ModelAwareResolutionAlignment.align(
+            requestedWidth: project.settings.width,
+            requestedHeight: project.settings.height,
+            modelID: project.settings.modelID
+        )
+        if alignment.crop?.hasCrop == true {
+            _ = try? PostGenerationCropService.applyCropIfNeeded(
+                videoPath: outputPath,
+                alignment: alignment
+            )
+        }
+
+        guard let info = MediaProbe.probe(path: outputPath) else {
+            throw AssemblyError.probeFailed(outputPath)
+        }
+        return info
     }
 
     /// Atomic replace for a local single-user file: write finished

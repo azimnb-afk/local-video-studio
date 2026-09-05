@@ -90,6 +90,30 @@ enum LTXModelCatalog {
     }
 }
 
+enum LTX25ModelCatalog {
+    public static let ltx25ExperimentalID = "ltx25_experimental"
+
+    public static let ltx25Experimental = LTXModel(
+        id: ltx25ExperimentalID,
+        repo: "Lightricks/LTX-2.5",
+        displayName: "LTX-2.5 (Experimental)",
+        downloadSize: "~25GB",
+        supportsBuiltInAudio: false,
+        qualityWarning: "Experimental: LTX-2.5 model running on Apple Silicon / MLX runtime.",
+        recommendedStepsLower: 15,
+        recommendedStepsUpper: 30,
+        tips: "Requires MLX-compatible LTX-2.5 weights and LTX Gemma 4 text encoder."
+    )
+
+    static let all: [LTXModel] = [
+        ltx25Experimental
+    ]
+
+    static func model(id: String) -> LTXModel? {
+        all.first { $0.id == id }
+    }
+}
+
 enum LTXTextEncoderCatalog {
     static let selectedTextEncoderIDKey = "selectedTextEncoderID"
     /// When the "Custom" preset is selected, this repo id is passed as `--text-encoder-repo`.
@@ -205,6 +229,18 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
     var customModelsEnabled: Bool
     var customModelLocalPath: String?  // Frozen local model / snapshot path at request creation time
     var customModelSourceMode: String? // Frozen source mode ("huggingFace" or "local") at request creation time
+    var customModelProfileID: UUID?    // Bound custom model profile UUID if generated with a profile
+    var customModelDisplayNameSnapshot: String? // Snapshot of profile display name at creation time
+    /// Frozen MiniMax H3 renderer configuration. Queue execution must not
+    /// re-read mutable Preferences and accidentally run a different server.
+    var minimaxH3ModelDirectory: String?
+    var minimaxH3RuntimeExecutablePath: String?
+    var minimaxH3Endpoint: String?
+    /// Effective H3 timing selected at queue preflight.
+    var minimaxH3ChainWindows: Int?
+    var minimaxH3ExpectedFrames: Int?
+    var minimaxH3RequestedDurationSeconds: Double?
+    var minimaxH3Fast: Bool?
     var brief: String?                 // Original user brief before prompt compilation
     var filmProjectID: UUID?
     var shotID: UUID?
@@ -213,6 +249,11 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
     /// True if this is an image-to-video request
     var isImageToVideo: Bool {
         sourceImagePath != nil && !sourceImagePath!.isEmpty
+    }
+
+    /// True if this request represents a continuation from a previous shot/take
+    var isContinuation: Bool {
+        isImageToVideo && (generationSource == "hybrid" || generationSource == "storyboard" || generationSource == "autoMovie" || takeID != nil)
     }
     
     /// True if voiceover text is provided
@@ -254,6 +295,15 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         customModelsEnabled: Bool? = nil,
         customModelLocalPath: String? = nil,
         customModelSourceMode: String? = nil,
+        customModelProfileID: UUID? = nil,
+        customModelDisplayNameSnapshot: String? = nil,
+        minimaxH3ModelDirectory: String? = nil,
+        minimaxH3RuntimeExecutablePath: String? = nil,
+        minimaxH3Endpoint: String? = nil,
+        minimaxH3ChainWindows: Int? = nil,
+        minimaxH3ExpectedFrames: Int? = nil,
+        minimaxH3RequestedDurationSeconds: Double? = nil,
+        minimaxH3Fast: Bool? = nil,
         filmProjectID: UUID? = nil,
         shotID: UUID? = nil,
         takeID: UUID? = nil,
@@ -288,8 +338,34 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         self.filmProjectID = filmProjectID
         self.shotID = shotID
         self.takeID = takeID
+        self.minimaxH3ChainWindows = minimaxH3ChainWindows
+        self.minimaxH3ExpectedFrames = minimaxH3ExpectedFrames
+        self.minimaxH3RequestedDurationSeconds = minimaxH3RequestedDurationSeconds
+        self.minimaxH3Fast = minimaxH3Fast
 
-        if modelId == ModelRegistry.customModelID {
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelId) {
+            let snapshot = MiniMaxH3Configuration.Snapshot.current(forModelID: modelId, userDefaults: userDefaults)
+            self.minimaxH3ModelDirectory = minimaxH3ModelDirectory ?? snapshot.modelDirectory
+            self.minimaxH3RuntimeExecutablePath = minimaxH3RuntimeExecutablePath ?? snapshot.runtimeExecutablePath
+            self.minimaxH3Endpoint = minimaxH3Endpoint ?? snapshot.endpoint
+        } else {
+            self.minimaxH3ModelDirectory = minimaxH3ModelDirectory
+            self.minimaxH3RuntimeExecutablePath = minimaxH3RuntimeExecutablePath
+            self.minimaxH3Endpoint = minimaxH3Endpoint
+        }
+
+        if let profile = CustomModelProfileStore.profile(forModelID: modelId, userDefaults: userDefaults) {
+            self.customModelProfileID = profile.id
+            self.customModelDisplayNameSnapshot = profile.displayName
+            self.customModelSourceMode = CustomModelSourceMode.local.rawValue
+            if let explicitPath = customModelLocalPath, !explicitPath.isEmpty {
+                self.customModelLocalPath = LTX2MLXRuntime.localModelDirectory(at: explicitPath) ?? explicitPath
+            } else {
+                self.customModelLocalPath = LTX2MLXRuntime.localModelDirectory(at: profile.modelPath) ?? profile.modelPath
+            }
+        } else if modelId == ModelRegistry.customModelID {
+            self.customModelProfileID = customModelProfileID
+            self.customModelDisplayNameSnapshot = customModelDisplayNameSnapshot
             let effectiveMode = customModelSourceMode
                 ?? userDefaults.string(forKey: ModelRegistry.customSourceModeUserDefaultsKey)
                 ?? CustomModelSourceMode.huggingFace.rawValue
@@ -307,6 +383,8 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
                 self.customModelLocalPath = customModelLocalPath
             }
         } else {
+            self.customModelProfileID = customModelProfileID
+            self.customModelDisplayNameSnapshot = customModelDisplayNameSnapshot
             self.customModelLocalPath = customModelLocalPath
             self.customModelSourceMode = customModelSourceMode
         }
@@ -341,6 +419,14 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         case customModelsEnabled
         case customModelLocalPath
         case customModelSourceMode
+        case customModelProfileID
+        case customModelDisplayNameSnapshot
+        case minimaxH3ModelDirectory
+        case minimaxH3RuntimeExecutablePath
+        case minimaxH3Endpoint
+        case minimaxH3ChainWindows
+        case minimaxH3ExpectedFrames
+        case minimaxH3RequestedDurationSeconds
         case filmProjectID
         case shotID
         case takeID
@@ -377,6 +463,16 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         customModelsEnabled = try container.decodeIfPresent(Bool.self, forKey: .customModelsEnabled) ?? false
         customModelLocalPath = try container.decodeIfPresent(String.self, forKey: .customModelLocalPath)
         customModelSourceMode = try container.decodeIfPresent(String.self, forKey: .customModelSourceMode)
+        customModelProfileID = try container.decodeIfPresent(UUID.self, forKey: .customModelProfileID)
+        customModelDisplayNameSnapshot = try container.decodeIfPresent(String.self, forKey: .customModelDisplayNameSnapshot)
+        minimaxH3ModelDirectory = try container.decodeIfPresent(String.self, forKey: .minimaxH3ModelDirectory)
+        minimaxH3RuntimeExecutablePath = try container.decodeIfPresent(
+            String.self, forKey: .minimaxH3RuntimeExecutablePath)
+        minimaxH3Endpoint = try container.decodeIfPresent(String.self, forKey: .minimaxH3Endpoint)
+        minimaxH3ChainWindows = try container.decodeIfPresent(Int.self, forKey: .minimaxH3ChainWindows)
+        minimaxH3ExpectedFrames = try container.decodeIfPresent(Int.self, forKey: .minimaxH3ExpectedFrames)
+        minimaxH3RequestedDurationSeconds = try container.decodeIfPresent(
+            Double.self, forKey: .minimaxH3RequestedDurationSeconds)
         filmProjectID = try container.decodeIfPresent(UUID.self, forKey: .filmProjectID)
         shotID = try container.decodeIfPresent(UUID.self, forKey: .shotID)
         takeID = try container.decodeIfPresent(UUID.self, forKey: .takeID)

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct QueueView: View {
     @EnvironmentObject var generationService: GenerationService
+    @EnvironmentObject var productionQueue: ProductionQueueService
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -49,9 +50,10 @@ struct QueueView: View {
                                 request: current,
                                 isCurrent: true,
                                 progress: generationService.progress,
-                                statusMessage: generationService.statusMessage
+                                statusMessage: generationService.statusMessage,
+                                startedAt: generationService.currentRequestStartedAt
                             ) {
-                                generationService.cancelCurrent()
+                                productionQueue.cancelActiveRenderer()
                             }
                         }
                         
@@ -61,7 +63,8 @@ struct QueueView: View {
                                 request: request,
                                 isCurrent: false,
                                 progress: 0,
-                                statusMessage: ""
+                                statusMessage: "",
+                                startedAt: nil
                             ) {
                                 generationService.removeFromQueue(request)
                             }
@@ -92,6 +95,7 @@ struct QueueItemView: View {
     let isCurrent: Bool
     let progress: Double
     let statusMessage: String
+    let startedAt: Date?
     let onRemove: () -> Void
     
     var body: some View {
@@ -133,12 +137,44 @@ struct QueueItemView: View {
             
             if isCurrent {
                 VStack(alignment: .leading, spacing: 4) {
-                    ProgressView(value: progress)
-                        .progressViewStyle(.linear)
+                    if MiniMaxH3ProgressPresentation.isIndeterminate(
+                        modelID: request.modelId,
+                        isCurrent: isCurrent,
+                        progress: progress
+                    ) {
+                        ProgressView()
+                            .progressViewStyle(.linear)
+                            .accessibilityLabel("MiniMax H3 generation active")
+                    } else {
+                        ProgressView(value: progress)
+                            .progressViewStyle(.linear)
+                            .accessibilityLabel("Generation progress")
+                            .accessibilityValue("\(Int(progress * 100)) percent")
+                    }
                     
-                    Text(statusMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack {
+                        Text(statusMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if progress > 0.0 && progress < 1.0 {
+                            Spacer()
+                            Text("\(Int(progress * 100))%")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    if MiniMaxH3Configuration.isMiniMaxH3(modelID: request.modelId),
+                       let startedAt {
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            Text(MiniMaxH3ProgressPresentation.elapsedText(
+                                since: startedAt,
+                                now: context.date
+                            ))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
         }
@@ -173,6 +209,7 @@ struct QueueItemView: View {
 #Preview {
     QueueView()
         .environmentObject(GenerationService(historyManager: HistoryManager()))
+        .environmentObject(ProductionQueueService.shared)
         .frame(width: 350, height: 400)
 }
 #endif

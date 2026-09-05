@@ -119,9 +119,58 @@ final class AutoMovieRunCoordinator {
         }
     }
 
+    /// Auto Movie's own continuity policy, since preview.3: after the first
+    /// shot, every shot continues from the immediately previous shot's actual
+    /// final frame — UNLESS this exact shot has been explicitly marked `cut`,
+    /// either by the user (Plan Preview) or by `ContinuityReconciler` leaving a
+    /// Director-planned cut unpromoted. Auto Movie remains one continuous
+    /// sequence by default; a plain scene/location/camera change in the
+    /// Director's plan is still not, by itself, a reason to cut — only an
+    /// explicit `.cut` on the shot is.
+    ///
+    /// This governs only Auto Movie's own generation and preview decisions.
+    /// For any other project it defers to `resolvedContinuityMode` unchanged,
+    /// so the generic Cut/Continue engine below still backs manual
+    /// Storyboards exactly as before.
+    func autoMovieContinuityMode(forShotAt index: Int, in project: FilmProject) -> ShotContinuityMode {
+        guard project.workflowMode == Self.autoMovieWorkflowMode else {
+            return resolvedContinuityMode(forShotAt: index, in: project)
+        }
+        guard index > 0, index < project.shots.count else { return .cut }
+        return project.shots[index].continuityMode == .cut ? .cut : .continueFromPrevious
+    }
+
+    /// Continuity shown for an existing project. A completed Take is immutable
+    /// history, so its recorded source wins over preview.3's policy for a
+    /// future generation. This keeps a preview.2 project whose Shot 4 really
+    /// rendered as a Cut labelled "Cut" after reopen, while an ungenerated
+    /// Shot 4 still previews the new strict Continue policy.
+    ///
+    /// No project state is changed here. Runtime generation must continue to
+    /// use `autoMovieContinuityMode`, never this presentation-only resolver.
+    func displayedAutoMovieContinuityMode(
+        forShotAt index: Int,
+        in project: FilmProject
+    ) -> ShotContinuityMode {
+        guard project.workflowMode == Self.autoMovieWorkflowMode,
+              index > 0, index < project.shots.count else {
+            return autoMovieContinuityMode(forShotAt: index, in: project)
+        }
+        let shot = project.shots[index]
+        guard let historicalTake = shot.continuitySourceTake else {
+            return autoMovieContinuityMode(forShotAt: index, in: project)
+        }
+        if historicalTake.sourceImagePath != nil { return .continueFromPrevious }
+        return shot.continuityMode == .continueFromPrevious ? .continueFromPrevious : .cut
+    }
+
     /// Deterministic fallback used when the planner said `auto` (or a Basic
     /// Director produced no continuity field at all). Only a clearly continuous
     /// beat continues; any location, time or character change cuts.
+    ///
+    /// Kept for the generic engine (`resolvedContinuityMode`) that still backs
+    /// manual Storyboards. Auto Movie itself no longer consults this — see
+    /// `autoMovieContinuityMode`.
     func inferContinuity(forShotAt index: Int, in project: FilmProject) -> ShotContinuityMode {
         guard index > 0, index < project.shots.count else { return .cut }
         let previous = project.shots[index - 1]
@@ -281,29 +330,22 @@ final class AutoMovieRunCoordinator {
         }
     }
 
-    /// The shot `advance` would generate next, with its inherited frame already
-    /// extracted, or nil when there is nothing to prepare.
+    /// Historically the hook Adaptive Identity Refresh used to look at the
+    /// frame a shot was about to inherit *before* the take was planned, so it
+    /// could substitute a different source (Opening Reference, a prior
+    /// refresh) when that frame would carry the character into too tight a
+    /// framing.
     ///
-    /// Exists so Adaptive Identity Refresh can look at the frame a shot is
-    /// about to inherit *before* the take is planned — the take is where the
-    /// starting image is chosen, so afterwards would be too late. Extraction is
-    /// cached by source take, so calling this and then `advance` does the work
-    /// once.
+    /// Since preview.3, Auto Movie's own policy (`autoMovieContinuityMode`)
+    /// always inherits the immediately previous shot's actual final frame and
+    /// never substitutes a different source, so Auto Movie no longer opts
+    /// into Adaptive Identity Refresh at all — it stays nil unconditionally.
+    /// The function is kept only so `GenerationService`'s single call site
+    /// stays inert; Identity Refresh's own infrastructure
+    /// (`IdentityRefreshService`) is untouched for other consumers to opt
+    /// into explicitly.
     func prepareNextShotContinuity(projectID: UUID) -> Int? {
-        guard let project = store.project(id: projectID),
-              project.workflowMode == Self.autoMovieWorkflowMode,
-              !project.shots.isEmpty,
-              !hasGenerationInFlight(in: project),
-              let index = nextShotIndexNeedingGeneration(in: project), index > 0 else {
-            return nil
-        }
-        let shot = project.shots[index]
-        guard shot.startingImageReferenceAssetID == nil,
-              resolvedContinuityMode(forShotAt: index, in: project) == .continueFromPrevious,
-              case .success = prepareContinuityAsset(projectID: projectID, shotIndex: index) else {
-            return nil
-        }
-        return index
+        nil
     }
 
     /// Advances an automatic run by at most one step. Safe to call after every
@@ -324,7 +366,7 @@ final class AutoMovieRunCoordinator {
             if shot.takes.contains(where: { $0.status == .failed || $0.status == .cancelled }) {
                 return .shotFailed(shotID: shot.id)
             }
-            let mode = resolvedContinuityMode(forShotAt: index, in: project)
+            let mode = autoMovieContinuityMode(forShotAt: index, in: project)
             if mode == .continueFromPrevious, shot.startingImageReferenceAssetID == nil {
                 switch prepareContinuityAsset(projectID: projectID, shotIndex: index) {
                 case .failure(let reason):

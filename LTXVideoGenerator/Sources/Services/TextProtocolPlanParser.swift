@@ -73,6 +73,9 @@ enum TextProtocolPlanParser {
         var currentCameraTempo: String?
         var currentPlaybackStyle: String?
         var currentContinuity: String?
+        var currentPurpose: String?
+        var currentEndState: String?
+        var currentDialogue: [OneShotPlan.DialogueLine] = []
         var sawShotMarker = false
 
         func flushShot() {
@@ -80,7 +83,9 @@ enum TextProtocolPlanParser {
                 currentTitle = nil; currentAction = nil
                 currentCamera = nil; currentMotionTempo = nil
                 currentCameraTempo = nil; currentPlaybackStyle = nil
-                currentContinuity = nil
+                currentContinuity = nil; currentPurpose = nil
+                currentEndState = nil
+                currentDialogue = []
             }
             guard let action = currentAction, isMeaningful(action) else { return }
             let camera = currentCamera.flatMap { isMeaningful($0) ? $0 : nil }
@@ -96,6 +101,12 @@ enum TextProtocolPlanParser {
             shot.cameraTempo = normalizedCameraTempo(currentCameraTempo)
             shot.playbackStyle = normalizedPlaybackStyle(currentPlaybackStyle)
             shot.continuity = normalizedContinuity(currentContinuity)
+            shot.purpose = normalizedPurpose(currentPurpose)
+            shot.endState = currentEndState.flatMap { isMeaningful($0) ? $0 : nil }
+            // Absent entirely (nil) when the shot has no spoken line, exactly
+            // like a Structured JSON shot that omits "dialogue" — never an
+            // empty-but-present array standing in for "the model said nothing".
+            shot.dialogue = currentDialogue.isEmpty ? nil : currentDialogue
             shots.append(shot)
         }
 
@@ -122,6 +133,26 @@ enum TextProtocolPlanParser {
                 currentPlaybackStyle = value
             } else if let value = keyValue(line, key: "CONTINUITY") {
                 currentContinuity = value
+            } else if let value = keyValue(line, key: "PURPOSE") {
+                currentPurpose = value
+            } else if let value = keyValue(line, key: "END_STATE") {
+                currentEndState = value
+            } else if let value = keyValue(line, key: "DIALOGUE_REF") {
+                // Checked before DIALOGUE: a DIALOGUE_REF line would never
+                // satisfy keyValue(_, key: "DIALOGUE") anyway, since the
+                // character right after "DIALOGUE" has to be ":" — "_REF:"
+                // fails that check — but keeping this branch first makes the
+                // non-collision explicit rather than incidental.
+                if let line = dialogueRefLine(from: value) {
+                    currentDialogue.append(line)
+                }
+            } else if let value = keyValue(line, key: "DIALOGUE") {
+                // A malformed or empty DIALOGUE line is skipped, not treated
+                // as a parse failure: losing one line is far better than
+                // discarding the whole shot or the whole plan over it.
+                if let line = dialogueLine(from: value) {
+                    currentDialogue.append(line)
+                }
             }
         }
         flushShot()
@@ -186,6 +217,47 @@ enum TextProtocolPlanParser {
         return value
     }
 
+    /// `<speaker>|<exact words>`, or just `<exact words>` when no speaker
+    /// applies. Splits on the first "|" only, so a "|" appearing inside the
+    /// dialogue text itself stays part of the text rather than truncating
+    /// it. `keyValue` has already taken everything after the first
+    /// `DIALOGUE:` colon verbatim, so a colon (ASCII or full-width, as in
+    /// "こんにちは：今日はいい天気ですね") or Japanese quote characters inside the
+    /// dialogue text reach here untouched and are never treated as parser
+    /// syntax. Nil for an empty or placeholder-only line.
+    static func dialogueLine(from value: String) -> OneShotPlan.DialogueLine? {
+        guard isMeaningful(value) else { return nil }
+        if let separator = value.range(of: "|") {
+            let speaker = value[value.startIndex..<separator.lowerBound]
+                .trimmingCharacters(in: .whitespaces)
+            let text = value[separator.upperBound...]
+                .trimmingCharacters(in: .whitespaces)
+            guard !text.isEmpty else { return nil }
+            return OneShotPlan.DialogueLine(speaker: speaker, text: text)
+        }
+        let text = value.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return nil }
+        return OneShotPlan.DialogueLine(speaker: "", text: text)
+    }
+
+    /// `<id>|<speaker>`, or just `<id>` when no speaker applies. `text` is
+    /// left as an empty placeholder — `ExactDialogueReconciler` resolves it
+    /// to the referenced `ExplicitDialogueSource`'s exact text afterward, the
+    /// same as it does for a Structured JSON `sourceId`. A line with no
+    /// usable ID is dropped rather than becoming a blank dialogue line.
+    static func dialogueRefLine(from value: String) -> OneShotPlan.DialogueLine? {
+        guard isMeaningful(value) else { return nil }
+        if let separator = value.range(of: "|") {
+            let id = value[value.startIndex..<separator.lowerBound].trimmingCharacters(in: .whitespaces)
+            let speaker = value[separator.upperBound...].trimmingCharacters(in: .whitespaces)
+            guard !id.isEmpty else { return nil }
+            return OneShotPlan.DialogueLine(speaker: speaker, text: "", sourceId: id)
+        }
+        let id = value.trimmingCharacters(in: .whitespaces)
+        guard !id.isEmpty else { return nil }
+        return OneShotPlan.DialogueLine(speaker: "", text: "", sourceId: id)
+    }
+
     /// Rejects empty values and unfilled `<...>` template placeholders.
     static func isMeaningful(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespaces)
@@ -210,6 +282,13 @@ enum TextProtocolPlanParser {
 
     static func normalizedCameraTempo(_ raw: String?) -> String? {
         normalizedEnumToken(raw, allowed: CameraTempo.allCases.map(\.rawValue))
+    }
+
+    /// Unrecognized or absent text yields nil rather than a guess:
+    /// `AutoMoviePurposePlanner.resolvePurpose` already provides a
+    /// deterministic fallback for that case from the shot's own text.
+    static func normalizedPurpose(_ raw: String?) -> String? {
+        normalizedEnumToken(raw, allowed: ShotPurpose.allCases.map(\.rawValue))
     }
 
     static func normalizedPlaybackStyle(_ raw: String?) -> String? {

@@ -128,13 +128,19 @@ final class ImageConditioningPreparer {
         }
     }
 
-    /// Uses the dimensions the LTX bridge will actually send (64-pixel floor),
-    /// including any Auto Quality fallback profile already applied upstream.
+    /// Uses the model-aware generation dimensions, including any Auto Quality
+    /// fallback profile or alignment grid required by the target backend.
     func prepare(request: GenerationRequest) throws -> PreparedImageConditioning? {
         guard let rawPath = request.sourceImagePath?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawPath.isEmpty else { return nil }
-        let targetWidth = (request.parameters.width / 64) * 64
-        let targetHeight = (request.parameters.height / 64) * 64
+        let alignment = ModelAwareResolutionAlignment.align(
+            requestedWidth: request.parameters.width,
+            requestedHeight: request.parameters.height,
+            modelID: request.modelId,
+            isContinuation: request.isContinuation
+        )
+        let targetWidth = alignment.generation.width
+        let targetHeight = alignment.generation.height
         return try prepare(
             sourceURL: URL(fileURLWithPath: rawPath),
             targetWidth: targetWidth,

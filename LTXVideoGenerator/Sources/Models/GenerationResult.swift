@@ -43,12 +43,36 @@ struct GenerationResult: Identifiable, Codable {
     var actualHeight: Int?
     var actualFPS: Double?
     var actualDuration: Double?
+    var actualFrameCount: Int?
+    var backendKind: String?
+    var effectiveFrameCount: Int?
+    var effectiveChainWindows: Int?
     var peakMemoryBytes: Int64?
     var swapPeakBytes: Int64?
     var filmProjectID: UUID?
     var shotID: UUID?
     var takeID: UUID?
     var brief: String?
+    var finalWidth: Int?
+    var finalHeight: Int?
+    var alignmentApplied: Bool?
+    var alignmentMultiple: Int?
+    var cropTop: Int?
+    var cropBottom: Int?
+    var cropLeft: Int?
+    var cropRight: Int?
+
+    // Identity Keyframe & Re-anchor provenance foundation (optional for backward compatibility).
+    var transitionIntent: String?
+    var conditioningStrategy: String?
+    var continueChainIndex: Int?
+    var identityAnchorID: UUID?
+    var temporalSourceShotID: UUID?
+    var reanchorApplied: Bool?
+    var reanchorReason: String?
+    var reanchorRecommended: Bool?
+    var preparedAnchorWidth: Int?
+    var preparedAnchorHeight: Int?
 
     var videoURL: URL {
         URL(fileURLWithPath: videoPath)
@@ -92,7 +116,42 @@ struct GenerationResult: Identifiable, Codable {
     }
 
     var model: LTXModel {
-        LTXModelCatalog.resolvedModel(id: modelId)
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelId),
+           let descriptor = ModelRegistry.shared.descriptor(id: modelId) {
+            return LTXModel(
+                id: descriptor.id,
+                repo: descriptor.repository,
+                displayName: descriptor.displayName,
+                downloadSize: descriptor.estimatedModelSizeGB.map { "~\(Int($0))GB" } ?? "local",
+                supportsBuiltInAudio: descriptor.capabilities.synchronizedAudio,
+                qualityWarning: MiniMaxH3ProductPolicy.modelDescription,
+                recommendedStepsLower: 8,
+                recommendedStepsUpper: 8,
+                tips: descriptor.runtime.verificationNotes)
+        }
+        if modelId == LTX25ModelCatalog.ltx25ExperimentalID {
+            return LTX25ModelCatalog.ltx25Experimental
+        }
+        return LTXModelCatalog.resolvedModel(id: modelId)
+    }
+
+    var modelDisplayName: String {
+        if modelId == LTX25ModelCatalog.ltx25ExperimentalID {
+            return LTX25ModelCatalog.ltx25Experimental.displayName
+        }
+        if let descriptor = ModelRegistry.shared.descriptor(id: modelId) {
+            return descriptor.displayName
+        }
+        if let model = LTXModelCatalog.model(id: modelId) {
+            return model.displayName
+        }
+        if let effectiveProfileName, !effectiveProfileName.isEmpty {
+            return effectiveProfileName
+        }
+        if !modelId.isEmpty {
+            return modelId
+        }
+        return LTXModelCatalog.defaultModel.displayName
     }
 
     init(
@@ -136,6 +195,10 @@ struct GenerationResult: Identifiable, Codable {
         actualHeight: Int? = nil,
         actualFPS: Double? = nil,
         actualDuration: Double? = nil,
+        actualFrameCount: Int? = nil,
+        backendKind: String? = nil,
+        effectiveFrameCount: Int? = nil,
+        effectiveChainWindows: Int? = nil,
         peakMemoryBytes: Int64? = nil,
         swapPeakBytes: Int64? = nil,
         filmProjectID: UUID? = nil,
@@ -182,6 +245,10 @@ struct GenerationResult: Identifiable, Codable {
         self.actualHeight = actualHeight
         self.actualFPS = actualFPS
         self.actualDuration = actualDuration
+        self.actualFrameCount = actualFrameCount
+        self.backendKind = backendKind
+        self.effectiveFrameCount = effectiveFrameCount
+        self.effectiveChainWindows = effectiveChainWindows
         self.peakMemoryBytes = peakMemoryBytes
         self.swapPeakBytes = swapPeakBytes
         self.filmProjectID = filmProjectID
@@ -230,6 +297,10 @@ struct GenerationResult: Identifiable, Codable {
         case actualHeight
         case actualFPS
         case actualDuration
+        case actualFrameCount
+        case backendKind
+        case effectiveFrameCount
+        case effectiveChainWindows
         case peakMemoryBytes
         case swapPeakBytes
         case filmProjectID
@@ -279,6 +350,10 @@ struct GenerationResult: Identifiable, Codable {
         actualHeight = try container.decodeIfPresent(Int.self, forKey: .actualHeight)
         actualFPS = try container.decodeIfPresent(Double.self, forKey: .actualFPS)
         actualDuration = try container.decodeIfPresent(Double.self, forKey: .actualDuration)
+        actualFrameCount = try container.decodeIfPresent(Int.self, forKey: .actualFrameCount)
+        backendKind = try container.decodeIfPresent(String.self, forKey: .backendKind)
+        effectiveFrameCount = try container.decodeIfPresent(Int.self, forKey: .effectiveFrameCount)
+        effectiveChainWindows = try container.decodeIfPresent(Int.self, forKey: .effectiveChainWindows)
         peakMemoryBytes = try container.decodeIfPresent(Int64.self, forKey: .peakMemoryBytes)
         swapPeakBytes = try container.decodeIfPresent(Int64.self, forKey: .swapPeakBytes)
         filmProjectID = try container.decodeIfPresent(UUID.self, forKey: .filmProjectID)

@@ -272,6 +272,405 @@ func runSourceImageOrientationTests(_ t: TestKit) {
         t.checkEqual(GenerationModelResolver.backend(for: custom.modelId), .ltx2MLX,
                      "P: Custom MLX model routes to ltx2MLX")
     }
+
+    // MARK: - Custom preset inherits the oriented preset size
+    //
+    // Custom keeps whatever dimensions it is given (the `.advanced` early
+    // return in GenerationSettingsResolver.resolve), which is correct: an
+    // explicit user size must win over automatic orientation. The bug was that
+    // the Auto Movie sheet *entered* Custom carrying a hardcoded 768x512
+    // landscape default, so a user who only toggled Audio silently converted a
+    // portrait Opening Reference into a landscape movie. These pin the seed
+    // that the sheet now carries across that transition.
+    t.suite("Custom preset seeding follows source orientation") {
+        func seeded(
+            preset: GenerationPreset,
+            orientation: SourceImageOrientation,
+            modelID: String = LTXModelCatalog.defaultModelID,
+            audioEnabled: Bool = true
+        ) -> (width: Int, height: Int)? {
+            GenerationSettingsResolver.orientedPresetDimensions(
+                preset: preset, orientation: orientation, modelID: modelID,
+                audioEnabled: audioEnabled, engine: engine, snapshot: memory)
+        }
+
+        // PORTRAIT SOURCE + AUTO PRESET -> portrait
+        if let p = seeded(preset: .standard, orientation: .portrait) {
+            t.check(p.height > p.width,
+                    "portrait source seeds a portrait Custom size (\(p.width)x\(p.height))")
+        } else {
+            t.check(false, "standard preset must yield seed dimensions for a portrait source")
+        }
+
+        // LANDSCAPE SOURCE + AUTO PRESET -> landscape (no regression)
+        if let l = seeded(preset: .standard, orientation: .landscape) {
+            t.check(l.width > l.height,
+                    "landscape source seeds a landscape Custom size (\(l.width)x\(l.height))")
+        } else {
+            t.check(false, "standard preset must yield seed dimensions for a landscape source")
+        }
+
+        // The two orientations are the same canvas, transposed.
+        if let p = seeded(preset: .standard, orientation: .portrait),
+           let l = seeded(preset: .standard, orientation: .landscape) {
+            t.checkEqual(p.width, l.height, "portrait width equals landscape height")
+            t.checkEqual(p.height, l.width, "portrait height equals landscape width")
+        }
+
+        // No source image: the preset's own landscape base is kept.
+        if let n = seeded(preset: .standard, orientation: .none) {
+            t.check(n.width >= n.height, "no orientation keeps the preset's own base size")
+        }
+
+        // Every non-custom preset participates, not just Standard.
+        for preset in [GenerationPreset.quickPreview, .standard, .highQuality] {
+            if let p = seeded(preset: preset, orientation: .portrait) {
+                t.check(p.height > p.width,
+                        "\(preset.displayName) seeds portrait for a portrait source")
+            } else {
+                t.check(false, "\(preset.displayName) must yield seed dimensions")
+            }
+        }
+
+        // Custom has no preset size to inherit, so it must not invent one.
+        t.check(seeded(preset: .custom, orientation: .portrait) == nil,
+                "Custom yields no seed (its size is the user's explicit choice)")
+
+        // PORTRAIT SOURCE + LTX-2.5 -> portrait, same as LTX-2.3.
+        let ltx25 = seeded(preset: .standard, orientation: .portrait,
+                           modelID: ModelRegistry.customModelID)
+        let ltx23 = seeded(preset: .standard, orientation: .portrait,
+                           modelID: LTXModelCatalog.defaultModelID)
+        if let ltx25, let ltx23 {
+            t.checkEqual(ltx25.width, ltx23.width, "LTX-2.5 seeds the same portrait width")
+            t.checkEqual(ltx25.height, ltx23.height, "LTX-2.5 seeds the same portrait height")
+            t.check(ltx25.height > ltx25.width, "LTX-2.5 portrait source seeds portrait")
+        } else {
+            t.check(false, "both models must yield seed dimensions")
+        }
+
+        // Audio OFF is what forces Custom in the sheet; it must not itself
+        // change the orientation of the seed.
+        if let on = seeded(preset: .standard, orientation: .portrait, audioEnabled: true),
+           let off = seeded(preset: .standard, orientation: .portrait, audioEnabled: false) {
+            t.check(on.height > on.width && off.height > off.width,
+                    "Audio ON and OFF both seed portrait for a portrait source")
+        }
+
+        // An explicit Custom size is never re-derived: resolve() must return it
+        // untouched even when the source is portrait.
+        var explicit = GenerationParameters.default
+        explicit.width = 768
+        explicit.height = 512
+        if let kept = try? resolve(request(
+            source: portrait, preset: .custom, parameters: explicit)) {
+            t.checkEqual(kept.parameters.width, 768,
+                         "explicit Custom width survives a portrait source")
+            t.checkEqual(kept.parameters.height, 512,
+                         "explicit Custom height survives a portrait source")
+        } else {
+            t.check(false, "custom request must resolve")
+        }
+    }
+
+    // MARK: - A real Auto Movie project inherits its Opening Reference's shape
+    //
+    // This is the reported scenario end to end at the project layer: a real
+    // FilmProject whose Opening Reference is a portrait file on disk, taken
+    // through the same Custom freeze the Audio toggle performs.
+    t.suite("Auto Movie Opening Reference decides the project canvas") {
+        let storeRoot = root.appendingPathComponent("automovie-store", isDirectory: true)
+        try? FileManager.default.createDirectory(at: storeRoot, withIntermediateDirectories: true)
+        let store = FilmProjectStore(projectsDirectory: storeRoot)
+
+        func makeAutoMovie(referencing image: URL) -> FilmProject? {
+            var project = FilmProject(title: "Orientation Auto Movie")
+            project.workflowMode = AutoMovieRunCoordinator.autoMovieWorkflowMode
+            store.save(project)
+            guard let destination = store.managedProjectAssetURL(
+                projectID: project.id,
+                relativePath: "Assets/OpeningReference/opening.png"
+            ) else { return nil }
+            try? FileManager.default.createDirectory(
+                at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? FileManager.default.copyItem(at: image, to: destination)
+            project.openingReferenceImage = OpeningReferenceImage(
+                projectRelativePath: "Assets/OpeningReference/opening.png",
+                originalFilename: "opening.png", mimeType: "image/png", fileSizeBytes: 1)
+            store.save(project)
+            return project
+        }
+
+        if let portraitProject = makeAutoMovie(referencing: portrait) {
+            let orientation = FilmProjectResolutionOrientationResolver.resolve(
+                project: portraitProject, store: store)
+            t.checkEqual(orientation, .portrait,
+                         "a portrait Opening Reference makes the project portrait")
+
+            // Now perform the freeze the Audio toggle performs.
+            var settings = portraitProject.settings
+            settings.modelID = ModelRegistry.customModelID
+            settings.applyPreset(.standard)
+            settings.materializeOrientedSizeBeforeCustom(orientation: orientation)
+            settings.audioEnabled = false
+            settings.markCustom()
+            t.checkEqual(settings.width, 512, "Auto Movie Shot 1 canvas width stays portrait")
+            t.checkEqual(settings.height, 768, "Auto Movie Shot 1 canvas height stays portrait")
+
+            // And that canvas is what the runtime is actually told to render.
+            var parameters = GenerationParameters.default
+            parameters.width = settings.width
+            parameters.height = settings.height
+            let shotRequest = GenerationRequest(
+                prompt: "Shot 1",
+                sourceImagePath: portrait.path,
+                presetResolutionOrientation: orientation,
+                disableAudio: true,
+                modelId: settings.modelID,
+                parameters: parameters,
+                qualityMode: settings.qualityMode,
+                preset: settings.resolvedPreset.rawValue,
+                generationSource: "hybrid")
+            let resolvedShot = (try? resolve(shotRequest)) ?? shotRequest
+            let args = LTX2MLXBackend.arguments(
+                request: resolvedShot, modelDirectory: "/models/ltx25",
+                outputPath: "/out/shot1.mp4", seed: 3,
+                width: resolvedShot.parameters.width,
+                height: resolvedShot.parameters.height)
+            if let wi = args.firstIndex(of: "--width"), let hi = args.firstIndex(of: "--height") {
+                t.checkEqual(args[wi + 1], "512", "Auto Movie Shot 1 child --width is portrait")
+                t.checkEqual(args[hi + 1], "768", "Auto Movie Shot 1 child --height is portrait")
+            } else {
+                t.check(false, "child command must carry --width/--height")
+            }
+            t.check(args.contains("--image"), "Auto Movie Shot 1 still passes its reference image")
+        } else {
+            t.check(false, "portrait Auto Movie fixture must build")
+        }
+
+        // A landscape Opening Reference must still yield a landscape project.
+        if let landscapeProject = makeAutoMovie(referencing: landscape) {
+            let orientation = FilmProjectResolutionOrientationResolver.resolve(
+                project: landscapeProject, store: store)
+            t.checkEqual(orientation, .landscape,
+                         "a landscape Opening Reference makes the project landscape")
+            var settings = landscapeProject.settings
+            // Same model as the portrait case: Auto Quality resolves a profile
+            // per model, so comparing orientations across different models
+            // would be comparing two different canvases.
+            settings.modelID = ModelRegistry.customModelID
+            settings.applyPreset(.standard)
+            settings.materializeOrientedSizeBeforeCustom(orientation: orientation)
+            settings.markCustom()
+            t.checkEqual(settings.width, 768, "landscape Auto Movie keeps landscape width")
+            t.checkEqual(settings.height, 512, "landscape Auto Movie keeps landscape height")
+        } else {
+            t.check(false, "landscape Auto Movie fixture must build")
+        }
+    }
+
+    // MARK: - Switching an existing project to Custom keeps its canvas
+    t.suite("Project settings keep their orientation when frozen to Custom") {
+        func project(preset: GenerationPreset) -> ProjectSettings {
+            var settings = ProjectSettings()
+            settings.modelID = ModelRegistry.customModelID
+            settings.applyPreset(preset)
+            return settings
+        }
+
+        // The exact sequence a user hit: portrait Opening Reference, then the
+        // Audio toggle, which calls markCustom().
+        var portraitProject = project(preset: .standard)
+        t.checkEqual(portraitProject.width, 768, "stored preset base starts landscape")
+        portraitProject.materializeOrientedSizeBeforeCustom(orientation: .portrait)
+        portraitProject.audioEnabled = false
+        portraitProject.markCustom()
+        t.checkEqual(portraitProject.width, 512, "portrait project keeps portrait width through Audio OFF")
+        t.checkEqual(portraitProject.height, 768, "portrait project keeps portrait height through Audio OFF")
+        t.checkEqual(portraitProject.resolvedPreset, .custom, "project is Custom afterwards")
+
+        // Landscape must be untouched by the same sequence.
+        var landscapeProject = project(preset: .standard)
+        landscapeProject.materializeOrientedSizeBeforeCustom(orientation: .landscape)
+        landscapeProject.markCustom()
+        t.checkEqual(landscapeProject.width, 768, "landscape project stays landscape width")
+        t.checkEqual(landscapeProject.height, 512, "landscape project stays landscape height")
+
+        // No reference: the preset's own base is kept.
+        var plainProject = project(preset: .standard)
+        plainProject.materializeOrientedSizeBeforeCustom(orientation: .none)
+        t.checkEqual(plainProject.width, 768, "no orientation keeps the preset base width")
+        t.checkEqual(plainProject.height, 512, "no orientation keeps the preset base height")
+
+        // Already Custom: an explicit size is never re-derived.
+        var explicitProject = project(preset: .custom)
+        explicitProject.width = 640
+        explicitProject.height = 384
+        explicitProject.materializeOrientedSizeBeforeCustom(orientation: .portrait)
+        t.checkEqual(explicitProject.width, 640, "explicit Custom width is never re-derived")
+        t.checkEqual(explicitProject.height, 384, "explicit Custom height is never re-derived")
+
+        // High Quality carries its own (larger) canvas across the freeze.
+        var hqProject = project(preset: .highQuality)
+        let hqBase = (hqProject.width, hqProject.height)
+        hqProject.materializeOrientedSizeBeforeCustom(orientation: .portrait)
+        hqProject.markCustom()
+        t.checkEqual(hqProject.width, min(hqBase.0, hqBase.1), "High Quality portrait width is the short side")
+        t.checkEqual(hqProject.height, max(hqBase.0, hqBase.1), "High Quality portrait height is the long side")
+    }
+
+    // MARK: - Portrait survives all the way to the child command
+    //
+    // The bug was only visible in the finished MP4, so the contract worth
+    // pinning is the whole chain, not just the resolver: a portrait reference
+    // has to still be portrait in the actual --width/--height handed to the
+    // runtime. This walks orientation -> seeded size -> request -> argv.
+    t.suite("Portrait reaches the LTX-2.5 child command") {
+        func childArguments(
+            orientation: SourceImageOrientation,
+            preset: GenerationPreset,
+            explicit: (width: Int, height: Int)? = nil
+        ) -> [String] {
+            var parameters = GenerationParameters.default
+            if let explicit {
+                parameters.width = explicit.width
+                parameters.height = explicit.height
+            } else if let seeded = GenerationSettingsResolver.orientedPresetDimensions(
+                preset: preset, orientation: orientation,
+                modelID: ModelRegistry.customModelID, audioEnabled: false,
+                engine: engine, snapshot: memory) {
+                // What the sheet now writes into the project when it becomes Custom.
+                parameters.width = seeded.width
+                parameters.height = seeded.height
+            }
+            let request = GenerationRequest(
+                prompt: "Portrait chain",
+                sourceImagePath: portrait.path,
+                presetResolutionOrientation: orientation,
+                disableAudio: true,
+                modelId: ModelRegistry.customModelID,
+                parameters: parameters,
+                qualityMode: GenerationPreset.custom.qualityMode.rawValue,
+                preset: GenerationPreset.custom.rawValue)
+            let resolved = (try? resolve(request)) ?? request
+            return LTX2MLXBackend.arguments(
+                request: resolved, modelDirectory: "/models/ltx25",
+                outputPath: "/out/shot.mp4", seed: 7,
+                width: resolved.parameters.width, height: resolved.parameters.height)
+        }
+
+        func value(_ args: [String], after flag: String) -> String? {
+            guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+            return args[i + 1]
+        }
+
+        let portraitArgs = childArguments(orientation: .portrait, preset: .standard)
+        t.checkEqual(value(portraitArgs, after: "--width"), "512",
+                     "portrait reference yields a portrait --width")
+        t.checkEqual(value(portraitArgs, after: "--height"), "768",
+                     "portrait reference yields a portrait --height")
+        t.check(portraitArgs.contains("--distilled"), "portrait run still uses --distilled")
+        t.check(portraitArgs.contains("--no-audio"), "Audio OFF still reaches the runtime")
+
+        let landscapeArgs = childArguments(orientation: .landscape, preset: .standard)
+        t.checkEqual(value(landscapeArgs, after: "--width"), "768",
+                     "landscape reference still yields a landscape --width")
+        t.checkEqual(value(landscapeArgs, after: "--height"), "512",
+                     "landscape reference still yields a landscape --height")
+
+        // An explicit size the user typed is handed over untouched, even
+        // against a portrait source.
+        let explicitArgs = childArguments(
+            orientation: .portrait, preset: .custom, explicit: (768, 512))
+        t.checkEqual(value(explicitArgs, after: "--width"), "768",
+                     "explicit landscape width survives to the child command")
+        t.checkEqual(value(explicitArgs, after: "--height"), "512",
+                     "explicit landscape height survives to the child command")
+    }
+
+    t.suite("Source image orientation — import auto-orientation and policy matrix") {
+        // 1. 512×320 + import portrait source => 320×512
+        let p1 = SourceImageOrientationResolver.orientedDimensions(width: 512, height: 320, sourceOrientation: .portrait)
+        t.checkEqual(p1.width, 320, "1: 512x320 + portrait -> width 320")
+        t.checkEqual(p1.height, 512, "1: 512x320 + portrait -> height 512")
+
+        // 2. 768×512 + import portrait source => 512×768
+        let p2 = SourceImageOrientationResolver.orientedDimensions(width: 768, height: 512, sourceOrientation: .portrait)
+        t.checkEqual(p2.width, 512, "2: 768x512 + portrait -> width 512")
+        t.checkEqual(p2.height, 768, "2: 768x512 + portrait -> height 768")
+
+        // 3. 320×512 + import landscape source => 512×320
+        let p3 = SourceImageOrientationResolver.orientedDimensions(width: 320, height: 512, sourceOrientation: .landscape)
+        t.checkEqual(p3.width, 512, "3: 320x512 + landscape -> width 512")
+        t.checkEqual(p3.height, 320, "3: 320x512 + landscape -> height 320")
+
+        // 4. 512×768 + import landscape source => 768×512
+        let p4 = SourceImageOrientationResolver.orientedDimensions(width: 512, height: 768, sourceOrientation: .landscape)
+        t.checkEqual(p4.width, 768, "4: 512x768 + landscape -> width 768")
+        t.checkEqual(p4.height, 512, "4: 512x768 + landscape -> height 512")
+
+        // 5. portrait source + already portrait resolution (320x512) => unchanged
+        let p5 = SourceImageOrientationResolver.orientedDimensions(width: 320, height: 512, sourceOrientation: .portrait)
+        t.checkEqual(p5.width, 320, "5: portrait + already portrait -> unchanged width 320")
+        t.checkEqual(p5.height, 512, "5: portrait + already portrait -> unchanged height 512")
+
+        // 6. landscape source + already landscape resolution (512x320) => unchanged
+        let p6 = SourceImageOrientationResolver.orientedDimensions(width: 512, height: 320, sourceOrientation: .landscape)
+        t.checkEqual(p6.width, 512, "6: landscape + already landscape -> unchanged width 512")
+        t.checkEqual(p6.height, 320, "6: landscape + already landscape -> unchanged height 320")
+
+        // 7. square source => unchanged
+        let p7a = SourceImageOrientationResolver.orientedDimensions(width: 512, height: 320, sourceOrientation: .square)
+        t.checkEqual(p7a.width, 512, "7a: square source -> unchanged width 512")
+        t.checkEqual(p7a.height, 320, "7a: square source -> unchanged height 320")
+        let p7b = SourceImageOrientationResolver.orientedDimensions(width: 320, height: 512, sourceOrientation: .square)
+        t.checkEqual(p7b.width, 320, "7b: square source -> unchanged width 320")
+        t.checkEqual(p7b.height, 512, "7b: square source -> unchanged height 512")
+
+        // 8. Custom preset portrait import => width/height swap occurs
+        var customParams = GenerationParameters.default
+        customParams.width = 512
+        customParams.height = 320
+        let orientedCustom = SourceImageOrientationResolver.orientedParameters(for: customParams, sourceOrientation: .portrait)
+        t.checkEqual(orientedCustom.width, 320, "8: Custom preset portrait import swaps to width 320")
+        t.checkEqual(orientedCustom.height, 512, "8: Custom preset portrait import swaps to height 512")
+
+        // 9. After automatic portrait swap, user explicitly changes back to landscape => manual landscape remains
+        var manuallyOverriddenParams = orientedCustom
+        manuallyOverriddenParams.width = 512
+        manuallyOverriddenParams.height = 320
+        let req9 = request(source: portrait, preset: .custom, parameters: manuallyOverriddenParams)
+        let res9 = try resolve(req9)
+        t.checkEqual(res9.parameters.width, 512, "9: manual override to 512 is preserved")
+        t.checkEqual(res9.parameters.height, 320, "9: manual override to 320 is preserved")
+
+        // 10. Source Image remains present after swap => I2V request
+        let req10 = request(source: portrait, preset: .custom, parameters: orientedCustom)
+        let res10 = try resolve(req10)
+        t.check(req10.isImageToVideo, "10: request with sourceImagePath isImageToVideo is true")
+        t.check(res10.isImageToVideo, "10: resolved request with sourceImagePath isImageToVideo is true")
+
+        // 11. Unsupported I2V model => explicit failure, no T2V fallback
+        let registry = ModelRegistry.shared
+        t.check(registry.descriptor(id: LTXModelCatalog.defaultModelID)?.capabilities.imageToVideo == true,
+                "11: default model supports imageToVideo")
+        let noI2VDescriptor = ModelDescriptor(
+            id: "dummy_no_i2v_model",
+            displayName: "Dummy No I2V",
+            repository: "test/no-i2v",
+            architecture: ArchitectureDescriptor(modelFamily: "LTX", modelVersion: "2.3", modelType: "video-only"),
+            capabilities: CapabilitySet(textToVideo: true, imageToVideo: false, synchronizedAudio: false),
+            runtime: RuntimeCompatibility(backend: "test", verified: true),
+            policy: .general,
+            license: ModelLicenseMetadata(name: "Test", requiresAcknowledgement: false)
+        )
+        registry.register(descriptor: noI2VDescriptor)
+        let unsupportedReq = request(source: portrait, modelID: "dummy_no_i2v_model")
+        t.checkThrows(ModelPolicyError.imageToVideoUnsupported(modelID: "dummy_no_i2v_model"),
+                      "11: model without imageToVideo throws imageToVideoUnsupported error") {
+            _ = try registry.validateForGeneration(request: unsupportedReq)
+        }
+    }
 }
 
 /// Small optional unwrap helper for the dependency-free test executable.

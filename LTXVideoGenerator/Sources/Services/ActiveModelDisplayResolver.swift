@@ -39,6 +39,66 @@ enum ActiveModelDisplayResolver {
             )
         }
 
+        if MiniMaxH3Configuration.isMiniMaxH3(modelID: effectiveID) {
+            let isHQ = effectiveID == MiniMaxH3Configuration.highQualityModelID
+            let raw = userDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessStateKey)
+            let state = raw.flatMap(MiniMaxH3RuntimeState.init(rawValue:)) ?? .notConfigured
+            let recordedModelID = userDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessModelIDKey)
+            let modelMatches = recordedModelID == effectiveID
+            let ready = state == .ready && modelMatches
+            let status: String
+            if let recordedModelID, recordedModelID != effectiveID {
+                status = "Wrong Model"
+            } else if state == .ready && recordedModelID == nil {
+                status = "Not Configured"
+            } else {
+                switch state {
+                case .notConfigured: status = "Not Configured"
+                case .notRunning: status = "Stopped"
+                case .starting: status = "Starting"
+                case .ready: status = "Ready"
+                case .wrongModel: status = "Wrong Model"
+                case .failed, .broken: status = "Failed"
+                }
+            }
+            return DisplayInfo(
+                modelID: effectiveID,
+                displayName: isHQ ? MiniMaxH3Configuration.highQualityDisplayName : MiniMaxH3Configuration.standardDisplayName,
+                backendBadge: isHQ ? "H3 · High Quality" : "H3 · Standard",
+                isCustom: false,
+                isReady: ready,
+                statusText: status
+            )
+        }
+
+        if let profile = CustomModelProfileStore.profile(forModelID: effectiveID, userDefaults: userDefaults) {
+            let runtimeReadiness = LTX2MLXRuntime.runtimeReadiness(userDefaults: userDefaults)
+            let modelReadiness = CustomModelProfileStore.readiness(for: profile, userDefaults: userDefaults)
+            let canGenerate = runtimeReadiness.isReady && modelReadiness.isReady
+            let status = canGenerate ? "Ready" : "Not Configured"
+            return DisplayInfo(
+                modelID: effectiveID,
+                displayName: profile.displayName,
+                backendBadge: profile.runtimeKind,
+                isCustom: true,
+                isReady: canGenerate,
+                statusText: status
+            )
+        }
+
+        if let ltx25 = LTX25ModelCatalog.model(id: effectiveID) {
+            let readiness = LTX2MLXRuntime.readiness(repository: ltx25.repo, userDefaults: userDefaults)
+            let status = readiness.canGenerate ? "Ready" : "Not Configured"
+            return DisplayInfo(
+                modelID: effectiveID,
+                displayName: ltx25.displayName,
+                backendBadge: "ltx-2-mlx",
+                isCustom: false,
+                isReady: readiness.canGenerate,
+                statusText: status
+            )
+        }
+
         if let official = LTXModelCatalog.model(id: effectiveID) {
             let status = generationServiceLoaded ? "Environment Ready" : "Environment Not Ready"
             return DisplayInfo(

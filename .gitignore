@@ -36,6 +36,9 @@ Carthage/Build/
 dist/
 *.dmg
 *.zip
+!distribution/
+!distribution/*.zip
+!distribution/*.sha256
 
 # Python
 __pycache__/

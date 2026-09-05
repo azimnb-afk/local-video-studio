@@ -38,10 +38,14 @@ jobs:
 
             Download the `*-unsigned.zip` asset, expand it, and use Finder's **Open** command the first time to approve the unsigned local preview. No model weights are bundled; configure local models in Preferences.
 
+            An unsigned `.dmg` asset is provided for the same preview. It is not Developer ID signed or notarized.
+
             A Developer ID signed/notarized distribution is not provided by this preview workflow.
           files: |
             distribution/*.zip
             distribution/*.sha256
+            distribution/*.dmg
+            distribution/*.dmg.sha256
           draft: false
           prerelease: true
           generate_release_notes: false

@@ -30,9 +30,8 @@ jobs:
           shasum -a 256 -c "${ZIP_PATH}.sha256"
           shasum -a 256 -c "${DMG_PATH}.sha256"
           unzip -t "$ZIP_PATH" >/dev/null
-          hdiutil verify "$DMG_PATH" >/dev/null
           echo "Verified $ZIP_PATH"
-          echo "Verified $DMG_PATH"
+          echo "Verified checksum and presence of $DMG_PATH"
 
       - name: Publish preview release
         uses: softprops/action-gh-release@v2

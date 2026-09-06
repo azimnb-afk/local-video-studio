@@ -354,7 +354,29 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
             self.minimaxH3Endpoint = minimaxH3Endpoint
         }
 
-        if let profile = CustomModelProfileStore.profile(forModelID: modelId, userDefaults: userDefaults) {
+        if modelId == LTX25ModelCatalog.ltx25ExperimentalID {
+            // Freeze the validated LTX-2.5 snapshot at request creation. The
+            // existing customModelLocalPath field is reused as an immutable
+            // request snapshot; generic custom-model preferences are not read.
+            let resolvedPath: String?
+            if let explicitPath = customModelLocalPath, !explicitPath.isEmpty {
+                // Preserve an explicitly supplied invalid path so execution
+                // reports that exact failure instead of silently switching to
+                // a different live preference or cache candidate.
+                resolvedPath = LTX25ModelLocationResolver.validatedModelDirectory(at: explicitPath)
+                    ?? explicitPath
+            } else {
+                resolvedPath = LTX25ModelLocationResolver.resolve(
+                    userDefaults: userDefaults
+                ).effectivePath
+            }
+            self.customModelProfileID = nil
+            self.customModelDisplayNameSnapshot = nil
+            self.customModelLocalPath = resolvedPath
+            self.customModelSourceMode = resolvedPath == nil
+                ? nil
+                : CustomModelSourceMode.local.rawValue
+        } else if let profile = CustomModelProfileStore.profile(forModelID: modelId, userDefaults: userDefaults) {
             self.customModelProfileID = profile.id
             self.customModelDisplayNameSnapshot = profile.displayName
             self.customModelSourceMode = CustomModelSourceMode.local.rawValue

@@ -460,6 +460,14 @@ final class ModelRegistry {
                 desc.revision = frozenRevision
             }
         }
+        if request.modelId == LTX25ModelCatalog.ltx25ExperimentalID,
+           let frozenPath = request.customModelLocalPath,
+           !frozenPath.isEmpty {
+            // LTX-2.5 uses the same descriptor field to carry the immutable
+            // local snapshot selected during request creation. It is not a
+            // generic custom-model profile and never changes the model ID.
+            desc.localPath = frozenPath
+        }
         return desc
     }
 

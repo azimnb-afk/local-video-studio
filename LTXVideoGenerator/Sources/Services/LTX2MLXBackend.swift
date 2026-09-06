@@ -89,6 +89,7 @@ struct LTX2MLXBackend {
         progressHandler: @escaping (Double, String) -> Void
     ) async throws -> (videoPath: String, seed: Int, enhancedPrompt: String?) {
         let readiness = LTX2MLXRuntime.readiness(
+            modelID: request.modelId,
             repository: model.repo,
             localPath: request.customModelLocalPath,
             sourceMode: request.customModelSourceMode.flatMap { CustomModelSourceMode(rawValue: $0) },

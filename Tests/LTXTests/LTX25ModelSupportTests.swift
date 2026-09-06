@@ -202,5 +202,208 @@ func runLTX25ModelSupportTests(_ t: TestKit) {
             seed: 42
         )
         t.checkEqual(result23.modelDisplayName, "LTX-2.3 Distilled Q4 (Beta)", "Legacy 2.3 result must display LTX-2.3 Distilled Q4 (Beta)")
+
+        // MARK: - I. LTX-2.5 model-directory persistence and cache recovery
+        func makeLTX25Hub(
+            complete: Bool = true,
+            revisions: [String] = ["revision-a"]
+        ) -> URL {
+            let hub = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("ltx25-hub-\(UUID().uuidString)", isDirectory: true)
+            for revision in revisions {
+                let snapshot = hub
+                    .appendingPathComponent("models--community--ltx-2.5-mlx", isDirectory: true)
+                    .appendingPathComponent("snapshots", isDirectory: true)
+                    .appendingPathComponent(revision, isDirectory: true)
+                try? FileManager.default.createDirectory(at: snapshot, withIntermediateDirectories: true)
+                let config = #"{"model_version":"2.5.0","model_type":"AudioVideo"}"#
+                try? Data(config.utf8).write(to: snapshot.appendingPathComponent("config.json"))
+                if complete {
+                    for name in [
+                        "transformer.safetensors",
+                        "connector.safetensors",
+                        "vae_decoder.safetensors",
+                        "vae_encoder.safetensors"
+                    ] {
+                        try? Data("weights".utf8).write(to: snapshot.appendingPathComponent(name))
+                    }
+                }
+            }
+            return hub
+        }
+
+        func makeLTX25LocalModel() -> URL {
+            let root = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("ltx25-local-\(UUID().uuidString)", isDirectory: true)
+            try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            let config = #"{"model_version":"2.5.0","model_type":"AudioVideo"}"#
+            try? Data(config.utf8).write(to: root.appendingPathComponent("config.json"))
+            for name in [
+                "transformer.safetensors",
+                "connector.safetensors",
+                "vae_decoder.safetensors",
+                "vae_encoder.safetensors"
+            ] {
+                try? Data("weights".utf8).write(to: root.appendingPathComponent(name))
+            }
+            return root
+        }
+
+        func makeLTX25GGUFModel() -> URL {
+            let root = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("ltx25-gguf-\(UUID().uuidString)", isDirectory: true)
+            try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try? Data("gguf weights".utf8).write(to: root.appendingPathComponent("LTX-2.5-Distilled-Q4_K_M.gguf"))
+            try? Data("vae weights".utf8).write(to: root.appendingPathComponent("ltx-2.5-video-vae-conv-bf16.safetensors"))
+            return root
+        }
+
+        func makeExecutable() -> String {
+            let path = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("ltx25-runtime-\(UUID().uuidString)")
+            try? Data("#!/bin/sh\nexit 0\n".utf8).write(to: path)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path.path)
+            return path.path
+        }
+
+        func freshDefaults(_ label: String) -> UserDefaults {
+            UserDefaults(suiteName: "ltx25.\(label).\(UUID().uuidString)")!
+        }
+
+        let recoveredDefaults = freshDefaults("recovery")
+        let recoveredHub = makeLTX25Hub()
+        let recovered = LTX25ModelLocationResolver.resolve(
+            userDefaults: recoveredDefaults, hubDirectory: recoveredHub)
+        t.check(recovered.isReady, "unique complete HF snapshot is recovered")
+        t.checkEqual(recovered.source, .hfCacheRecovered, "recovery provenance is recorded")
+        t.check(recoveredDefaults.string(forKey: LTX25ModelLocationResolver.modelDirectoryKey) == recovered.effectivePath,
+                "recovered path is persisted in the dedicated LTX-2.5 key")
+        t.checkEqual(
+            recoveredDefaults.string(forKey: LTX25ModelLocationResolver.repositoryKey),
+            LTX25ModelCatalog.ltx25Experimental.repo,
+            "recovery records the built-in model repository")
+
+        let recoveredAgain = LTX25ModelLocationResolver.resolve(
+            userDefaults: recoveredDefaults, hubDirectory: recoveredHub)
+        t.checkEqual(recoveredAgain.effectivePath, recovered.effectivePath,
+                     "recovery is idempotent on the next readiness check")
+
+        let invalidDefaults = freshDefaults("invalid-cache")
+        let invalidHub = makeLTX25Hub(complete: false)
+        let invalid = LTX25ModelLocationResolver.resolve(
+            userDefaults: invalidDefaults, hubDirectory: invalidHub)
+        t.check(!invalid.isReady, "incomplete cache is never marked Ready")
+        t.check(invalidDefaults.string(forKey: LTX25ModelLocationResolver.modelDirectoryKey) == nil,
+                "incomplete cache is not persisted as a usable model")
+
+        let ambiguousDefaults = freshDefaults("ambiguous")
+        let ambiguousHub = makeLTX25Hub(revisions: ["revision-a", "revision-b"])
+        let ambiguous = LTX25ModelLocationResolver.resolve(
+            userDefaults: ambiguousDefaults, hubDirectory: ambiguousHub)
+        t.check(!ambiguous.isReady, "multiple complete snapshots are not auto-selected")
+        t.check(ambiguous.reason?.contains("Multiple") == true,
+                "ambiguous cache reports an actionable reason")
+
+        let savedDefaults = freshDefaults("saved")
+        let savedModel = makeLTX25LocalModel()
+        savedDefaults.set(savedModel.path, forKey: LTX25ModelLocationResolver.modelDirectoryKey)
+        let saved = LTX25ModelLocationResolver.resolve(
+            userDefaults: savedDefaults,
+            hubDirectory: makeLTX25Hub(revisions: ["unused"]))
+        t.check(saved.isReady, "valid saved path is authoritative")
+        t.check(saved.source == .explicitSavedPath, "explicit saved path provenance is retained")
+
+        let unavailableDefaults = freshDefaults("saved-unavailable")
+        let unavailablePath = "/tmp/ltx25-removed-\(UUID().uuidString)"
+        unavailableDefaults.set(unavailablePath, forKey: LTX25ModelLocationResolver.modelDirectoryKey)
+        let unavailable = LTX25ModelLocationResolver.resolve(
+            userDefaults: unavailableDefaults,
+            hubDirectory: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("empty-\(UUID())"))
+        t.check(!unavailable.isReady, "unavailable saved path without fallback remains not ready")
+        t.checkEqual(unavailableDefaults.string(forKey: LTX25ModelLocationResolver.modelDirectoryKey), unavailablePath,
+                     "unavailable saved path is preserved when no valid cache exists")
+
+        let recoverUnavailableDefaults = freshDefaults("saved-recovery")
+        recoverUnavailableDefaults.set(unavailablePath, forKey: LTX25ModelLocationResolver.modelDirectoryKey)
+        let recoveredUnavailable = LTX25ModelLocationResolver.resolve(
+            userDefaults: recoverUnavailableDefaults, hubDirectory: makeLTX25Hub())
+        t.check(recoveredUnavailable.isReady,
+                "an unavailable saved path recovers when exactly one valid cache exists")
+        t.checkEqual(recoveredUnavailable.source, .hfCacheRecovered,
+                     "recovered unavailable path records cache provenance")
+
+        let legacyDefaults = freshDefaults("legacy")
+        legacyDefaults.set(savedModel.path, forKey: "ltx25ModelPath")
+        let migrated = LTX25ModelLocationResolver.resolve(
+            userDefaults: legacyDefaults,
+            hubDirectory: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("empty-\(UUID())"))
+        t.check(migrated.isReady, "valid legacy LTX-2.5 path migrates")
+        t.checkEqual(migrated.source, .legacyMigratedPath, "legacy migration provenance is recorded")
+        t.check(legacyDefaults.string(forKey: LTX25ModelLocationResolver.modelDirectoryKey) == savedModel.path,
+                "legacy migration writes the canonical key")
+
+        let customOnlyDefaults = freshDefaults("custom-isolation")
+        let customDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("generic-custom-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: customDir, withIntermediateDirectories: true)
+        for name in CustomLTX2MLXModelCatalog.requiredComponents {
+            try? Data("weights".utf8).write(to: customDir.appendingPathComponent(name))
+        }
+        customOnlyDefaults.set(customDir.path, forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+        let customIsolation = LTX25ModelLocationResolver.resolve(
+            userDefaults: customOnlyDefaults,
+            hubDirectory: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("empty-\(UUID())"))
+        t.check(!customIsolation.isReady,
+                "generic custom LTX-2.3 path is never mistaken for LTX-2.5")
+
+        let legacyCustomDefaults = freshDefaults("legacy-custom-key")
+        let legacyGGUF = makeLTX25GGUFModel()
+        legacyCustomDefaults.set(legacyGGUF.path, forKey: ModelRegistry.customLocalPathUserDefaultsKey)
+        let migratedCustom = LTX25ModelLocationResolver.resolve(
+            userDefaults: legacyCustomDefaults,
+            hubDirectory: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("empty-\(UUID())"))
+        t.check(migratedCustom.isReady,
+                "a legacy generic path is migrated only when it is a valid LTX-2.5 GGUF package")
+        t.checkEqual(migratedCustom.source, .legacyMigratedPath,
+                     "validated legacy generic path records migration provenance")
+
+        let runtimeDefaults = freshDefaults("runtime")
+        runtimeDefaults.set(makeExecutable(), forKey: LTX2MLXRuntime.executablePathKey)
+        let runtimeHub = makeLTX25Hub()
+        let runtimeReadiness = LTX2MLXRuntime.readiness(
+            modelID: LTX25ModelCatalog.ltx25ExperimentalID,
+            repository: LTX25ModelCatalog.ltx25Experimental.repo,
+            userDefaults: runtimeDefaults,
+            hubDirectory: runtimeHub)
+        t.check(runtimeReadiness.canGenerate,
+                "runtime plus recovered LTX-2.5 model can generate")
+        if let ltx25Descriptor = ModelRegistry(userDefaults: runtimeDefaults)
+            .descriptor(id: LTX25ModelCatalog.ltx25ExperimentalID) {
+            let readiness = ModelReadinessResolver.evaluate(
+                model: ltx25Descriptor,
+                userDefaults: runtimeDefaults,
+                hubDirectory: runtimeHub)
+            t.checkEqual(readiness.status, .ready,
+                         "ModelReadinessResolver uses the same recovered LTX-2.5 source")
+        } else {
+            t.check(false, "LTX-2.5 descriptor exists for readiness evaluation")
+        }
+
+        let requestDefaults = freshDefaults("request-freeze")
+        let requestHub = makeLTX25Hub()
+        let requestPath = LTX25ModelLocationResolver.resolve(
+            userDefaults: requestDefaults, hubDirectory: requestHub).effectivePath
+        let request = GenerationRequest(
+            prompt: "test",
+            modelId: LTX25ModelCatalog.ltx25ExperimentalID,
+            userDefaults: requestDefaults)
+        t.checkEqual(request.customModelLocalPath, requestPath,
+                     "GenerationRequest freezes the recovered LTX-2.5 snapshot")
+        if let descriptor = ModelRegistry(userDefaults: requestDefaults).descriptor(for: request) {
+            t.checkEqual(descriptor.localPath, requestPath,
+                         "request descriptor carries the frozen LTX-2.5 snapshot")
+        } else {
+            t.check(false, "LTX-2.5 request descriptor remains registered")
+        }
     }
 }

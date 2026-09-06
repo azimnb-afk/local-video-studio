@@ -264,6 +264,7 @@ enum LTX2MLXRuntime {
     }
 
     static func modelReadiness(
+        modelID: String? = nil,
         repository: String? = nil,
         localPath: String? = nil,
         sourceMode: CustomModelSourceMode? = nil,
@@ -271,6 +272,29 @@ enum LTX2MLXRuntime {
         hubDirectory: URL? = nil,
         fileManager: FileManager = .default
     ) -> ComponentReadiness {
+        if modelID == LTX25ModelCatalog.ltx25ExperimentalID {
+            // LTX-2.5 has its own persisted location. Never read the generic
+            // custom-model path here; that path may point at an LTX-2.3/10eros
+            // profile and is a different model contract.
+            if let localPath, !localPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                guard let resolved = LTX25ModelLocationResolver.validatedModelDirectory(
+                    at: localPath, fileManager: fileManager
+                ) else {
+                    return .missing("The selected LTX-2.5 model directory is missing or incomplete.")
+                }
+                return .ready(resolved)
+            }
+            let resolution = LTX25ModelLocationResolver.resolve(
+                userDefaults: userDefaults,
+                hubDirectory: hubDirectory,
+                fileManager: fileManager
+            )
+            if let effectivePath = resolution.effectivePath {
+                return .ready(effectivePath)
+            }
+            return .missing(resolution.reason ?? "No complete LTX-2.5 model directory is available.")
+        }
+
         let mode = sourceMode ?? (localPath != nil ? .local : customModelSourceMode(userDefaults: userDefaults))
         switch mode {
         case .local:
@@ -314,6 +338,7 @@ enum LTX2MLXRuntime {
     }
 
     static func readiness(
+        modelID: String? = nil,
         repository: String? = nil,
         localPath: String? = nil,
         sourceMode: CustomModelSourceMode? = nil,
@@ -324,6 +349,7 @@ enum LTX2MLXRuntime {
         Readiness(
             runtime: runtimeReadiness(userDefaults: userDefaults, fileManager: fileManager),
             model: modelReadiness(
+                modelID: modelID,
                 repository: repository,
                 localPath: localPath,
                 sourceMode: sourceMode,
@@ -332,6 +358,267 @@ enum LTX2MLXRuntime {
                 fileManager: fileManager
             )
         )
+    }
+}
+
+/// The provenance of the local LTX-2.5 model directory used by the app.
+///
+/// This is deliberately separate from the generic custom-model settings. A
+/// user's LTX-2.3/10eros profile must never be mistaken for an LTX-2.5 model.
+enum LTX25ModelLocationSource: String, Codable, Equatable, Sendable {
+    case explicitSavedPath = "EXPLICIT_SAVED_PATH"
+    case legacyMigratedPath = "LEGACY_MIGRATED_PATH"
+    case hfCacheRecovered = "HF_CACHE_RECOVERED"
+    case userSelected = "USER_SELECTED"
+    case none = "NONE"
+}
+
+struct LTX25ModelLocationResolution: Equatable, Sendable {
+    let savedPath: String?
+    let discoveredPaths: [String]
+    let effectivePath: String?
+    let source: LTX25ModelLocationSource
+    let reason: String?
+
+    var isReady: Bool { effectivePath != nil }
+}
+
+/// Read-only-first persistence and recovery for the built-in LTX-2.5 model.
+///
+/// The resolver never downloads or deletes. A saved invalid path is preserved
+/// when no safe replacement exists; if exactly one complete, LTX-2.5-compatible
+/// HF snapshot exists, the missing path is recovered and the canonical key is
+/// updated only after validation.
+enum LTX25ModelLocationResolver {
+    static let modelDirectoryKey = "ltx25ModelDirectory"
+    static let locationSourceKey = "ltx25ModelLocationSource"
+    static let repositoryKey = "ltx25ModelRepository"
+
+    /// Historical keys observed in development builds. The generic custom
+    /// model key is included as a *candidate* only because older builds used
+    /// it for a user-selected LTX-2.5 GGUF folder. It is migrated only after
+    /// strict LTX-2.5 validation; an unrelated LTX-2.3/10eros folder fails
+    /// validation and is never adopted.
+    static let legacyPathKeys = [
+        "ltx25ModelPath",
+        "ltx25LocalPath",
+        "ltx25ModelLocalPath",
+        "ltx2mlxLTX25ModelDirectory",
+        ModelRegistry.customLocalPathUserDefaultsKey
+    ]
+
+    static func resolve(
+        userDefaults: UserDefaults = .standard,
+        hubDirectory: URL? = nil,
+        fileManager: FileManager = .default
+    ) -> LTX25ModelLocationResolution {
+        let saved = nonEmpty(userDefaults.string(forKey: modelDirectoryKey))
+
+        // A valid explicit preference is authoritative. If the saved folder
+        // disappeared after an upgrade, a unique validated cache candidate may
+        // safely recover it; ambiguous or absent candidates leave the saved
+        // value untouched for an actionable Settings error.
+        if let saved {
+            if let resolved = validatedModelDirectory(at: saved, fileManager: fileManager) {
+                return LTX25ModelLocationResolution(
+                    savedPath: saved,
+                    discoveredPaths: [resolved],
+                    effectivePath: resolved,
+                    source: source(for: userDefaults, fallback: .explicitSavedPath),
+                    reason: nil
+                )
+            }
+            let candidates = discoverHFCacheCandidates(
+                hubDirectory: hubDirectory,
+                fileManager: fileManager
+            )
+            if candidates.count == 1, let candidate = candidates.first {
+                persistResolvedPath(candidate, source: .hfCacheRecovered, userDefaults: userDefaults)
+                return LTX25ModelLocationResolution(
+                    savedPath: saved,
+                    discoveredPaths: candidates,
+                    effectivePath: candidate,
+                    source: .hfCacheRecovered,
+                    reason: "The previous LTX-2.5 folder was unavailable; a unique local cache was recovered."
+                )
+            }
+            return LTX25ModelLocationResolution(
+                savedPath: saved,
+                discoveredPaths: candidates,
+                effectivePath: nil,
+                source: source(for: userDefaults, fallback: .explicitSavedPath),
+                reason: candidates.count > 1
+                    ? "The saved LTX-2.5 folder is unavailable and multiple caches were found; choose one in Preferences."
+                    : "The saved LTX-2.5 model directory is missing or incomplete."
+            )
+        }
+
+        // Migrate only a path that has been authoritatively validated. A bad
+        // legacy value is ignored rather than copied into the canonical key.
+        for key in legacyPathKeys {
+            guard let legacy = nonEmpty(userDefaults.string(forKey: key)),
+                  let resolved = validatedModelDirectory(at: legacy, fileManager: fileManager)
+            else { continue }
+            persistResolvedPath(resolved, source: .legacyMigratedPath, userDefaults: userDefaults)
+            return LTX25ModelLocationResolution(
+                savedPath: resolved,
+                discoveredPaths: [resolved],
+                effectivePath: resolved,
+                source: .legacyMigratedPath,
+                reason: nil
+            )
+        }
+
+        let candidates = discoverHFCacheCandidates(
+            hubDirectory: hubDirectory,
+            fileManager: fileManager
+        )
+        if candidates.count == 1, let candidate = candidates.first {
+            persistResolvedPath(candidate, source: .hfCacheRecovered, userDefaults: userDefaults)
+            return LTX25ModelLocationResolution(
+                savedPath: candidate,
+                discoveredPaths: candidates,
+                effectivePath: candidate,
+                source: .hfCacheRecovered,
+                reason: nil
+            )
+        }
+        let reason: String?
+        if candidates.count > 1 {
+            reason = "Multiple complete LTX-2.5 model snapshots were found; choose one in Preferences."
+        } else {
+            reason = "No complete LTX-2.5 model directory was found in the local HF cache."
+        }
+        return LTX25ModelLocationResolution(
+            savedPath: nil,
+            discoveredPaths: candidates,
+            effectivePath: nil,
+            source: .none,
+            reason: reason
+        )
+    }
+
+    /// Validates and persists a user-selected folder. The returned path is the
+    /// actual snapshot passed to the runtime, not an unvalidated parent folder.
+    static func persistUserSelectedPath(
+        _ path: String,
+        userDefaults: UserDefaults = .standard,
+        fileManager: FileManager = .default
+    ) -> String? {
+        guard let resolved = validatedModelDirectory(at: path, fileManager: fileManager) else {
+            return nil
+        }
+        persistResolvedPath(resolved, source: .userSelected, userDefaults: userDefaults)
+        return resolved
+    }
+
+    static func validatedModelDirectory(
+        at path: String,
+        fileManager: FileManager = .default
+    ) -> String? {
+        guard let resolved = LTX2MLXRuntime.localModelDirectory(at: path, fileManager: fileManager),
+              isLTX25Configuration(in: URL(fileURLWithPath: resolved), fileManager: fileManager)
+        else { return nil }
+        return resolved
+    }
+
+    private static func discoverHFCacheCandidates(
+        hubDirectory: URL?,
+        fileManager: FileManager
+    ) -> [String] {
+        let hub = hubDirectory
+            ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".cache/huggingface/hub")
+        guard let repositories = try? fileManager.contentsOfDirectory(
+            at: hub,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        var candidates: Set<String> = []
+        for repository in repositories where repository.lastPathComponent.hasPrefix("models--") {
+            let snapshots = repository.appendingPathComponent("snapshots", isDirectory: true)
+            guard let revisions = try? fileManager.contentsOfDirectory(
+                at: snapshots,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+            for revision in revisions {
+                if let candidate = validatedModelDirectory(at: revision.path, fileManager: fileManager) {
+                    candidates.insert(candidate)
+                }
+            }
+        }
+        return candidates.sorted()
+    }
+
+    private static func isLTX25Configuration(in directory: URL, fileManager: FileManager) -> Bool {
+        // The installed runtime also supports the LTX-2.5 distilled GGUF
+        // contract. GGUF packages do not carry the MLX `config.json`; use the
+        // existing component check plus an explicit LTX-2.5 marker in the
+        // package metadata/name instead of trusting a generic `.gguf` file.
+        if let files = try? fileManager.contentsOfDirectory(atPath: directory.path),
+           files.contains(where: { $0.lowercased().hasSuffix(".gguf") }),
+           LTX25ModelLocationResolver.hasLTX25Marker(
+               in: directory, files: files, fileManager: fileManager
+           ) {
+            return LTX2MLXRuntime.hasRequiredComponents(in: directory, fileManager: fileManager)
+        }
+
+        let configURL = directory.appendingPathComponent("config.json")
+        guard let data = try? Data(contentsOf: configURL),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return false }
+        let version = (object["model_version"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let type = (object["model_type"] as? String)?.lowercased() ?? ""
+        return version.hasPrefix("2.5") && type.contains("audiovideo")
+    }
+
+    private static func hasLTX25Marker(
+        in directory: URL,
+        files: [String],
+        fileManager: FileManager
+    ) -> Bool {
+        let filenameMarker = files.contains {
+            let lower = $0.lowercased()
+            return lower.contains("ltx-2.5") || lower.contains("ltx2.5") || lower.contains("ltx25")
+        }
+        if filenameMarker { return true }
+        for name in files where name.lowercased().hasSuffix(".md") || name.lowercased().hasSuffix(".json") {
+            let url = directory.appendingPathComponent(name)
+            guard let data = try? Data(contentsOf: url), data.count <= 2_000_000,
+                  let text = String(data: data, encoding: .utf8)
+            else { continue }
+            let lower = text.lowercased()
+            if lower.contains("ltx-2.5") || lower.contains("ltx2.5") || lower.contains("ltx25") {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func persistResolvedPath(
+        _ path: String,
+        source: LTX25ModelLocationSource,
+        userDefaults: UserDefaults
+    ) {
+        userDefaults.set(path, forKey: modelDirectoryKey)
+        userDefaults.set(source.rawValue, forKey: locationSourceKey)
+        userDefaults.set(LTX25ModelCatalog.ltx25Experimental.repo, forKey: repositoryKey)
+    }
+
+    private static func source(
+        for userDefaults: UserDefaults,
+        fallback: LTX25ModelLocationSource
+    ) -> LTX25ModelLocationSource {
+        guard let raw = userDefaults.string(forKey: locationSourceKey),
+              let value = LTX25ModelLocationSource(rawValue: raw)
+        else { return fallback }
+        return value
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

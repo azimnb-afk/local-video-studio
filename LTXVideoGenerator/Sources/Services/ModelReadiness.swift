@@ -81,7 +81,12 @@ enum ModelReadinessResolver {
         }
 
         if GenerationBackendKind.ltx2MLX.matches(descriptorBackend: model.runtime.backend) {
-            return evaluateLTX2MLX(model: model, userDefaults: userDefaults, fileManager: fileManager)
+            return evaluateLTX2MLX(
+                model: model,
+                userDefaults: userDefaults,
+                fileManager: fileManager,
+                hubDirectory: hubDirectory
+            )
         }
 
         guard model.capabilities.textToVideo else {
@@ -152,7 +157,8 @@ enum ModelReadinessResolver {
     private static func evaluateLTX2MLX(
         model: ModelDescriptor,
         userDefaults: UserDefaults,
-        fileManager: FileManager
+        fileManager: FileManager,
+        hubDirectory: URL?
     ) -> ModelReadiness {
         let runtimeReadiness = LTX2MLXRuntime.runtimeReadiness(
             userDefaults: userDefaults,
@@ -174,17 +180,31 @@ enum ModelReadinessResolver {
             return result(model, .ready, nil)
         }
 
-        // The built-in LTX-2.5 entry uses the same explicit local/Hugging Face
-        // source settings that its backend uses. No implicit download is
-        // considered ready here.
+        // The built-in LTX-2.5 entry has a dedicated persisted location and
+        // safe HF-cache recovery path. Generic custom-model preferences remain
+        // reserved for the user's LTX-2.3/10eros profile.
         let sourceMode = LTX2MLXRuntime.customModelSourceMode(userDefaults: userDefaults)
         let modelStatus = LTX2MLXRuntime.modelReadiness(
+            modelID: model.id,
             repository: model.repository,
             sourceMode: sourceMode,
             userDefaults: userDefaults,
+            hubDirectory: hubDirectory,
             fileManager: fileManager
         )
         guard modelStatus.isReady else {
+            if model.id == LTX25ModelCatalog.ltx25ExperimentalID {
+                let resolution = LTX25ModelLocationResolver.resolve(
+                    userDefaults: userDefaults,
+                    hubDirectory: hubDirectory,
+                    fileManager: fileManager
+                )
+                return result(
+                    model,
+                    resolution.savedPath == nil ? .notConfigured : .invalidModelPath,
+                    resolution.reason ?? modelStatus.detail
+                )
+            }
             switch sourceMode {
             case .huggingFace:
                 return result(model, .notDownloaded, modelStatus.detail)
@@ -195,6 +215,23 @@ enum ModelReadinessResolver {
                     path == nil ? .notConfigured : .invalidModelPath,
                     modelStatus.detail)
             }
+        }
+        if model.id == LTX25ModelCatalog.ltx25ExperimentalID {
+            let resolution = LTX25ModelLocationResolver.resolve(
+                userDefaults: userDefaults,
+                hubDirectory: hubDirectory,
+                fileManager: fileManager
+            )
+            let reason: String?
+            switch resolution.source {
+            case .hfCacheRecovered:
+                reason = "Existing local LTX-2.5 cache recovered."
+            case .legacyMigratedPath:
+                reason = "Existing LTX-2.5 model preference migrated."
+            default:
+                reason = nil
+            }
+            return result(model, .ready, reason)
         }
         return result(model, .ready, nil)
     }

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Preferences tab for advanced models, multi custom model profiles, experimental feature flags, and Compatibility Lab.
 struct ModelsAndFeaturesPreferences: View {
@@ -15,6 +16,7 @@ struct ModelsAndFeaturesPreferences: View {
     @State private var editingProfile: CustomModelProfile? = nil
     @State private var isShowingAddSheet = false
     @State private var profileToDelete: CustomModelProfile? = nil
+    @State private var ltx25FolderError: String?
     @StateObject private var runtimeManager = LTX2MLXRuntimeManager.shared
     @StateObject private var readinessStore = ModelReadinessStore.shared
     @StateObject private var modelDownloads = ModelDownloadCoordinator.shared
@@ -49,7 +51,20 @@ struct ModelsAndFeaturesPreferences: View {
                         if readiness.status == .notDownloaded && model.isOfficial {
                             modelDownloadControl(for: model)
                         }
+                        if model.id == LTX25ModelCatalog.ltx25ExperimentalID && !readiness.canGenerate {
+                            Button("Choose LTX-2.5 Folder…") {
+                                chooseLTX25ModelDirectory()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
                     }
+                }
+
+                if let ltx25FolderError {
+                    Text(ltx25FolderError)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
                 }
 
                 Button("Refresh Model Status") {
@@ -288,6 +303,27 @@ struct ModelsAndFeaturesPreferences: View {
 
     private func reloadProfiles() {
         profiles = CustomModelProfileStore.loadProfiles()
+    }
+
+    private func chooseLTX25ModelDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Select LTX-2.5 Model"
+        panel.message = "Choose a complete local LTX-2.5 model folder or snapshot."
+        let hub = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cache/huggingface/hub", isDirectory: true)
+        if FileManager.default.fileExists(atPath: hub.path) {
+            panel.directoryURL = hub
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard LTX25ModelLocationResolver.persistUserSelectedPath(url.path) != nil else {
+            ltx25FolderError = "That folder is not a complete LTX-2.5 model snapshot. No preference was changed."
+            return
+        }
+        ltx25FolderError = nil
+        Task { await readinessStore.refresh() }
     }
 
     private func abbreviateHome(path: String) -> String {

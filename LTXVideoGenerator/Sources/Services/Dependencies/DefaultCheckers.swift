@@ -117,7 +117,10 @@ public class DefaultModelChecker: ModelChecking {
         }
         
         if model.runtime.backend == "ltx-2-mlx" {
-            let readiness = LTX2MLXRuntime.modelReadiness(repository: model.repository)
+            let readiness = LTX2MLXRuntime.modelReadiness(
+                modelID: model.id,
+                repository: model.repository
+            )
             if readiness.isReady {
                 return .ready
             } else {

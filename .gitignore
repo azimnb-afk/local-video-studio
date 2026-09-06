@@ -39,6 +39,8 @@ dist/
 !distribution/
 !distribution/*.zip
 !distribution/*.sha256
+!distribution/*.dmg
+!distribution/*.dmg.sha256
 
 # Python
 __pycache__/

@@ -3,7 +3,7 @@
 [![macOS](https://img.shields.io/badge/macOS-14.0+-blue.svg)](https://www.apple.com/macos/)
 [![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-M1%2FM2%2FM3%2FM4-orange.svg)](https://support.apple.com/en-us/HT211814)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/Release-v0.9.0--preview.22-purple.svg)](RELEASE_NOTES_v0.9.0-preview.22.md)
+[![Release](https://img.shields.io/badge/Release-v0.9.0--preview.23-purple.svg)](RELEASE_NOTES_v0.9.0-preview.23.md)
 
 **Create longer AI video sequences locally on Apple Silicon.**
 
@@ -239,7 +239,7 @@ All generation requests are dispatched to a resilient background queue:
 
 ## Development Status
 
-- **Current Version**: `v0.9.0-preview.22` (Public Preview)
+- **Current Version**: `v0.9.0-preview.23` (Public Preview)
 - **Branch**: `director-extensions`
 
 ---

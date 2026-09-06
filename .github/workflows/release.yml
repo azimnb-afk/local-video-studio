@@ -21,12 +21,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ZIP_PATH="$(find distribution -maxdepth 1 -type f -name '*-unsigned.zip' -print -quit)"
-          test -n "$ZIP_PATH"
+          ZIP_PATH="distribution/LocalVideoStudio-0.9.0-preview.23-unsigned.zip"
+          DMG_PATH="distribution/LocalVideoStudio-0.9.0-preview.23-unsigned.dmg"
+          test -f "$ZIP_PATH"
           test -f "${ZIP_PATH}.sha256"
+          test -f "$DMG_PATH"
+          test -f "${DMG_PATH}.sha256"
           shasum -a 256 -c "${ZIP_PATH}.sha256"
+          shasum -a 256 -c "${DMG_PATH}.sha256"
           unzip -t "$ZIP_PATH" >/dev/null
+          hdiutil verify "$DMG_PATH" >/dev/null
           echo "Verified $ZIP_PATH"
+          echo "Verified $DMG_PATH"
 
       - name: Publish preview release
         uses: softprops/action-gh-release@v2
@@ -38,10 +44,14 @@ jobs:
 
             Download the `*-unsigned.zip` asset, expand it, and use Finder's **Open** command the first time to approve the unsigned local preview. No model weights are bundled; configure local models in Preferences.
 
+            An unsigned `.dmg` asset is provided for the same preview. It is not Developer ID signed or notarized.
+
             A Developer ID signed/notarized distribution is not provided by this preview workflow.
           files: |
-            distribution/*.zip
-            distribution/*.sha256
+            distribution/LocalVideoStudio-0.9.0-preview.23-unsigned.zip
+            distribution/LocalVideoStudio-0.9.0-preview.23-unsigned.zip.sha256
+            distribution/LocalVideoStudio-0.9.0-preview.23-unsigned.dmg
+            distribution/LocalVideoStudio-0.9.0-preview.23-unsigned.dmg.sha256
           draft: false
           prerelease: true
           generate_release_notes: false

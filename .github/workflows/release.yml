@@ -21,8 +21,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ZIP_PATH="distribution/LocalVideoStudio-0.9.0-preview.23-unsigned.zip"
-          DMG_PATH="distribution/LocalVideoStudio-0.9.0-preview.23-unsigned.dmg"
+          ZIP_PATH="distribution/LocalVideoStudio-0.9.0-preview.24-unsigned.zip"
+          DMG_PATH="distribution/LocalVideoStudio-0.9.0-preview.24-unsigned.dmg"
           test -f "$ZIP_PATH"
           test -f "${ZIP_PATH}.sha256"
           test -f "$DMG_PATH"
@@ -47,10 +47,10 @@ jobs:
 
             A Developer ID signed/notarized distribution is not provided by this preview workflow.
           files: |
-            distribution/LocalVideoStudio-0.9.0-preview.23-unsigned.zip
-            distribution/LocalVideoStudio-0.9.0-preview.23-unsigned.zip.sha256
-            distribution/LocalVideoStudio-0.9.0-preview.23-unsigned.dmg
-            distribution/LocalVideoStudio-0.9.0-preview.23-unsigned.dmg.sha256
+            distribution/LocalVideoStudio-0.9.0-preview.24-unsigned.zip
+            distribution/LocalVideoStudio-0.9.0-preview.24-unsigned.zip.sha256
+            distribution/LocalVideoStudio-0.9.0-preview.24-unsigned.dmg
+            distribution/LocalVideoStudio-0.9.0-preview.24-unsigned.dmg.sha256
           draft: false
           prerelease: true
           generate_release_notes: false

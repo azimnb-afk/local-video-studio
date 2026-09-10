@@ -180,11 +180,28 @@ final class ProductionQueueCoordinator {
 
     /// Re-queues a failed or cancelled job from its original snapshot, so a
     /// retry renders what was queued rather than what the UI holds now.
+    ///
+    /// A partly-successful batch is retried *partly*: candidates that already
+    /// produced a video are carried forward as recorded outcomes and are not
+    /// rendered again. Re-running them would duplicate their History entries and
+    /// charge the user a second time for work that succeeded.
     @discardableResult
     func retry(jobID: UUID) -> ProductionJob? {
         guard let index = jobs.firstIndex(where: { $0.id == jobID }),
               jobs[index].canRetry || jobs[index].canRestart else { return nil }
         var retried = jobs[index]
+
+        if !retried.snapshot.pendingRequests.isEmpty {
+            let plan = RunRetryPlanner.plan(
+                requests: retried.snapshot.pendingRequests,
+                outcomes: retried.snapshot.runOutcomes)
+            // Nothing left to do: every run already succeeded. Leave the
+            // original job alone rather than queueing an empty render.
+            if plan.isEmpty { return nil }
+            retried.snapshot.pendingRequests = plan.requestsToRun
+            retried.snapshot.runOutcomes = plan.preservedOutcomes
+        }
+
         retried.id = UUID()
         retried.state = .waiting
         retried.startedAt = nil
@@ -197,6 +214,39 @@ final class ProductionQueueCoordinator {
         persist()
         startNextIfIdle()
         return retried
+    }
+
+    /// Persists run-scoped Storyboard state. Called on every meaningful shot
+    /// transition, and always before a backend invocation, so recovery reads
+    /// what actually happened rather than re-deriving it.
+    func updateStoryboardRuns(jobID: UUID, runs: [StoryboardRun]) {
+        guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
+        jobs[index].snapshot.storyboardRuns = runs
+        persist()
+    }
+
+    /// Persists run-scoped Auto Movie state, including the frozen assembly clip
+    /// list, on every meaningful transition.
+    func updateMovieRuns(jobID: UUID, runs: [MovieRun]) {
+        guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
+        jobs[index].snapshot.movieRuns = runs
+        persist()
+    }
+
+    /// Records what each logical run did, so a later retry can skip the ones
+    /// that succeeded. Persisted, so the knowledge survives an app restart.
+    func recordRunOutcomes(jobID: UUID, outcomes: [RunOutcomeRecord]) {
+        guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
+        var merged = jobs[index].snapshot.runOutcomes
+        for outcome in outcomes {
+            if let existing = merged.firstIndex(where: { $0.runID == outcome.runID }) {
+                merged[existing] = outcome
+            } else {
+                merged.append(outcome)
+            }
+        }
+        jobs[index].snapshot.runOutcomes = merged
+        persist()
     }
 
     /// Removes a queue record. Never touches generated video or projects — a

@@ -82,6 +82,82 @@ struct ProductionJobSnapshot: Codable, Equatable {
     /// Requests already built by a mode that constructs them up front. Kept
     /// verbatim so a queued job renders exactly what was queued.
     var pendingRequests: [GenerationRequest] = []
+
+    // MARK: Multi-queue run identity
+
+    /// Shape of this snapshot. 1 = pre-multi-queue (decoded from disk with no
+    /// run identity); 2 = carries batch identity, frozen seeds and per-run
+    /// outcomes. See `RunProvenanceStamper.currentSnapshotVersion`.
+    var snapshotVersion: Int = 1
+    /// Groups every run created by one user submit.
+    var batchID: UUID?
+    /// Terminal outcome per logical run, written when the job settles.
+    ///
+    /// This is what makes a retry of a partly-successful batch safe: without it
+    /// the retry re-renders the candidates that already succeeded, duplicating
+    /// their History entries.
+    var runOutcomes: [RunOutcomeRecord] = []
+    /// Frozen Storyboard runs owned by this job.
+    ///
+    /// Present only for run-scoped Storyboard submissions. A legacy Storyboard
+    /// job decodes with this empty and keeps executing through the old
+    /// project-driven path, so existing queued work is not reinterpreted.
+    var storyboardRuns: [StoryboardRun] = []
+
+    /// Frozen Auto Movie runs owned by this job.
+    ///
+    /// Present only for run-scoped Auto Movie submissions. A legacy Auto Movie
+    /// job decodes with this empty and keeps executing through the existing
+    /// project-driven coordinator, so queued work is never reinterpreted.
+    var movieRuns: [MovieRun] = []
+
+    /// True when this job carries frozen runs rather than a live project id.
+    var isRunScopedStoryboard: Bool { !storyboardRuns.isEmpty }
+    var isRunScopedMovie: Bool { !movieRuns.isEmpty }
+
+    /// Run ids that finished successfully and must not be rendered again.
+    var completedRunIDs: Set<UUID> {
+        Set(runOutcomes.filter { $0.outcome.isSettledSuccessfully }.map(\.runID))
+    }
+
+    init() {}
+
+    /// Every field is decoded leniently.
+    ///
+    /// The synthesised decoder requires a key even for a property that has a
+    /// default, so adding one field would otherwise make every queue record
+    /// written by an older build undecodable — the user's whole waiting queue
+    /// would silently vanish on upgrade. Missing keys must fall back to the
+    /// default instead.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        prompt = try c.decodeIfPresent(String.self, forKey: .prompt) ?? ""
+        brief = try c.decodeIfPresent(String.self, forKey: .brief) ?? ""
+        projectID = try c.decodeIfPresent(UUID.self, forKey: .projectID)
+        settings = try c.decodeIfPresent(GenerationParameters.self, forKey: .settings)
+        modelID = try c.decodeIfPresent(String.self, forKey: .modelID)
+        textEncoderID = try c.decodeIfPresent(String.self, forKey: .textEncoderID)
+        preset = try c.decodeIfPresent(String.self, forKey: .preset)
+        qualityMode = try c.decodeIfPresent(String.self, forKey: .qualityMode)
+        audioEnabled = try c.decodeIfPresent(Bool.self, forKey: .audioEnabled)
+        targetDurationSeconds = try c.decodeIfPresent(Double.self, forKey: .targetDurationSeconds)
+        seed = try c.decodeIfPresent(Int.self, forKey: .seed)
+        batchCount = try c.decodeIfPresent(Int.self, forKey: .batchCount) ?? 1
+        directorMode = try c.decodeIfPresent(String.self, forKey: .directorMode)
+        openingReferenceRelativePath = try c.decodeIfPresent(
+            String.self, forKey: .openingReferenceRelativePath)
+        characterAnchorCharacterID = try c.decodeIfPresent(
+            UUID.self, forKey: .characterAnchorCharacterID)
+        characterAnchorAssetID = try c.decodeIfPresent(UUID.self, forKey: .characterAnchorAssetID)
+        pendingRequests = try c.decodeIfPresent(
+            [GenerationRequest].self, forKey: .pendingRequests) ?? []
+        // Absent on every record written before multi-queue: version 1, no ledger.
+        snapshotVersion = try c.decodeIfPresent(Int.self, forKey: .snapshotVersion) ?? 1
+        batchID = try c.decodeIfPresent(UUID.self, forKey: .batchID)
+        runOutcomes = try c.decodeIfPresent([RunOutcomeRecord].self, forKey: .runOutcomes) ?? []
+        storyboardRuns = try c.decodeIfPresent([StoryboardRun].self, forKey: .storyboardRuns) ?? []
+        movieRuns = try c.decodeIfPresent([MovieRun].self, forKey: .movieRuns) ?? []
+    }
 }
 
 struct ProductionJob: Codable, Equatable, Identifiable {

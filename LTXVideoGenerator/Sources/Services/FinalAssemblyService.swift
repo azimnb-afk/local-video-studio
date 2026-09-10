@@ -38,15 +38,38 @@ final class FinalAssemblyService {
     }
 
     /// Decides the assembly strategy from real file metadata.
+    ///
+    /// Chooses its clips from the project's global take selection. That is
+    /// correct for a single project-backed movie and is the legacy path; a
+    /// run-scoped movie must instead hand over its own clips explicitly —
+    /// see `plan(forClipPaths:)`.
     static func plan(for project: FilmProject) throws -> AssemblyPlan {
         let selected = project.shots.sorted { $0.index < $1.index }.compactMap(\.selectedTake)
         guard !selected.isEmpty else { throw AssemblyError.noSelectedTakes }
 
         var paths: [String] = []
-        var infos: [MediaInfo] = []
         for take in selected {
             guard let path = take.outputPath, FileManager.default.fileExists(atPath: path) else {
                 throw AssemblyError.missingTakeFile(take.outputPath ?? "(nil)")
+            }
+            paths.append(path)
+        }
+        return try plan(forClipPaths: paths)
+    }
+
+    /// Decides the assembly strategy for an explicit, already-chosen clip list.
+    ///
+    /// Additive: the caller owns which clips are assembled, which is what lets
+    /// two runs of one movie assemble their own films instead of both reading
+    /// a single project-wide selection.
+    static func plan(forClipPaths clipPaths: [String]) throws -> AssemblyPlan {
+        guard !clipPaths.isEmpty else { throw AssemblyError.noSelectedTakes }
+
+        var paths: [String] = []
+        var infos: [MediaInfo] = []
+        for path in clipPaths {
+            guard FileManager.default.fileExists(atPath: path) else {
+                throw AssemblyError.missingTakeFile(path)
             }
             guard let info = MediaProbe.probe(path: path) else {
                 throw AssemblyError.probeFailed(path)
@@ -74,13 +97,115 @@ final class FinalAssemblyService {
     /// concatenated movie at `outputPath` as before Global BGM existed — no
     /// extra ffmpeg pass runs at all. Only when BGM is on and an asset is
     /// resolvable does a second, post-assembly mix pass run.
+    /// Assembles from wholly explicit, frozen inputs — no `FilmProject`.
+    ///
+    /// This is the run-scoped entry point. The legacy project-driven
+    /// `assemble(project:outputPath:)` is untouched and still serves legacy
+    /// Auto Movie; what a queued run needs is that editing or deleting the
+    /// source document cannot reach work already submitted.
+    static func assembleFrozen(
+        clipPaths: [String],
+        spec: FrozenMovieAssemblySpec,
+        outputPath: String,
+        storageChecker: StorageHealthService = .shared
+    ) throws -> MediaInfo {
+        // Static audio is verified, not trusted: a swapped file fails the
+        // assembly rather than being mixed in silently.
+        if let issue = spec.verifyFrozenAudio() {
+            throw AssemblyError.insufficientDiskSpace(issue)
+        }
+        let assemblyPlan = try plan(forClipPaths: clipPaths)
+        guard let ffmpeg = ffmpegPath() else { throw AssemblyError.ffmpegNotFound }
+
+        let outputURL = URL(fileURLWithPath: outputPath)
+        let totalInputBytes = assemblyPlan.inputPaths.reduce(Int64(0)) { total, path in
+            total + ((try? FileManager.default.attributesOfItem(atPath: path)[.size] as? NSNumber)?.int64Value ?? 0)
+        }
+        let storageStatus = storageChecker.check(
+            url: outputURL, for: .finalAssembly(sourceFileBytes: totalInputBytes))
+        if storageStatus.isBlocked {
+            throw AssemblyError.insufficientDiskSpace(
+                storageStatus.message ?? "Not enough disk space for final assembly.")
+        }
+
+        let workDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ltx-run-assembly-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workDir) }
+
+        // Canvas comes from the frozen spec, not from project settings.
+        var concatInputs = assemblyPlan.inputPaths
+        if assemblyPlan.strategy == .normalizeReencode {
+            concatInputs = []
+            for (index, input) in assemblyPlan.inputPaths.enumerated() {
+                let normalized = workDir.appendingPathComponent("norm_\(index).mp4").path
+                try runFFmpeg([
+                    "-y", "-i", input,
+                    "-vf", "scale=\(spec.width):\(spec.height):force_original_aspect_ratio=decrease,pad=\(spec.width):\(spec.height):(ow-iw)/2:(oh-ih)/2,fps=\(spec.fps)",
+                    "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-ar", "48000", "-ac", "2",
+                    normalized,
+                ], ffmpeg: ffmpeg)
+                concatInputs.append(normalized)
+            }
+        }
+
+        let listFile = workDir.appendingPathComponent("concat.txt")
+        let listContent = concatInputs
+            .map { "file '\($0.replacingOccurrences(of: "'", with: "'\\''"))'" }
+            .joined(separator: "\n")
+        try listContent.write(to: listFile, atomically: true, encoding: .utf8)
+
+        // Written to a work file first, so a failed concat never disturbs an
+        // existing movie at `outputPath`.
+        let concatOutputPath = workDir.appendingPathComponent("concatenated.mp4").path
+        try runFFmpeg([
+            "-y", "-f", "concat", "-safe", "0", "-i", listFile.path,
+            "-c", "copy",
+            concatOutputPath,
+        ], ffmpeg: ffmpeg)
+
+        guard let concatInfo = MediaProbe.probe(path: concatOutputPath) else {
+            throw AssemblyError.probeFailed(concatOutputPath)
+        }
+
+        // Optional post-assembly mix, from the frozen policy and frozen files.
+        if spec.finalAudio.isActive, spec.hasFrozenAudio {
+            let mixedOutputPath = workDir.appendingPathComponent("mixed.mp4").path
+            try FinalAudioMixer.mix(
+                movieInputPath: concatOutputPath,
+                movieInfo: concatInfo,
+                bgmInputPath: spec.bgmPath,
+                ambienceInputPath: spec.ambiencePath,
+                settings: spec.finalAudio,
+                outputPath: mixedOutputPath,
+                ffmpeg: ffmpeg)
+            guard let mixedInfo = MediaProbe.probe(path: mixedOutputPath), mixedInfo.hasAudio else {
+                throw AssemblyError.bgmProbeFailed(mixedOutputPath)
+            }
+            try replaceFile(at: outputPath, with: mixedOutputPath)
+            return mixedInfo
+        }
+
+        try replaceFile(at: outputPath, with: concatOutputPath)
+        guard let info = MediaProbe.probe(path: outputPath) else {
+            throw AssemblyError.probeFailed(outputPath)
+        }
+        return info
+    }
+
+    /// - Parameter clipPaths: when supplied, these exact clips are assembled
+    ///   instead of the project's globally selected takes. A run-scoped movie
+    ///   passes its own frozen list so two candidate runs of one movie cannot
+    ///   splice each other's shots together.
     static func assemble(
         project: FilmProject,
         outputPath: String,
         store: FilmProjectStore = .shared,
-        storageChecker: StorageHealthService = .shared
+        storageChecker: StorageHealthService = .shared,
+        clipPaths: [String]? = nil
     ) throws -> MediaInfo {
-        let assemblyPlan = try plan(for: project)
+        let assemblyPlan = try clipPaths.map { try plan(forClipPaths: $0) } ?? plan(for: project)
         guard let ffmpeg = ffmpegPath() else { throw AssemblyError.ffmpegNotFound }
 
         // Authoritative storage preflight check on output and working volume

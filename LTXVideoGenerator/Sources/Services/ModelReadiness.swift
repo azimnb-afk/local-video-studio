@@ -6,7 +6,7 @@ import SwiftUI
 ///
 /// ModelRegistry answers "does the app know about this model?". This type
 /// answers the separate question "can this exact model run here right now?".
-/// A model is generation-selectable only in the `.ready` state. The state is
+/// Ready models and configured H3 models awaiting startup are selectable. The state is
 /// intentionally descriptive so Settings can tell a user what to fix without
 /// making the generation picker a setup wizard.
 enum ModelReadinessStatus: Equatable, Sendable {
@@ -24,7 +24,7 @@ enum ModelReadinessStatus: Equatable, Sendable {
     case invalidModelPath
     case unsupported
 
-    var canGenerate: Bool { self == .ready }
+    var canGenerate: Bool { self == .ready || self == .serverNotRunning }
 
     var displayName: String {
         switch self {
@@ -36,7 +36,7 @@ enum ModelReadinessStatus: Equatable, Sendable {
         case .textEncoderMissing: return "Text Encoder missing"
         case .vaeMissing: return "VAE missing"
         case .backendUnavailable: return "Backend unavailable"
-        case .serverNotRunning: return "Server not running"
+        case .serverNotRunning: return "Ready to start"
         case .serverUnhealthy: return "Server not healthy"
         case .serverModelMismatch: return "Server model mismatch"
         case .invalidModelPath: return "Invalid model path"
@@ -47,7 +47,7 @@ enum ModelReadinessStatus: Equatable, Sendable {
     /// Compact labels used in Settings. Technical details stay in `reason`.
     var shortDisplayName: String {
         switch self {
-        case .ready: return "Available"
+        case .ready, .serverNotRunning: return "Available"
         case .notDownloaded: return "Not downloaded"
         case .notConfigured, .runtimeMissing, .textEncoderMissing, .vaeMissing:
             return "Setup required"
@@ -252,12 +252,21 @@ enum ModelReadinessResolver {
             return result(model, .runtimeMissing, "Install or configure the local mlx-serve runtime.")
         }
 
+        guard fileManager.fileExists(atPath: (modelDirectory as NSString).appendingPathComponent("config.json")) else {
+            return result(model, .invalidModelPath, "Choose the H3 model pack containing config.json.")
+        }
+
         // Settings and the H3 generation path persist this exact server
         // result. Reading it is intentionally side-effect free: a picker must
         // never start a 33–49 GB model server just to populate a menu.
         let state = userDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessStateKey)
             .flatMap(MiniMaxH3RuntimeState.init(rawValue:)) ?? .notRunning
         let recordedModelID = userDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessModelIDKey)
+        // An idle server has no loaded identity to compare. Generation uses
+        // ensureReady with this model's frozen configuration to start it.
+        if state == .notRunning || state == .notConfigured {
+            return result(model, .serverNotRunning, "The configured local H3 server starts when generation begins.")
+        }
         if let recordedModelID, recordedModelID != model.id {
             return result(model, .serverModelMismatch, "Readiness was recorded for a different H3 model.")
         }

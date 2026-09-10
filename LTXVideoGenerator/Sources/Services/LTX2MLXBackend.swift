@@ -119,7 +119,7 @@ struct LTX2MLXBackend {
         )
         let width = alignment.generation.width
         let height = alignment.generation.height
-        let seed = params.seed ?? Int.random(in: 0..<Int(Int32.max))
+        let seed = ExecutionSeedResolver.resolve(params, backend: "ltx2-mlx")
 
         var effectiveSourceImage = request.sourceImagePath
         if let rawPath = request.sourceImagePath?.trimmingCharacters(in: .whitespacesAndNewlines), !rawPath.isEmpty {
@@ -153,7 +153,10 @@ struct LTX2MLXBackend {
                 "\(GenerationBackendKind.ltx2MLX.displayName) reported success but wrote no video to \(outputPath)."
             )
         }
-        if request.filmProjectID == nil {
+        // A run-scoped film child carries no filmProjectID by design, so the
+        // old "nil means standalone" test would crop a shot the film pipeline
+        // expects uncropped.
+        if request.filmProjectID == nil, !request.isRunScopedFilmShot {
             _ = try? PostGenerationCropService.applyCropIfNeeded(
                 videoPath: outputPath,
                 alignment: alignment,

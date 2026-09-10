@@ -16,6 +16,10 @@ class GenerationService: ObservableObject {
     /// The last film run outcome the render queue could not report. See
     /// `FilmRunEvent` for why watching `$queue` alone is not enough.
     @Published private(set) var lastFilmRunEvent: FilmRunEvent?
+    /// Settlement of one logical run, published as it happens so the production
+    /// queue can persist execution state *before* the next candidate starts.
+    /// Recovery reads that persisted state, never History.
+    @Published private(set) var lastRunSettlement: RunOutcomeRecord?
 
     private func emit(_ kind: FilmRunEvent.Kind, projectID: UUID) {
         lastFilmRunEvent = FilmRunEvent(projectID: projectID, kind: kind, at: Date())
@@ -72,6 +76,24 @@ class GenerationService: ObservableObject {
         error = nil
         statusMessage = ""
     }
+
+    /// Publishes the terminal state of one run. The queue persists it
+    /// immediately, so a crash before History is written cannot cause the run
+    /// to be rendered a second time.
+    private func settle(
+        _ request: GenerationRequest,
+        _ outcome: RunOutcomeRecord.Outcome,
+        outputPath: String? = nil,
+        reason: String? = nil
+    ) {
+        lastRunSettlement = RunOutcomeRecord(
+            runID: request.id,
+            outcome: outcome,
+            attemptNumber: request.attemptNumber ?? 1,
+            outputPath: outputPath,
+            failureReason: reason)
+    }
+
     
     func cancelCurrent() {
         bridge.cancelActiveGeneration()
@@ -555,6 +577,7 @@ class GenerationService: ObservableObject {
             
             // Update queue
             queue[index].status = .completed
+            settle(request, .completed, outputPath: generationResult.videoPath)
             
             let outputDir = URL(fileURLWithPath: generationResult.videoPath).deletingLastPathComponent().path
             statusMessage = "Video saved to \(outputDir)"
@@ -583,6 +606,7 @@ class GenerationService: ObservableObject {
         } catch let err as LTXError {
             queue[index].status = .failed
             error = err
+            settle(request, .failed, reason: err.localizedDescription)
             if FeatureFlags.isEnabled(.filmProjectV1), request.takeID != nil {
                 TakeGenerationCoordinator().recordFailure(
                     request: request,
@@ -595,6 +619,7 @@ class GenerationService: ObservableObject {
         } catch {
             queue[index].status = .failed
             self.error = .generationFailed(error.localizedDescription)
+            settle(request, .failed, reason: error.localizedDescription)
             if FeatureFlags.isEnabled(.filmProjectV1), request.takeID != nil {
                 TakeGenerationCoordinator().recordFailure(
                     request: request,

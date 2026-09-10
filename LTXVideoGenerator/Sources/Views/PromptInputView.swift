@@ -493,6 +493,7 @@ struct PromptInputView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+
                 }
                 .padding(.top, 8)
             } label: {
@@ -823,22 +824,15 @@ struct PromptInputView: View {
 
                 // Batch button
                 Menu {
-                    Button("Generate 3 variations") {
-                        requestBatchGeneration(count: 3)
-                    }
-                    Button("Generate 5 variations") {
-                        requestBatchGeneration(count: 5)
-                    }
-                    Button("Generate 10 variations") {
-                        requestBatchGeneration(count: 10)
-                    }
-                    Button("Generate 20 variations") {
-                        requestBatchGeneration(count: 20)
-                    }
-                    Divider()
-                    Button("Generate with random seeds...") {
-                        // Could show a dialog for count
-                        requestBatchGeneration(count: 3)
+                    // Counts come from the shared multi-queue source so Generate,
+                    // One Shot, Storyboard and Auto Movie cannot drift apart.
+                    // The plain Generate button above is the count = 1 case.
+                    ForEach(MultiQueueCount.generationChoices.filter { $0 > 1 }, id: \.self) { choice in
+                        Button("\(MultiQueueCount.Unit.generation.label) \(choice)") {
+                            requestBatchGeneration(count: choice)
+                        }
+                        .accessibilityLabel(
+                            MultiQueueCount.accessibilityLabel(count: choice, unit: .generation))
                     }
                 } label: {
                     Image(systemName: "square.stack.3d.up")
@@ -981,7 +975,7 @@ struct PromptInputView: View {
     }
 
     private func makeGenerationRequest(parameters: GenerationParameters) -> GenerationRequest {
-        GenerationRequest(
+        return GenerationRequest(
             prompt: prompt,
             negativePrompt: negativePrompt,
             voiceoverText: voiceoverText,
@@ -1073,21 +1067,15 @@ struct PromptInputView: View {
     }
 
     private func generateBatch(count: Int) {
-        let requests = (0..<count).map { _ in
-            makeGenerationRequest(
-                parameters: GenerationParameters(
-                    numInferenceSteps: parameters.numInferenceSteps,
-                    guidanceScale: parameters.guidanceScale,
-                    width: parameters.width,
-                    height: parameters.height,
-                    numFrames: parameters.numFrames,
-                    fps: parameters.fps,
-                    seed: Int.random(in: 0..<Int(Int32.max)),
-                    vaeTilingMode: parameters.vaeTilingMode,
-                    imageStrength: parameters.imageStrength
-                )
-            )
-        }
+        // One base request, expanded into independent candidates. Previously
+        // each candidate drew its own seed inline, which could repeat a value
+        // and collapse two candidates onto the same render; the expander
+        // guarantees distinct seeds and stamps run identity.
+        // Auto seed (nil) gives every candidate its own; an explicit seed is
+        // honoured for all of them. Generate used to discard an explicit seed
+        // for batches outright — a defect, now fixed rather than preserved.
+        let base = makeGenerationRequest(parameters: parameters)
+        let requests = CandidateExpander.expand(base, count: count)
         // The whole batch is ONE global job: ten renders queued together stay
         // together, and the next job waits for all of them.
         var snapshot = ProductionJobSnapshot()

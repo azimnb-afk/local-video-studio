@@ -142,8 +142,8 @@ func runRegistryTests(_ t: TestKit) {
                 "only Ready models can be selected for generation")
         t.check(!ModelReadinessStatus.notDownloaded.canGenerate,
                 "not-downloaded models are setup-only")
-        t.check(!ModelReadinessStatus.serverNotRunning.canGenerate,
-                "H3 server-not-running models are setup-only")
+        t.check(ModelReadinessStatus.serverNotRunning.canGenerate,
+                "configured idle H3 can be selected for automatic startup")
 
         var unsupported = readinessRegistry.descriptor(id: LTXModelCatalog.defaultModelID)!
         unsupported.capabilities.textToVideo = false
@@ -163,6 +163,7 @@ func runRegistryTests(_ t: TestKit) {
         let h3Root = FileManager.default.temporaryDirectory
             .appendingPathComponent("LTXTests-h3-readiness-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: h3Root, withIntermediateDirectories: true)
+        try? Data("{}".utf8).write(to: h3Root.appendingPathComponent("config.json"))
         defer {
             h3Defaults.removePersistentDomain(forName: h3Defaults.description)
             try? FileManager.default.removeItem(at: h3Root)
@@ -183,6 +184,13 @@ func runRegistryTests(_ t: TestKit) {
             model: h3Standard, userDefaults: h3Defaults)
         t.checkEqual(matched.status, .ready,
                      "model-specific H3 readiness can make the matching model Ready")
+        h3Defaults.set(MiniMaxH3RuntimeState.notRunning.rawValue,
+                       forKey: MiniMaxH3Configuration.lastReadinessStateKey)
+        let idle = ModelReadinessResolver.evaluate(model: h3Standard, userDefaults: h3Defaults)
+        t.check(idle.canGenerate, "configured stopped H3 remains selectable")
+        try? FileManager.default.removeItem(at: h3Root.appendingPathComponent("config.json"))
+        let incomplete = ModelReadinessResolver.evaluate(model: h3Standard, userDefaults: h3Defaults)
+        t.check(!incomplete.canGenerate, "idle H3 without model config stays unavailable")
     }
 
     t.suite("Adapter registry") {

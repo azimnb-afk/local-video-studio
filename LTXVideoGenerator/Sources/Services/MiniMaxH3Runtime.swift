@@ -10,7 +10,12 @@ enum MiniMaxH3Configuration {
     static var modelID: String { standardModelID }
 
     static let displayName = "MiniMax H3 (Experimental)"
-    static let standardDisplayName = "MiniMax H3 (Experimental)"
+    /// The Standard pack's own label. It must name the tier explicitly: this
+    /// string sits directly beside `highQualityDisplayName` in the generation
+    /// picker and in Settings, and a bare "MiniMax H3 (Experimental)" reads as
+    /// the family name rather than as the Standard tier, leaving a user who
+    /// was told to pick "H3 Standard" with no row that matches.
+    static let standardDisplayName = "MiniMax H3 Standard (Experimental)"
     static let highQualityDisplayName = "MiniMax H3 High Quality (Experimental)"
 
     static let standardExpectedServerModelID = "MiniMax-H3-FL2VA-MLX-Serve-2bit-text-encoder"

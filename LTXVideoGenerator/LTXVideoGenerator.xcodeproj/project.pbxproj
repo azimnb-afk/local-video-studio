@@ -97,6 +97,13 @@
 		AA00021E /* DirectorProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00021F; };
 		AA0009B3 /* DirectorModelProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009B4; };
 		AA0009B5 /* ExactDialogueReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009B6; };
+		AA000A01 /* H3PromptEnhancer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000A02; };
+		AA000A03 /* H3SemanticPreservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000A04; };
+		AA000A05 /* H3EndingImageCapability.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000A06; };
+		AA000B01 /* MultiQueueRunIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000B02; };
+		AA000B05 /* StoryboardRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000B06; };
+		AA000B07 /* MovieRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000B08; };
+		AA000B03 /* MultiQueueCountControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000B04; };
 		AA0009B7 /* DirectorEndpointValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0009B8; };
 		AA000220 /* PromptCompiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000221; };
 		AA000222 /* LocalDirector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000223; };
@@ -234,6 +241,13 @@
 		AA00021F /* DirectorProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectorProvider.swift; sourceTree = "<group>"; };
 		AA0009B4 /* DirectorModelProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectorModelProfile.swift; sourceTree = "<group>"; };
 		AA0009B6 /* ExactDialogueReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExactDialogueReconciler.swift; sourceTree = "<group>"; };
+		AA000A02 /* H3PromptEnhancer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = H3PromptEnhancer.swift; sourceTree = "<group>"; };
+		AA000A04 /* H3SemanticPreservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = H3SemanticPreservation.swift; sourceTree = "<group>"; };
+		AA000A06 /* H3EndingImageCapability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = H3EndingImageCapability.swift; sourceTree = "<group>"; };
+		AA000B02 /* MultiQueueRunIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiQueueRunIdentity.swift; sourceTree = "<group>"; };
+		AA000B06 /* StoryboardRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryboardRun.swift; sourceTree = "<group>"; };
+		AA000B08 /* MovieRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MovieRun.swift; sourceTree = "<group>"; };
+		AA000B04 /* MultiQueueCountControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiQueueCountControl.swift; sourceTree = "<group>"; };
 		AA0009B8 /* DirectorEndpointValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectorEndpointValidator.swift; sourceTree = "<group>"; };
 		AA000221 /* PromptCompiler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptCompiler.swift; sourceTree = "<group>"; };
 		AA000223 /* LocalDirector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDirector.swift; sourceTree = "<group>"; };
@@ -416,6 +430,12 @@
 				AA00021F /* DirectorProvider.swift */,
 				AA0009B4 /* DirectorModelProfile.swift */,
 				AA0009B6 /* ExactDialogueReconciler.swift */,
+				AA000A02 /* H3PromptEnhancer.swift */,
+				AA000A04 /* H3SemanticPreservation.swift */,
+				AA000A06 /* H3EndingImageCapability.swift */,
+				AA000B02 /* MultiQueueRunIdentity.swift */,
+				AA000B06 /* StoryboardRun.swift */,
+				AA000B08 /* MovieRun.swift */,
 				AA0009B8 /* DirectorEndpointValidator.swift */,
 				AA000221 /* PromptCompiler.swift */,
 				AA000223 /* LocalDirector.swift */,
@@ -471,6 +491,7 @@
 			isa = PBXGroup;
 			children = (
 				AA000004 /* ContentView.swift */,
+				AA000B04 /* MultiQueueCountControl.swift */,
 				AA0002B9 /* ProductionQueuePanel.swift */,
 				AA0002E7 /* AutoMoviePlanPreviewSection.swift */,
 				AA0002E9 /* CharacterOpeningConsistencySection.swift */,
@@ -652,6 +673,13 @@
 				AA00021E /* DirectorProvider.swift in Sources */,
 				AA0009B3 /* DirectorModelProfile.swift in Sources */,
 				AA0009B5 /* ExactDialogueReconciler.swift in Sources */,
+				AA000A01 /* H3PromptEnhancer.swift in Sources */,
+				AA000A03 /* H3SemanticPreservation.swift in Sources */,
+				AA000A05 /* H3EndingImageCapability.swift in Sources */,
+				AA000B01 /* MultiQueueRunIdentity.swift in Sources */,
+				AA000B05 /* StoryboardRun.swift in Sources */,
+				AA000B07 /* MovieRun.swift in Sources */,
+				AA000B03 /* MultiQueueCountControl.swift in Sources */,
 				AA0009B7 /* DirectorEndpointValidator.swift in Sources */,
 				AA000220 /* PromptCompiler.swift in Sources */,
 				AA000222 /* LocalDirector.swift in Sources */,

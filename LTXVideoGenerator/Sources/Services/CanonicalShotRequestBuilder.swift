@@ -41,6 +41,12 @@ struct CanonicalShotSpecification: Equatable {
     var audioEnabled: Bool = true
     var seed: Int? = nil
     var conditioningImage: ResolvedShotConditioningImage = .none
+    /// Optional Ending Image. A separate conditioning axis: it is NOT encoded
+    /// into Cut/Continue and NOT derived from the Director — only an explicit
+    /// user selection reaches here.
+    var endingImagePath: String? = nil
+    /// Contents hash captured at submission; see `GenerationRequest`.
+    var endingImageContentHash: String? = nil
     var orientation: SourceImageOrientation? = nil
     var generationSource: String? = nil
     var createdAt: Date? = nil
@@ -141,6 +147,8 @@ enum CanonicalShotRequestBuilder {
             voiceoverSource: spec.voiceoverSource,
             voiceoverVoice: spec.voiceoverVoice,
             sourceImagePath: spec.conditioningImage.path,
+            endingImagePath: spec.endingImagePath,
+            endingImageContentHash: spec.endingImageContentHash,
             presetResolutionOrientation: spec.orientation,
             musicEnabled: spec.musicEnabled,
             musicGenre: spec.musicGenre,

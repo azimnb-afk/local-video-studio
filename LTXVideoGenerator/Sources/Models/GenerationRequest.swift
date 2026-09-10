@@ -195,13 +195,24 @@ enum LTXTextEncoderCatalog {
 }
 
 struct GenerationRequest: Identifiable, Codable, Equatable {
-    let id: UUID
+    /// The Run identity. `var` because expanding one frozen request into N
+    /// candidates mints a new run per candidate; it is never mutated after the
+    /// job is queued.
+    var id: UUID
     let prompt: String
     let negativePrompt: String
     let voiceoverText: String  // Optional voiceover narration text
     let voiceoverSource: String  // "elevenlabs" or "mlx-audio"
     let voiceoverVoice: String   // Voice ID for TTS
     let sourceImagePath: String?  // For image-to-video mode
+    /// Optional user-selected Ending Image (experimental, verified H3 packs
+    /// only). A separate conditioning axis from Cut/Continue and from the
+    /// Starting Image; see `H3EndingImageCapability`.
+    let endingImagePath: String?
+    /// SHA-256 of `endingImagePath`'s contents at submission time. The queue
+    /// snapshots a path, and a path does not freeze bytes — this lets execution
+    /// detect a file that was edited or replaced while the job waited.
+    let endingImageContentHash: String?
     /// Visual orientation used only to orient a preset-derived resolution.
     /// `nil` means an un-resolved request; queue preflight freezes a concrete
     /// value (including `.none`) so a waiting job cannot change later.
@@ -245,10 +256,44 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
     var filmProjectID: UUID?
     var shotID: UUID?
     var takeID: UUID?
+    /// Multi-queue run identity. See `MultiQueueRunIdentity.swift`.
+    ///
+    /// `id` is the Run: stable across execution attempts. `batchID` groups the
+    /// runs created by one user submit, `batchIndex` orders them within it, and
+    /// `attemptNumber` counts executions of this same run — Retry raises it,
+    /// Retake instead mints a new Take. All optional so requests persisted
+    /// before multi-queue existed still decode.
+    var batchID: UUID?
+    var batchIndex: Int?
+    var attemptNumber: Int?
     
     /// True if this is an image-to-video request
     var isImageToVideo: Bool {
         sourceImagePath != nil && !sourceImagePath!.isEmpty
+    }
+
+    /// Sources that identify a child of a run-scoped film run.
+    ///
+    /// These shots belong to a Storyboard or Auto Movie run, but deliberately
+    /// carry no `filmProjectID`: that field is the legacy project-advance
+    /// trigger, and a run-scoped child must never wake the project coordinator.
+    static let runScopedFilmSources: Set<String> = ["movieRun", "storyboardRun"]
+
+    /// A shot rendered as part of a run-scoped film run.
+    ///
+    /// Callers that used to ask `filmProjectID == nil` to mean "not a film
+    /// shot" must consult this too, or a run-scoped shot is treated as a
+    /// standalone generation and, for example, gets post-generation cropping a
+    /// film shot is meant to skip.
+    var isRunScopedFilmShot: Bool {
+        guard let source = generationSource else { return false }
+        return Self.runScopedFilmSources.contains(source)
+    }
+
+    /// True when the user selected an Ending Image for this request.
+    var hasEndingImage: Bool {
+        guard let path = endingImagePath else { return false }
+        return !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// True if this request represents a continuation from a previous shot/take
@@ -275,6 +320,8 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         voiceoverSource: String = "mlx-audio",
         voiceoverVoice: String = "af_heart",
         sourceImagePath: String? = nil,
+        endingImagePath: String? = nil,
+        endingImageContentHash: String? = nil,
         presetResolutionOrientation: SourceImageOrientation? = nil,
         musicEnabled: Bool = false,
         musicGenre: String? = nil,
@@ -317,6 +364,8 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         self.voiceoverSource = voiceoverSource
         self.voiceoverVoice = voiceoverVoice
         self.sourceImagePath = sourceImagePath
+        self.endingImagePath = endingImagePath
+        self.endingImageContentHash = endingImageContentHash
         self.presetResolutionOrientation = presetResolutionOrientation
         self.musicEnabled = musicEnabled
         self.musicGenre = musicGenre
@@ -421,6 +470,8 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         case voiceoverSource
         case voiceoverVoice
         case sourceImagePath
+        case endingImagePath
+        case endingImageContentHash
         case presetResolutionOrientation
         case musicEnabled
         case musicGenre
@@ -452,6 +503,9 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         case filmProjectID
         case shotID
         case takeID
+        case batchID
+        case batchIndex
+        case attemptNumber
     }
 
     init(from decoder: Decoder) throws {
@@ -464,6 +518,9 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         voiceoverSource = try container.decode(String.self, forKey: .voiceoverSource)
         voiceoverVoice = try container.decode(String.self, forKey: .voiceoverVoice)
         sourceImagePath = try container.decodeIfPresent(String.self, forKey: .sourceImagePath)
+        endingImagePath = try container.decodeIfPresent(String.self, forKey: .endingImagePath)
+        endingImageContentHash = try container.decodeIfPresent(
+            String.self, forKey: .endingImageContentHash)
         presetResolutionOrientation = try container.decodeIfPresent(
             SourceImageOrientation.self, forKey: .presetResolutionOrientation)
         musicEnabled = try container.decode(Bool.self, forKey: .musicEnabled)
@@ -498,6 +555,12 @@ struct GenerationRequest: Identifiable, Codable, Equatable {
         filmProjectID = try container.decodeIfPresent(UUID.self, forKey: .filmProjectID)
         shotID = try container.decodeIfPresent(UUID.self, forKey: .shotID)
         takeID = try container.decodeIfPresent(UUID.self, forKey: .takeID)
+        // Absent on every request persisted before multi-queue. Left nil rather
+        // than defaulted, so the enqueue boundary can tell "never stamped" from
+        // "stamped as attempt 1" and migrate it exactly once.
+        batchID = try container.decodeIfPresent(UUID.self, forKey: .batchID)
+        batchIndex = try container.decodeIfPresent(Int.self, forKey: .batchIndex)
+        attemptNumber = try container.decodeIfPresent(Int.self, forKey: .attemptNumber)
     }
 
     var requestedDurationSeconds: Double {

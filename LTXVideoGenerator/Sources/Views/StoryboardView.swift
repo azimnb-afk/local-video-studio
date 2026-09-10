@@ -23,6 +23,9 @@ struct StoryboardView: View {
     @State private var planningPhase: DirectorPlanningPhase = .idle
     @State private var planningElapsedSeconds = 0
     @State private var planningHandle: DirectorPlanningHandle?
+    /// 作品数 for Auto Movie. Same key as the sheet's control — AppStorage keeps
+    /// the two views' reads in step through UserDefaults.
+    @AppStorage("movieWorkCount") private var movieWorkCount = 1
     private let mode: StoryboardWorkspaceMode
 
     init() { self.mode = .storyboard }
@@ -60,6 +63,7 @@ struct StoryboardView: View {
                     ProjectDetailView(
                         project: project,
                         generationService: generationService,
+                        workspaceMode: mode,
                         statusMessage: $statusMessage,
                         isAssembling: $isAssembling,
                         onChanged: refresh
@@ -340,11 +344,22 @@ struct StoryboardView: View {
                         // queueing three movies to run overnight must run them
                         // first, second, third, and inserting at the head runs
                         // them backwards.
-                        ProductionQueueService.shared.enqueue(ProductionJob(
-                            kind: mode == .hybrid ? .autoMovie : .storyboard,
-                            title: project.title,
-                            snapshot: snapshot
-                        ))
+                        // Run-scoped: the planner has already run exactly once
+                        // above, and its result is frozen here and copied into
+                        // each work. Legacy queued jobs keep their own path.
+                        if let runJob = try? MovieRunSubmission.makeJob(
+                            project: project,
+                            workCount: movieWorkCount,
+                            directorMode: directorEnabled ? directorModeForSnapshot : "direct",
+                            contentHash: { H3EndingImageCapability.contentHash(ofFileAt: $0) }) {
+                            ProductionQueueService.shared.enqueue(runJob)
+                        } else {
+                            ProductionQueueService.shared.enqueue(ProductionJob(
+                                kind: mode == .hybrid ? .autoMovie : .storyboard,
+                                title: project.title,
+                                snapshot: snapshot
+                            ))
+                        }
                     }
                 }
                 selectedProjectID = project.id
@@ -412,6 +427,8 @@ private struct NewStoryboardSheet: View {
     @State private var directorEnabled = true
     @State private var targetDuration = 20.0
     @State private var generateFirstPass = true
+    /// 作品数 for Auto Movie. Scoped to the whole-movie submit below.
+    @AppStorage("movieWorkCount") private var movieWorkCount = 1
     @State private var width = 768
     @State private var height = 512
     /// Custom width/height are seeded from the preset the user was already on,
@@ -596,6 +613,16 @@ private struct NewStoryboardSheet: View {
                 Toggle("Generate first pass after planning", isOn: $generateFirstPass)
                     .help("Turn off to review the Character Bible, shot assignments and compiled prompts before rendering.")
                     .disabled(isCreating)
+                if generateFirstPass {
+                    MultiQueueCountControl(unit: .work, count: $movieWorkCount)
+                        .disabled(isCreating)
+                    // The planner decides the shot count, so any total shown
+                    // before planning would be invented. The real figures appear
+                    // on the queued work once the plan is frozen.
+                    Text("Shot数は構成確定後に表示します")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
             VStack(alignment: .leading, spacing: 6) {
                 if mode == .hybrid {
@@ -842,9 +869,17 @@ struct HybridView: View {
 private struct ProjectDetailView: View {
     let project: FilmProject
     let generationService: GenerationService
+    /// Which workspace is showing this project. The detail view is shared by
+    /// the Storyboard and Auto Movie tabs, so anything Storyboard-only must be
+    /// gated on this rather than assumed.
+    let workspaceMode: StoryboardWorkspaceMode
     @Binding var statusMessage: String?
     @Binding var isAssembling: Bool
     let onChanged: () -> Void
+
+    /// 作品数 for the whole-Storyboard queue action. Scoped to that action
+    /// only — the per-shot editor buttons are unaffected by it.
+    @AppStorage("storyboardWorkCount") private var storyboardWorkCount = 1
 
     private let store = FilmProjectStore.shared
 
@@ -944,6 +979,42 @@ private struct ProjectDetailView: View {
                 generationActive: generationService.isProcessing,
                 onChanged: onChanged
             )
+            // Storyboard workspace only. Auto Movie shares this detail view and
+            // has its own submission path, which this task must not change.
+            if workspaceMode != .hybrid {
+            // Whole-Storyboard execution. Deliberately its own section: this
+            // freezes the entire composition and queues it as independent
+            // works, which is a different operation from the per-shot editor
+            // actions underneath, and the 作品数 count applies only here.
+            VStack(alignment: .leading, spacing: 8) {
+                Text("作品として生成")
+                    .font(.headline)
+                MultiQueueCountControl(
+                    unit: .work,
+                    count: $storyboardWorkCount,
+                    shotsPerWork: project.shots.count)
+                HStack(spacing: 12) {
+                    Button {
+                        queueStoryboardWorks()
+                    } label: {
+                        Label("作品をキューに追加", systemImage: "square.stack.3d.up.badge.a")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(project.shots.isEmpty)
+                    .help("現在の絵コンテ全体を1回だけ固定し、独立した作品として"
+                          + "\(storyboardWorkCount) 本キューに追加します。"
+                          + "追加後に絵コンテを編集しても、キュー済みの作品は変わりません。")
+                    Text("キュー追加後の編集は、キュー済みの作品に影響しません。")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                }
+            }
+            .padding(.vertical, 4)
+
+            Divider()
+            }
+
             HStack(spacing: 12) {
                 // Generate one take for every shot that has none yet.
                 Button {
@@ -1019,6 +1090,33 @@ private struct ProjectDetailView: View {
                 .padding(10)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Color.green.opacity(0.08)))
             }
+        }
+    }
+
+    /// Freezes the whole Storyboard once and queues it as N independent works.
+    ///
+    /// Does not touch the editable Shot/Take state the editor actions operate
+    /// on, and never calls `planTakes`: execution semantics come from the frozen
+    /// plan, not from live project state.
+    private func queueStoryboardWorks() {
+        if !DependencyHealthManager.shared.canStartGeneration {
+            DependencyHealthManager.shared.showSetupWizard = true
+            return
+        }
+        do {
+            let job = try StoryboardRunSubmission.makeJob(
+                project: project,
+                workCount: storyboardWorkCount,
+                directorMode: project.planningMode,
+                contentHash: { H3EndingImageCapability.contentHash(ofFileAt: $0) })
+            ProductionQueueService.shared.enqueue(job)
+            let shots = project.shots.count
+            statusMessage = storyboardWorkCount > 1
+                ? "独立した \(storyboardWorkCount) 作品をキューに追加しました"
+                    + "（1作品 \(shots) Shot ／ 合計 \(storyboardWorkCount * shots) Shot生成）"
+                : "1 作品をキューに追加しました（\(shots) Shot）"
+        } catch {
+            statusMessage = error.localizedDescription
         }
     }
 

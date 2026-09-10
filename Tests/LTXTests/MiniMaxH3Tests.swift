@@ -67,7 +67,7 @@ func runMiniMaxH3Tests(_ t: TestKit) {
         let registry = ModelRegistry(userDefaults: defaults)
         let descriptor = registry.descriptor(id: MiniMaxH3Configuration.modelID)
         t.check(descriptor != nil, "H3 descriptor is registered")
-        t.checkEqual(descriptor?.displayName, "MiniMax H3 (Experimental)", "Experimental marker is explicit")
+        t.checkEqual(descriptor?.displayName, "MiniMax H3 Standard (Experimental)", "Experimental marker is explicit")
         t.checkEqual(descriptor?.runtime.backend, GenerationBackendKind.minimaxH3.rawValue, "H3 has a dedicated backend kind")
         t.checkEqual(descriptor?.architecture.modelFamily, "MiniMax H3", "H3 architecture is not presented as LTX")
         t.checkEqual(descriptor?.localPath, "/models/h3", "model path is renderer-scoped configuration")

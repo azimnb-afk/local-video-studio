@@ -125,6 +125,9 @@ final class ProductionQueueService: ObservableObject {
     /// Last run-level outcome reported by the generation service. Only a
     /// terminal outcome for the *active job's own project* is ever acted on.
     private var lastFilmRunEvent: FilmRunEvent?
+    /// The settlement already applied to a run-scoped Storyboard job, so the
+    /// latched value cannot be consumed twice.
+    private var consumedStoryboardSettlementID: UUID?
 
     init(
         coordinator: ProductionQueueCoordinator = .shared,
@@ -164,6 +167,17 @@ final class ProductionQueueService: ObservableObject {
                 self.checkActiveJobProgress()
             }
             .store(in: &cancellables)
+        // Per-run execution state, persisted the moment a candidate settles and
+        // before the next one starts. This is the authority for partial retry
+        // and restart recovery — History is provenance and may be deleted.
+        generationService.$lastRunSettlement
+            .receive(on: RunLoop.main)
+            .sink { [weak self] settlement in
+                guard let self, let settlement,
+                      let jobID = self.coordinator.activeJob?.id else { return }
+                self.coordinator.recordRunOutcomes(jobID: jobID, outcomes: [settlement])
+            }
+            .store(in: &cancellables)
         coordinator.startNextIfIdle()
     }
 
@@ -171,9 +185,13 @@ final class ProductionQueueService: ObservableObject {
 
     @discardableResult
     func enqueue(_ job: ProductionJob) -> ProductionJob {
-        let frozen = FeatureFlags.isEnabled(.autoQualityV1)
+        let resolved = FeatureFlags.isEnabled(.autoQualityV1)
             ? Self.freezingPresetResolution(in: job)
             : job
+        // Every submission path funnels through here, so run identity and a
+        // concrete seed are stamped once, centrally, rather than depending on
+        // each caller to remember.
+        let frozen = RunProvenanceStamper.stamp(resolved)
         let queued = coordinator.enqueue(frozen)
         refresh()
         return queued
@@ -183,9 +201,10 @@ final class ProductionQueueService: ObservableObject {
     /// single render slot — a running job is never preempted.
     @discardableResult
     func enqueueNext(_ job: ProductionJob) -> ProductionJob {
-        let frozen = FeatureFlags.isEnabled(.autoQualityV1)
+        let resolved = FeatureFlags.isEnabled(.autoQualityV1)
             ? Self.freezingPresetResolution(in: job)
             : job
+        let frozen = RunProvenanceStamper.stamp(resolved)
         let queued = coordinator.enqueueNext(frozen)
         refresh()
         return queued
@@ -270,6 +289,12 @@ final class ProductionQueueService: ObservableObject {
         switch job.kind {
         case .generate, .oneShot:
             expectedTakes = max(1, job.snapshot.pendingRequests.count)
+        case .storyboard where job.snapshot.isRunScopedStoryboard:
+            expectedTakes = max(1, job.snapshot.storyboardRuns
+                .reduce(0) { $0 + $1.plan.shotCount })
+        case .autoMovie where job.snapshot.isRunScopedMovie:
+            expectedTakes = max(1, job.snapshot.movieRuns
+                .reduce(0) { $0 + $1.plan.shotCount })
         case .storyboard, .autoMovie:
             let project = job.snapshot.projectID.flatMap { store.project(id: $0) }
             expectedTakes = max(1, project?.shots.count ?? 1)
@@ -294,7 +319,20 @@ final class ProductionQueueService: ObservableObject {
             generationService.addBatch(requests)
             return .started
 
+        case .storyboard where job.snapshot.isRunScopedStoryboard:
+            // New whole-Storyboard submissions. The discriminator is explicit
+            // and lives on the immutable snapshot — never inferred from mutable
+            // project state, which is what a run must be independent of.
+            return startRunScopedStoryboard(job, generationService: generationService)
+
+        case .autoMovie where job.snapshot.isRunScopedMovie:
+            // New run-scoped Auto Movie. The discriminator lives on the
+            // immutable snapshot; it is never inferred from project state.
+            return startRunScopedMovie(job, generationService: generationService)
+
         case .storyboard, .autoMovie:
+            // Legacy Storyboard jobs and legacy Auto Movie jobs keep the
+            // existing project-driven path unchanged.
             guard let projectID = job.snapshot.projectID,
                   let project = store.project(id: projectID) else {
                 return .failed("The project for this job no longer exists")
@@ -341,12 +379,20 @@ final class ProductionQueueService: ObservableObject {
         }
 
         switch job.kind {
+        case .storyboard where job.snapshot.isRunScopedStoryboard:
+            advanceRunScopedStoryboard(job, generationService: generationService)
+
+        case .autoMovie where job.snapshot.isRunScopedMovie:
+            advanceRunScopedMovie(job, generationService: generationService)
+
         case .generate, .oneShot:
             // Every request was enqueued together, so an empty renderer really
             // does mean this job is terminal. Preserve backend failure as a
             // failed ProductionJob instead of reporting a missing video as a
             // successful queue completion.
             isAwaitingCompletion = false
+            closeOutUnsettledRuns(
+                for: job, failureReason: generationService.error?.localizedDescription)
             if let error = generationService.error {
                 coordinator.markFailed(jobID: job.id, reason: error.localizedDescription)
             } else {
@@ -391,6 +437,314 @@ final class ProductionQueueService: ObservableObject {
 
     /// The run outcome, but only when it belongs to the project being asked
     /// about — events from another project say nothing about this job.
+    /// Applies one settlement to the run that produced it, then lets the job
+    /// schedule its next shot.
+    ///
+    /// Both halves go through `StoryboardRunDriver`, which is the same code the
+    /// tests drive — the duplicate-enqueue defect lived in this decision, not in
+    /// the pure scheduler underneath it.
+    private func advanceRunScopedStoryboard(
+        _ job: ProductionJob,
+        generationService: GenerationService
+    ) {
+        // `lastRunSettlement` is latched: once a shot settles it stays set for
+        // the rest of the session. Consuming it on every poll is what let the
+        // scheduler re-enter and re-dispatch the same attempt indefinitely.
+        guard let settlement = generationService.lastRunSettlement,
+              settlement.runID != consumedStoryboardSettlementID
+        else { return }
+
+        guard let updated = StoryboardRunDriver.applySettlement(
+            settlement, to: job.snapshot.storyboardRuns) else {
+            // Belongs to no in-flight attempt of this job: stale, or another
+            // job's. Not consumed, so the job it does belong to can still see it.
+            return
+        }
+        consumedStoryboardSettlementID = settlement.runID
+        // Terminal state is persisted before anything else is scheduled.
+        coordinator.updateStoryboardRuns(jobID: job.id, runs: updated)
+
+        if StoryboardRunDriver.allSettled(updated) {
+            isAwaitingCompletion = false
+            if updated.allSatisfy({ $0.derivedState == .completed }) {
+                coordinator.markCompleted(jobID: job.id)
+            } else {
+                coordinator.markFailed(
+                    jobID: job.id,
+                    reason: "One or more works did not finish. Retry to resume the unfinished ones.")
+            }
+            return
+        }
+        isAwaitingCompletion = false
+        _ = startRunScopedStoryboard(
+            coordinator.job(id: job.id) ?? job, generationService: generationService)
+    }
+
+    /// Starts the next piece of work for a run-scoped Auto Movie job: either the
+    /// next shot of a run, or a run's final assembly once its shots are done.
+    private func startRunScopedMovie(
+        _ job: ProductionJob,
+        generationService: GenerationService
+    ) -> ProductionQueueCoordinator.StartOutcome {
+        var runs = job.snapshot.movieRuns
+        guard !runs.isEmpty else { return .failed("This job has no movie runs") }
+
+        // Shots first, using the same run-local scheduler Storyboard proved.
+        if let dispatch = StoryboardRunDriver.nextDispatch(in: runs) {
+            let takeID = UUID()
+            guard let request = MovieRunRequestBuilder.makeRequest(
+                run: runs[dispatch.runIndex], shotID: dispatch.shotID, takeID: takeID,
+                parameters: storyboardParameters(for: job)) else {
+                var blocked = runs
+                blocked[dispatch.runIndex].update(dispatch.shotID) {
+                    $0.state = .dependencyBlocked
+                    $0.failureReason = $0.failureReason
+                        ?? "This shot's starting frame is unavailable, so it was not generated."
+                }
+                coordinator.updateMovieRuns(jobID: job.id, runs: blocked)
+                return .failed("A shot's starting frame is unavailable.")
+            }
+            runs[dispatch.runIndex].update(dispatch.shotID) {
+                $0.state = .running
+                $0.dispatchedRequestID = request.id
+                $0.dispatchedTakeID = takeID
+            }
+            // Persisted as running before the renderer is called.
+            coordinator.updateMovieRuns(jobID: job.id, runs: runs)
+
+            generationService.clearError()
+            isAwaitingCompletion = true
+            let done = runs.reduce(0) { total, run in
+                total + run.shotStates.filter { $0.state == .completed }.count
+            }
+            let total = runs.reduce(0) { $0 + $1.plan.shotCount }
+            coordinator.updateProgress(
+                jobID: job.id, current: done + 1, total: total,
+                stage: "作品 \(runs[dispatch.runIndex].batchIndex + 1) — Shot \(done + 1) / \(total)")
+            generationService.addBatch([request])
+            return .started
+        }
+
+        // No shot to run: a run whose shots are all done may now assemble.
+        for index in runs.indices where !runs[index].isCancelled {
+            guard runs[index].allShotsCompleted,
+                  runs[index].assembly.state == .waiting || runs[index].assembly.state == .ready
+            else { continue }
+            // Freeze this run's own clips — never the project's global take
+            // selection, which two runs would share.
+            guard MovieAssemblyDriver.freezeClips(in: &runs[index]) else {
+                coordinator.updateMovieRuns(jobID: job.id, runs: runs)
+                continue
+            }
+            runs[index].assembly.state = .running
+            runs[index].assembly.outputPath =
+                MovieAssemblyDriver.outputURL(runID: runs[index].id).path
+            // Persisted before assembly begins, so a crash cannot lose which
+            // clips were chosen.
+            coordinator.updateMovieRuns(jobID: job.id, runs: runs)
+            coordinator.updateProgress(
+                jobID: job.id,
+                stage: "作品 \(runs[index].batchIndex + 1) — Assembling")
+            runAssembly(jobID: job.id, runIndex: index)
+            return .started
+        }
+        return .started
+    }
+
+    /// Assembles one run's frozen clips into its own film.
+    private func runAssembly(jobID: UUID, runIndex: Int) {
+        Task { [weak self] in
+            guard let self else { return }
+            guard var runs = self.coordinator.job(id: jobID)?.snapshot.movieRuns,
+                  runs.indices.contains(runIndex) else { return }
+            let run = runs[runIndex]
+            let clips = run.assembly.clips.sorted { $0.order < $1.order }
+            let output = run.assembly.outputPath
+                ?? MovieAssemblyDriver.outputURL(runID: run.id).path
+            let paths = clips.map(\.videoPath)
+
+            // Wholly frozen inputs: the clips came from this run, the canvas and
+            // audio policy from the spec frozen at submission. The source
+            // project is never read here, so editing or deleting it cannot
+            // change or break a queued work.
+            guard let spec = run.plan.assemblySpec else {
+                var latest = runs
+                latest[runIndex].assembly.state = .failed
+                latest[runIndex].assembly.failureReason =
+                    "This work was queued without its assembly settings and cannot be assembled."
+                self.coordinator.updateMovieRuns(jobID: jobID, runs: latest)
+                self.settleRunScopedMovieIfDone(jobID: jobID)
+                return
+            }
+            let result: Result<Void, Error> = await Task.detached(priority: .utility) {
+                do {
+                    try FileManager.default.createDirectory(
+                        at: URL(fileURLWithPath: output).deletingLastPathComponent(),
+                        withIntermediateDirectories: true)
+                    _ = try FinalAssemblyService.assembleFrozen(
+                        clipPaths: paths, spec: spec, outputPath: output)
+                    return .success(())
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+
+            guard var latest = self.coordinator.job(id: jobID)?.snapshot.movieRuns,
+                  latest.indices.contains(runIndex) else { return }
+            switch result {
+            case .success:
+                latest[runIndex].assembly.state = .completed
+                latest[runIndex].assembly.outputPath = output
+            case .failure(let error):
+                latest[runIndex].assembly.state = .failed
+                latest[runIndex].assembly.failureReason = error.localizedDescription
+            }
+            self.coordinator.updateMovieRuns(jobID: jobID, runs: latest)
+            runs = latest
+            self.settleRunScopedMovieIfDone(jobID: jobID)
+        }
+    }
+
+    /// Applies one settlement to the movie run that produced it, then schedules
+    /// that job's next piece of work.
+    private func advanceRunScopedMovie(
+        _ job: ProductionJob,
+        generationService: GenerationService
+    ) {
+        guard let settlement = generationService.lastRunSettlement,
+              settlement.runID != consumedStoryboardSettlementID
+        else { return }
+        guard let updated = StoryboardRunDriver.applySettlement(
+            settlement, to: job.snapshot.movieRuns) else { return }
+        consumedStoryboardSettlementID = settlement.runID
+        coordinator.updateMovieRuns(jobID: job.id, runs: updated)
+
+        isAwaitingCompletion = false
+        if updated.allSatisfy({ $0.isSettled }) {
+            settleRunScopedMovieIfDone(jobID: job.id)
+            return
+        }
+        _ = startRunScopedMovie(
+            coordinator.job(id: job.id) ?? job, generationService: generationService)
+    }
+
+    /// Marks the parent job terminal once every run has produced its film or
+    /// definitively failed.
+    private func settleRunScopedMovieIfDone(jobID: UUID) {
+        guard let job = coordinator.job(id: jobID) else { return }
+        let runs = job.snapshot.movieRuns
+        guard !runs.isEmpty, runs.allSatisfy({ $0.isSettled }) else {
+            if let service = generationService {
+                _ = startRunScopedMovie(job, generationService: service)
+            }
+            return
+        }
+        isAwaitingCompletion = false
+        let completed = runs.filter { $0.assembly.state == .completed }
+        if completed.count == runs.count {
+            coordinator.markCompleted(jobID: jobID, outputPath: completed.first?.assembly.outputPath)
+        } else {
+            coordinator.markFailed(
+                jobID: jobID,
+                reason: "One or more works did not finish. Retry to resume the unfinished ones.")
+        }
+    }
+
+    /// Starts the next shot of a run-scoped Storyboard job.
+    ///
+    /// Deliberately never calls `AutoMovieRunCoordinator.advance`: that
+    /// scheduler is project-global, so once one run finished a shot every other
+    /// run would skip it. Scheduling here is decided per run, from that run's
+    /// own `ShotRunState`.
+    private func startRunScopedStoryboard(
+        _ job: ProductionJob,
+        generationService: GenerationService
+    ) -> ProductionQueueCoordinator.StartOutcome {
+        var runs = job.snapshot.storyboardRuns
+        guard !runs.isEmpty else { return .failed("This job has no Storyboard runs") }
+
+        guard let dispatch = StoryboardRunDriver.nextDispatch(in: runs) else {
+            // Either an attempt is already in flight, or nothing is dispatchable
+            // yet. Both are normal; neither may enqueue anything.
+            return .started
+        }
+
+        let takeID = UUID()
+        guard let request = StoryboardRunRequestBuilder.makeRequest(
+            run: runs[dispatch.runIndex], shotID: dispatch.shotID, takeID: takeID,
+            parameters: storyboardParameters(for: job)) else {
+            // Fail closed: most often a continuation whose frozen starting frame
+            // is missing or changed. Never fall back to the video, and never
+            // quietly render this shot without its conditioning.
+            var blocked = runs
+            blocked[dispatch.runIndex].update(dispatch.shotID) {
+                $0.state = .dependencyBlocked
+                $0.failureReason = $0.failureReason
+                    ?? "This shot's starting frame is unavailable, so it was not generated."
+            }
+            coordinator.updateStoryboardRuns(jobID: job.id, runs: blocked)
+            return .failed("A shot's starting frame is unavailable.")
+        }
+        runs[dispatch.runIndex].update(dispatch.shotID) {
+            $0.state = .running
+            $0.dispatchedRequestID = request.id
+            $0.dispatchedTakeID = takeID
+        }
+        // Persisted as running BEFORE the renderer is called, so a poll that
+        // lands immediately after submission sees `running` rather than a state
+        // that would make this same attempt dispatchable again.
+        coordinator.updateStoryboardRuns(jobID: job.id, runs: runs)
+
+        generationService.clearError()
+        isAwaitingCompletion = true
+        let done = runs.reduce(0) { total, run in
+            total + run.shotStates.filter { $0.state == .completed }.count
+        }
+        let total = runs.reduce(0) { $0 + $1.plan.shotCount }
+        coordinator.updateProgress(
+            jobID: job.id, current: done + 1, total: total,
+            stage: "作品 \(runs[dispatch.runIndex].batchIndex + 1) — Shot \(done + 1) / \(total)")
+        generationService.addBatch([request])
+        return .started
+    }
+
+    /// Render settings for a run-scoped Storyboard shot, taken from the frozen
+    /// snapshot rather than from live project settings.
+    private func storyboardParameters(for job: ProductionJob) -> GenerationParameters {
+        job.snapshot.settings ?? GenerationParameters(
+            numInferenceSteps: 15, guidanceScale: 3,
+            width: 768, height: 512, numFrames: 121, fps: 24,
+            seed: nil, vaeTilingMode: "auto", imageStrength: 1)
+    }
+
+    /// Closes out any run that never reported a settlement.
+    ///
+    /// Each candidate persists its own state as it finishes (see the
+    /// `$lastRunSettlement` subscription). This only fills in runs the renderer
+    /// never reached — a batch abandoned mid-flight — so that every run in a
+    /// terminal job has a recorded state rather than an absent one.
+    ///
+    /// Deliberately does **not** consult History: a completed run whose History
+    /// write was lost to a crash must still count as completed, and a user
+    /// deleting History must not cause finished work to be rendered again.
+    private func closeOutUnsettledRuns(for job: ProductionJob, failureReason: String?) {
+        let requests = job.snapshot.pendingRequests
+        guard !requests.isEmpty else { return }
+        let alreadyRecorded = Set(
+            (coordinator.job(id: job.id)?.snapshot.runOutcomes ?? []).map(\.runID))
+        let missing = requests
+            .filter { !alreadyRecorded.contains($0.id) }
+            .map { request in
+                RunOutcomeRecord(
+                    runID: request.id,
+                    outcome: failureReason == nil ? .interrupted : .failed,
+                    attemptNumber: request.attemptNumber ?? 1,
+                    failureReason: failureReason)
+            }
+        guard !missing.isEmpty else { return }
+        coordinator.recordRunOutcomes(jobID: job.id, outcomes: missing)
+    }
+
     private func runOutcome(for projectID: UUID) -> FilmRunEvent.Kind? {
         guard let event = lastFilmRunEvent, event.projectID == projectID else { return nil }
         return event.kind

@@ -96,6 +96,19 @@ enum MiniMaxH3GenerationLease {
         unlink(lockPath)
     }
 
+    /// Read-only inspection: the live owner of the lease, or nil when nobody
+    /// holds it. Never creates, steals, or clears the lock — callers that only
+    /// need to know whether a heavy H3 generation is in flight (so they can
+    /// decline to start competing work) must use this rather than `acquire`.
+    static func activeOwner(
+        lockPath: String = MiniMaxH3GenerationLease.lockPath,
+        fileManager: FileManager = .default
+    ) -> Owner? {
+        guard let existing = readOwner(at: lockPath, fileManager: fileManager),
+              processExists(existing.pid) else { return nil }
+        return existing
+    }
+
     /// `open(O_CREAT | O_EXCL)` is atomic at the filesystem level, avoiding
     /// the TOCTOU race a plain "check then write" JSON existence check would
     /// have between two processes acquiring at nearly the same instant.

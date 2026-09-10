@@ -235,6 +235,10 @@ final class LocalDirector {
             audioEnabled: !base.disableAudio,
             seed: base.parameters.seed,
             conditioningImage: conditioning,
+            // Carried straight from the submitted base request: the Director
+            // decides prompt content, never the user's Ending Image.
+            endingImagePath: base.endingImagePath,
+            endingImageContentHash: base.endingImageContentHash,
             orientation: base.presetResolutionOrientation,
             generationSource: base.generationSource ?? "oneShot",
             createdAt: base.createdAt,
@@ -303,6 +307,10 @@ final class LocalDirector {
             audioEnabled: !base.disableAudio,
             seed: base.parameters.seed,
             conditioningImage: conditioning,
+            // Carried straight from the submitted base request: the Director
+            // decides prompt content, never the user's Ending Image.
+            endingImagePath: base.endingImagePath,
+            endingImageContentHash: base.endingImageContentHash,
             orientation: base.presetResolutionOrientation,
             generationSource: base.generationSource ?? "oneShot",
             createdAt: base.createdAt,

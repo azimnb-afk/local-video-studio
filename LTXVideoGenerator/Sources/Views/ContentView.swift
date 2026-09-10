@@ -307,10 +307,18 @@ private struct OneShotView: View {
     @AppStorage(LTXModelCatalog.selectedModelIDKey) private var modelID = LTXModelCatalog.defaultModelID
     @AppStorage(LTXTextEncoderCatalog.selectedTextEncoderIDKey) private var textEncoderID = LTXTextEncoderCatalog.defaultTextEncoderID
     @AppStorage("oneShotStartingImagePath") private var storedStartingImagePath = ""
+    /// Experimental Ending Image. One Shot-scoped key on purpose: the Generate
+    /// tab must never inherit it.
+    @AppStorage("oneShotEndingImagePath") private var storedEndingImagePath = ""
+    /// 生成数 — how many independent candidates one submit creates. Matches the
+    /// Generate screen's concept; each candidate shares the composition and
+    /// differs only by seed.
+    @AppStorage("oneShotCandidateCount") private var candidateCount = 1
     @State private var audioEnabled = true
     @State private var directorEnabled = true
     @State private var startingImageThumbnail: NSImage?
     @State private var startingImageError: String?
+    @State private var endingImageThumbnail: NSImage?
 
     private var preset: GenerationPreset { GenerationPreset(rawValue: presetRaw) ?? .standard }
     private var minimaxH3Preset: MiniMaxH3Preset { MiniMaxH3Preset(rawValue: minimaxH3OneShotPresetRaw) ?? .standard }
@@ -373,6 +381,7 @@ private struct OneShotView: View {
                             .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
                     )
                 startingImageSection
+                endingImageSection
                 HStack(spacing: 16) {
                     if !MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
                         Picker("Preset", selection: $presetRaw) {
@@ -400,6 +409,8 @@ private struct OneShotView: View {
                 Text(directorEnabled ? "Director ON: AI interprets and directs the shot." : "Director OFF: Uses your prompt directly without AI planning.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+
+                MultiQueueCountControl(unit: .generation, count: $candidateCount)
 
                 if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) && minimaxH3Preset == .custom {
                     VStack(alignment: .leading, spacing: 10) {
@@ -480,7 +491,10 @@ private struct OneShotView: View {
         .onChange(of: modelID) { _, _ in
             Task { await DependencyHealthManager.shared.refresh() }
         }
-        .onAppear(perform: refreshStartingImage)
+        .onAppear {
+            refreshStartingImage()
+            refreshEndingImage()
+        }
     }
 
     private var startingImageSection: some View {
@@ -620,10 +634,24 @@ private struct OneShotView: View {
             }
         }
 
+        // Ending Image: attach only when the current selection can actually use
+        // it. A configured-but-unusable image BLOCKS submission below rather
+        // than being quietly omitted.
+        if let issue = endingImageBlockingIssue {
+            status = issue
+            return
+        }
+        let endingPath = endingImagePath
+        // Hash the bytes now so execution can detect the file being edited or
+        // replaced while the job waits in the queue.
+        let endingHash = endingPath.flatMap { H3EndingImageCapability.contentHash(ofFileAt: $0) }
+
         let baseRequest = GenerationRequest(
             prompt: trimmed,
             brief: trimmed,
             sourceImagePath: validatedStartingImage,
+            endingImagePath: endingPath,
+            endingImageContentHash: endingHash,
             presetResolutionOrientation: orientation,
             disableAudio: !audioEnabled,
             modelId: modelID,
@@ -655,18 +683,23 @@ private struct OneShotView: View {
                     // Planning has already happened, so the job carries the finished
                     // request: what was queued is exactly what renders, even if the
                     // brief is edited while it waits.
+                    // The Director ran once, above. Expanding here — after
+                    // planning, never before — is what keeps N candidates from
+                    // meaning N planning invocations.
+                    let candidates = CandidateExpander.expand(
+                        request, count: candidateCount)
                     var snapshot = ProductionJobSnapshot()
                     snapshot.brief = trimmed
                     snapshot.prompt = request.prompt
-                    snapshot.pendingRequests = [request]
-                    snapshot.seed = request.parameters.seed
+                    snapshot.pendingRequests = candidates
+                    snapshot.seed = candidates.first?.parameters.seed
                     ProductionQueueService.shared.enqueue(ProductionJob(
                         kind: .oneShot,
-                        title: trimmed.count > 60 ? String(trimmed.prefix(60)) + "…" : trimmed,
+                        title: oneShotTitle(trimmed, count: candidates.count),
                         snapshot: snapshot))
                     status = validatedStartingImage == nil
-                        ? "Planned via \(providerName); queued text-only generation"
-                        : "Planned via \(providerName); queued with Starting Image"
+                        ? "Planned via \(providerName); queued \(candidates.count) text-only generation(s)"
+                        : "Planned via \(providerName); queued \(candidates.count) with Starting Image"
                 } catch let error as OneShotStartingImageError {
                     startingImageThumbnail = nil
                     startingImageError = error.localizedDescription
@@ -680,19 +713,143 @@ private struct OneShotView: View {
         } else {
             // Director OFF: Direct user prompt via CanonicalShotRequestBuilder (0 LLM invocations)
             let (request, _) = LocalDirector.makeDirectRequest(prompt: trimmed, base: baseRequest)
+            let candidates = CandidateExpander.expand(request, count: candidateCount)
             var snapshot = ProductionJobSnapshot()
             snapshot.brief = trimmed
             snapshot.prompt = request.prompt
-            snapshot.pendingRequests = [request]
-            snapshot.seed = request.parameters.seed
+            snapshot.pendingRequests = candidates
+            snapshot.seed = candidates.first?.parameters.seed
             ProductionQueueService.shared.enqueue(ProductionJob(
                 kind: .oneShot,
-                title: trimmed.count > 60 ? String(trimmed.prefix(60)) + "…" : trimmed,
+                title: oneShotTitle(trimmed, count: candidates.count),
                 snapshot: snapshot))
             status = validatedStartingImage == nil
-                ? "Direct shot enqueued for generation."
-                : "Direct shot with Starting Image enqueued for generation."
+                ? "Direct shot enqueued (\(candidates.count))."
+                : "Direct shot with Starting Image enqueued (\(candidates.count))."
         }
+    }
+
+    /// Queue row label. The count is shown only when there is more than one, so
+    /// a single shot reads exactly as it did before multi-queue.
+    private func oneShotTitle(_ brief: String, count: Int) -> String {
+        let short = brief.count > 60 ? String(brief.prefix(60)) + "…" : brief
+        return count > 1 ? "\(short) × \(count)" : short
+    }
+
+    private var endingImagePath: String? {
+        storedEndingImagePath.isEmpty ? nil : storedEndingImagePath
+    }
+
+    /// One verified model only — see `H3EndingImageCapability`.
+    private var supportsEndingImage: Bool {
+        H3EndingImageCapability.supportsEndingImage(modelID: modelID)
+    }
+
+    /// Non-nil when a configured Ending Image cannot be used right now. The
+    /// same predicate the submission path and the backend use, so the UI and
+    /// the request can never disagree.
+    private var endingImageBlockingIssue: String? {
+        guard endingImagePath != nil else { return nil }
+        return H3EndingImageValidator.validateAtSubmission(
+            modelID: modelID,
+            startImagePath: storedStartingImagePath.isEmpty ? nil : storedStartingImagePath,
+            endingImagePath: endingImagePath)?.errorDescription
+    }
+
+    @ViewBuilder
+    private var endingImageSection: some View {
+        // Visible whenever the verified model is selected, or whenever an image
+        // is already configured — so a model switch can never make a configured
+        // Ending Image disappear silently.
+        if supportsEndingImage || endingImagePath != nil {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 6) {
+                    Label("終了画像", systemImage: "photo.badge.arrow.down")
+                        .font(.headline)
+                    Text("実験的")
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.orange.opacity(0.18))
+                        .cornerRadius(4)
+                    Spacer()
+                    if endingImagePath != nil {
+                        Button("削除", role: .destructive) { clearEndingImage() }
+                            .buttonStyle(.borderless)
+                    }
+                }
+
+                if let path = endingImagePath, let thumbnail = endingImageThumbnail {
+                    HStack(spacing: 12) {
+                        Image(nsImage: thumbnail)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 96, height: 96)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(URL(fileURLWithPath: path).lastPathComponent).lineLimit(1)
+                            Button("別の画像を選ぶ…", action: chooseEndingImage)
+                        }
+                        Spacer()
+                    }
+                } else {
+                    Button(action: chooseEndingImage) {
+                        Label("終了画像を選ぶ…", systemImage: "photo.badge.plus")
+                    }
+                    .buttonStyle(.bordered)
+                    // End-only is unsupported, so the control is shown but
+                    // disabled until a Starting Image exists — the requirement
+                    // is stated rather than hiding the feature entirely.
+                    .disabled(storedStartingImagePath.isEmpty || !supportsEndingImage)
+                }
+
+                Text("終了画像を追加すると、開始画像から終了画像への変化を指定できます。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if storedStartingImagePath.isEmpty && supportsEndingImage {
+                    Text("先に開始画像を選んでください。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let issue = endingImageBlockingIssue {
+                    Label(issue, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.orange.opacity(0.10))
+                        .cornerRadius(6)
+                }
+            }
+        }
+    }
+
+    private func chooseEndingImage() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.image, .png, .jpeg, .webP]
+        panel.message = "終了画像を選択"
+        panel.prompt = "選択"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        storedEndingImagePath = url.path
+        endingImageThumbnail = NSImage(contentsOf: url).map(makeThumbnail)
+    }
+
+    private func clearEndingImage() {
+        storedEndingImagePath = ""
+        endingImageThumbnail = nil
+    }
+
+    private func refreshEndingImage() {
+        guard let path = endingImagePath, let image = NSImage(contentsOfFile: path) else {
+            endingImageThumbnail = nil
+            return
+        }
+        endingImageThumbnail = makeThumbnail(image)
     }
 
     private func chooseStartingImage() {

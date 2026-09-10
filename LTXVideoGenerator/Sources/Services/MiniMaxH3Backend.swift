@@ -9,12 +9,18 @@ struct MiniMaxH3GenerationPayload: Codable, Equatable {
     var seed: Int
     var fast: Bool?
     var firstFrameImage: Data?
+    /// Optional Ending Image. `last_frame_image` is the field the installed
+    /// runtime actually accepts — verified live, where supplying both images
+    /// makes it report two keyframes instead of one. `image_end` is a chat
+    /// token in the same binary and is NOT this field.
+    var lastFrameImage: Data?
     var chainWindows: Int
 
     enum CodingKeys: String, CodingKey {
         case prompt, width, height, steps, seed, fast
         case numFrames = "num_frames"
         case firstFrameImage = "first_frame_image"
+        case lastFrameImage = "last_frame_image"
         case chainWindows = "chain_windows"
     }
 }
@@ -118,7 +124,7 @@ final class MiniMaxH3Backend {
             throw MiniMaxH3Error.unsupportedCapability("chain_windows outside 1...6")
         }
 
-        let seed = request.parameters.seed ?? Int.random(in: 0..<Int(Int32.max))
+        let seed = ExecutionSeedResolver.resolve(request, backend: "minimax-h3")
         var preparedImage: PreparedImageConditioning?
         var sourceData: Data?
         if let rawSourcePath = request.sourceImagePath {
@@ -135,6 +141,42 @@ final class MiniMaxH3Backend {
             }
             }
         }
+        // Ending Image (experimental, verified packs only). Prepared through the
+        // *same* deterministic path as the Starting Image — same EXIF handling,
+        // same aspect-preserving fill crop, same target geometry — so both
+        // keyframes reach the runtime with matching dimensions.
+        var endingData: Data?
+        if request.hasEndingImage {
+            if let error = H3EndingImageValidator.validateAtSubmission(
+                modelID: request.modelId,
+                startImagePath: request.sourceImagePath,
+                endingImagePath: request.endingImagePath) {
+                throw MiniMaxH3Error.unsupportedCapability(
+                    error.errorDescription ?? "\(error)")
+            }
+            // Fail closed: a file that vanished or whose bytes changed since
+            // submission stops the generation. Dropping it and continuing as a
+            // start-only render would quietly produce a different video.
+            if let error = H3EndingImageValidator.verifyAtExecution(
+                endingImagePath: request.endingImagePath,
+                expectedContentHash: request.endingImageContentHash) {
+                throw MiniMaxH3Error.invalidSourceImage(
+                    error.errorDescription ?? "\(error)")
+            }
+            let endingPath = request.endingImagePath!
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            do {
+                let preparedEnding = try ImageConditioningPreparer.shared.prepare(
+                    sourceURL: URL(fileURLWithPath: endingPath),
+                    targetWidth: request.parameters.width,
+                    targetHeight: request.parameters.height)
+                endingData = try Data(contentsOf: preparedEnding.preparedURL,
+                                      options: .mappedIfSafe)
+            } catch {
+                throw MiniMaxH3Error.invalidSourceImage(error.localizedDescription)
+            }
+        }
+
         if request.takeID != nil {
             TakeGenerationCoordinator().recordImagePreparation(
                 request: request,
@@ -144,10 +186,17 @@ final class MiniMaxH3Backend {
         let prompt = MiniMaxH3PromptCompiler.compile(
             rendererNeutralPrompt: request.prompt,
             isImageToVideo: request.isImageToVideo)
+        // Provenance without logging image bytes: says whether an Ending Image
+        // was actually included in the payload.
+        print("[minimax-h3] ending-image: "
+              + (endingData != nil
+                 ? "included (\(endingData!.count) bytes prepared)"
+                 : "not included"))
         let payload = Self.makePayload(
             request: request,
             prompt: prompt,
             sourceImageData: sourceData,
+            endingImageData: endingData,
             seed: seed)
         let body: Data
         do {
@@ -300,6 +349,7 @@ final class MiniMaxH3Backend {
         request: GenerationRequest,
         prompt: String? = nil,
         sourceImageData: Data?,
+        endingImageData: Data? = nil,
         seed: Int
     ) -> MiniMaxH3GenerationPayload {
         MiniMaxH3GenerationPayload(
@@ -313,6 +363,7 @@ final class MiniMaxH3Backend {
             seed: seed,
             fast: request.minimaxH3Fast ?? true,
             firstFrameImage: sourceImageData,
+            lastFrameImage: endingImageData,
             chainWindows: request.minimaxH3ChainWindows ?? 1)
     }
 

@@ -632,7 +632,8 @@ private struct MiniMaxH3RuntimePreferenceView: View {
         isChecking = true
         let snapshot = MiniMaxH3Configuration.Snapshot(
             modelDirectory: modelDirectory.isEmpty ? nil : modelDirectory,
-            runtimeExecutablePath: runtimeExecutable.isEmpty ? nil : runtimeExecutable,
+            runtimeExecutablePath: runtimeExecutable.isEmpty
+                ? MiniMaxH3ManagedRuntimeManager.shared.readyExecutablePath : runtimeExecutable,
             endpoint: endpoint,
             targetModelID: MiniMaxH3Configuration.standardModelID)
         status = await MiniMaxH3RuntimeManager.shared.status(snapshot: snapshot)

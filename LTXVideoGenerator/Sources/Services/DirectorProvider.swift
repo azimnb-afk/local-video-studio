@@ -22,6 +22,11 @@ protocol DirectorProvider {
     func complete(system: String, prompt: String, expectsJSON: Bool) async throws -> String
     /// Cancellation-aware completion that hooks active URLSessionDataTask to handle.
     func complete(system: String, prompt: String, expectsJSON: Bool, handle: DirectorPlanningHandle?) async throws -> String
+    /// Completion constrained by an Ollama JSON Schema rather than the looser
+    /// "any JSON object" mode. Field-level constraint is what keeps a prompt
+    /// enhancer from returning a differently-shaped object that then has to be
+    /// repaired; asking for JSON in the prompt text alone does not provide it.
+    func complete(system: String, prompt: String, jsonSchema: [String: Any], handle: DirectorPlanningHandle?) async throws -> String
     /// Unload/terminate the underlying model so LTX gets the memory back.
     func terminate() async
 }
@@ -34,6 +39,12 @@ extension DirectorProvider {
 
     func complete(system: String, prompt: String, expectsJSON: Bool, handle: DirectorPlanningHandle?) async throws -> String {
         try await complete(system: system, prompt: prompt, expectsJSON: expectsJSON)
+    }
+
+    /// Providers without schema-constrained decoding fall back to plain JSON
+    /// object mode. They still answer; the caller still validates.
+    func complete(system: String, prompt: String, jsonSchema: [String: Any], handle: DirectorPlanningHandle?) async throws -> String {
+        try await complete(system: system, prompt: prompt, expectsJSON: true, handle: handle)
     }
 
     var modelIdentifier: String? { nil }
@@ -441,6 +452,21 @@ final class OllamaDirectorProvider: DirectorProvider {
     }
 
     func complete(system: String, prompt: String, expectsJSON: Bool, handle: DirectorPlanningHandle?) async throws -> String {
+        // `format: "json"` is Ollama's "any JSON object" grammar constraint.
+        try await send(system: system, prompt: prompt,
+                       format: expectsJSON ? "json" : nil, handle: handle)
+    }
+
+    /// Schema-constrained variant. `format` carries the JSON Schema object
+    /// itself, which Ollama compiles into a decoding grammar, so the reply is
+    /// shaped by the schema rather than only asked to be.
+    func complete(system: String, prompt: String, jsonSchema: [String: Any], handle: DirectorPlanningHandle?) async throws -> String {
+        try await send(system: system, prompt: prompt, format: jsonSchema, handle: handle)
+    }
+
+    /// One request path for every completion variant; `format` is whatever
+    /// Ollama should receive (nil = unconstrained free text).
+    private func send(system: String, prompt: String, format: Any?, handle: DirectorPlanningHandle?) async throws -> String {
         if handle?.isCancelled == true || Task.isCancelled {
             throw DirectorError.cancelled
         }
@@ -463,10 +489,10 @@ final class OllamaDirectorProvider: DirectorProvider {
             // four-shot plan.
             "options": ["num_predict": 4096],
         ]
-        if expectsJSON {
+        if let format {
             // Ollama's grammar constraint. Correct for the Structured JSON
             // protocol, and actively harmful for a plain-text protocol.
-            body["format"] = "json"
+            body["format"] = format
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 

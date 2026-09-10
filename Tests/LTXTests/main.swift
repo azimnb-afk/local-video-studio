@@ -58,6 +58,76 @@ if CommandLine.arguments.count >= 5,
     RunLoop.main.run()
 }
 
+// Phase V: experimental Ending Image end-to-end through the production path:
+//   swift run LTXTests --h3-ending-image-e2e <first.png> <last.png>
+if CommandLine.arguments.count >= 4,
+   CommandLine.arguments[1] == "--h3-ending-image-e2e" {
+    Task { @MainActor in
+        exit(await H3EndingImageE2EHarness.run(
+            firstPath: CommandLine.arguments[2], lastPath: CommandLine.arguments[3]))
+    }
+    RunLoop.main.run()
+}
+
+// Phase N/O: controlled H3 short-clip action-onset matrix (3 pacing strategies
+// x 90f/107f). Real generations; isolated tmp store/history/output:
+//   swift run LTXTests --h3-timing-matrix <source-image|none> [seed]
+if CommandLine.arguments.count >= 3,
+   CommandLine.arguments[1] == "--h3-timing-matrix" {
+    let source = CommandLine.arguments[2] == "none" ? nil : CommandLine.arguments[2]
+    // seeds and frame counts as comma-separated lists:
+    //   --h3-timing-matrix none 4242,777,31337,90210 90
+    let seeds = (CommandLine.arguments.count >= 4
+        ? CommandLine.arguments[3].split(separator: ",").compactMap { Int($0) } : [4242])
+    let frames = (CommandLine.arguments.count >= 5
+        ? CommandLine.arguments[4].split(separator: ",").compactMap { Int($0) } : [90])
+    Task { @MainActor in
+        exit(await H3ShortClipTimingHarness.runTimingMatrix(
+            sourceImagePath: source, seeds: seeds.isEmpty ? [4242] : seeds,
+            frameCounts: frames.isEmpty ? [90] : frames))
+    }
+    RunLoop.main.run()
+}
+
+// Prompt-sensitivity probe: two different prompts, one seed.
+//   swift run LTXTests --h3-prompt-probe [seed]
+if CommandLine.arguments.count >= 2,
+   CommandLine.arguments[1] == "--h3-prompt-probe" {
+    let seed = CommandLine.arguments.count >= 3 ? (Int(CommandLine.arguments[2]) ?? 4242) : 4242
+    Task { @MainActor in
+        exit(await H3ShortClipTimingHarness.runPromptSensitivityProbe(seed: seed))
+    }
+    RunLoop.main.run()
+}
+
+// Phase M: current-pipeline vs conservative-enhancement video A/B:
+//   swift run LTXTests --h3-prompt-ab <source-image|none> [seed] [model]
+if CommandLine.arguments.count >= 3,
+   CommandLine.arguments[1] == "--h3-prompt-ab" {
+    let source = CommandLine.arguments[2] == "none" ? nil : CommandLine.arguments[2]
+    let seed = CommandLine.arguments.count >= 4 ? (Int(CommandLine.arguments[3]) ?? 4242) : 4242
+    let model = CommandLine.arguments.count >= 5 ? CommandLine.arguments[4] : nil
+    Task { @MainActor in
+        let maxCases = CommandLine.arguments.count >= 6
+            ? (Int(CommandLine.arguments[5]) ?? Int.max) : Int.max
+        exit(await H3ShortClipTimingHarness.runPromptAB(
+            sourceImagePath: source, seed: seed, model: model, maxCases: maxCases))
+    }
+    RunLoop.main.run()
+}
+
+// Phase 1 PoC: real local-LLM prompt-enhancement comparison. Text only —
+// no video is generated and nothing is enqueued:
+//   swift run LTXTests --h3-enhancer-compare [model]
+if CommandLine.arguments.count >= 2,
+   CommandLine.arguments[1] == "--h3-enhancer-compare" {
+    let model = CommandLine.arguments.count >= 3 ? CommandLine.arguments[2] : nil
+    Task { @MainActor in
+        exit(await H3PromptEnhancerHarness.run(model: model))
+    }
+    RunLoop.main.run()
+}
+
 // Real MiniMax H3 progress end-to-end telemetry verification:
 //   swift run LTXTests --h3-progress-e2e <endpoint> <source-image>
 if CommandLine.arguments.count == 4,
@@ -1707,12 +1777,20 @@ runShotPlanValidatorTests(t)
 runQualityHardeningTests(t)
 runCanonicalShotRequestBuilderTests(t)
 runOneShotCanonicalParityTests(t)
+runOneShotModelPickerTests(t)
+runMultiQueueFoundationTests(t)
+runStoryboardRunTests(t)
+runMovieRunTests(t)
 runStructuralMoviePlannerTests(t)
 runAutoMovieDirectorCoreIntegrationTests(t)
 runAutoMovieDirectorIsolationTests(t)
 runAutoMovieDirectorUITests(t)
 runModelAwareResolutionAlignmentTests(t)
 runIdentityAnchorFoundationTests(t)
+runH3PromptEnhancerTests(t)
+runH3SemanticPreservationTests(t)
+runH3EndingImageTests(t)
+runH3DirectorEnhancerBoundaryTests(t)
 if CommandLine.arguments.contains("--probe-director-cancellation-acceptance") {
     runRealDirectorPlanningCancellationAcceptanceProbe(t)
 }

@@ -109,9 +109,14 @@ public class DefaultModelChecker: ModelChecking {
             UserDefaults.standard.set(
                 modelID,
                 forKey: MiniMaxH3Configuration.lastReadinessModelIDKey)
+            // Setup checks must allow a configured idle H3 through to
+            // MiniMaxH3Backend.ensureReady, which owns server startup.
+            let readiness = ModelReadinessResolver.evaluate(model: model)
+            if readiness.canGenerate { return .ready }
             switch status.state {
             case .ready: return .ready
-            case .notConfigured, .notRunning, .starting: return .missing(status.detail)
+            case .notConfigured, .notRunning, .starting:
+                return .missing(readiness.reason ?? status.detail)
             case .wrongModel, .failed, .broken: return .invalid(status.detail)
             }
         }

@@ -1348,6 +1348,9 @@ struct CustomLTX2MLXRuntimeSection: View {
 
     private var model: LTXModel { CustomLTX2MLXModelCatalog.customModel() }
 
+    // Re-render when a background capability probe publishes its result.
+    @ObservedObject private var ltx2Runtime = LTX2MLXRuntimeManager.shared
+
     private var readiness: LTX2MLXRuntime.Readiness {
         LTX2MLXRuntime.readiness()
     }

@@ -28,7 +28,8 @@ enum ActiveModelDisplayResolver {
 
         if effectiveID == ModelRegistry.customModelID {
             let readiness = LTX2MLXRuntime.readiness(userDefaults: userDefaults)
-            let status = readiness.canGenerate ? "Ready" : "Not Configured"
+            let status = readiness.canGenerate ? "Ready"
+                : readiness.runtime.isChecking ? "Checking…" : "Not Configured"
             return DisplayInfo(
                 modelID: effectiveID,
                 displayName: "Custom LTX-2 MLX Model",
@@ -75,7 +76,8 @@ enum ActiveModelDisplayResolver {
             let runtimeReadiness = LTX2MLXRuntime.runtimeReadiness(userDefaults: userDefaults)
             let modelReadiness = CustomModelProfileStore.readiness(for: profile, userDefaults: userDefaults)
             let canGenerate = runtimeReadiness.isReady && modelReadiness.isReady
-            let status = canGenerate ? "Ready" : "Not Configured"
+            let status = canGenerate ? "Ready"
+                : runtimeReadiness.isChecking ? "Checking…" : "Not Configured"
             return DisplayInfo(
                 modelID: effectiveID,
                 displayName: profile.displayName,
@@ -92,7 +94,8 @@ enum ActiveModelDisplayResolver {
                 repository: ltx25.repo,
                 userDefaults: userDefaults
             )
-            let status = readiness.canGenerate ? "Ready" : "Not Configured"
+            let status = readiness.canGenerate ? "Ready"
+                : readiness.runtime.isChecking ? "Checking…" : "Not Configured"
             return DisplayInfo(
                 modelID: effectiveID,
                 displayName: ltx25.displayName,

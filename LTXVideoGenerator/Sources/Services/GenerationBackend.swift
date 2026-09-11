@@ -89,6 +89,8 @@ enum LTX2MLXRuntime {
     /// choice, so no personal path is ever baked into the build.
     static let executablePathKey = "ltx2mlxExecutablePath"
 
+    static let checkingRuntimeDetail = "Checking the ltx-2-mlx runtime…"
+
     enum ComponentReadiness: Equatable {
         case ready(String)
         case missing(String)
@@ -97,6 +99,9 @@ enum LTX2MLXRuntime {
             if case .ready = self { return true }
             return false
         }
+
+        /// The runtime is present but still being verified in the background.
+        var isChecking: Bool { self == .missing(LTX2MLXRuntime.checkingRuntimeDetail) }
 
         /// The resolved path when ready, or the reason when not.
         var detail: String {
@@ -142,6 +147,8 @@ enum LTX2MLXRuntime {
             return .missing("The ltx-2-mlx runtime has an issue: \(reason)")
         case .installing(_, let step):
             return .missing("The ltx-2-mlx runtime is currently installing (\(step))…")
+        case .checking:
+            return .missing(checkingRuntimeDetail)
         }
     }
 

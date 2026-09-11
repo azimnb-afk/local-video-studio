@@ -910,6 +910,9 @@ private struct OneShotView: View {
 struct ModelStatusView: View {
     @EnvironmentObject var generationService: GenerationService
     @StateObject private var apiServer = APIServer.shared
+    // displayInfo only reads cached runtime state; this re-renders the view
+    // when a background capability probe publishes its result.
+    @ObservedObject private var ltx2Runtime = LTX2MLXRuntimeManager.shared
     @AppStorage(LTXModelCatalog.selectedModelIDKey) private var selectedModelID = LTXModelCatalog.defaultModelID
 
     private var displayInfo: ActiveModelDisplayResolver.DisplayInfo {

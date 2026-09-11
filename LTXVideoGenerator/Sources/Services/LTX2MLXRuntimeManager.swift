@@ -127,6 +127,10 @@ public enum LTX2MLXRuntimeStatus: Equatable, Sendable {
     case ready(executablePath: String, manifest: LTX2MLXRuntimeManifest)
     case outdated(executablePath: String, currentVersion: String, requiredVersion: String, missingCapabilities: [String])
     case broken(reason: String)
+    /// The runtime is on disk but its capabilities have not been verified yet;
+    /// a background probe is running. Never Ready: an unverified runtime must
+    /// not be offered for generation.
+    case checking(executablePath: String)
 
     public var isReady: Bool {
         if case .ready = self { return true }
@@ -154,6 +158,8 @@ public enum LTX2MLXRuntimeStatus: Equatable, Sendable {
             return "Runtime update required (v\(curr) -> v\(req), missing: \(missing.joined(separator: ", ")))"
         case .broken(let reason):
             return "Runtime issue: \(reason)"
+        case .checking:
+            return "Checking runtime…"
         }
     }
 }
@@ -169,10 +175,17 @@ public final class LTX2MLXRuntimeManager: ObservableObject, @unchecked Sendable 
 
     private let fileManager: FileManager
     private let userDefaults: UserDefaults
+    private let probeCache: LTX2MLXCapabilityProbeCache
 
-    public init(fileManager: FileManager = .default, userDefaults: UserDefaults = .standard) {
+    public init(
+        fileManager: FileManager = .default,
+        userDefaults: UserDefaults = .standard,
+        probeTimeout: TimeInterval? = nil
+    ) {
         self.fileManager = fileManager
         self.userDefaults = userDefaults
+        self.probeCache = LTX2MLXCapabilityProbeCache(
+            timeout: probeTimeout ?? LTX2MLXCapabilityProbeCache.defaultTimeout)
         // Fast, non-probing initial guess (no subprocess launch during app
         // init); refreshStatus()/evaluateStatus() do the real capability
         // probe. Priority must match evaluateStatus(): an explicit Advanced
@@ -191,6 +204,16 @@ public final class LTX2MLXRuntimeManager: ObservableObject, @unchecked Sendable 
                 self.status = .notInstalled
             }
         }
+        probeCache.onProbeCompleted = { [weak self] in
+            DispatchQueue.main.async { self?.publishProbedStatus() }
+        }
+    }
+
+    /// Called on the main thread when a background probe finishes. The probe
+    /// result is cached by then, so this re-evaluation does not probe again.
+    private func publishProbedStatus() {
+        if case .installing = status { return }
+        status = evaluateStatus()
     }
 
     private static func nonEmptyValue(_ value: String?) -> String? {
@@ -241,9 +264,15 @@ public final class LTX2MLXRuntimeManager: ObservableObject, @unchecked Sendable 
 
     // MARK: - Status & Probing
 
-    /// Refreshes the cached runtime status synchronously based on file and capability checks.
+    /// Re-evaluates and publishes the runtime status.
+    ///
+    /// Never runs or waits on a capability probe on the main thread: there, an
+    /// unverified runtime reports `.checking`, the probe runs in the
+    /// background, and the verified status is published when it finishes.
+    /// `forceProbe` discards cached probe results first (explicit Refresh).
     @discardableResult
-    public func refreshStatus() -> LTX2MLXRuntimeStatus {
+    public func refreshStatus(forceProbe: Bool = false) -> LTX2MLXRuntimeStatus {
+        if forceProbe { invalidateCapabilityCache() }
         let newStatus = evaluateStatus()
         DispatchQueue.main.async { [weak self] in
             self?.status = newStatus
@@ -286,7 +315,21 @@ public final class LTX2MLXRuntimeManager: ObservableObject, @unchecked Sendable 
                 manifest = decoded
             }
 
-            let probedManifest = probeCapabilities(executablePath: managedExec, fallbackManifest: manifest)
+            let probedManifest: LTX2MLXRuntimeManifest
+            switch capabilityProbe(executablePath: managedExec) {
+            case .unprobeable:
+                probedManifest = manifest ?? LTX2MLXRuntimeManifest()
+            case .pending:
+                return .checking(executablePath: managedExec)
+            case .failed(let reason):
+                // Fail closed: the on-disk manifest is what the probe exists
+                // to verify, so it is never trusted in place of a failed probe.
+                return .broken(reason: "Could not verify the runtime (\(reason)).")
+            case .capabilities(let caps):
+                var verified = manifest ?? LTX2MLXRuntimeManifest()
+                verified.capabilities = caps
+                probedManifest = verified
+            }
             if probedManifest.isCompatible {
                 return .ready(executablePath: managedExec, manifest: probedManifest)
             }
@@ -315,7 +358,17 @@ public final class LTX2MLXRuntimeManager: ObservableObject, @unchecked Sendable 
         guard fileManager.isExecutableFile(atPath: path) else {
             return .broken(reason: "Configured override file is not executable: \(path)")
         }
-        let probe = probeCapabilities(executablePath: path)
+        let probe: LTX2MLXRuntimeManifest
+        switch capabilityProbe(executablePath: path) {
+        case .unprobeable:
+            probe = LTX2MLXRuntimeManifest()
+        case .pending:
+            return .checking(executablePath: path)
+        case .failed(let reason):
+            return .broken(reason: "Could not verify the runtime (\(reason)).")
+        case .capabilities(let caps):
+            probe = LTX2MLXRuntimeManifest(capabilities: caps)
+        }
         if probe.isCompatible {
             return .ready(executablePath: path, manifest: probe)
         } else if !probe.missingCapabilities.isEmpty {
@@ -331,18 +384,77 @@ public final class LTX2MLXRuntimeManager: ObservableObject, @unchecked Sendable 
         }
     }
 
-    /// Probes the capabilities of a given `ltx-2-mlx` executable via python subprocess.
-    public func probeCapabilities(executablePath: String, fallbackManifest: LTX2MLXRuntimeManifest? = nil) -> LTX2MLXRuntimeManifest {
-        let pythonURL = URL(fileURLWithPath: executablePath).deletingLastPathComponent().appendingPathComponent("python3")
-        let pythonPath = pythonURL.path
-        guard fileManager.isExecutableFile(atPath: pythonPath) else {
-            // If executable is a standalone stub or script without adjacent python3,
-            // return fallbackManifest or standard compatible manifest for testing harness
-            return fallbackManifest ?? LTX2MLXRuntimeManifest()
-        }
+    /// Outcome of looking up a runtime's capabilities.
+    enum CapabilityProbeResult: Equatable {
+        /// No `python3` next to the executable (a standalone stub/script):
+        /// there is nothing to probe, callers keep their existing fallback.
+        case unprobeable
+        /// Not verified yet; a background probe is running. Main thread only.
+        case pending
+        case failed(String)
+        case capabilities([String])
+    }
 
-        // Run inspection script
-        let script = """
+    /// The single entry point to capability probing.
+    ///
+    /// On the main thread this NEVER launches or waits on a process: it answers
+    /// from the cache, or starts a background probe (at most one per runtime
+    /// identity) and returns `.pending`. A synchronous `waitUntilExit()` here
+    /// spun a nested run loop inside SwiftUI's view update and crashed the app.
+    /// Off the main thread it answers from the cache or waits — bounded by the
+    /// probe timeout — for the one in-flight probe.
+    func capabilityProbe(executablePath: String) -> CapabilityProbeResult {
+        let pythonPath = URL(fileURLWithPath: executablePath)
+            .deletingLastPathComponent().appendingPathComponent("python3").path
+        guard fileManager.isExecutableFile(atPath: pythonPath) else { return .unprobeable }
+        let key = LTX2MLXCapabilityProbeCache.Key(
+            executablePath: executablePath, pythonPath: pythonPath, fileManager: fileManager)
+
+        let outcome: LTX2MLXCapabilityProbeCache.Outcome
+        if Thread.isMainThread {
+            let cached = probeCache.lookup(key)
+            if cached.outcome == nil || cached.isStale {
+                probeCache.startProbeIfNeeded(key, script: Self.capabilityProbeScript)
+            }
+            guard let known = cached.outcome else { return .pending }
+            outcome = known
+        } else {
+            outcome = probeCache.outcome(for: key, script: Self.capabilityProbeScript)
+        }
+        switch outcome {
+        case .capabilities(let caps): return .capabilities(caps)
+        case .failed(let reason): return .failed(reason)
+        }
+    }
+
+    /// Discards cached probe results so the next status evaluation probes
+    /// again. Used by explicit Refresh and after installing/updating.
+    public func invalidateCapabilityCache() {
+        probeCache.invalidate()
+    }
+
+    /// Test/debug instrumentation.
+    var capabilityProbeCache: LTX2MLXCapabilityProbeCache { probeCache }
+
+    /// Probes the capabilities of a given `ltx-2-mlx` executable.
+    ///
+    /// Fails closed: a probe that could not run, failed, timed out or has not
+    /// finished yet reports no capabilities (never the fallback manifest's).
+    public func probeCapabilities(executablePath: String, fallbackManifest: LTX2MLXRuntimeManifest? = nil) -> LTX2MLXRuntimeManifest {
+        var manifest = fallbackManifest ?? LTX2MLXRuntimeManifest()
+        switch capabilityProbe(executablePath: executablePath) {
+        case .unprobeable:
+            // A standalone stub or script without adjacent python3 (test harness).
+            return manifest
+        case .capabilities(let caps):
+            manifest.capabilities = caps
+        case .pending, .failed:
+            manifest.capabilities = []
+        }
+        return manifest
+    }
+
+    static let capabilityProbeScript = """
         import sys, json
         caps = []
         try:
@@ -396,34 +508,6 @@ public final class LTX2MLXRuntimeManager: ObservableObject, @unchecked Sendable 
 
         print(json.dumps({'capabilities': caps}))
         """
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: pythonPath)
-        process.arguments = ["-c", script]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-
-            if process.terminationStatus == 0 {
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let caps = json["capabilities"] as? [String] {
-                    var m = fallbackManifest ?? LTX2MLXRuntimeManifest()
-                    m.capabilities = caps
-                    return m
-                }
-            }
-        } catch {
-            // Probe failed to execute
-        }
-
-        return fallbackManifest ?? LTX2MLXRuntimeManifest(capabilities: [])
-    }
 
     // MARK: - Installation & Updates
 
@@ -562,8 +646,10 @@ public final class LTX2MLXRuntimeManager: ObservableObject, @unchecked Sendable 
         let manifestData = try encoder.encode(manifest)
         try manifestData.write(to: manifestURL)
 
-        // 6. Capability verification
+        // 6. Capability verification — against the runtime just installed,
+        // never a result cached for the previous one.
         progressHandler(0.95, "Verifying runtime capabilities…")
+        invalidateCapabilityCache()
         let probed = probeCapabilities(executablePath: managedExecutableURL.path, fallbackManifest: manifest)
         guard probed.isCompatible else {
             let errorMsg = "Installed runtime failed capability verification: missing \(probed.missingCapabilities.joined(separator: ", "))"
@@ -593,5 +679,233 @@ public final class LTX2MLXRuntimeManager: ObservableObject, @unchecked Sendable 
             let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             throw LTXError.generationFailed("Subprocess \(URL(fileURLWithPath: executable).lastPathComponent) failed: \(err)")
         }
+    }
+}
+
+// MARK: - Capability probe cache
+
+/// Caches `ltx-2-mlx` capability probe results and owns the probe process.
+///
+/// A probe launches the runtime's Python and waits for it, so it runs only on
+/// a background queue. Guarantees:
+///  - at most one probe process per runtime identity at a time (in-flight dedup);
+///  - a result is reused until the runtime identity changes or the cache is
+///    invalidated (explicit Refresh, runtime install/update);
+///  - every probe is bounded by `timeout`, after which the process is killed;
+///  - a failure is reused for `failureRetryInterval`, so a broken runtime
+///    cannot turn a redraw loop into a process-spawn loop, then re-probed.
+final class LTX2MLXCapabilityProbeCache: @unchecked Sendable {
+    /// A healthy probe finishes in well under a second (0.1–0.2 s measured
+    /// on a warm managed runtime); this only has to cover a cold first import.
+    static let defaultTimeout: TimeInterval = 20
+    static let failureRetryInterval: TimeInterval = 30
+
+    /// Which on-disk runtime a probe result belongs to. The stamps change when
+    /// the venv is recreated (Install / Update / Repair) or the executable is
+    /// replaced, so a changed runtime is never answered from a stale entry.
+    /// Edits inside an editable developer source checkout do not touch these
+    /// files; use Refresh after such edits.
+    struct Key: Hashable, Sendable {
+        let executablePath: String
+        let pythonPath: String
+        let executableStamp: FileStamp?
+        let pythonStamp: FileStamp?
+
+        init(executablePath: String, pythonPath: String, fileManager: FileManager) {
+            self.executablePath = executablePath
+            self.pythonPath = pythonPath
+            self.executableStamp = FileStamp(path: executablePath, fileManager: fileManager)
+            self.pythonStamp = FileStamp(path: pythonPath, fileManager: fileManager)
+        }
+    }
+
+    /// Identity of one file. `attributesOfItem` does not follow symlinks, which
+    /// is what we want: a venv's `python3` is a symlink recreated with the venv.
+    struct FileStamp: Hashable, Sendable {
+        let fileNumber: UInt64
+        let size: UInt64
+        let modified: TimeInterval
+
+        init?(path: String, fileManager: FileManager) {
+            guard let attributes = try? fileManager.attributesOfItem(atPath: path) else { return nil }
+            fileNumber = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
+            size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+            modified = (attributes[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0
+        }
+    }
+
+    enum Outcome: Equatable, Sendable {
+        case capabilities([String])
+        case failed(String)
+    }
+
+    private final class InFlight {
+        let group = DispatchGroup()
+        let generation: Int
+        var outcome: Outcome?
+
+        init(generation: Int) {
+            self.generation = generation
+            group.enter()
+        }
+    }
+
+    private struct Entry {
+        let outcome: Outcome
+        let completedAt: Date
+    }
+
+    private final class LockedData: @unchecked Sendable {
+        private let lock = NSLock()
+        private var data = Data()
+        func set(_ value: Data) { lock.lock(); data = value; lock.unlock() }
+        func get() -> Data { lock.lock(); defer { lock.unlock() }; return data }
+    }
+
+    let timeout: TimeInterval
+    var onProbeCompleted: (@Sendable () -> Void)?
+
+    private let lock = NSLock()
+    private var entries: [Key: Entry] = [:]
+    private var inFlight: [Key: InFlight] = [:]
+    private var generation = 0
+    private var launches = 0
+    private var mainThreadLaunches = 0
+    private let queue = DispatchQueue(label: "LTX2MLXCapabilityProbe", qos: .utility, attributes: .concurrent)
+
+    init(timeout: TimeInterval = defaultTimeout) {
+        self.timeout = timeout
+    }
+
+    /// Probe processes launched so far.
+    var launchCount: Int { lock.lock(); defer { lock.unlock() }; return launches }
+    /// Probe launches that happened on the main thread. Must stay 0.
+    var mainThreadLaunchCount: Int { lock.lock(); defer { lock.unlock() }; return mainThreadLaunches }
+
+    /// Non-blocking cache read. `isStale` marks a failure old enough to retry.
+    func lookup(_ key: Key, now: Date = Date()) -> (outcome: Outcome?, isStale: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        guard let entry = entries[key] else { return (nil, false) }
+        if case .failed = entry.outcome {
+            return (entry.outcome, now.timeIntervalSince(entry.completedAt) >= Self.failureRetryInterval)
+        }
+        return (entry.outcome, false)
+    }
+
+    /// Non-blocking: starts a background probe unless one is already running for `key`.
+    func startProbeIfNeeded(_ key: Key, script: String) {
+        _ = beginOrJoin(key, script: script)
+    }
+
+    /// Blocking read for background callers: the cached result, or the result
+    /// of the one in-flight probe for `key`. Never call on the main thread.
+    func outcome(for key: Key, script: String) -> Outcome {
+        let cached = lookup(key)
+        if let known = cached.outcome, !cached.isStale { return known }
+        let flight = beginOrJoin(key, script: script)
+        // The probe itself is bounded by `timeout` plus the kill grace below.
+        guard flight.group.wait(timeout: .now() + timeout + 10) == .success else {
+            return .failed("the runtime check did not finish")
+        }
+        lock.lock(); defer { lock.unlock() }
+        return flight.outcome ?? .failed("the runtime check did not finish")
+    }
+
+    func invalidate() {
+        lock.lock()
+        generation += 1
+        entries.removeAll()
+        // Running probes finish on their own but can no longer store a result
+        // or absorb a new request: the next request starts a fresh probe.
+        inFlight.removeAll()
+        lock.unlock()
+    }
+
+    private func beginOrJoin(_ key: Key, script: String) -> InFlight {
+        lock.lock()
+        if let existing = inFlight[key] {
+            lock.unlock()
+            return existing
+        }
+        let flight = InFlight(generation: generation)
+        inFlight[key] = flight
+        lock.unlock()
+
+        queue.async { [self] in
+            let result = runProbeProcess(pythonPath: key.pythonPath, script: script)
+            lock.lock()
+            flight.outcome = result
+            if flight.generation == generation {
+                entries[key] = Entry(outcome: result, completedAt: Date())
+            }
+            if inFlight[key] === flight { inFlight[key] = nil }
+            let completion = onProbeCompleted
+            lock.unlock()
+            flight.group.leave()
+            completion?()
+        }
+        return flight
+    }
+
+    private func runProbeProcess(pythonPath: String, script: String) -> Outcome {
+        lock.lock()
+        launches += 1
+        let launchNumber = launches
+        let onMain = Thread.isMainThread
+        if onMain { mainThreadLaunches += 1 }
+        lock.unlock()
+        #if DEBUG
+        print("[LTX2MLXRuntime] capability probe #\(launchNumber) launched (main thread: \(onMain))")
+        if onMain { print("[LTX2MLXRuntime] WARNING: capability probe launched on the main thread") }
+        #endif
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: pythonPath)
+        process.arguments = ["-c", script]
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        process.standardInput = FileHandle.nullDevice
+
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+        do {
+            try process.run()
+        } catch {
+            return .failed("the runtime's Python could not be started")
+        }
+
+        // Drain both pipes while the process runs: a full pipe buffer would
+        // block the child, and the wait below would then only end at the timeout.
+        let output = LockedData()
+        let reads = DispatchGroup()
+        reads.enter()
+        queue.async {
+            output.set(stdout.fileHandleForReading.readDataToEndOfFile())
+            reads.leave()
+        }
+        queue.async {
+            _ = stderr.fileHandleForReading.readDataToEndOfFile()
+        }
+
+        guard exited.wait(timeout: .now() + timeout) == .success else {
+            process.terminate()
+            if exited.wait(timeout: .now() + 2) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exited.wait(timeout: .now() + 2)
+            }
+            return .failed("the runtime check timed out after \(Int(timeout)) s")
+        }
+        _ = reads.wait(timeout: .now() + 5)
+
+        guard process.terminationReason == .exit, process.terminationStatus == 0 else {
+            return .failed("the runtime check exited with status \(process.terminationStatus)")
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: output.get()) as? [String: Any],
+              let caps = json["capabilities"] as? [String] else {
+            return .failed("the runtime check returned unreadable output")
+        }
+        return .capabilities(caps)
     }
 }

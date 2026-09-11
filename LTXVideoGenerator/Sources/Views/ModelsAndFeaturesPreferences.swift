@@ -68,6 +68,7 @@ struct ModelsAndFeaturesPreferences: View {
                 }
 
                 Button("Refresh Model Status") {
+                    LTX2MLXRuntimeManager.shared.refreshStatus(forceProbe: true)
                     Task { await readinessStore.refresh() }
                 }
                 .disabled(readinessStore.isRefreshing)
@@ -893,6 +894,11 @@ struct LTX2MLXRuntimePreferenceView: View {
                         .foregroundStyle(.red)
                     Text("Runtime: Issue Detected")
                         .font(.headline)
+                case .checking:
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Runtime: Checking…")
+                        .font(.headline)
                 }
 
                 Spacer()
@@ -916,7 +922,7 @@ struct LTX2MLXRuntimePreferenceView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(isInstalling)
-                case .ready, .installing:
+                case .ready, .installing, .checking:
                     EmptyView()
                 }
             }

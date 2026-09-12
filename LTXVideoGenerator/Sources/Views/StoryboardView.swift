@@ -463,9 +463,11 @@ private struct NewStoryboardSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(mode == .hybrid ? "New Auto Movie" : "New Storyboard")
-                .font(.headline)
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(mode == .hybrid ? "New Auto Movie" : "New Storyboard")
+                        .font(.headline)
             TextField("Title", text: $title)
                 .textFieldStyle(.roundedBorder)
                 .disabled(isCreating)
@@ -699,7 +701,10 @@ private struct NewStoryboardSheet: View {
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
-
+                }
+                .padding(20)
+            }
+            Divider()
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
@@ -755,9 +760,10 @@ private struct NewStoryboardSheet: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(brief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isCreating)
             }
+            .padding(20)
         }
-        .padding(20)
         .frame(width: 460)
+        .frame(maxHeight: 700)
         .task { await refreshDirectorStatus() }
         .onChange(of: directorModeRaw) { _, _ in
             Task { await refreshDirectorStatus() }

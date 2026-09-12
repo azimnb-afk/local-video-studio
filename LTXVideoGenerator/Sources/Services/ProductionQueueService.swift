@@ -391,8 +391,17 @@ final class ProductionQueueService: ObservableObject {
             // failed ProductionJob instead of reporting a missing video as a
             // successful queue completion.
             isAwaitingCompletion = false
+            // The renderer publishes its queue and each run's settlement on two
+            // separate subscriptions. This branch runs from the queue one and
+            // reads live state, so when the LAST run finishes it can observe the
+            // drained queue while that run's settlement is still in flight —
+            // and the settlement is dropped afterwards because the job is no
+            // longer active. Hand it to the close-out so a finished run is
+            // never recorded as interrupted.
             closeOutUnsettledRuns(
-                for: job, failureReason: generationService.error?.localizedDescription)
+                for: job,
+                pendingSettlement: generationService.lastRunSettlement,
+                failureReason: generationService.error?.localizedDescription)
             if let error = generationService.error {
                 coordinator.markFailed(jobID: job.id, reason: error.localizedDescription)
             } else {
@@ -727,22 +736,18 @@ final class ProductionQueueService: ObservableObject {
     /// Deliberately does **not** consult History: a completed run whose History
     /// write was lost to a crash must still count as completed, and a user
     /// deleting History must not cause finished work to be rendered again.
-    private func closeOutUnsettledRuns(for job: ProductionJob, failureReason: String?) {
-        let requests = job.snapshot.pendingRequests
-        guard !requests.isEmpty else { return }
-        let alreadyRecorded = Set(
-            (coordinator.job(id: job.id)?.snapshot.runOutcomes ?? []).map(\.runID))
-        let missing = requests
-            .filter { !alreadyRecorded.contains($0.id) }
-            .map { request in
-                RunOutcomeRecord(
-                    runID: request.id,
-                    outcome: failureReason == nil ? .interrupted : .failed,
-                    attemptNumber: request.attemptNumber ?? 1,
-                    failureReason: failureReason)
-            }
-        guard !missing.isEmpty else { return }
-        coordinator.recordRunOutcomes(jobID: job.id, outcomes: missing)
+    private func closeOutUnsettledRuns(
+        for job: ProductionJob,
+        pendingSettlement: RunOutcomeRecord?,
+        failureReason: String?
+    ) {
+        let outcomes = TerminalRunOutcomeResolver.resolve(
+            requests: job.snapshot.pendingRequests,
+            recorded: coordinator.job(id: job.id)?.snapshot.runOutcomes ?? [],
+            pendingSettlement: pendingSettlement,
+            failureReason: failureReason)
+        guard !outcomes.isEmpty else { return }
+        coordinator.recordRunOutcomes(jobID: job.id, outcomes: outcomes)
     }
 
     private func runOutcome(for projectID: UUID) -> FilmRunEvent.Kind? {
@@ -777,5 +782,49 @@ final class ProductionQueueService: ObservableObject {
         jobs = coordinator.jobs
         activeJobID = coordinator.activeJobID
         isPaused = coordinator.isPaused
+    }
+}
+
+/// Decides what every logical run of a terminal Generate/One Shot job did.
+///
+/// Execution truth is the run's settlement; History is provenance and is never
+/// consulted here. A run that never received a terminal settlement is closed
+/// out (interrupted, or failed when the job failed), but a settlement that the
+/// renderer already produced and that has not been recorded yet is adopted
+/// first: the queue subscription can reach this point before the settlement
+/// subscription delivers, which previously recorded a finished run as
+/// interrupted and then dropped its settlement.
+///
+/// A settlement is adopted only when it belongs to one of this job's runs, that
+/// run has no outcome yet, and it is for the run's current attempt — so a stale
+/// settlement from an earlier attempt, a duplicate, or one from another run
+/// cannot resurrect or overwrite anything.
+enum TerminalRunOutcomeResolver {
+    static func resolve(
+        requests: [GenerationRequest],
+        recorded: [RunOutcomeRecord],
+        pendingSettlement: RunOutcomeRecord?,
+        failureReason: String?
+    ) -> [RunOutcomeRecord] {
+        guard !requests.isEmpty else { return [] }
+        var settled = Set(recorded.map(\.runID))
+        var outcomes: [RunOutcomeRecord] = []
+
+        if let settlement = pendingSettlement,
+           !settled.contains(settlement.runID),
+           let request = requests.first(where: { $0.id == settlement.runID }),
+           settlement.attemptNumber == (request.attemptNumber ?? 1) {
+            outcomes.append(settlement)
+            settled.insert(settlement.runID)
+        }
+
+        for request in requests where !settled.contains(request.id) {
+            outcomes.append(RunOutcomeRecord(
+                runID: request.id,
+                outcome: failureReason == nil ? .interrupted : .failed,
+                attemptNumber: request.attemptNumber ?? 1,
+                failureReason: failureReason))
+        }
+        return outcomes
     }
 }

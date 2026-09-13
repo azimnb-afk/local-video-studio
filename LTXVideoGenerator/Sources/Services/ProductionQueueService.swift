@@ -480,7 +480,10 @@ final class ProductionQueueService: ObservableObject {
             } else {
                 coordinator.markFailed(
                     jobID: job.id,
-                    reason: "One or more works did not finish. Retry to resume the unfinished ones.")
+                    reason: RunFailureSummary.reason(
+                        shotStates: updated.flatMap(\.shotStates),
+                        fallback: "One or more works did not finish. "
+                            + "Retry to resume the unfinished ones."))
             }
             return
         }
@@ -504,14 +507,15 @@ final class ProductionQueueService: ObservableObject {
             guard let request = MovieRunRequestBuilder.makeRequest(
                 run: runs[dispatch.runIndex], shotID: dispatch.shotID, takeID: takeID,
                 parameters: storyboardParameters(for: job)) else {
+                let refusal = RunDispatchRefusal.classify(
+                    run: runs[dispatch.runIndex], shotID: dispatch.shotID)
                 var blocked = runs
                 blocked[dispatch.runIndex].update(dispatch.shotID) {
-                    $0.state = .dependencyBlocked
-                    $0.failureReason = $0.failureReason
-                        ?? "This shot's starting frame is unavailable, so it was not generated."
+                    $0.state = refusal.shotState
+                    $0.failureReason = refusal.message
                 }
                 coordinator.updateMovieRuns(jobID: job.id, runs: blocked)
-                return .failed("A shot's starting frame is unavailable.")
+                return .failed(refusal.message)
             }
             runs[dispatch.runIndex].update(dispatch.shotID) {
                 $0.state = .running
@@ -655,7 +659,10 @@ final class ProductionQueueService: ObservableObject {
         } else {
             coordinator.markFailed(
                 jobID: jobID,
-                reason: "One or more works did not finish. Retry to resume the unfinished ones.")
+                reason: RunFailureSummary.reason(
+                    shotStates: runs.flatMap(\.shotStates),
+                    fallback: "One or more works did not finish. "
+                        + "Retry to resume the unfinished ones."))
         }
     }
 
@@ -682,17 +689,19 @@ final class ProductionQueueService: ObservableObject {
         guard let request = StoryboardRunRequestBuilder.makeRequest(
             run: runs[dispatch.runIndex], shotID: dispatch.shotID, takeID: takeID,
             parameters: storyboardParameters(for: job)) else {
-            // Fail closed: most often a continuation whose frozen starting frame
-            // is missing or changed. Never fall back to the video, and never
-            // quietly render this shot without its conditioning.
+            // Fail closed: either a continuation whose frozen starting frame is
+            // missing or changed, or an explicit start image the user chose that
+            // is no longer what was queued. Never fall back to the video, and
+            // never quietly render this shot without its conditioning.
+            let refusal = RunDispatchRefusal.classify(
+                run: runs[dispatch.runIndex], shotID: dispatch.shotID)
             var blocked = runs
             blocked[dispatch.runIndex].update(dispatch.shotID) {
-                $0.state = .dependencyBlocked
-                $0.failureReason = $0.failureReason
-                    ?? "This shot's starting frame is unavailable, so it was not generated."
+                $0.state = refusal.shotState
+                $0.failureReason = refusal.message
             }
             coordinator.updateStoryboardRuns(jobID: job.id, runs: blocked)
-            return .failed("A shot's starting frame is unavailable.")
+            return .failed(refusal.message)
         }
         runs[dispatch.runIndex].update(dispatch.shotID) {
             $0.state = .running

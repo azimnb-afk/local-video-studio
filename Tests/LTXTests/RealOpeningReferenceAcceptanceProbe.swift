@@ -246,6 +246,32 @@ func runRealOpeningReferenceAcceptanceProbe(_ t: TestKit) {
             parameters: scratchParams, resolveAsset: scratchResolve), nil,
             "MUTATED_FILE_FAIL_CLOSED")
 
+        // Failing closed is only useful if the user is told why. Check the
+        // reason the queue would actually show, on the real project's own
+        // Opening Reference filename.
+        let refusal = RunDispatchRefusal.classify(
+            run: scratchRun, shotID: scratchShot.id, resolveAsset: scratchResolve)
+        let realName = URL(fileURLWithPath: absolute).lastPathComponent
+        t.checkEqual(refusal.shotState, ShotRunState.State.failed,
+                     "MUTATED_FILE_USER_VISIBLE the shot fails explicitly")
+        t.check(refusal.message.contains("変更されています"),
+                "MUTATED_FILE_USER_VISIBLE and says the image changed")
+        t.check(refusal.message.contains(realName),
+                "MUTATED_FILE_USER_VISIBLE naming the user's own file")
+        t.check(!refusal.message.contains("/"),
+                "MUTATED_FILE_USER_VISIBLE without leaking the library path")
+        print("🎬 [PROBE] queue would show: \(refusal.message)")
+
+        // And a deleted one is worded differently from a changed one.
+        try? FileManager.default.removeItem(at: scratchAsset)
+        let deletedRefusal = RunDispatchRefusal.classify(
+            run: scratchRun, shotID: scratchShot.id, resolveAsset: scratchResolve)
+        t.check(deletedRefusal.message.contains("見つかりません"),
+                "MISSING_FILE_USER_VISIBLE a deleted image says it cannot be found")
+        t.check(deletedRefusal.message != refusal.message,
+                "MISSING_FILE_USER_VISIBLE distinct from the changed-image wording")
+        print("🎬 [PROBE] deleted would show: \(deletedRefusal.message)")
+
         // And the user's real asset is untouched by all of the above.
         let stillOriginal = FileManager.default.contents(atPath: absolute)
             .map { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }

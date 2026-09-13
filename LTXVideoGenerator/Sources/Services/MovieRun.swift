@@ -434,11 +434,156 @@ enum MovieRunSubmission {
     }
 }
 
+/// Why a frozen explicit start image cannot be used for execution.
+///
+/// The request builders return `nil` for several different reasons — nothing
+/// dispatchable, a continuation whose frame is gone, an unusable start image —
+/// and the scheduler cannot tell them apart from `nil` alone. It used to
+/// describe every one of them as "this shot's starting frame is unavailable",
+/// which is continuation vocabulary: a user whose *own chosen picture* had been
+/// moved or edited was told about a frame they had never seen.
+///
+/// Deliberately shaped like `H3EndingImageValidationError`, which already
+/// solved this for the Ending Image: same two real cases, same wording style,
+/// and the file is named by its last path component only — never the absolute
+/// path, which says nothing to the user and leaks the library layout.
+enum FrozenStartImageFailure: Equatable {
+    /// The frozen path no longer resolves to anything inside the project.
+    case unresolvable
+    /// Resolved, but nothing is there to read any more.
+    case missing(String)
+    /// Still there, but not the bytes that were frozen.
+    case changed(String)
+
+    var message: String {
+        switch self {
+        case .unresolvable:
+            return "開始画像の保存場所が見つかりません。"
+                + "プロジェクトのファイルが移動された可能性があります。選び直してください。"
+        case .missing(let name):
+            return "開始画像が見つかりません（\(name)）。"
+                + "キュー追加後に移動または削除された可能性があります。選び直してください。"
+        case .changed(let name):
+            return "開始画像がキュー追加後に変更されています（\(name)）。"
+                + "意図しない画像で生成しないよう、生成を中止しました。再度キューに追加してください。"
+        }
+    }
+}
+
+/// Turns "the request builder returned nil" into something the user can act on.
+///
+/// `makeRequest` returns nil for more than one reason, and the scheduler used
+/// to flatten all of them into one sentence about a starting *frame*. Asking
+/// the shared verifier which of them actually applies costs one hash and lets
+/// the queue say whether the user's own picture went missing, was edited, or
+/// whether this was a continuation problem after all.
+struct RunDispatchRefusal: Equatable {
+    /// `failed` when the frozen input the user chose is invalid — that is not a
+    /// dependency problem and should not be described as one.
+    /// `dependencyBlocked` stays for the continuation case it was written for.
+    var shotState: ShotRunState.State
+    var message: String
+
+    static let continuationUnavailable = RunDispatchRefusal(
+        shotState: .dependencyBlocked,
+        message: "前のショットの最終フレームが見つからないため、このショットは生成されませんでした。")
+
+    private static func classify(
+        shot: FrozenShotPlan?,
+        projectID: UUID,
+        resolveAsset: (String, UUID) -> String?,
+        contentHash: (String) -> String?
+    ) -> RunDispatchRefusal {
+        guard let shot,
+              let failure = MovieRunRequestBuilder.verifyFrozenStartImage(
+                shot, projectID: projectID,
+                resolveAsset: resolveAsset, contentHash: contentHash)
+        else { return continuationUnavailable }
+        return RunDispatchRefusal(shotState: .failed, message: failure.message)
+    }
+
+    static func classify(
+        run: MovieRun,
+        shotID: UUID,
+        resolveAsset: (String, UUID) -> String? = {
+            MovieRunRequestBuilder.resolveFrozenAssetPath($0, projectID: $1)
+        },
+        contentHash: (String) -> String? = { H3EndingImageCapability.contentHash(ofFileAt: $0) }
+    ) -> RunDispatchRefusal {
+        classify(
+            shot: run.plan.shots.first { $0.id == shotID },
+            projectID: run.plan.sourceProjectID,
+            resolveAsset: resolveAsset, contentHash: contentHash)
+    }
+
+    static func classify(
+        run: StoryboardRun,
+        shotID: UUID,
+        resolveAsset: (String, UUID) -> String? = {
+            MovieRunRequestBuilder.resolveFrozenAssetPath($0, projectID: $1)
+        },
+        contentHash: (String) -> String? = { H3EndingImageCapability.contentHash(ofFileAt: $0) }
+    ) -> RunDispatchRefusal {
+        classify(
+            shot: run.plan.shots.first { $0.id == shotID },
+            projectID: run.plan.projectID,
+            resolveAsset: resolveAsset, contentHash: contentHash)
+    }
+}
+
+/// The reason a finished-but-unsuccessful job shows in the queue.
+///
+/// The scheduler only reports a dispatch refusal to the coordinator when the
+/// job *starts*; mid-run it discards the outcome, because one shot refusing is
+/// not a reason to tear down the other runs. That left the parent job saying
+/// only "one or more works did not finish" — true, and useless. The shots
+/// already recorded exactly what went wrong, so the summary reads it back
+/// rather than inventing a second explanation that could disagree.
+enum RunFailureSummary {
+
+    static func reason(shotStates: [ShotRunState], fallback: String) -> String {
+        // Distinct, order-preserving: three works failing the same way is one
+        // thing to tell the user, not three.
+        var seen = Set<String>()
+        let reasons = shotStates
+            .filter { $0.state == .failed || $0.state == .dependencyBlocked }
+            .compactMap(\.failureReason)
+            .filter { seen.insert($0).inserted }
+        guard let first = reasons.first else { return fallback }
+        return reasons.count == 1 ? first : first + "（ほか \(reasons.count - 1) 件）"
+    }
+}
+
 /// Builds the render request for one shot of one movie run.
 ///
 /// Reads only the frozen plan and the run's own state; the live project is
 /// never consulted.
 enum MovieRunRequestBuilder {
+
+    /// The single place that decides whether a frozen explicit start image may
+    /// be used, so the request builders and the scheduler can never disagree
+    /// about why a shot was refused.
+    ///
+    /// Returns nil when the image is fine — or when the shot does not start
+    /// from one at all, which is not a failure.
+    static func verifyFrozenStartImage(
+        _ shot: FrozenShotPlan,
+        projectID: UUID,
+        resolveAsset: (String, UUID) -> String? = { resolveFrozenAssetPath($0, projectID: $1) },
+        contentHash: (String) -> String? = { H3EndingImageCapability.contentHash(ofFileAt: $0) }
+    ) -> FrozenStartImageFailure? {
+        guard shot.startSource == .explicitImage else { return nil }
+        guard let relative = shot.explicitStartImageRelativePath,
+              let resolved = resolveAsset(relative, projectID) else { return .unresolvable }
+        let name = URL(fileURLWithPath: resolved).lastPathComponent
+        // A plan frozen before hashing existed made no promise about bytes, so
+        // there is nothing to break; it only has to still be readable.
+        guard let expected = shot.explicitStartImageContentHash else {
+            return contentHash(resolved) == nil ? .missing(name) : nil
+        }
+        guard let actual = contentHash(resolved) else { return .missing(name) }
+        return actual == expected ? nil : .changed(name)
+    }
 
     /// Turns a frozen project-relative asset path into one the renderer can
     /// actually open. The plan stores paths relative to the project (that is
@@ -490,13 +635,13 @@ enum MovieRunRequestBuilder {
             // quietly dropping to text-to-video, are both ways of ignoring what
             // the user chose. A plan frozen before hashing existed has no
             // promise to check and still renders.
-            // A missing file needs no separate check: the hasher reads the
-            // file, so it returns nil and the comparison fails. Unlike
-            // `verifyFrozenAudio`, which distinguishes the two cases to word an
-            // error, this path only decides whether to build a request.
-            if let expected = shot.explicitStartImageContentHash {
-                guard contentHash(resolved) == expected else { return nil }
-            }
+            //
+            // Routed through the shared verifier so the reason the scheduler
+            // reports to the user is, by construction, the reason this request
+            // was refused.
+            guard verifyFrozenStartImage(
+                shot, projectID: run.plan.sourceProjectID,
+                resolveAsset: resolveAsset, contentHash: contentHash) == nil else { return nil }
             sourceImagePath = resolved
         case .none:
             sourceImagePath = nil

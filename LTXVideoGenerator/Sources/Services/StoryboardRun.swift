@@ -686,9 +686,11 @@ enum StoryboardRunRequestBuilder {
             // has no promise to check and still renders.
             guard let relative = shot.explicitStartImageRelativePath,
                   let resolved = resolveAsset(relative, run.plan.projectID) else { return nil }
-            if let expected = shot.explicitStartImageContentHash {
-                guard contentHash(resolved) == expected else { return nil }
-            }
+            // Same shared verifier as Auto Movie, so both surfaces refuse for
+            // the same reasons and report the same wording.
+            guard MovieRunRequestBuilder.verifyFrozenStartImage(
+                shot, projectID: run.plan.projectID,
+                resolveAsset: resolveAsset, contentHash: contentHash) == nil else { return nil }
             sourceImagePath = resolved
         case .none:
             sourceImagePath = nil

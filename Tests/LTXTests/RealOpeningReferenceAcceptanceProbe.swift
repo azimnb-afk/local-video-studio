@@ -84,6 +84,7 @@ func runRealOpeningReferenceAcceptanceProbe(_ t: TestKit) {
             project: project,
             workCount: workCount,
             directorMode: "auto",
+            store: store,
             contentHash: { H3EndingImageCapability.contentHash(ofFileAt: $0) }) else {
             t.check(false, "REAL_COUNT3_JOB_BUILT")
             return
@@ -179,5 +180,75 @@ func runRealOpeningReferenceAcceptanceProbe(_ t: TestKit) {
         if !leaked.isEmpty {
             print("🎬 [PROBE] leaked appearance markers: \(leaked)")
         }
+
+        // ---------------------------------------------------------------
+        // The frozen content hash, on the real project.
+        // ---------------------------------------------------------------
+        let frozenHash = runs.first?.orderedShots.first?.explicitStartImageContentHash
+        t.check(frozenHash != nil, "REAL_PROJECT_HASH_NON_NIL")
+        t.checkEqual(frozenHash, referenceHash, "REAL_PROJECT_HASH_MATCHES_BYTES")
+        t.checkEqual(
+            Set(runs.compactMap { $0.orderedShots.first?.explicitStartImageContentHash }).count,
+            1, "REAL_COUNT3_HASH_SHARED")
+        print("🎬 [PROBE] frozen content hash=\(frozenHash ?? "nil")")
+
+        // ---------------------------------------------------------------
+        // Fail-closed, proven on a *copy*. The user's real asset is never
+        // mutated: the project is duplicated into scratch, and the copy's
+        // start image is edited after freezing.
+        // ---------------------------------------------------------------
+        let scratchRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OpeningRefProbe-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: scratchRoot) }
+
+        let scratchStore = FilmProjectStore(projectsDirectory: scratchRoot)
+        guard let scratchAsset = scratchStore.managedProjectAssetURL(
+            projectID: project.id, relativePath: relativePath) else {
+            t.check(false, "MUTATED_FILE_FAIL_CLOSED")
+            return
+        }
+        try? FileManager.default.createDirectory(
+            at: scratchAsset.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? referenceData.write(to: scratchAsset)
+
+        func scratchResolve(_ path: String, _ projectID: UUID) -> String? {
+            MovieRunRequestBuilder.resolveFrozenAssetPath(
+                path, projectID: projectID, store: scratchStore)
+        }
+        let scratchParams = GenerationParameters(
+            numInferenceSteps: 15, guidanceScale: 3, width: 768, height: 512,
+            numFrames: 121, fps: 24, seed: nil, vaeTilingMode: "auto", imageStrength: 1)
+
+        guard let scratchJob = try? MovieRunSubmission.makeJob(
+            project: project, workCount: 1, directorMode: "auto", store: scratchStore,
+            contentHash: { H3EndingImageCapability.contentHash(ofFileAt: $0) }),
+              let scratchRun = scratchJob.snapshot.movieRuns.first,
+              let scratchShot = scratchRun.orderedShots.first else {
+            t.check(false, "MUTATED_FILE_FAIL_CLOSED")
+            return
+        }
+
+        t.check(MovieRunRequestBuilder.makeRequest(
+            run: scratchRun, shotID: scratchShot.id,
+            parameters: scratchParams, resolveAsset: scratchResolve) != nil,
+            "SCRATCH_COPY_RENDERS_BEFORE_MUTATION")
+
+        // Now edit the copy's bytes, exactly as a user editing the image while
+        // the work waits in the queue would.
+        var mutated = referenceData
+        mutated.append(contentsOf: Array("MUTATED".utf8))
+        try? mutated.write(to: scratchAsset)
+        let mutatedBytes = FileManager.default.contents(atPath: scratchAsset.path)
+        t.check(mutatedBytes != referenceData, "SCRATCH_COPY_ACTUALLY_MUTATED")
+
+        t.checkEqual(MovieRunRequestBuilder.makeRequest(
+            run: scratchRun, shotID: scratchShot.id,
+            parameters: scratchParams, resolveAsset: scratchResolve), nil,
+            "MUTATED_FILE_FAIL_CLOSED")
+
+        // And the user's real asset is untouched by all of the above.
+        let stillOriginal = FileManager.default.contents(atPath: absolute)
+            .map { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
+        t.checkEqual(stillOriginal, referenceHash, "USER_ASSET_UNMODIFIED")
     }
 }

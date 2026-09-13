@@ -304,6 +304,7 @@ enum FrozenMoviePlanBuilder {
     static func freeze(
         project: FilmProject,
         directorMode: String?,
+        store: FilmProjectStore = .shared,
         contentHash: (String) -> String? = { _ in nil }
     ) throws -> FrozenMoviePlan {
         let settings = project.settings
@@ -343,8 +344,20 @@ enum FrozenMoviePlanBuilder {
                 durationSeconds: shot.durationSeconds,
                 startSource: startSource,
                 explicitStartImageRelativePath: startSource == .explicitImage ? explicitPath : nil,
+                // Hash the bytes, which means resolving the managed asset
+                // first: the path frozen above is project-relative, and
+                // `FileManager.contents(atPath:)` cannot open one, so hashing
+                // it directly silently produced nil on every real job. Only
+                // the hash is taken from the resolved location — the stored
+                // path stays relative, because an absolute one would not
+                // survive a moved library. Same shape as
+                // `FrozenMovieAssemblySpec.freeze`.
                 explicitStartImageContentHash: startSource == .explicitImage
-                    ? explicitPath.flatMap(contentHash) : nil,
+                    ? explicitPath
+                        .flatMap { MovieRunRequestBuilder.resolveFrozenAssetPath(
+                            $0, projectID: project.id, store: store) }
+                        .flatMap(contentHash)
+                    : nil,
                 endingImagePath: nil,
                 endingImageContentHash: nil,
                 seed: 0,
@@ -379,10 +392,12 @@ enum MovieRunSubmission {
         workCount: Int,
         directorMode: String?,
         explicitSeed: Int? = nil,
+        store: FilmProjectStore = .shared,
         contentHash: (String) -> String? = { _ in nil }
     ) throws -> ProductionJob {
         let plan = try FrozenMoviePlanBuilder.freeze(
-            project: project, directorMode: directorMode, contentHash: contentHash)
+            project: project, directorMode: directorMode,
+            store: store, contentHash: contentHash)
         let batchID = UUID()
         let runs = MovieRunBuilder.build(
             plan: plan, count: workCount, batchID: batchID, explicitSeed: explicitSeed)
@@ -446,7 +461,8 @@ enum MovieRunRequestBuilder {
         shotID: UUID,
         takeID: UUID = UUID(),
         parameters: GenerationParameters,
-        resolveAsset: (String, UUID) -> String? = { resolveFrozenAssetPath($0, projectID: $1) }
+        resolveAsset: (String, UUID) -> String? = { resolveFrozenAssetPath($0, projectID: $1) },
+        contentHash: (String) -> String? = { H3EndingImageCapability.contentHash(ofFileAt: $0) }
     ) -> GenerationRequest? {
         guard let shot = run.plan.shots.first(where: { $0.id == shotID }),
               let state = run.state(of: shotID) else { return nil }
@@ -468,6 +484,19 @@ enum MovieRunRequestBuilder {
             // back to text-to-video behind the user's back.
             guard let relative = shot.explicitStartImageRelativePath,
                   let resolved = resolveAsset(relative, run.plan.sourceProjectID) else { return nil }
+            // The frozen hash is a promise about bytes, so it is checked before
+            // those bytes are used. A file deleted or edited while the work sat
+            // in the queue is refused outright — rendering different bytes, or
+            // quietly dropping to text-to-video, are both ways of ignoring what
+            // the user chose. A plan frozen before hashing existed has no
+            // promise to check and still renders.
+            // A missing file needs no separate check: the hasher reads the
+            // file, so it returns nil and the comparison fails. Unlike
+            // `verifyFrozenAudio`, which distinguishes the two cases to word an
+            // error, this path only decides whether to build a request.
+            if let expected = shot.explicitStartImageContentHash {
+                guard contentHash(resolved) == expected else { return nil }
+            }
             sourceImagePath = resolved
         case .none:
             sourceImagePath = nil

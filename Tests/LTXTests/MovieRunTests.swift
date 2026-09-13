@@ -771,6 +771,10 @@ func runMovieRunTests(_ t: TestKit) {
         func resolver(_ relative: String, _ projectID: UUID) -> String? {
             "/tmp/projects/\(projectID.uuidString)/\(relative)"
         }
+        // Hashing is injected for the same reason. These paths are fabricated,
+        // so the real hasher would read nothing and the frozen-bytes guard
+        // would correctly refuse; that guard has its own suite (MOVIEHASH).
+        func stubHash(_ path: String) -> String? { "hash-of-first-image" }
         let params = GenerationParameters(
             numInferenceSteps: 15, guidanceScale: 3, width: 512, height: 320,
             numFrames: 81, fps: 24, seed: nil, vaeTilingMode: "auto", imageStrength: 1)
@@ -789,7 +793,8 @@ func runMovieRunTests(_ t: TestKit) {
         t.checkEqual(shot1.explicitStartImageContentHash, "hash-of-first-image",
                      "AUTOREF_1 frozen by content, so a later edit is detectable")
         let request1 = MovieRunRequestBuilder.makeRequest(
-            run: run1, shotID: shot1.id, parameters: params, resolveAsset: resolver)
+            run: run1, shotID: shot1.id, parameters: params,
+            resolveAsset: resolver, contentHash: stubHash)
         t.checkEqual(request1?.sourceImagePath,
                      "/tmp/projects/\(project.id.uuidString)/\(openingPath)",
                      "AUTOREF_1 the backend request carries the resolved First Image")
@@ -810,7 +815,7 @@ func runMovieRunTests(_ t: TestKit) {
         let perRunSources = three.snapshot.movieRuns.map { run in
             MovieRunRequestBuilder.makeRequest(
                 run: run, shotID: run.plan.shots[0].id, parameters: params,
-                resolveAsset: resolver)?.sourceImagePath
+                resolveAsset: resolver, contentHash: stubHash)?.sourceImagePath
         }
         t.checkEqual(Set(perRunSources.compactMap { $0 }).count, 1,
                      "AUTOREF_2 and all three requests resolve to that one image")

@@ -21,22 +21,33 @@ import Foundation
 enum ContinuationPromptPolicy {
 
     enum Style: Equatable {
-        /// Full appearance description. Opening shots, cuts, one-shots, T2V.
+        /// Full appearance description. Text-to-video openings, cuts, one-shots —
+        /// the cases where the prompt is the only thing that says who is there.
         case descriptive
         /// Continuity statement plus explicit changes only.
         case changeFocused
+        /// The shot starts from a picture the user chose (an Opening Reference
+        /// or a shot-level Starting Image). Name who is on screen, but do not
+        /// restate their appearance: that is the same text-versus-picture fight
+        /// D-071/D-072 measured on CONTINUE shots, and the creative scene
+        /// instruction is what the user actually wrote.
+        case imageAnchored
     }
 
     /// The image the shot starts from decides the style, not the shot index:
-    /// a CONTINUE shot is exactly the case where a previous frame exists.
+    /// a CONTINUE shot is exactly the case where a previous frame exists — and
+    /// so is a shot that starts from a chosen image.
     ///
     /// `auto` stays descriptive. The run coordinator resolves it to continue or
     /// cut at generation time, and a prompt that assumed a source frame it does
     /// not get would be a continuation with nothing to continue from.
-    static func style(for mode: ShotContinuityMode?) -> Style {
+    static func style(
+        for mode: ShotContinuityMode?,
+        startsFromExplicitImage: Bool = false
+    ) -> Style {
         switch mode {
         case .continueFromPrevious: return .changeFocused
-        case .cut, .auto, .none: return .descriptive
+        case .cut, .auto, .none: return startsFromExplicitImage ? .imageAnchored : .descriptive
         }
     }
 

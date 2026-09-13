@@ -1797,6 +1797,9 @@ runH3DirectorEnhancerBoundaryTests(t)
 if CommandLine.arguments.contains("--probe-director-cancellation-acceptance") {
     runRealDirectorPlanningCancellationAcceptanceProbe(t)
 }
+if CommandLine.arguments.contains("--probe-opening-reference-acceptance") {
+    runRealOpeningReferenceAcceptanceProbe(t)
+}
 
 try? FileManager.default.removeItem(at: ltxTestsStorageRoot)
 t.finish()

@@ -728,4 +728,334 @@ func runMovieRunTests(_ t: TestKit) {
         t.check(old != nil, "BATCHMOVIE_6 a legacy snapshot still decodes")
         t.checkEqual(old?.batchCount, 1, "BATCHMOVIE_6 defaulting to one work")
     }
+
+    // MARK: Opening Reference (the Auto Movie "First / Starting Image")
+
+    // Reproduces the reported defect: an Auto Movie with a First Image and two
+    // Character References rendered Shot 1 as text-to-video. The legacy
+    // coordinator resolved the Opening Reference at generation time
+    // (`shotIndex == 0` -> `.openingReference`); the run-local plan froze the
+    // path for display but no shot ever started from it, so `startSource` was
+    // `.none` and the request carried no source image at all. Both count=1 and
+    // count=3 were affected because the loss happens at freeze, upstream of
+    // run expansion.
+    t.suite("Auto Movie — the explicit First Image reaches the request") {
+        let openingPath = "Assets/OpeningReference/opening-reference-FIRST.png"
+        let charID = UUID()
+        let ref1 = CharacterReferenceAsset(
+            id: UUID(), type: .characterSheet, label: "Sheet",
+            projectRelativePath: "Assets/Characters/\(charID.uuidString)/sheet.png")
+        let ref2 = CharacterReferenceAsset(
+            id: UUID(), type: .front, label: "Front",
+            projectRelativePath: "Assets/Characters/\(charID.uuidString)/front.png")
+
+        func makeProject(references: [CharacterReferenceAsset] = [ref1, ref2]) -> FilmProject {
+            var project = FilmProject(title: "Auto Ref")
+            project.workflowMode = "hybrid"
+            project.openingReferenceImage = OpeningReferenceImage(
+                projectRelativePath: openingPath, originalFilename: "first.png")
+            project.characterBible.characters.append(
+                BibleCharacter(id: charID, name: "Rena", referenceAssets: references))
+            project.shots = [
+                Shot(index: 0, title: "One", compiledPrompt: "opening scene"),
+                Shot(index: 1, title: "Two", compiledPrompt: "second scene"),
+            ]
+            project.shots[0].characterIDs = [charID]
+            project.shots[1].characterIDs = [charID]
+            project.shots[1].continuityMode = .continueFromPrevious
+            return project
+        }
+
+        // Resolution is injected so the assertion is about wiring, not about
+        // this machine's Application Support layout.
+        func resolver(_ relative: String, _ projectID: UUID) -> String? {
+            "/tmp/projects/\(projectID.uuidString)/\(relative)"
+        }
+        let params = GenerationParameters(
+            numInferenceSteps: 15, guidanceScale: 3, width: 512, height: 320,
+            numFrames: 81, fps: 24, seed: nil, vaeTilingMode: "auto", imageStrength: 1)
+
+        // AUTOREF_1 — count=1: Shot 1's request carries exactly the First Image.
+        let project = makeProject()
+        let one = try! MovieRunSubmission.makeJob(
+            project: project, workCount: 1, directorMode: "direct",
+            contentHash: { _ in "hash-of-first-image" })
+        let run1 = one.snapshot.movieRuns[0]
+        let shot1 = run1.plan.shots[0]
+        t.checkEqual(shot1.startSource, FrozenShotPlan.StartSource.explicitImage,
+                     "AUTOREF_1 Shot 1 starts from an explicit image, not text-to-video")
+        t.checkEqual(shot1.explicitStartImageRelativePath, openingPath,
+                     "AUTOREF_1 and that image is the Opening Reference the user chose")
+        t.checkEqual(shot1.explicitStartImageContentHash, "hash-of-first-image",
+                     "AUTOREF_1 frozen by content, so a later edit is detectable")
+        let request1 = MovieRunRequestBuilder.makeRequest(
+            run: run1, shotID: shot1.id, parameters: params, resolveAsset: resolver)
+        t.checkEqual(request1?.sourceImagePath,
+                     "/tmp/projects/\(project.id.uuidString)/\(openingPath)",
+                     "AUTOREF_1 the backend request carries the resolved First Image")
+
+        // AUTOREF_2 — count=3: every run starts from the same frozen image.
+        let three = try! MovieRunSubmission.makeJob(
+            project: project, workCount: 3, directorMode: "direct",
+            contentHash: { _ in "hash-of-first-image" })
+        t.checkEqual(three.snapshot.movieRuns.count, 3, "AUTOREF_2 three runs")
+        let firstImages = three.snapshot.movieRuns.map { $0.plan.shots[0].explicitStartImageRelativePath }
+        t.checkEqual(Set(firstImages.compactMap { $0 }).count, 1,
+                     "AUTOREF_2 all three runs share one frozen First Image")
+        t.checkEqual(firstImages.first ?? nil, openingPath,
+                     "AUTOREF_2 and it is the user's Opening Reference")
+        let hashes = three.snapshot.movieRuns.map { $0.plan.shots[0].explicitStartImageContentHash }
+        t.checkEqual(Set(hashes.compactMap { $0 }).count, 1,
+                     "AUTOREF_2 sharing one content hash — the same bytes, not just the same path")
+        let perRunSources = three.snapshot.movieRuns.map { run in
+            MovieRunRequestBuilder.makeRequest(
+                run: run, shotID: run.plan.shots[0].id, parameters: params,
+                resolveAsset: resolver)?.sourceImagePath
+        }
+        t.checkEqual(Set(perRunSources.compactMap { $0 }).count, 1,
+                     "AUTOREF_2 and all three requests resolve to that one image")
+        t.check(perRunSources.allSatisfy { $0 != nil },
+                "AUTOREF_2 no run falls back to text-to-video")
+
+        // AUTOREF_3 / AUTOREF_4 — a Character Reference is an identity input.
+        // It must never become the shot's starting source.
+        let refPaths = Set([ref1.projectRelativePath, ref2.projectRelativePath].compactMap { $0 })
+        t.check(!refPaths.contains(shot1.explicitStartImageRelativePath ?? ""),
+                "AUTOREF_3 Character Reference #1 did not replace the starting image")
+        let resolvedSource = request1?.sourceImagePath ?? ""
+        t.check(refPaths.allSatisfy { !resolvedSource.hasSuffix($0) },
+                "AUTOREF_4 Character Reference #2 did not replace it either")
+        t.checkEqual(shot1.characterIDs, [charID],
+                     "AUTOREF_3 the character is still attached to the shot")
+        let storedRefs = project.characterBible.character(id: charID)?.referenceAssets.count
+        t.checkEqual(storedRefs, 2, "AUTOREF_4 both references survive submission")
+
+        // AUTOREF_5 — reference ordering is irrelevant to the First Image.
+        let swapped = try! MovieRunSubmission.makeJob(
+            project: makeProject(references: [ref2, ref1]), workCount: 1,
+            directorMode: "direct", contentHash: { _ in "hash-of-first-image" })
+        t.checkEqual(swapped.snapshot.movieRuns[0].plan.shots[0].explicitStartImageRelativePath,
+                     openingPath,
+                     "AUTOREF_5 reversing the references does not change the First Image")
+
+        // AUTOREF_6 — the First Image survives persistence, so a restart (or a
+        // queue reload) still renders the movie the user submitted.
+        let decoded = try! JSONDecoder().decode(
+            ProductionJobSnapshot.self, from: try! JSONEncoder().encode(one.snapshot))
+        let decodedShot1 = decoded.movieRuns[0].plan.shots[0]
+        t.checkEqual(decodedShot1.startSource, FrozenShotPlan.StartSource.explicitImage,
+                     "AUTOREF_6 the start source survives encode/decode")
+        t.checkEqual(decodedShot1.explicitStartImageRelativePath, openingPath,
+                     "AUTOREF_6 as does the image itself")
+        t.checkEqual(decoded.openingReferenceRelativePath, openingPath,
+                     "AUTOREF_6 and the job-level provenance still agrees")
+
+        // CONTINUITY — the fix is scoped to Shot 1. A CONTINUE shot still
+        // continues from the previous shot's frame; the First Image is not
+        // forced onto every shot.
+        let shot2 = run1.plan.shots[1]
+        t.checkEqual(shot2.startSource, FrozenShotPlan.StartSource.previousShotOutput,
+                     "CONT_FIRSTIMAGE_1 Shot 2 still continues from Shot 1's output")
+        t.checkEqual(shot2.explicitStartImageRelativePath, nil,
+                     "CONT_FIRSTIMAGE_1 and the First Image did not leak onto it")
+
+        // A shot-level starting image still wins over the Opening Reference —
+        // the fix only fills the gap, it does not take precedence away.
+        var explicitFirst = makeProject()
+        explicitFirst.shots[0].startingImageReferenceAssetID = ref1.id
+        explicitFirst.shots[0].continuityImageRelativePath = ref1.projectRelativePath
+        let explicitJob = try! MovieRunSubmission.makeJob(
+            project: explicitFirst, workCount: 1, directorMode: "direct")
+        t.checkEqual(explicitJob.snapshot.movieRuns[0].plan.shots[0].explicitStartImageRelativePath,
+                     ref1.projectRelativePath,
+                     "AUTOREF_5 an explicit shot starting image still outranks the Opening Reference")
+
+        // An unresolvable frozen image blocks the shot rather than silently
+        // rendering a text-to-video stranger.
+        let blocked = MovieRunRequestBuilder.makeRequest(
+            run: run1, shotID: shot1.id, parameters: params, resolveAsset: { _, _ in nil })
+        t.checkEqual(blocked, nil,
+                     "AUTOREF_1 an unresolvable First Image blocks the shot, never falls back to T2V")
+
+        // AUTOPROMPT_1 / AUTOPROMPT_2 / AUTOPROMPT_6 — one creative plan,
+        // frozen once, duplicated to N runs.
+        t.checkEqual(run1.plan.shots.map(\.compiledPrompt), ["opening scene", "second scene"],
+                     "AUTOPROMPT_1 the authored prompts reach the frozen plan unchanged")
+        let promptsPerRun = three.snapshot.movieRuns.map { $0.plan.shots.map(\.compiledPrompt) }
+        t.checkEqual(Set(promptsPerRun.map { $0.joined(separator: "|") }).count, 1,
+                     "AUTOPROMPT_2 all three runs share one frozen creative prompt")
+        t.checkEqual(Set(three.snapshot.movieRuns.map { $0.plan.shots[0].seed }).count, 3,
+                     "AUTOPROMPT_6 while per-run seeds stay independent")
+
+        // AUTOPROMPT_3 — reference metadata is not creative text. Neither the
+        // asset paths nor their labels may appear in the prompt.
+        let allPrompts = run1.plan.shots.map(\.compiledPrompt).joined(separator: " ")
+        for needle in [ref1.projectRelativePath ?? "", ref2.projectRelativePath ?? "",
+                       "sheet.png", "front.png", openingPath] {
+            t.check(!allPrompts.contains(needle),
+                    "AUTOPROMPT_3 reference metadata (\(needle)) never leaks into the prompt")
+        }
+
+        // AUTOPROMPT_4 — a second submission is built from its own project.
+        var other = makeProject()
+        other.shots[0].compiledPrompt = "a completely different opening"
+        let otherJob = try! MovieRunSubmission.makeJob(
+            project: other, workCount: 1, directorMode: "direct")
+        t.checkEqual(otherJob.snapshot.movieRuns[0].plan.shots[0].compiledPrompt,
+                     "a completely different opening",
+                     "AUTOPROMPT_4 the new job uses its own prompt")
+        t.checkEqual(run1.plan.shots[0].compiledPrompt, "opening scene",
+                     "AUTOPROMPT_4 and the earlier frozen job is not retro-actively rewritten")
+    }
+
+    // MARK: Prompt policy for a shot that starts from a chosen picture
+
+    // The second half of the reported defect: the visible prompt was dominated
+    // by the Character Bible appearance block ("CHARACTER 1: … Face: … Hair: …
+    // Current costume: …") with the user's scene buried behind it. That block
+    // exists so a text-to-video shot can say who is on screen — but an opening
+    // shot that starts from a chosen Opening Reference already shows the face,
+    // the hair and the costume, which is the exact text-versus-picture fight
+    // D-071/D-072 measured on CONTINUE shots.
+    t.suite("Auto Movie — an image-anchored shot keeps the creative prompt primary") {
+        let charID = UUID()
+        let sheetRef = CharacterReferenceAsset(
+            id: UUID(), type: .characterSheet, label: "Sheet",
+            projectRelativePath: "Assets/Characters/\(charID.uuidString)/sheet.png")
+
+        func character() -> BibleCharacter {
+            var appearance = CharacterAppearance()
+            appearance.faceDescription = "Round face with soft contours"
+            appearance.hair = "Long blonde hair in a low ponytail with a black ribbon"
+            appearance.eyes = "Almond-shaped hazel eyes"
+            appearance.complexion = "Fair with freckles"
+            var c = BibleCharacter(id: charID, name: "Rena", referenceAssets: [sheetRef])
+            c.appearance = appearance
+            c.defaultCostume = "Dark steampunk jacket over a white shirt"
+            c.accessories = "Thigh holster, belt pouches"
+            return c
+        }
+
+        /// `openingReference == nil` is the genuine text-to-video opening.
+        func project(openingReference: Bool, shotStartingImage: UUID? = nil) -> FilmProject {
+            var project = FilmProject(title: "Policy")
+            project.workflowMode = "hybrid"
+            if openingReference {
+                project.openingReferenceImage = OpeningReferenceImage(
+                    projectRelativePath: "Assets/OpeningReference/first.png",
+                    originalFilename: "first.png")
+            }
+            project.characterBible.characters.append(character())
+            project.shots = [
+                Shot(index: 0, title: "One", compiledPrompt: "She walks through the stone courtyard."),
+                Shot(index: 1, title: "Two", compiledPrompt: "She slows to a stop."),
+            ]
+            project.shots[0].characterIDs = [charID]
+            project.shots[1].characterIDs = [charID]
+            project.shots[0].startingImageReferenceAssetID = shotStartingImage
+            project.shots[1].continuityMode = .continueFromPrevious
+            return project
+        }
+
+        let appearanceMarkers = ["Face:", "Hair:", "Eyes:", "Current costume:", "Accessories:",
+                                 "ponytail", "steampunk", "freckles"]
+
+        // AUTOPROMPT_POLICY_1 / _2 — Opening Reference present.
+        var anchored = project(openingReference: true)
+        CharacterPromptPipeline.recompile(project: &anchored)
+        let anchoredPrompt = anchored.shots[0].compiledPrompt
+        t.check(anchoredPrompt.contains("She walks through the stone courtyard."),
+                "AUTOPROMPT_POLICY_1 the creative scene instruction is still in the prompt")
+        t.check(anchoredPrompt.hasPrefix("CHARACTER 1: Rena."),
+                "AUTOPROMPT_POLICY_1 the character is still named so the scene text has an anchor")
+        for marker in appearanceMarkers {
+            t.check(!anchoredPrompt.contains(marker),
+                    "AUTOPROMPT_POLICY_2 the picture already shows it: '\(marker)' is not restated")
+        }
+        // "Dominates" measured rather than asserted by eye: the identity text is
+        // a short label, not a wall in front of the scene.
+        let identityLength = anchoredPrompt.count - anchored.shots[0].baseCompiledPrompt!.count
+        t.check(identityLength < 40,
+                "AUTOPROMPT_POLICY_2 identity context stays a short label (\(identityLength) chars)")
+
+        // AUTOPROMPT_POLICY_3 — a real text-to-video opening is unchanged: with
+        // no picture, the prompt is the only thing that can say who is there.
+        var t2v = project(openingReference: false)
+        CharacterPromptPipeline.recompile(project: &t2v)
+        let t2vPrompt = t2v.shots[0].compiledPrompt
+        t.check(t2vPrompt.contains("Face:") && t2vPrompt.contains("Current costume:"),
+                "AUTOPROMPT_POLICY_3 a T2V opening keeps the full descriptive block")
+        t.check(t2vPrompt.contains("She walks through the stone courtyard."),
+                "AUTOPROMPT_POLICY_3 and still carries the creative instruction")
+
+        // AUTOPROMPT_POLICY_4 — CONTINUE is untouched by this change.
+        t.check(anchored.shots[1].compiledPrompt.contains(
+                    ContinuationPromptPolicy.continuityStatement),
+                "AUTOPROMPT_POLICY_4 a CONTINUE shot still uses the continuity statement")
+        for marker in appearanceMarkers {
+            t.check(!anchored.shots[1].compiledPrompt.contains(marker),
+                    "AUTOPROMPT_POLICY_4 and still does not restate '\(marker)'")
+        }
+        t.checkEqual(ContinuationPromptPolicy.style(for: .continueFromPrevious,
+                                                    startsFromExplicitImage: true),
+                     ContinuationPromptPolicy.Style.changeFocused,
+                     "AUTOPROMPT_POLICY_4 CONTINUE wins over the image-anchored style")
+
+        // A shot-level Starting Image is also a chosen picture.
+        var shotImage = project(openingReference: false, shotStartingImage: sheetRef.id)
+        CharacterPromptPipeline.recompile(project: &shotImage)
+        t.check(shotImage.shots[0].compiledPrompt.hasPrefix("CHARACTER 1: Rena."),
+                "AUTOPROMPT_POLICY_1 a shot-level Starting Image is image-anchored too")
+        t.check(!shotImage.shots[0].compiledPrompt.contains("Current costume:"),
+                "AUTOPROMPT_POLICY_2 and does not restate the costume either")
+
+        // AUTOPROMPT_POLICY_5 / _6 — one policy, one frozen plan, both counts.
+        let jobOne = try! MovieRunSubmission.makeJob(
+            project: anchored, workCount: 1, directorMode: "localAI")
+        let jobThree = try! MovieRunSubmission.makeJob(
+            project: anchored, workCount: 3, directorMode: "localAI")
+        let onePrompts = jobOne.snapshot.movieRuns[0].plan.shots.map(\.compiledPrompt)
+        t.checkEqual(onePrompts[0], anchoredPrompt,
+                     "AUTOPROMPT_POLICY_5 the frozen plan carries the image-anchored prompt verbatim")
+        for run in jobThree.snapshot.movieRuns {
+            t.checkEqual(run.plan.shots.map(\.compiledPrompt), onePrompts,
+                         "AUTOPROMPT_POLICY_5 count=3 uses exactly the same prompts as count=1")
+        }
+        t.checkEqual(Set(jobThree.snapshot.movieRuns.map { $0.plan.shots[0].seed }).count, 3,
+                     "AUTOPROMPT_POLICY_6 one frozen creative plan, independent per-run seeds")
+        t.checkEqual(Set(jobThree.snapshot.movieRuns.map(\.plan.directorMode)).count, 1,
+                     "AUTOPROMPT_POLICY_6 and one Director result for the whole batch")
+
+        // AUTOREF_POLICY_1..4 — the image wiring the prompt policy now mirrors.
+        let runOne = jobOne.snapshot.movieRuns[0]
+        t.checkEqual(runOne.plan.shots[0].startSource, FrozenShotPlan.StartSource.explicitImage,
+                     "AUTOREF_POLICY_1 Opening Reference + Character Reference still freezes explicitImage")
+        t.checkEqual(runOne.plan.shots[0].explicitStartImageRelativePath,
+                     "Assets/OpeningReference/first.png",
+                     "AUTOREF_POLICY_2 the Character Reference did not replace the Opening Reference")
+        var outranked = project(openingReference: true, shotStartingImage: sheetRef.id)
+        outranked.shots[0].continuityImageRelativePath = sheetRef.projectRelativePath
+        let outrankedJob = try! MovieRunSubmission.makeJob(
+            project: outranked, workCount: 1, directorMode: "localAI")
+        t.checkEqual(outrankedJob.snapshot.movieRuns[0].plan.shots[0].explicitStartImageRelativePath,
+                     sheetRef.projectRelativePath,
+                     "AUTOREF_POLICY_3 a shot-level Starting Image outranks the Opening Reference")
+        t.checkEqual(runOne.plan.shots[1].startSource, FrozenShotPlan.StartSource.previousShotOutput,
+                     "AUTOREF_POLICY_4 CONTINUE still outranks the Opening Reference on later shots")
+
+        // PHASE 9 — persistence: everything above survives a restart.
+        let restored = try! JSONDecoder().decode(
+            ProductionJobSnapshot.self, from: try! JSONEncoder().encode(jobOne.snapshot))
+        let restoredShot1 = restored.movieRuns[0].plan.shots[0]
+        t.checkEqual(restoredShot1.startSource, FrozenShotPlan.StartSource.explicitImage,
+                     "PERSIST_POLICY_1 start source survives encode/decode")
+        t.checkEqual(restoredShot1.explicitStartImageRelativePath,
+                     "Assets/OpeningReference/first.png",
+                     "PERSIST_POLICY_1 as does the Opening Reference path")
+        t.checkEqual(restoredShot1.compiledPrompt, anchoredPrompt,
+                     "PERSIST_POLICY_1 and the creative prompt is byte-identical after decode")
+        t.checkEqual(restored.movieRuns[0].plan.shots[1].startSource,
+                     FrozenShotPlan.StartSource.previousShotOutput,
+                     "PERSIST_POLICY_1 continuity semantics survive too")
+    }
 }

@@ -260,6 +260,20 @@ enum PromptCompiler {
         }.joined(separator: " ")
     }
 
+    /// Naming only, for a shot that starts from a picture the user chose.
+    ///
+    /// The Opening Reference (or a shot-level Starting Image) already shows the
+    /// face, the hair and the costume, so repeating them is the text-versus-
+    /// picture fight D-071/D-072 measured — and it buries the creative scene
+    /// instruction the user actually wrote under a wall of appearance text.
+    /// The name is kept because the scene prompt refers to characters by name;
+    /// dropping it would leave those references unanchored.
+    static func compileNamesOnly(characters: [ContinuityEngine.ResolvedCharacterState]) -> String {
+        characters.enumerated()
+            .map { index, character in "CHARACTER \(index + 1): \(character.name)." }
+            .joined(separator: " ")
+    }
+
     /// Suggested frame count for a duration intent (24fps, backend-friendly
     /// 8k+1 frame counts: 25/49/73/97/121... up to maximumFrameCount).
     /// Default maximum is 241 frames (10.04s).
@@ -410,10 +424,22 @@ enum CharacterPromptPipeline {
             bible: project.characterBible,
             snapshot: promptSnapshot
         )
+        // Mirrors the start-source rule the run-local plan freezes
+        // (FrozenMoviePlanBuilder.freeze): a shot-level Starting Image, or —
+        // for the opening shot — the project's Opening Reference. Keeping the
+        // two in step is what stops the prompt from describing a character the
+        // chosen picture already shows.
+        let startsFromExplicitImage = shot.startingImageReferenceAssetID != nil
+            || (shotIndex == 0
+                && shot.continuityMode != .continueFromPrevious
+                && project.openingReferenceImage != nil)
         let characterContext: String
-        switch ContinuationPromptPolicy.style(for: shot.continuityMode) {
+        switch ContinuationPromptPolicy.style(
+            for: shot.continuityMode, startsFromExplicitImage: startsFromExplicitImage) {
         case .descriptive:
             characterContext = PromptCompiler.compile(characters: resolved)
+        case .imageAnchored:
+            characterContext = PromptCompiler.compileNamesOnly(characters: resolved)
         case .changeFocused:
             // The previous shot's last frame already shows who this is and
             // what they are wearing. Restating it makes the text argue with

@@ -318,9 +318,22 @@ enum FrozenMoviePlanBuilder {
             if continues && hasExplicit {
                 throw FreezeError.ambiguousStartSource(shotIndex: position)
             }
-            let explicitPath = shot.continuityImageRelativePath
+            // The Auto Movie sheet's Opening Reference Image *is* Shot 1's
+            // starting image. The legacy coordinator resolved it at generation
+            // time from the live project (`shotIndex == 0` ->
+            // `.openingReference`); a run-local plan never re-reads the
+            // project, so it has to be frozen here. Without this the first
+            // shot silently rendered text-to-video with the user's chosen
+            // first frame ignored. A shot-level starting image and a
+            // continuation both still win over it, so this only fills the gap
+            // the legacy resolver filled.
+            let openingReference = position == 0 && !continues && !hasExplicit
+                ? project.openingReferenceImage?.projectRelativePath
+                : nil
+            let explicitPath = openingReference ?? shot.continuityImageRelativePath
+            let usesExplicitImage = hasExplicit || openingReference != nil
             let startSource: FrozenShotPlan.StartSource =
-                continues ? .previousShotOutput : (hasExplicit ? .explicitImage : .none)
+                continues ? .previousShotOutput : (usesExplicitImage ? .explicitImage : .none)
 
             return FrozenShotPlan(
                 id: shot.id,
@@ -412,11 +425,28 @@ enum MovieRunSubmission {
 /// never consulted.
 enum MovieRunRequestBuilder {
 
+    /// Turns a frozen project-relative asset path into one the renderer can
+    /// actually open. The plan stores paths relative to the project (that is
+    /// what survives a moved library); the backend only ever receives absolute
+    /// paths. Reading the *directory layout* for a known project id is not the
+    /// same as re-reading the editable project document, so the run stays
+    /// independent of it.
+    static func resolveFrozenAssetPath(
+        _ path: String,
+        projectID: UUID,
+        store: FilmProjectStore = .shared
+    ) -> String? {
+        guard !path.isEmpty else { return nil }
+        if path.hasPrefix("/") { return path }
+        return store.managedProjectAssetURL(projectID: projectID, relativePath: path)?.path
+    }
+
     static func makeRequest(
         run: MovieRun,
         shotID: UUID,
         takeID: UUID = UUID(),
-        parameters: GenerationParameters
+        parameters: GenerationParameters,
+        resolveAsset: (String, UUID) -> String? = { resolveFrozenAssetPath($0, projectID: $1) }
     ) -> GenerationRequest? {
         guard let shot = run.plan.shots.first(where: { $0.id == shotID }),
               let state = run.state(of: shotID) else { return nil }
@@ -433,7 +463,12 @@ enum MovieRunRequestBuilder {
                   let frame = dependency.extractedImagePath else { return nil }
             sourceImagePath = frame
         case .explicitImage:
-            sourceImagePath = shot.explicitStartImageRelativePath
+            // A frozen relative path is not openable as-is; a shot whose
+            // starting image cannot be resolved must block rather than fall
+            // back to text-to-video behind the user's back.
+            guard let relative = shot.explicitStartImageRelativePath,
+                  let resolved = resolveAsset(relative, run.plan.sourceProjectID) else { return nil }
+            sourceImagePath = resolved
         case .none:
             sourceImagePath = nil
         }

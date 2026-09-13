@@ -507,6 +507,7 @@ enum FrozenStoryboardPlanBuilder {
         audioEnabled: Bool,
         textEncoderID: String?,
         directorMode: String?,
+        store: FilmProjectStore = .shared,
         contentHash: (String) -> String? = { _ in nil }
     ) throws -> FrozenStoryboardPlan {
         let ordered = project.shots.sorted { $0.index < $1.index }
@@ -532,8 +533,18 @@ enum FrozenStoryboardPlanBuilder {
                 // A path does not freeze bytes. The hash lets execution detect a
                 // file edited while the run waited, the same way the accepted
                 // Ending Image path does.
+                //
+                // Hashing needs the resolved location: the frozen path is
+                // project-relative and `FileManager.contents(atPath:)` cannot
+                // open one, so hashing it directly always produced nil. Only
+                // the hash comes from the resolved path — the stored path stays
+                // relative so it survives a moved library.
                 explicitStartImageContentHash: startSource == .explicitImage
-                    ? explicitPath.flatMap(contentHash) : nil,
+                    ? explicitPath
+                        .flatMap { MovieRunRequestBuilder.resolveFrozenAssetPath(
+                            $0, projectID: project.id, store: store) }
+                        .flatMap(contentHash)
+                    : nil,
                 endingImagePath: nil,
                 endingImageContentHash: nil,
                 seed: 0,
@@ -575,6 +586,7 @@ enum StoryboardRunSubmission {
         workCount: Int,
         directorMode: String?,
         explicitSeed: Int? = nil,
+        store: FilmProjectStore = .shared,
         contentHash: (String) -> String? = { _ in nil }
     ) throws -> ProductionJob {
         let settings = project.settings
@@ -585,6 +597,7 @@ enum StoryboardRunSubmission {
             audioEnabled: settings.audioEnabled ?? true,
             textEncoderID: settings.textEncoderID,
             directorMode: directorMode,
+            store: store,
             contentHash: contentHash)
 
         let batchID = UUID()
@@ -636,7 +649,11 @@ enum StoryboardRunRequestBuilder {
         run: StoryboardRun,
         shotID: UUID,
         takeID: UUID = UUID(),
-        parameters: GenerationParameters
+        parameters: GenerationParameters,
+        resolveAsset: (String, UUID) -> String? = {
+            MovieRunRequestBuilder.resolveFrozenAssetPath($0, projectID: $1)
+        },
+        contentHash: (String) -> String? = { H3EndingImageCapability.contentHash(ofFileAt: $0) }
     ) -> GenerationRequest? {
         guard let shot = run.plan.shots.first(where: { $0.id == shotID }),
               let state = run.state(of: shotID) else { return nil }
@@ -659,7 +676,20 @@ enum StoryboardRunRequestBuilder {
                   let frame = dependency.extractedImagePath else { return nil }
             sourceImagePath = frame
         case .explicitImage:
-            sourceImagePath = shot.explicitStartImageRelativePath
+            // The frozen path is project-relative and the renderer cannot open
+            // one, so resolve it — and block rather than fall back to
+            // text-to-video when it cannot be resolved. The frozen hash is a
+            // promise about bytes and is checked before they are used: a file
+            // edited or deleted while the work waited in the queue is refused.
+            // A missing file needs no separate check, because the hasher reads
+            // the file and so returns nil. A plan frozen before hashing existed
+            // has no promise to check and still renders.
+            guard let relative = shot.explicitStartImageRelativePath,
+                  let resolved = resolveAsset(relative, run.plan.projectID) else { return nil }
+            if let expected = shot.explicitStartImageContentHash {
+                guard contentHash(resolved) == expected else { return nil }
+            }
+            sourceImagePath = resolved
         case .none:
             sourceImagePath = nil
         }

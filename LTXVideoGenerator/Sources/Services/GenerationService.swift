@@ -2,6 +2,32 @@ import Foundation
 import SwiftUI
 import Combine
 
+/// The readiness checks a request passes before any backend is launched.
+///
+/// Live by default. It exists so the failure paths below can be driven without
+/// a Python environment or a real render; nothing else about generation is
+/// injected.
+struct GenerationPreflight {
+    var pythonPath: () -> String?
+    var ensurePythonReady: (String) async -> (success: Bool, message: String, details: PythonDetails?)
+    var configurePython: (PythonDetails) -> Void
+    /// Loads the model and reports whether it is now loaded.
+    var loadModel: (@escaping (String) -> Void) async throws -> Bool
+    var storage: (URL, StorageOperationKind) -> StorageHealthStatus
+
+    static var live: GenerationPreflight {
+        GenerationPreflight(
+            pythonPath: { UserDefaults.standard.string(forKey: "pythonPath") },
+            ensurePythonReady: { await PythonEnvironment.shared.ensureReadyForGeneration(path: $0) },
+            configurePython: { PythonEnvironment.shared.configureForPythonKit(details: $0) },
+            loadModel: { progress in
+                try await LTXBridge.shared.loadModel(progressHandler: progress)
+                return LTXBridge.shared.isModelLoaded
+            },
+            storage: { StorageHealthService.shared.check(url: $0, for: $1) })
+    }
+}
+
 @MainActor
 class GenerationService: ObservableObject {
     @Published private(set) var queue: [GenerationRequest] = []
@@ -27,6 +53,9 @@ class GenerationService: ObservableObject {
 
     private let historyManager: HistoryManager
     private let bridge = LTXBridge.shared
+    var preflight: GenerationPreflight = .live
+    /// Request id + attempt already settled, so no run is ever reported twice.
+    private var settledRuns: Set<String> = []
     private var processingTask: Task<Void, Never>?
     /// Film projects whose run should advance once the current take settles.
     private var completedProjectIDsAwaitingAdvance: Set<UUID> = []
@@ -87,6 +116,11 @@ class GenerationService: ObservableObject {
         reason: String? = nil,
         notAttempted: Bool? = nil
     ) {
+        // One authoritative outcome per request attempt. A second report — a
+        // cleanup path after a failure, a duplicate callback — changes nothing.
+        guard settledRuns.insert("\(request.id.uuidString)#\(request.attemptNumber ?? 1)").inserted else {
+            return
+        }
         lastRunSettlement = RunOutcomeRecord(
             runID: request.id,
             outcome: outcome,
@@ -109,6 +143,43 @@ class GenerationService: ObservableObject {
         for sibling in siblings {
             settle(sibling, .failed, reason: BatchFailurePolicy.notAttemptedReason, notAttempted: true)
         }
+    }
+
+    /// The one way a request that never reached a backend becomes terminal.
+    ///
+    /// The readiness checks used to mark the request failed and return without
+    /// settling it, so the production queue never heard that the run ended: a
+    /// Storyboard or Auto Movie shot stayed "running" with nothing to settle it
+    /// and held the queue. A failed model load was worse — the request was left
+    /// pending, so the renderer picked it straight back up and tried to load the
+    /// model again, indefinitely.
+    ///
+    /// The request is found by id, not by the index taken before the checks'
+    /// suspension points: a request cancelled or removed meanwhile is not
+    /// settled here — it already ended another way. Nothing is recorded as
+    /// dispatched, because nothing was.
+    private func failBeforeDispatch(
+        _ request: GenerationRequest, error failure: LTXError, statusMessage message: String? = nil
+    ) {
+        currentRequest = nil
+        isProcessing = false
+        progress = 0
+        guard let index = queue.firstIndex(where: { $0.id == request.id }),
+              queue[index].status == .pending || queue[index].status == .processing else { return }
+        queue[index].status = .failed
+        error = failure
+        statusMessage = message ?? failure.localizedDescription
+        if FeatureFlags.isEnabled(.filmProjectV1), request.takeID != nil {
+            TakeGenerationCoordinator().recordFailure(
+                request: request,
+                error: failure,
+                stage: .backendLaunch,
+                finalizedAt: Date()
+            )
+        }
+        settle(request, .failed, reason: failure.localizedDescription)
+        stopBatchSiblings(after: request, error: failure)
+        queue.removeAll { $0.status != .pending }
     }
 
     
@@ -147,12 +218,11 @@ class GenerationService: ObservableObject {
         isProcessing = true
         
         do {
-            try await bridge.loadModel { [weak self] message in
+            isModelLoaded = try await preflight.loadModel { [weak self] message in
                 DispatchQueue.main.async {
                     self?.statusMessage = message
                 }
             }
-            isModelLoaded = bridge.isModelLoaded
             statusMessage = "Model ready"
         } catch let error as LTXError {
             self.error = error
@@ -212,44 +282,18 @@ class GenerationService: ObservableObject {
         // H3 owns a separate mlx-serve runtime and never depends on LTX's
         // Python/text-encoder environment.
         if !usesMiniMaxH3,
-           let pythonPath = UserDefaults.standard.string(forKey: "pythonPath"), !pythonPath.isEmpty {
+           let pythonPath = preflight.pythonPath(), !pythonPath.isEmpty {
             statusMessage = "Checking Python environment..."
-            let ensure = await PythonEnvironment.shared.ensureReadyForGeneration(path: pythonPath)
+            let ensure = await preflight.ensurePythonReady(pythonPath)
             if !ensure.success {
-                queue[index].status = .failed
-                error = .generationFailed(ensure.message)
-                if FeatureFlags.isEnabled(.filmProjectV1), diagnosticsRequest.takeID != nil {
-                    TakeGenerationCoordinator().recordFailure(
-                        request: diagnosticsRequest,
-                        error: LTXError.generationFailed(ensure.message),
-                        stage: .backendLaunch,
-                        finalizedAt: Date()
-                    )
-                }
-                currentRequest = nil
-                isProcessing = false
-                progress = 0
-                queue.removeAll { $0.status != .pending }
+                failBeforeDispatch(diagnosticsRequest, error: .generationFailed(ensure.message))
                 return
             }
             if let details = ensure.details {
-                PythonEnvironment.shared.configureForPythonKit(details: details)
+                preflight.configurePython(details)
             }
         } else if !usesMiniMaxH3 {
-            queue[index].status = .failed
-            error = .pythonNotConfigured
-            if FeatureFlags.isEnabled(.filmProjectV1), diagnosticsRequest.takeID != nil {
-                TakeGenerationCoordinator().recordFailure(
-                    request: diagnosticsRequest,
-                    error: LTXError.pythonNotConfigured,
-                    stage: .backendLaunch,
-                    finalizedAt: Date()
-                )
-            }
-            currentRequest = nil
-            isProcessing = false
-            progress = 0
-            queue.removeAll { $0.status != .pending }
+            failBeforeDispatch(diagnosticsRequest, error: .pythonNotConfigured)
             return
         }
         
@@ -257,20 +301,27 @@ class GenerationService: ObservableObject {
         if !usesMiniMaxH3 && !isModelLoaded {
             await loadModel()
             guard isModelLoaded else {
-                if FeatureFlags.isEnabled(.filmProjectV1), diagnosticsRequest.takeID != nil {
-                    TakeGenerationCoordinator().recordFailure(
-                        request: diagnosticsRequest,
-                        error: error ?? LTXError.modelLoadFailed("The LTX model could not be loaded."),
-                        stage: .backendLaunch,
-                        finalizedAt: Date()
-                    )
-                }
-                isProcessing = false
+                // Terminal for this request. Leaving it pending let the renderer
+                // select it again and retry the same failing load indefinitely.
+                failBeforeDispatch(
+                    diagnosticsRequest,
+                    error: error ?? .modelLoadFailed("The LTX model could not be loaded."))
                 return
             }
             isProcessing = true
         }
         
+        // The checks above suspend. A request cancelled or removed meanwhile is
+        // gone, and the index taken before them may now name another item or
+        // none at all.
+        guard let index = queue.firstIndex(where: { $0.id == diagnosticsRequest.id }),
+              queue[index].status == .pending else {
+            currentRequest = nil
+            isProcessing = false
+            progress = 0
+            return
+        }
+
         // Update status
         queue[index].status = .processing
         currentRequest = queue[index]
@@ -289,16 +340,10 @@ class GenerationService: ObservableObject {
         }
 
         // Authoritative storage preflight check before launching heavy Python backend
-        let storageStatus = StorageHealthService.shared.check(url: outputDir, for: .videoGeneration(expectedTakes: max(1, queue.count)))
+        let storageStatus = preflight.storage(outputDir, .videoGeneration(expectedTakes: max(1, queue.count)))
         if storageStatus.isBlocked {
             let errorMsg = storageStatus.message ?? "Not enough disk space for generation"
-            queue[index].status = .failed
-            self.error = .generationFailed(errorMsg)
-            statusMessage = errorMsg
-            currentRequest = nil
-            isProcessing = false
-            progress = 0
-            queue.removeAll { $0.status != .pending }
+            failBeforeDispatch(request, error: .generationFailed(errorMsg), statusMessage: errorMsg)
             return
         }
 

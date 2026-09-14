@@ -263,6 +263,9 @@ final class ProductionQueueService: ObservableObject {
 
     func retry(jobID: UUID) { coordinator.retry(jobID: jobID); refresh() }
     func remove(jobID: UUID) { coordinator.remove(jobID: jobID); refresh() }
+    func removeFailed() { coordinator.removeFailed(); refresh() }
+    /// Read from the published `jobs`, so the header button tracks redraws.
+    var failedDisplayCount: Int { jobs.filter { $0.state.staysVisibleWhenTerminal }.count }
     func moveUp(jobID: UUID) { coordinator.moveUp(jobID: jobID); refresh() }
     func moveDown(jobID: UUID) { coordinator.moveDown(jobID: jobID); refresh() }
     func setPaused(_ paused: Bool) { coordinator.setPaused(paused); refresh() }

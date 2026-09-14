@@ -40,6 +40,25 @@ enum ProductionJobState: String, Codable, Equatable {
         }
     }
 
+    /// Terminal, but the user has not finished with it.
+    ///
+    /// The queue is not a log, so finished work normally leaves it. A failure
+    /// is different: it carries a reason the user has to read and act on, and
+    /// dropping it the instant execution stops means that reason is written
+    /// and then hidden in the same breath — which is exactly what a live run
+    /// caught, with a correct "the image you chose has changed" message that
+    /// nobody could ever see.
+    ///
+    /// Presentation only. `isTerminal` is unchanged, so nothing reschedules a
+    /// failed job; it simply stays on screen until dismissed with the queue
+    /// row's existing × button.
+    ///
+    /// Cancelled is deliberately excluded: the user stopped it themselves and
+    /// does not need telling. Interrupted is excluded only because the current
+    /// display policy does not cover it — it has the same readability problem
+    /// and its own Restart action, and is worth revisiting.
+    var staysVisibleWhenTerminal: Bool { self == .failed }
+
     var displayName: String {
         switch self {
         case .waiting: return "Waiting"

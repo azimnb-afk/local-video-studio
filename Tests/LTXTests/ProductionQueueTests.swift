@@ -185,9 +185,10 @@ func runProductionQueueTests(_ t: TestKit) {
         t.checkEqual(roundTrip?.snapshot, submitted?.snapshot,
                      "K: Direct Generate snapshot survives persistence")
 
-        // G/H. Direct jobs use the already accepted terminal projection:
-        // successful and failed records both leave the active list, while the
-        // persisted record keeps output/failure provenance.
+        // G/H. Direct jobs use the same terminal projection as every other
+        // kind: a successful record leaves the active list, a failure stays
+        // until dismissed so its reason can be read, and the persisted record
+        // keeps output/failure provenance either way.
         let terminal = ProductionQueueCoordinator(
             store: makeStore("direct-terminal"), restoreOnInit: false)
         let terminalSpy = RunnerSpy()
@@ -203,10 +204,17 @@ func runProductionQueueTests(_ t: TestKit) {
             request: request(prompt: "Fails later")))
         terminalSpy.finishOne()
         terminal.markFailed(jobID: failed.id, reason: "backend failed")
-        t.check(!terminal.activeDisplayJobs.contains { $0.id == failed.id },
-                "H: failed Direct Generate follows terminal active-list semantics")
+        t.check(terminal.activeDisplayJobs.contains { $0.id == failed.id },
+                "H: failed Direct Generate stays visible until dismissed")
+        t.checkEqual(
+            terminal.activeDisplayJobs.first { $0.id == failed.id }?.failureReason,
+            "backend failed",
+            "H: carrying its reason into the presentation")
         t.checkEqual(terminal.job(id: failed.id)?.failureReason, "backend failed",
                      "H: post-enqueue failure remains on the persisted job")
+        terminal.remove(jobID: failed.id)
+        t.check(!terminal.activeDisplayJobs.contains { $0.id == failed.id },
+                "H: and dismissing it clears the active list")
     }
 
     t.suite("Queue submission — One Shot queues behind an active Auto Movie") {
@@ -413,18 +421,34 @@ func runProductionQueueTests(_ t: TestKit) {
 
         spy.finishOne()
         coordinator.markFailed(jobID: b.id, reason: "backend failed")
-        t.check(!coordinator.activeDisplayJobs.contains { $0.id == b.id },
-                "failed job mirrors normal Queue and leaves the active list")
+        // Deliberately NOT "leaves the active list" any more. This assertion
+        // used to say a failed job disappeared like a completed one, which is
+        // what made its failure reason unreadable: it was set and hidden in
+        // one transition. A failure now stays until the user dismisses it.
+        t.check(coordinator.activeDisplayJobs.contains { $0.id == b.id },
+                "failed job stays in the active list so its reason can be read")
+        t.checkEqual(
+            coordinator.activeDisplayJobs.first { $0.id == b.id }?.failureReason,
+            "backend failed",
+            "and the reason travels with it into the presentation")
         t.checkEqual(coordinator.job(id: b.id)?.failureReason, "backend failed",
                      "failed record remains available outside the active projection")
         t.checkEqual(spy.started.last, c.id, "failure still advances FIFO to the third job")
 
         spy.finishOne()
         coordinator.markCancelled(jobID: c.id)
+        t.check(!coordinator.activeDisplayJobs.contains { $0.id == c.id },
+                "cancelled terminal job leaves the active presentation")
+        t.checkEqual(coordinator.activeDisplayJobs.map(\.id), [b.id],
+                     "leaving only the failure the user has not dismissed")
+        // Dismissal is the row's existing xmark, which is `remove(jobID:)`.
+        coordinator.remove(jobID: b.id)
         t.check(coordinator.activeDisplayJobs.isEmpty,
-                "cancelled terminal job also leaves the active presentation")
-        t.checkEqual(coordinator.jobs.count, 3,
-                     "presentation cleanup never deletes persisted queue records")
+                "and dismissing that failure empties the active presentation")
+        t.checkEqual(coordinator.jobs.count, 2,
+                     "dismissal drops only that queue record")
+        t.checkEqual(coordinator.job(id: a.id)?.outputPath, "/tmp/first-final.mp4",
+                     "presentation cleanup never deletes other jobs' provenance")
     }
 
     t.suite("Production queue — preflight, reorder and lifecycle") {

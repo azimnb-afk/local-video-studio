@@ -40,6 +40,18 @@ struct ProductionQueuePanel: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            // Failures stay until dismissed, so a long-lived queue can pile
+            // them up; this clears them all at once. Removes queue records only
+            // — never a video, and never a waiting or running job.
+            if queue.failedDisplayCount > 0 {
+                Button("Clear Failed (\(queue.failedDisplayCount))") {
+                    queue.removeFailed()
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
+                .help("Remove every failed job from the queue list. "
+                      + "Waiting and running jobs are not affected.")
+            }
             if !queue.activeDisplayJobs.isEmpty {
                 Button(queue.isPaused ? "Resume" : "Pause") {
                     queue.setPaused(!queue.isPaused)

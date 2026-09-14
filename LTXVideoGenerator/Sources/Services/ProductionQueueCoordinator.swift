@@ -259,6 +259,21 @@ final class ProductionQueueCoordinator {
         onChange?()
     }
 
+    /// Dismisses every failure still on display in one step.
+    ///
+    /// Failures stay visible until dismissed, and a long-lived queue can hold
+    /// dozens from old runs; clearing them one × at a time is not a reasonable
+    /// ask. This is exactly `remove(jobID:)` applied to those jobs — the same
+    /// bookkeeping-only removal, persisted once — and it touches nothing else:
+    /// no waiting, running, completed or cancelled record, and never any video.
+    func removeFailed() {
+        let before = jobs.count
+        jobs.removeAll { $0.state.staysVisibleWhenTerminal }
+        guard jobs.count != before else { return }
+        persist()
+        onChange?()
+    }
+
     func moveUp(jobID: UUID) { move(jobID: jobID, offset: -1) }
     func moveDown(jobID: UUID) { move(jobID: jobID, offset: 1) }
 
@@ -298,13 +313,19 @@ final class ProductionQueueCoordinator {
     /// the persisted `jobs` array in FIFO order. Terminal records stay persisted
     /// for provenance/output history but leave the active list, matching the
     /// normal render Queue.
+    ///
+    /// The one exception is a failure, which stays until the user dismisses it
+    /// — see `staysVisibleWhenTerminal`. Without that, a job's failure reason
+    /// was set and hidden in the same state transition, so the queue row's
+    /// reason text could never render for the case it was written for.
     var activeDisplayJobs: [ProductionJob] {
         Self.activeDisplayJobs(from: jobs)
     }
 
     static func activeDisplayJobs(from jobs: [ProductionJob]) -> [ProductionJob] {
         jobs.enumerated()
-            .filter { !$0.element.state.isTerminal }
+            .filter { !$0.element.state.isTerminal
+                || $0.element.state.staysVisibleWhenTerminal }
             .sorted { lhs, rhs in
                 if lhs.element.createdAt != rhs.element.createdAt {
                     return lhs.element.createdAt > rhs.element.createdAt

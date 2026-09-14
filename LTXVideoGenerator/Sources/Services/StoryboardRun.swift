@@ -255,6 +255,8 @@ protocol RunScopedShotExecution {
     /// Cancellation is a run-level fact, so the scheduler sets it through the
     /// protocol rather than reaching into a concrete type.
     mutating func markCancelled()
+    /// Undoes `markCancelled` when Retry reopens the run.
+    mutating func clearCancelled()
 }
 
 extension RunScopedShotExecution {
@@ -276,6 +278,7 @@ extension RunScopedShotExecution {
 extension StoryboardRun: RunScopedShotExecution {
     var orderedShots: [FrozenShotPlan] { plan.shots.sorted { $0.index < $1.index } }
     mutating func markCancelled() { isCancelled = true }
+    mutating func clearCancelled() { isCancelled = false }
 }
 
 // MARK: - Run-local scheduling
@@ -415,10 +418,12 @@ enum StoryboardRunScheduler {
     /// Prepares one shot for another execution attempt.
     ///
     /// Seed, frozen inputs and any already-resolved dependency are untouched —
-    /// that is exactly what separates Retry from Retake.
+    /// that is exactly what separates Retry from Retake. A shot `cancel` stopped
+    /// is reopened like a blocked one: Retry is the explicit request to run it.
     static func retry<Run: RunScopedShotExecution>(in run: inout Run, shotID: UUID) {
         run.update(shotID) { state in
-            guard state.state.isRetryable || state.state.needsExecution else { return }
+            guard state.state.isRetryable || state.state.needsExecution
+                    || state.state == .cancelled else { return }
             state.attemptNumber += 1
             state.state = state.dependency?.isResolved == false
                 ? .waitingForDependency : .queued

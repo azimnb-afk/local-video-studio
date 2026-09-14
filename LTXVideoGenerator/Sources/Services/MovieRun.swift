@@ -182,6 +182,7 @@ struct MovieRun: Codable, Equatable, Identifiable {
 extension MovieRun: RunScopedShotExecution {
     var orderedShots: [FrozenShotPlan] { plan.shots.sorted { $0.index < $1.index } }
     mutating func markCancelled() { isCancelled = true }
+    mutating func clearCancelled() { isCancelled = false }
 }
 
 // MARK: - Submission
@@ -310,7 +311,8 @@ enum MovieAssemblyDriver {
 
     /// Retry assembles the same clips again; it never re-renders shots.
     static func retryAssembly(in run: inout MovieRun) {
-        guard run.assembly.state == .failed || run.assembly.state == .interrupted else { return }
+        guard run.assembly.state == .failed || run.assembly.state == .interrupted
+                || run.assembly.state == .cancelled else { return }
         run.assembly.attemptNumber += 1
         run.assembly.failureReason = nil
         run.assembly.state = run.assembly.hasFrozenClips ? .ready : .waiting

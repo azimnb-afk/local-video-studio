@@ -224,13 +224,14 @@ struct ProductionJob: Codable, Equatable, Identifiable {
                 outcomes: snapshot.runOutcomes).isEmpty
         }
         if !snapshot.storyboardRuns.isEmpty {
+            // A cancelled run counts: `retry(jobID:)` reopens it.
             return snapshot.storyboardRuns.contains { run in
-                !run.isCancelled && run.shotStates.contains { $0.state != .completed }
+                run.shotStates.contains { $0.state != .completed }
             }
         }
         if !snapshot.movieRuns.isEmpty {
             return snapshot.movieRuns.contains { run in
-                !run.isCancelled && run.assembly.state != .completed
+                run.assembly.state != .completed
             }
         }
         // A legacy project-driven job re-runs from its project; if that

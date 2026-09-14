@@ -521,16 +521,23 @@ final class ProductionQueueCoordinator {
     }
 
     /// Reopens exactly the shots a Retry or Restart is for: ones that failed,
-    /// were blocked or interrupted, or were still running when execution
-    /// stopped. Each becomes a new attempt through the scheduler's own Retry,
-    /// which keeps seeds and frozen inputs and clears the stale reservation so
-    /// a late settlement for the old attempt cannot be applied. Completed shots
-    /// and shots that never started are left exactly as they were.
+    /// were blocked, interrupted or cancelled, or were still running when
+    /// execution stopped. Each becomes a new attempt through the scheduler's own
+    /// Retry, which keeps seeds and frozen inputs and clears the stale
+    /// reservation so a late settlement for the old attempt cannot be applied.
+    /// Completed shots and shots that never started are left exactly as they
+    /// were.
+    ///
+    /// A run stopped by `StoryboardRunScheduler.cancel` is reopened too. Every
+    /// consumer reads a cancelled run as settled, so carrying it forward gave
+    /// the new attempt unfinished work it could never dispatch: the job ended
+    /// at once without rendering anything, however often Retry was pressed.
     private static func resumable<Run: RunScopedShotExecution>(_ run: Run) -> Run {
         var run = run
+        run.clearCancelled()
         for shot in run.orderedShots {
             guard let state = run.state(of: shot.id)?.state,
-                  state.isRetryable || state == .running else { continue }
+                  state.isRetryable || state == .running || state == .cancelled else { continue }
             StoryboardRunScheduler.retry(in: &run, shotID: shot.id)
         }
         return run

@@ -277,6 +277,22 @@ final class ProductionQueueCoordinator {
             retried.snapshot.pendingRequests = plan.requestsToRun
             retried.snapshot.runOutcomes = plan.preservedOutcomes
         }
+        // Run-scoped jobs carry per-shot execution state in the snapshot, so a
+        // verbatim copy also copies a shot left `running` with an in-flight
+        // request id (the app quit mid-render) or a `failed` one. The scheduler
+        // will not dispatch past the first or re-dispatch the second on its
+        // own, and nothing else would settle the job: it would sit "running"
+        // with nothing running, holding every job behind it.
+        retried.snapshot.storyboardRuns = retried.snapshot.storyboardRuns.map {
+            Self.resumable($0)
+        }
+        retried.snapshot.movieRuns = retried.snapshot.movieRuns.map { run in
+            var run = Self.resumable(run)
+            // An assembly the app quit during is as unfinished as a shot.
+            if run.assembly.state == .running { run.assembly.state = .interrupted }
+            MovieAssemblyDriver.retryAssembly(in: &run)
+            return run
+        }
 
         retried.id = UUID()
         retried.state = .waiting
@@ -290,6 +306,22 @@ final class ProductionQueueCoordinator {
         persist()
         startNextIfIdle()
         return retried
+    }
+
+    /// Reopens exactly the shots a Retry or Restart is for: ones that failed,
+    /// were blocked or interrupted, or were still running when execution
+    /// stopped. Each becomes a new attempt through the scheduler's own Retry,
+    /// which keeps seeds and frozen inputs and clears the stale reservation so
+    /// a late settlement for the old attempt cannot be applied. Completed shots
+    /// and shots that never started are left exactly as they were.
+    private static func resumable<Run: RunScopedShotExecution>(_ run: Run) -> Run {
+        var run = run
+        for shot in run.orderedShots {
+            guard let state = run.state(of: shot.id)?.state,
+                  state.isRetryable || state == .running else { continue }
+            StoryboardRunScheduler.retry(in: &run, shotID: shot.id)
+        }
+        return run
     }
 
     /// Persists run-scoped Storyboard state. Called on every meaningful shot

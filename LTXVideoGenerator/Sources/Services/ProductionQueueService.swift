@@ -242,6 +242,22 @@ final class ProductionQueueService: ObservableObject {
     /// latched value cannot be consumed twice.
     private var consumedStoryboardSettlementID: UUID?
 
+    /// Assembles one attempt's frozen clips into the file at the given path.
+    /// Tests replace it so an assembly can be held open and cancelled without
+    /// launching ffmpeg; the app always uses `assembleFrozen`.
+    typealias MovieAssembler = @Sendable (
+        _ clipPaths: [String], _ spec: FrozenMovieAssemblySpec, _ outputPath: String,
+        _ controller: AssemblyProcessController) throws -> Void
+    var assembleOverride: MovieAssembler?
+
+    /// The assembly attempts in flight, by the job, run and attempt they belong to.
+    struct AssemblyAttemptKey: Hashable {
+        let jobID: UUID
+        let runID: UUID
+        let attempt: Int
+    }
+    private(set) var assemblyAttempts: [AssemblyAttemptKey: AssemblyProcessController] = [:]
+
     init(
         coordinator: ProductionQueueCoordinator = .shared,
         storageChecker: StorageHealthService = .shared
@@ -359,6 +375,11 @@ final class ProductionQueueService: ObservableObject {
             generationService?.clearQueue()
             generationService?.cancelCurrent()
             isAwaitingCompletion = false
+        }
+        // Stop this job's final assembly too — only its own attempts' ffmpeg.
+        // The attempt removes its unadopted file when it returns.
+        for (key, controller) in assemblyAttempts where key.jobID == jobID {
+            controller.cancel()
         }
         coordinator.cancel(jobID: jobID)
         refresh()
@@ -718,6 +739,9 @@ final class ProductionQueueService: ObservableObject {
                   runs.indices.contains(runIndex) else { return }
             let run = runs[runIndex]
             let attempt = run.assembly.attemptNumber
+            // Cancelled between dispatch and this task starting: launch nothing.
+            guard self.coordinator.acceptsAssemblyResult(
+                jobID: jobID, runID: run.id, attempt: attempt) else { return }
             let clips = run.assembly.clips.sorted { $0.order < $1.order }
             let output = run.assembly.outputPath
                 ?? MovieAssemblyDriver.outputURL(runID: run.id).path
@@ -736,23 +760,49 @@ final class ProductionQueueService: ObservableObject {
                 self.settleRunScopedMovieIfDone(jobID: jobID)
                 return
             }
+            // This attempt's own stop switch, found by `cancel(jobID:)`, and its
+            // own file: the movie reaches `output` only once accepted below.
+            let key = AssemblyAttemptKey(jobID: jobID, runID: run.id, attempt: attempt)
+            let controller = AssemblyProcessController()
+            self.assemblyAttempts[key] = controller
+            let candidate = MovieAssemblyDriver.candidatePath(forOutput: output, attempt: attempt)
+            let assemble: MovieAssembler = self.assembleOverride ?? { paths, spec, candidate, controller in
+                _ = try FinalAssemblyService.assembleFrozen(
+                    clipPaths: paths, spec: spec, outputPath: candidate, processController: controller)
+            }
             let result: Result<Void, Error> = await Task.detached(priority: .utility) {
                 do {
                     try FileManager.default.createDirectory(
-                        at: URL(fileURLWithPath: output).deletingLastPathComponent(),
+                        at: URL(fileURLWithPath: candidate).deletingLastPathComponent(),
                         withIntermediateDirectories: true)
-                    _ = try FinalAssemblyService.assembleFrozen(
-                        clipPaths: paths, spec: spec, outputPath: output)
+                    try assemble(paths, spec, candidate, controller)
                     return .success(())
                 } catch {
                     return .failure(error)
                 }
             }.value
+            if self.assemblyAttempts[key] === controller { self.assemblyAttempts[key] = nil }
 
+            // No suspension from here on, so a cancel cannot land between the
+            // check, the adoption and the record.
+            guard self.coordinator.acceptsAssemblyResult(
+                jobID: jobID, runID: run.id, attempt: attempt) else {
+                MovieAssemblyDriver.discardCandidate(candidate, output: output)
+                return
+            }
             let recorded: ProductionQueueCoordinator.AssemblyResult
             switch result {
-            case .success: recorded = .completed(outputPath: output)
-            case .failure(let error): recorded = .failed(reason: error.localizedDescription)
+            case .success:
+                do {
+                    try MovieAssemblyDriver.adoptCandidate(candidate, as: output)
+                    recorded = .completed(outputPath: output)
+                } catch {
+                    MovieAssemblyDriver.discardCandidate(candidate, output: output)
+                    recorded = .failed(reason: error.localizedDescription)
+                }
+            case .failure(let error):
+                MovieAssemblyDriver.discardCandidate(candidate, output: output)
+                recorded = .failed(reason: error.localizedDescription)
             }
             guard self.coordinator.applyAssemblyResult(
                 jobID: jobID, runID: run.id, attempt: attempt, result: recorded)

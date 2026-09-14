@@ -16,6 +16,8 @@ final class FinalAssemblyService {
         case bgmProbeFailed(String)
         case bgmMixFailed(String)
         case insufficientDiskSpace(String)
+        /// The attempt was cancelled; not a failure of the movie.
+        case cancelled
     }
 
     struct AssemblyPlan: Equatable {
@@ -107,7 +109,8 @@ final class FinalAssemblyService {
         clipPaths: [String],
         spec: FrozenMovieAssemblySpec,
         outputPath: String,
-        storageChecker: StorageHealthService = .shared
+        storageChecker: StorageHealthService = .shared,
+        processController: AssemblyProcessController? = nil
     ) throws -> MediaInfo {
         // Static audio is verified, not trusted: a swapped file fails the
         // assembly rather than being mixed in silently.
@@ -128,6 +131,7 @@ final class FinalAssemblyService {
                 storageStatus.message ?? "Not enough disk space for final assembly.")
         }
 
+        try processController?.checkNotCancelled()
         let workDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("ltx-run-assembly-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
@@ -145,7 +149,7 @@ final class FinalAssemblyService {
                     "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
                     "-c:a", "aac", "-ar", "48000", "-ac", "2",
                     normalized,
-                ], ffmpeg: ffmpeg)
+                ], ffmpeg: ffmpeg, controller: processController)
                 concatInputs.append(normalized)
             }
         }
@@ -163,7 +167,7 @@ final class FinalAssemblyService {
             "-y", "-f", "concat", "-safe", "0", "-i", listFile.path,
             "-c", "copy",
             concatOutputPath,
-        ], ffmpeg: ffmpeg)
+        ], ffmpeg: ffmpeg, controller: processController)
 
         guard let concatInfo = MediaProbe.probe(path: concatOutputPath) else {
             throw AssemblyError.probeFailed(concatOutputPath)
@@ -179,14 +183,17 @@ final class FinalAssemblyService {
                 ambienceInputPath: spec.ambiencePath,
                 settings: spec.finalAudio,
                 outputPath: mixedOutputPath,
-                ffmpeg: ffmpeg)
+                ffmpeg: ffmpeg,
+                controller: processController)
             guard let mixedInfo = MediaProbe.probe(path: mixedOutputPath), mixedInfo.hasAudio else {
                 throw AssemblyError.bgmProbeFailed(mixedOutputPath)
             }
+            try processController?.checkNotCancelled()
             try replaceFile(at: outputPath, with: mixedOutputPath)
             return mixedInfo
         }
 
+        try processController?.checkNotCancelled()
         try replaceFile(at: outputPath, with: concatOutputPath)
         guard let info = MediaProbe.probe(path: outputPath) else {
             throw AssemblyError.probeFailed(outputPath)
@@ -345,19 +352,80 @@ final class FinalAssemblyService {
         }
     }
 
-    private static func runFFmpeg(_ arguments: [String], ffmpeg: String) throws {
+    static func runFFmpeg(
+        _ arguments: [String], ffmpeg: String, controller: AssemblyProcessController? = nil
+    ) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ffmpeg)
         process.arguments = arguments
         let stderr = Pipe()
         process.standardOutput = Pipe()
         process.standardError = stderr
-        try process.run()
+        if let controller {
+            try controller.launch(process)
+        } else {
+            try process.run()
+        }
         process.waitUntilExit()
+        controller?.exited(process)
+        // A process stopped by its attempt's cancel exits non-zero; that is a
+        // cancellation, not an ffmpeg failure.
+        try controller?.checkNotCancelled()
         if process.terminationStatus != 0 {
             let data = stderr.fileHandleForReading.readDataToEndOfFile()
             let message = String(data: data, encoding: .utf8) ?? ""
             throw AssemblyError.ffmpegFailed(String(message.suffix(2000)))
         }
+    }
+}
+
+/// One assembly attempt's stop switch.
+///
+/// Each run-scoped assembly attempt gets its own controller, and every ffmpeg
+/// process that attempt launches is started through it. `cancel()` terminates
+/// only the process this attempt is running — never any other ffmpeg — and
+/// stops the attempt from launching another. Launch and cancel share one lock,
+/// so a cancel cannot fall between a process starting and being recorded.
+final class AssemblyProcessController: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    private var running: Process?
+
+    var isCancelled: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return cancelled
+    }
+
+    var hasRunningProcess: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return running?.isRunning == true
+    }
+
+    /// Idempotent. Sends SIGTERM, which ffmpeg handles by exiting.
+    func cancel() {
+        lock.lock()
+        let wasCancelled = cancelled
+        cancelled = true
+        let process = running
+        lock.unlock()
+        guard !wasCancelled, let process, process.isRunning else { return }
+        process.terminate()
+    }
+
+    func checkNotCancelled() throws {
+        if isCancelled { throw FinalAssemblyService.AssemblyError.cancelled }
+    }
+
+    /// Starts `process` for this attempt, or refuses once it is cancelled.
+    func launch(_ process: Process) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard !cancelled else { throw FinalAssemblyService.AssemblyError.cancelled }
+        try process.run()
+        running = process
+    }
+
+    func exited(_ process: Process) {
+        lock.lock(); defer { lock.unlock() }
+        if running === process { running = nil }
     }
 }

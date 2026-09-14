@@ -553,6 +553,16 @@ final class ProductionQueueCoordinator {
         persist()
     }
 
+    /// Whether this exact assembly attempt is still the one its job is waiting
+    /// on: the job running, the run with that id, its assembly running at that
+    /// attempt. Checked before an attempt launches ffmpeg and before its movie
+    /// is adopted, as well as by `applyAssemblyResult`.
+    func acceptsAssemblyResult(jobID: UUID, runID: UUID, attempt: Int) -> Bool {
+        guard let job = job(id: jobID), job.state == .running,
+              let run = job.snapshot.movieRuns.first(where: { $0.id == runID }) else { return false }
+        return run.assembly.state == .running && run.assembly.attemptNumber == attempt
+    }
+
     /// The result of one Auto Movie final assembly.
     enum AssemblyResult: Equatable {
         case completed(outputPath: String)
@@ -562,8 +572,9 @@ final class ProductionQueueCoordinator {
     /// Records a finished final assembly. Returns whether it was applied; the
     /// caller settles the job only when it was.
     ///
-    /// Assembly runs ffmpeg in a detached task that cancelling a job does not
-    /// stop, so a result can arrive after the user cancelled. It used to be
+    /// Assembly runs ffmpeg in a detached task, so a result can still arrive
+    /// after the user cancelled — ffmpeg finishing before its termination, or
+    /// a cancelled attempt reporting that it stopped. It used to be
     /// written by run index with no other check and the job then settled —
     /// turning a cancelled job completed or failed, attaching the late film,
     /// or handing the cancelled job back to dispatch its unfinished works.
@@ -572,17 +583,16 @@ final class ProductionQueueCoordinator {
     /// still running, the run with that id, and an assembly still running at
     /// that attempt. Anything else — a cancelled or already-settled job, a
     /// Retry's newer attempt, a duplicate, an assembly never dispatched — is
-    /// ignored. The film ffmpeg wrote stays on disk; it is simply not recorded
-    /// as this job's output.
+    /// ignored, and the file that attempt wrote is its caller's to remove
+    /// (`MovieAssemblyDriver.discardCandidate`).
     @discardableResult
     func applyAssemblyResult(
         jobID: UUID, runID: UUID, attempt: Int, result: AssemblyResult
     ) -> Bool {
-        guard let job = job(id: jobID), job.state == .running else { return false }
+        guard acceptsAssemblyResult(jobID: jobID, runID: runID, attempt: attempt),
+              let job = job(id: jobID) else { return false }
         var runs = job.snapshot.movieRuns
-        guard let runIndex = runs.firstIndex(where: { $0.id == runID }),
-              runs[runIndex].assembly.state == .running,
-              runs[runIndex].assembly.attemptNumber == attempt else { return false }
+        guard let runIndex = runs.firstIndex(where: { $0.id == runID }) else { return false }
         switch result {
         case .completed(let outputPath):
             runs[runIndex].assembly.state = .completed

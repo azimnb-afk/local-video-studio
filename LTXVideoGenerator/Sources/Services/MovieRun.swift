@@ -266,6 +266,48 @@ enum MovieAssemblyDriver {
             .appendingPathComponent("final.mp4")
     }
 
+    /// Where one assembly attempt writes its movie before it is adopted.
+    ///
+    /// Every attempt of a run shares `outputURL`, so an attempt writing there
+    /// directly could leave a movie behind when it was cancelled, or overwrite
+    /// the movie a Retry's newer attempt had just finished. Each attempt writes
+    /// its own file beside the final path — same directory, so adopting it is a
+    /// rename — and it becomes `final.mp4` only once its result is accepted.
+    static func candidatePath(forOutput outputPath: String, attempt: Int) -> String {
+        let output = URL(fileURLWithPath: outputPath)
+        let name = output.deletingPathExtension().lastPathComponent
+        let ext = output.pathExtension.isEmpty ? "mp4" : output.pathExtension
+        return output.deletingLastPathComponent()
+            .appendingPathComponent("\(name).attempt-\(attempt).candidate.\(ext)").path
+    }
+
+    /// Makes an accepted attempt's movie the run's movie.
+    static func adoptCandidate(
+        _ candidatePath: String, as outputPath: String, fileManager: FileManager = .default
+    ) throws {
+        let candidate = URL(fileURLWithPath: candidatePath)
+        let output = URL(fileURLWithPath: outputPath)
+        if fileManager.fileExists(atPath: output.path) {
+            _ = try fileManager.replaceItemAt(output, withItemAt: candidate)
+        } else {
+            try fileManager.moveItem(at: candidate, to: output)
+        }
+    }
+
+    /// Removes the one file an unadopted attempt wrote. Only that exact path,
+    /// only a regular file, and never the run's final movie itself; a file that
+    /// was never written is not an error.
+    static func discardCandidate(
+        _ candidatePath: String, output outputPath: String, fileManager: FileManager = .default
+    ) {
+        let candidate = URL(fileURLWithPath: candidatePath).standardizedFileURL.path
+        guard candidate != URL(fileURLWithPath: outputPath).standardizedFileURL.path else { return }
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: candidate, isDirectory: &isDirectory),
+              !isDirectory.boolValue else { return }
+        try? fileManager.removeItem(atPath: candidate)
+    }
+
     /// Retry assembles the same clips again; it never re-renders shots.
     static func retryAssembly(in run: inout MovieRun) {
         guard run.assembly.state == .failed || run.assembly.state == .interrupted else { return }

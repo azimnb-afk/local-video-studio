@@ -16,7 +16,8 @@ enum FinalAudioMixer {
         ambienceInputPath: String?,
         settings: FinalAudioSettings,
         outputPath: String,
-        ffmpeg: String
+        ffmpeg: String,
+        controller: AssemblyProcessController? = nil
     ) throws {
         guard let duration = movieInfo.durationSeconds, duration > 0 else {
             throw FinalAssemblyService.AssemblyError.bgmMixFailed(
@@ -108,11 +109,19 @@ enum FinalAudioMixer {
         process.standardOutput = Pipe()
         process.standardError = stderr
         do {
-            try process.run()
+            if let controller {
+                try controller.launch(process)
+            } else {
+                try process.run()
+            }
+        } catch FinalAssemblyService.AssemblyError.cancelled {
+            throw FinalAssemblyService.AssemblyError.cancelled
         } catch {
             throw FinalAssemblyService.AssemblyError.bgmMixFailed(error.localizedDescription)
         }
         process.waitUntilExit()
+        controller?.exited(process)
+        try controller?.checkNotCancelled()
         if process.terminationStatus != 0 {
             let data = stderr.fileHandleForReading.readDataToEndOfFile()
             let message = String(data: data, encoding: .utf8) ?? ""

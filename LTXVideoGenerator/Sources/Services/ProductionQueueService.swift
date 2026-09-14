@@ -263,9 +263,8 @@ final class ProductionQueueService: ObservableObject {
         generationService.$lastRunSettlement
             .receive(on: RunLoop.main)
             .sink { [weak self] settlement in
-                guard let self, let settlement,
-                      let jobID = self.coordinator.activeJob?.id else { return }
-                self.coordinator.recordRunOutcomes(jobID: jobID, outcomes: [settlement])
+                guard let self, let settlement else { return }
+                self.coordinator.recordSettlement(settlement)
             }
             .store(in: &cancellables)
         coordinator.startNextIfIdle()

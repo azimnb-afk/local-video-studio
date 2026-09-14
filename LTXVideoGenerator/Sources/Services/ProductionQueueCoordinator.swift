@@ -543,6 +543,48 @@ final class ProductionQueueCoordinator {
         persist()
     }
 
+    /// Records one settlement published by the renderer into the job that
+    /// dispatched it.
+    ///
+    /// The queue receives settlements a main-queue turn after they are
+    /// published, and this used to write into whichever job was active at that
+    /// moment. When a job's last run finished, the queue could close that job
+    /// and start the next before the settlement arrived — so the run's real
+    /// outcome was recorded into the *next* job, and its own job was left with a
+    /// close-out "interrupted" that a Retry would render again. Real data shows
+    /// exactly that pair.
+    ///
+    /// A settlement is therefore matched to its owner by identity, never by
+    /// timing: a request the job submitted with that id at that attempt, or a
+    /// run-scoped shot that dispatched that request. A settlement nobody owns —
+    /// the job was dismissed, or it is stale — is dropped rather than handed to
+    /// someone else. Only outcomes are recorded; a job's own state is untouched.
+    func recordSettlement(_ settlement: RunOutcomeRecord) {
+        guard let jobID = Self.owner(of: settlement, in: jobs) else { return }
+        recordRunOutcomes(jobID: jobID, outcomes: [settlement])
+    }
+
+    /// The job whose execution produced `settlement`, or nil when no job — or
+    /// more than one — can be shown to own it.
+    static func owner(of settlement: RunOutcomeRecord, in jobs: [ProductionJob]) -> UUID? {
+        let owners = jobs.filter { job in
+            // Retry keeps a request's id and raises its attempt, so the id
+            // alone would match both the original and the retry.
+            job.snapshot.pendingRequests.contains {
+                $0.id == settlement.runID && ($0.attemptNumber ?? 1) == settlement.attemptNumber
+            }
+            // Run-scoped requests are minted per dispatch; the shot that
+            // dispatched one records its id.
+            || job.snapshot.storyboardRuns.contains { run in
+                run.shotStates.contains { $0.dispatchedRequestID == settlement.runID }
+            }
+            || job.snapshot.movieRuns.contains { run in
+                run.shotStates.contains { $0.dispatchedRequestID == settlement.runID }
+            }
+        }
+        return owners.count == 1 ? owners[0].id : nil
+    }
+
     /// Records what each logical run did, so a later retry can skip the ones
     /// that succeeded. Persisted, so the knowledge survives an app restart.
     func recordRunOutcomes(jobID: UUID, outcomes: [RunOutcomeRecord]) {

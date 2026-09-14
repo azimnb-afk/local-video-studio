@@ -18,6 +18,82 @@ import Foundation
 /// run next* and records state, and hands the actual work to a runner closure.
 /// That keeps it unit-testable without a GPU, which is what makes the
 /// single-active-job guarantee provable rather than asserted.
+/// Turns a stored failure reason into text safe to show in the queue.
+///
+/// Failures now stay on screen until dismissed, which surfaced old backend
+/// reasons that embed raw subprocess output — Python tracebacks with
+/// `File "/Users/<name>/…"`, model directories on external volumes. The stored
+/// reason is diagnostic truth and is never rewritten; only what the panel
+/// renders is shortened. A private absolute path keeps its last component,
+/// which is the part that identifies the file, and loses the part that
+/// identifies the user and their disk layout.
+///
+/// Deliberately narrow: only absolute paths under the roots that carry a
+/// username or machine-local layout are touched. URLs, relative paths and
+/// ordinary prose are left alone, and the app's own messages (which already
+/// name files by last component) pass through unchanged.
+enum ProductionFailurePresenter {
+
+    private static let roots = "(?:Users|private|var|tmp|Volumes)"
+
+    /// `File "/Users/a/b.py"` — the quote bounds the path, so spaces inside it
+    /// (`Application Support`) are handled exactly.
+    private static let quoted = try! NSRegularExpression(
+        pattern: "\"(/\(roots)/[^\"\\n]*)\"")
+
+    /// An unquoted path. It cannot start mid-token, so `https://host/Users/x`
+    /// and `file:///Users/x` are not treated as filesystem paths. A following
+    /// space-separated token is absorbed while it still looks like more path
+    /// (`/Volumes/ELECOM USBHDD/AIModels/…`); without that a volume or folder
+    /// name containing a space would cut the match short and leak the rest.
+    private static let unquoted = try! NSRegularExpression(
+        pattern: "(?<![\\w:/.~-])/\(roots)/[^\\s\"'()<>\\[\\]]*"
+            + "(?: [^\\s\"'()<>\\[\\]/]+/[^\\s\"'()<>\\[\\]]*)*")
+
+    static func displayReason(_ reason: String) -> String {
+        var text = replace(quoted, in: reason) { match in "\"\(shortened(match))\"" }
+        text = replace(unquoted, in: text) { match in
+            // Sentence punctuation after a path belongs to the sentence.
+            let trailing = match.reversed().prefix { ".,;:".contains($0) }
+            let path = String(match.dropLast(trailing.count))
+            return shortened(path) + String(trailing.reversed())
+        }
+        return text
+    }
+
+    /// Keeps the last component. `/Users/<name>` and `/Volumes/<name>` on
+    /// their own would make that component the username or disk name, so
+    /// they collapse entirely.
+    static func shortened(_ path: String) -> String {
+        let parts = path.split(separator: "/", omittingEmptySubsequences: true)
+        guard let last = parts.last else { return "…" }
+        if let root = parts.first, root == "Users" || root == "Volumes", parts.count <= 2 {
+            return "…"
+        }
+        return "…/\(last)"
+    }
+
+    private static func replace(
+        _ regex: NSRegularExpression, in text: String, with transform: (String) -> String
+    ) -> String {
+        let ns = text as NSString
+        var result = ""
+        var cursor = 0
+        for match in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            let full = match.range
+            // The quoted pattern captures the path inside the quotes.
+            let pathRange = match.numberOfRanges > 1 ? match.range(at: 1) : full
+            result += ns.substring(with: NSRange(location: cursor, length: full.location - cursor))
+            result += match.numberOfRanges > 1
+                ? transform(ns.substring(with: pathRange))
+                : transform(ns.substring(with: full))
+            cursor = full.location + full.length
+        }
+        result += ns.substring(from: cursor)
+        return result
+    }
+}
+
 final class ProductionQueueCoordinator {
 
     /// How a job's work is actually started. Returning `.started` means the
@@ -307,6 +383,19 @@ final class ProductionQueueCoordinator {
     var waitingCount: Int { jobs.filter { $0.state == .waiting }.count }
 
     var hasUnfinishedWork: Bool { jobs.contains { !$0.state.isTerminal } }
+
+    /// Whether the header's Pause/Resume control means anything.
+    ///
+    /// Pause only stops *new* jobs from starting, so it has something to act
+    /// on only while a job is waiting or running. Once failures stay visible
+    /// until dismissed, the list is often non-empty with nothing pausable in
+    /// it, and a Pause button there reads as a control over those failures.
+    ///
+    /// A paused queue keeps its Resume visible regardless: hiding it would hide
+    /// the one fact that explains why the next submission does not start.
+    static func showsPauseControl(jobs: [ProductionJob], isPaused: Bool) -> Bool {
+        isPaused || jobs.contains { !$0.state.isTerminal }
+    }
 
     /// Presentation-only projection for the active queue. The newest submitted
     /// work is easiest to find at the top, while scheduling continues to read

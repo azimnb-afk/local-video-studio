@@ -52,7 +52,8 @@ struct ProductionQueuePanel: View {
                 .help("Remove every failed job from the queue list. "
                       + "Waiting and running jobs are not affected.")
             }
-            if !queue.activeDisplayJobs.isEmpty {
+            if ProductionQueueCoordinator.showsPauseControl(
+                jobs: queue.jobs, isPaused: queue.isPaused) {
                 Button(queue.isPaused ? "Resume" : "Pause") {
                     queue.setPaused(!queue.isPaused)
                 }
@@ -104,7 +105,9 @@ private struct ProductionQueueRow: View {
                 }
             }
             if let reason = job.failureReason {
-                Text(reason)
+                // Display-only: the stored reason keeps its full diagnostic
+                // paths; the panel never shows a username or disk layout.
+                Text(ProductionFailurePresenter.displayReason(reason))
                     .font(.caption2)
                     .foregroundStyle(.orange)
                     .lineLimit(2)

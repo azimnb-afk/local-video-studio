@@ -176,8 +176,10 @@ enum ProductionWorkPresenter {
                     index: index, state: .completed, failureReason: nil,
                     hasOutput: !(outcome.outputPath ?? "").isEmpty)
             case .failed:
+                // Stopped because a sibling hit a batch-wide failure: it never
+                // ran, and saying "failed" would imply it was tried.
                 return ProductionWorkDisplayItem(
-                    index: index, state: .failed,
+                    index: index, state: outcome.notAttempted == true ? .notRun : .failed,
                     failureReason: outcome.failureReason.map(ProductionFailurePresenter.displayReason),
                     hasOutput: false)
             case .cancelled:
@@ -202,14 +204,15 @@ enum ProductionWorkPresenter {
         switch run.derivedState {
         case .cancelled: state = .cancelled
         case .completed: state = .completed
-        case .failed, .dependencyBlocked: state = .failed
+        case .failed, .dependencyBlocked:
+            state = notAttempted(run.shotStates) ? .notRun : .failed
         case .interrupted: state = .interrupted
         case .running: state = unfinished(.running, parent: parent)
         case .queued, .waitingForDependency: state = unfinished(.waiting, parent: parent)
         }
         return ProductionWorkDisplayItem(
             index: run.batchIndex, state: state,
-            failureReason: state == .failed ? reason : nil,
+            failureReason: state == .failed || state == .notRun ? reason : nil,
             hasOutput: state == .completed
                 && run.shotStates.allSatisfy { !($0.outputPath ?? "").isEmpty })
     }
@@ -226,7 +229,7 @@ enum ProductionWorkPresenter {
         } else {
             switch run.derivedShotState {
             case .failed, .dependencyBlocked:
-                state = .failed
+                state = notAttempted(run.shotStates) ? .notRun : .failed
                 reason = shotFailureReason(run.shotStates)
             case .interrupted:
                 state = .interrupted
@@ -269,6 +272,13 @@ enum ProductionWorkPresenter {
         case .cancelled: return .cancelled
         case .failed, .completed: return .notRun
         }
+    }
+
+    /// A work stopped by a sibling's batch-wide failure: nothing in it failed or
+    /// ran, and at least one shot was marked not attempted.
+    private static func notAttempted(_ shots: [ShotRunState]) -> Bool {
+        shots.contains { $0.notAttempted == true }
+            && !shots.contains { $0.state == .failed || $0.state == .running || $0.state == .completed }
     }
 
     private static func shotFailureReason(_ shots: [ShotRunState]) -> String? {

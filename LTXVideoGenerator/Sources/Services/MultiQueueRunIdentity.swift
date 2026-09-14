@@ -105,19 +105,104 @@ struct RunOutcomeRecord: Codable, Equatable {
     var attemptNumber: Int
     var outputPath: String?
     var failureReason: String?
+    /// True when this run never reached the renderer because a sibling hit a
+    /// failure that applies to the whole batch (see `BatchFailurePolicy`). The
+    /// outcome is `failed` — it did not succeed and Retry must run it — but it
+    /// was not attempted, which is what the queue shows. Optional so records
+    /// written before this field existed still decode.
+    var notAttempted: Bool?
 
     init(
         runID: UUID,
         outcome: Outcome,
         attemptNumber: Int = 1,
         outputPath: String? = nil,
-        failureReason: String? = nil
+        failureReason: String? = nil,
+        notAttempted: Bool? = nil
     ) {
         self.runID = runID
         self.outcome = outcome
         self.attemptNumber = attemptNumber
         self.outputPath = outputPath
         self.failureReason = failureReason
+        self.notAttempted = notAttempted
+    }
+}
+
+/// Whether a failure dooms the works that have not run yet.
+///
+/// The default is to keep going: one work failing is usually about that work,
+/// and stopping its siblings would throw away outputs that would have
+/// succeeded. A batch is stopped only on a typed failure that is decided before
+/// rendering and depends solely on inputs every remaining sibling shares:
+///
+/// - the renderer's readiness checks (`LTXError.modelLoadFailed`: model or text
+///   encoder not prepared locally, model unsupported, LTX-2-MLX runtime/model
+///   not ready) and a missing Python environment (`pythonNotConfigured`);
+/// - a frozen explicit starting image that is missing or changed, when the
+///   sibling froze the very same file and bytes.
+///
+/// Everything else — backend exits, GPU/Metal out-of-memory (detected only by
+/// matching process output), export and assembly failures, a missing
+/// continuation frame, cancellation — is treated as possibly work-local or
+/// transient, and siblings continue.
+enum FailureScope: Equatable {
+    case batchDeterministic
+    case workLocalOrUnknown
+}
+
+enum BatchFailurePolicy {
+
+    /// Shown on each work that was stopped rather than attempted. Short: the
+    /// real cause is on the work that failed.
+    static let notAttemptedReason = "同じ条件では成功しないため、残りの生成を停止しました。"
+
+    static func scope(of error: LTXError?) -> FailureScope {
+        switch error {
+        case .modelLoadFailed?, .pythonNotConfigured?: return .batchDeterministic
+        case .generationFailed?, .exportFailed?, .cancelled?, nil: return .workLocalOrUnknown
+        }
+    }
+
+    /// Generate / One Shot: the still-pending requests of the failed request's
+    /// batch that depend on the same model prerequisites. Film-project takes
+    /// (which carry a take id) are never swept up.
+    static func siblingsSharingPrerequisite(
+        of failed: GenerationRequest, in queue: [GenerationRequest]
+    ) -> [GenerationRequest] {
+        guard let batch = failed.batchID, failed.takeID == nil else { return [] }
+        return queue.filter {
+            $0.id != failed.id
+                && $0.status == .pending
+                && $0.takeID == nil
+                && $0.batchID == batch
+                && $0.modelId == failed.modelId
+                && $0.textEncoderId == failed.textEncoderId
+                && $0.customModelLocalPath == failed.customModelLocalPath
+                && $0.customModelSourceMode == failed.customModelSourceMode
+        }
+    }
+
+    /// Run-scoped: marks every run that has not started and shares the failed
+    /// prerequisite as not attempted. A run that has already rendered or is
+    /// rendering keeps going — its work is under way.
+    static func skipUnstartedRuns<Run: RunScopedShotExecution>(
+        _ runs: inout [Run], except failingIndex: Int, sharesPrerequisite: (Run) -> Bool
+    ) {
+        for index in runs.indices where index != failingIndex {
+            let run = runs[index]
+            let unstarted = !run.isCancelled && run.shotStates.allSatisfy {
+                ($0.state == .queued || $0.state == .waitingForDependency) && $0.dispatchedRequestID == nil
+            }
+            guard unstarted, sharesPrerequisite(run) else { continue }
+            for shot in run.orderedShots {
+                runs[index].update(shot.id) {
+                    $0.state = .dependencyBlocked
+                    $0.failureReason = notAttemptedReason
+                    $0.notAttempted = true
+                }
+            }
+        }
     }
 }
 

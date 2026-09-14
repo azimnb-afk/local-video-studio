@@ -84,14 +84,31 @@ class GenerationService: ObservableObject {
         _ request: GenerationRequest,
         _ outcome: RunOutcomeRecord.Outcome,
         outputPath: String? = nil,
-        reason: String? = nil
+        reason: String? = nil,
+        notAttempted: Bool? = nil
     ) {
         lastRunSettlement = RunOutcomeRecord(
             runID: request.id,
             outcome: outcome,
             attemptNumber: request.attemptNumber ?? 1,
             outputPath: outputPath,
-            failureReason: reason)
+            failureReason: reason,
+            notAttempted: notAttempted)
+    }
+
+    /// After a request fails on a typed readiness error that every sibling of
+    /// its batch shares (see `BatchFailurePolicy`), the siblings still waiting
+    /// would fail the same way. They leave the queue now — before the next one
+    /// is picked up — and each is settled as not attempted.
+    private func stopBatchSiblings(after request: GenerationRequest, error: LTXError) {
+        guard BatchFailurePolicy.scope(of: error) == .batchDeterministic else { return }
+        let siblings = BatchFailurePolicy.siblingsSharingPrerequisite(of: request, in: queue)
+        guard !siblings.isEmpty else { return }
+        let ids = Set(siblings.map(\.id))
+        queue.removeAll { ids.contains($0.id) }
+        for sibling in siblings {
+            settle(sibling, .failed, reason: BatchFailurePolicy.notAttemptedReason, notAttempted: true)
+        }
     }
 
     
@@ -607,6 +624,7 @@ class GenerationService: ObservableObject {
             queue[index].status = .failed
             error = err
             settle(request, .failed, reason: err.localizedDescription)
+            stopBatchSiblings(after: request, error: err)
             if FeatureFlags.isEnabled(.filmProjectV1), request.takeID != nil {
                 TakeGenerationCoordinator().recordFailure(
                     request: request,

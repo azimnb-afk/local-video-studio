@@ -180,6 +180,9 @@ func runMidRunRefusalTests(_ t: TestKit) {
 
         // MIDREFUSE_13 — every remaining work refuses (the live E2E, where
         // works 2 and 3 share the edited image): finite, settled, no request.
+        // The shared image is a batch-wide failure (BatchFailurePolicy), so
+        // work 2 records the real refusal and work 3, which froze the same
+        // file and bytes, is stopped as not attempted rather than failed again.
         var allRefuse = storyboardRuns()
         complete(&allRefuse, 0)
         breakFrozenHash(&allRefuse, 1)
@@ -187,8 +190,10 @@ func runMidRunRefusalTests(_ t: TestKit) {
         var noneBuilt = 0
         let allDecision = storyboardDecision(allRefuse, counter: &noneBuilt)
         if case .noShotToDispatch(let settled) = allDecision {
-            t.checkEqual(settled.map { $0.state(of: shot($0))?.state }, [.completed, .failed, .failed],
-                         "MIDREFUSE_13 works 2 and 3 are both recorded failed")
+            t.checkEqual(settled.map { $0.state(of: shot($0))?.state }, [.completed, .failed, .dependencyBlocked],
+                         "MIDREFUSE_13 work 2 is recorded failed and work 3 is stopped")
+            t.checkEqual(settled[2].state(of: shot(settled[2]))?.notAttempted, true,
+                         "MIDREFUSE_13 work 3 is marked not attempted")
             t.check(StoryboardRunDriver.allSettled(settled), "MIDREFUSE_13 and the job is settled")
             t.checkEqual(noneBuilt, 0, "MIDREFUSE_13 without building any request")
         } else {
@@ -310,9 +315,14 @@ func runMidRunRefusalTests(_ t: TestKit) {
 
         t.checkEqual(queue.job(id: refusing.id)?.state, .failed,
                      "MIDREFUSE_16 a job whose every work refuses ends — at start, too")
+        // Every work froze the same broken image: the first records the
+        // refusal, the rest are stopped as not attempted (BatchFailurePolicy).
         t.checkEqual(queue.job(id: refusing.id)?.snapshot.storyboardRuns.map { $0.shotStates[0].state },
-                     [.failed, .failed, .failed],
-                     "MIDREFUSE_16 with every work recorded, not only the first")
+                     [.failed, .dependencyBlocked, .dependencyBlocked],
+                     "MIDREFUSE_16 with every work settled, not only the first")
+        t.checkEqual(queue.job(id: refusing.id)?.snapshot.storyboardRuns.map { $0.shotStates[0].notAttempted },
+                     [nil, true, true],
+                     "MIDREFUSE_16 the stopped works are marked not attempted")
         t.checkEqual(queue.job(id: behind.id)?.state, .running,
                      "MIDREFUSE_16 and the job behind it starts")
         t.checkEqual(started, ["refusing", "behind"], "MIDREFUSE_16 in queue order")

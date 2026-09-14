@@ -150,6 +150,19 @@ enum RunScopedDispatchDriver {
                     $0.state = refusal.shotState
                     $0.failureReason = refusal.message
                 }
+                // A frozen explicit image is the same file and bytes in every
+                // run that froze it, so a run that has not started would render
+                // its earlier shots only to refuse at this one.
+                if refusal.scope == .batchDeterministic,
+                   let failed = runs[dispatch.runIndex].orderedShots.first(where: { $0.id == dispatch.shotID }) {
+                    BatchFailurePolicy.skipUnstartedRuns(&runs, except: dispatch.runIndex) { sibling in
+                        sibling.orderedShots.contains {
+                            $0.id == failed.id
+                                && $0.explicitStartImageRelativePath == failed.explicitStartImageRelativePath
+                                && $0.explicitStartImageContentHash == failed.explicitStartImageContentHash
+                        }
+                    }
+                }
                 continue
             }
             return .dispatch(runs: runs, runIndex: dispatch.runIndex, shotID: dispatch.shotID, request: request)
@@ -173,6 +186,20 @@ enum RunScopedDispatchDriver {
         if runs.contains(where: { $0.assembly.state == .running }) { return nil }
         guard runs.allSatisfy({ $0.isSettled }) else { return .stalled }
         return .settled(allCompleted: runs.allSatisfy { $0.assembly.state == .completed })
+    }
+
+    /// After a shot settles as failed with a typed renderer error that applies
+    /// to every run of the job (see `BatchFailurePolicy`), the runs that have not
+    /// started would each fail the same way. They are marked not attempted.
+    static func stopUnstartedRunsAfterFailure<Run: RunScopedShotExecution>(
+        _ runs: inout [Run], settlement: RunOutcomeRecord, dispatchedIn failingIndex: Int?, error: LTXError?
+    ) {
+        guard settlement.outcome == .failed,
+              let failingIndex,
+              BatchFailurePolicy.scope(of: error) == .batchDeterministic else { return }
+        // Every run of a job was expanded from one frozen plan, so they share
+        // the model and text encoder this error is about.
+        BatchFailurePolicy.skipUnstartedRuns(&runs, except: failingIndex) { _ in true }
     }
 
     static let stalledReason =
@@ -555,12 +582,18 @@ final class ProductionQueueService: ObservableObject {
               settlement.runID != consumedStoryboardSettlementID
         else { return }
 
-        guard let updated = StoryboardRunDriver.applySettlement(
+        guard var updated = StoryboardRunDriver.applySettlement(
             settlement, to: job.snapshot.storyboardRuns) else {
             // Belongs to no in-flight attempt of this job: stale, or another
             // job's. Not consumed, so the job it does belong to can still see it.
             return
         }
+        RunScopedDispatchDriver.stopUnstartedRunsAfterFailure(
+            &updated, settlement: settlement,
+            dispatchedIn: job.snapshot.storyboardRuns.firstIndex { run in
+                run.shotStates.contains { $0.dispatchedRequestID == settlement.runID }
+            },
+            error: generationService.error)
         consumedStoryboardSettlementID = settlement.runID
         // Terminal state is persisted before anything else is scheduled.
         coordinator.updateStoryboardRuns(jobID: job.id, runs: updated)
@@ -737,8 +770,14 @@ final class ProductionQueueService: ObservableObject {
         guard let settlement = generationService.lastRunSettlement,
               settlement.runID != consumedStoryboardSettlementID
         else { return }
-        guard let updated = StoryboardRunDriver.applySettlement(
+        guard var updated = StoryboardRunDriver.applySettlement(
             settlement, to: job.snapshot.movieRuns) else { return }
+        RunScopedDispatchDriver.stopUnstartedRunsAfterFailure(
+            &updated, settlement: settlement,
+            dispatchedIn: job.snapshot.movieRuns.firstIndex { run in
+                run.shotStates.contains { $0.dispatchedRequestID == settlement.runID }
+            },
+            error: generationService.error)
         consumedStoryboardSettlementID = settlement.runID
         coordinator.updateMovieRuns(jobID: job.id, runs: updated)
 

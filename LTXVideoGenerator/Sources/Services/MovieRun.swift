@@ -483,6 +483,9 @@ struct RunDispatchRefusal: Equatable {
     /// `dependencyBlocked` stays for the continuation case it was written for.
     var shotState: ShotRunState.State
     var message: String
+    /// A frozen explicit image is shared by every run of the job, so its
+    /// failure is batch-wide; a missing continuation frame is this run's own.
+    var scope: FailureScope = .workLocalOrUnknown
 
     static let continuationUnavailable = RunDispatchRefusal(
         shotState: .dependencyBlocked,
@@ -499,7 +502,7 @@ struct RunDispatchRefusal: Equatable {
                 shot, projectID: projectID,
                 resolveAsset: resolveAsset, contentHash: contentHash)
         else { return continuationUnavailable }
-        return RunDispatchRefusal(shotState: .failed, message: failure.message)
+        return RunDispatchRefusal(shotState: .failed, message: failure.message, scope: .batchDeterministic)
     }
 
     static func classify(

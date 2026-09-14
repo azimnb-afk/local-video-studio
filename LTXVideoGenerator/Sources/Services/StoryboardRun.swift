@@ -156,6 +156,11 @@ struct ShotRunState: Codable, Equatable, Identifiable {
     /// a failure and blocked the shots below it.
     var dispatchedRequestID: UUID?
     var dispatchedTakeID: UUID?
+    /// Set when this shot was never dispatched because a sibling work hit a
+    /// batch-wide failure (see `BatchFailurePolicy`). Its state is
+    /// `dependencyBlocked` — it cannot run with what it depends on — and Retry
+    /// clears this along with the rest of the attempt.
+    var notAttempted: Bool?
 
     init(shotID: UUID, dependency: ResolvedShotDependency? = nil) {
         self.shotID = shotID
@@ -418,6 +423,7 @@ enum StoryboardRunScheduler {
             state.state = state.dependency?.isResolved == false
                 ? .waitingForDependency : .queued
             state.failureReason = nil
+            state.notAttempted = nil
             // A fresh attempt needs a fresh reservation.
             state.dispatchedRequestID = nil
             state.dispatchedTakeID = nil

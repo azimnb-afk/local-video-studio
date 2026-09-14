@@ -543,6 +543,48 @@ final class ProductionQueueCoordinator {
         persist()
     }
 
+    /// The result of one Auto Movie final assembly.
+    enum AssemblyResult: Equatable {
+        case completed(outputPath: String)
+        case failed(reason: String)
+    }
+
+    /// Records a finished final assembly. Returns whether it was applied; the
+    /// caller settles the job only when it was.
+    ///
+    /// Assembly runs ffmpeg in a detached task that cancelling a job does not
+    /// stop, so a result can arrive after the user cancelled. It used to be
+    /// written by run index with no other check and the job then settled —
+    /// turning a cancelled job completed or failed, attaching the late film,
+    /// or handing the cancelled job back to dispatch its unfinished works.
+    ///
+    /// A result now applies only to the exact execution that produced it: a job
+    /// still running, the run with that id, and an assembly still running at
+    /// that attempt. Anything else — a cancelled or already-settled job, a
+    /// Retry's newer attempt, a duplicate, an assembly never dispatched — is
+    /// ignored. The film ffmpeg wrote stays on disk; it is simply not recorded
+    /// as this job's output.
+    @discardableResult
+    func applyAssemblyResult(
+        jobID: UUID, runID: UUID, attempt: Int, result: AssemblyResult
+    ) -> Bool {
+        guard let job = job(id: jobID), job.state == .running else { return false }
+        var runs = job.snapshot.movieRuns
+        guard let runIndex = runs.firstIndex(where: { $0.id == runID }),
+              runs[runIndex].assembly.state == .running,
+              runs[runIndex].assembly.attemptNumber == attempt else { return false }
+        switch result {
+        case .completed(let outputPath):
+            runs[runIndex].assembly.state = .completed
+            runs[runIndex].assembly.outputPath = outputPath
+        case .failed(let reason):
+            runs[runIndex].assembly.state = .failed
+            runs[runIndex].assembly.failureReason = reason
+        }
+        updateMovieRuns(jobID: jobID, runs: runs)
+        return true
+    }
+
     /// Records one settlement published by the renderer into the job that
     /// dispatched it.
     ///

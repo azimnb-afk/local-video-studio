@@ -681,9 +681,10 @@ final class ProductionQueueService: ObservableObject {
     private func runAssembly(jobID: UUID, runIndex: Int) {
         Task { [weak self] in
             guard let self else { return }
-            guard var runs = self.coordinator.job(id: jobID)?.snapshot.movieRuns,
+            guard let runs = self.coordinator.job(id: jobID)?.snapshot.movieRuns,
                   runs.indices.contains(runIndex) else { return }
             let run = runs[runIndex]
+            let attempt = run.assembly.attemptNumber
             let clips = run.assembly.clips.sorted { $0.order < $1.order }
             let output = run.assembly.outputPath
                 ?? MovieAssemblyDriver.outputURL(runID: run.id).path
@@ -694,11 +695,11 @@ final class ProductionQueueService: ObservableObject {
             // project is never read here, so editing or deleting it cannot
             // change or break a queued work.
             guard let spec = run.plan.assemblySpec else {
-                var latest = runs
-                latest[runIndex].assembly.state = .failed
-                latest[runIndex].assembly.failureReason =
-                    "This work was queued without its assembly settings and cannot be assembled."
-                self.coordinator.updateMovieRuns(jobID: jobID, runs: latest)
+                guard self.coordinator.applyAssemblyResult(
+                    jobID: jobID, runID: run.id, attempt: attempt,
+                    result: .failed(reason:
+                        "This work was queued without its assembly settings and cannot be assembled."))
+                else { return }
                 self.settleRunScopedMovieIfDone(jobID: jobID)
                 return
             }
@@ -715,18 +716,14 @@ final class ProductionQueueService: ObservableObject {
                 }
             }.value
 
-            guard var latest = self.coordinator.job(id: jobID)?.snapshot.movieRuns,
-                  latest.indices.contains(runIndex) else { return }
+            let recorded: ProductionQueueCoordinator.AssemblyResult
             switch result {
-            case .success:
-                latest[runIndex].assembly.state = .completed
-                latest[runIndex].assembly.outputPath = output
-            case .failure(let error):
-                latest[runIndex].assembly.state = .failed
-                latest[runIndex].assembly.failureReason = error.localizedDescription
+            case .success: recorded = .completed(outputPath: output)
+            case .failure(let error): recorded = .failed(reason: error.localizedDescription)
             }
-            self.coordinator.updateMovieRuns(jobID: jobID, runs: latest)
-            runs = latest
+            guard self.coordinator.applyAssemblyResult(
+                jobID: jobID, runID: run.id, attempt: attempt, result: recorded)
+            else { return }
             self.settleRunScopedMovieIfDone(jobID: jobID)
         }
     }

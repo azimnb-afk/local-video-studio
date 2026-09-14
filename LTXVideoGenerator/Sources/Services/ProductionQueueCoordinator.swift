@@ -76,6 +76,208 @@ enum ProductionFailurePresenter {
     }
 }
 
+/// One work of a multi-work job, as the queue row shows it.
+///
+/// A job of 作品数 N used to present as a single state and a single reason, so
+/// "something failed" could not say which work, and a failed parent read as if
+/// every work had failed. Every surface already records per-work truth — Generate
+/// and One Shot per request (`batchIndex` + `runOutcomes`, matched by request
+/// id), Storyboard and Auto Movie per run (`batchIndex` + shot and assembly
+/// state) — so this is derived on demand and never persisted.
+struct ProductionWorkDisplayItem: Equatable, Identifiable {
+    enum State: Equatable {
+        case waiting, running, completed, failed, interrupted, cancelled
+        /// Never ran, and the parent stopped for a reason that is not the
+        /// work's own. Said plainly rather than guessed at.
+        case notRun
+    }
+
+    /// 0-based, matching `batchIndex`. The UI is 1-based.
+    let index: Int
+    let state: State
+    /// Sanitised for display. Only a work's own reason, never the parent's.
+    let failureReason: String?
+    let hasOutput: Bool
+
+    var id: Int { index }
+    var label: String { "作品 \(index + 1)" }
+}
+
+enum ProductionWorkPresenter {
+
+    /// Per-work rows for a job, or `[]` when there is nothing to break down:
+    /// a single work, or a legacy job that recorded no per-work state.
+    ///
+    /// - Parameter activeRequestID: the render request currently in flight,
+    ///   so a running Generate/One Shot work is identified from the renderer
+    ///   rather than inferred from order.
+    static func items(for job: ProductionJob, activeRequestID: UUID? = nil) -> [ProductionWorkDisplayItem] {
+        let snapshot = job.snapshot
+        if !snapshot.storyboardRuns.isEmpty {
+            guard snapshot.storyboardRuns.count > 1 else { return [] }
+            return snapshot.storyboardRuns
+                .sorted { $0.batchIndex < $1.batchIndex }
+                .map { storyboardItem($0, parent: job.state) }
+        }
+        if !snapshot.movieRuns.isEmpty {
+            guard snapshot.movieRuns.count > 1 else { return [] }
+            return snapshot.movieRuns
+                .sorted { $0.batchIndex < $1.batchIndex }
+                .map { movieItem($0, parent: job.state) }
+        }
+        return requestItems(job, activeRequestID: activeRequestID)
+    }
+
+    /// Whether the parent's own reason is only a restatement of what the works
+    /// already show — `RunFailureSummary` builds it from them — so it is not
+    /// printed twice.
+    static func parentReasonIsCoveredByWorks(_ job: ProductionJob, items: [ProductionWorkDisplayItem]) -> Bool {
+        guard let parent = job.failureReason.map(ProductionFailurePresenter.displayReason) else {
+            return false
+        }
+        return items.contains { item in
+            guard let reason = item.failureReason else { return false }
+            return parent == reason || parent.hasPrefix(reason)
+        }
+    }
+
+    // MARK: Generate / One Shot
+
+    private static func requestItems(_ job: ProductionJob, activeRequestID: UUID?) -> [ProductionWorkDisplayItem] {
+        let requests = job.snapshot.pendingRequests
+        guard requests.count > 1 else { return [] }
+        // Matched by request id only. An outcome whose run id is not one of
+        // this job's requests belongs to some other job and is ignored.
+        let ids = Set(requests.map(\.id))
+        let outcomes = Dictionary(
+            job.snapshot.runOutcomes.filter { ids.contains($0.runID) }.map { ($0.runID, $0) },
+            uniquingKeysWith: { _, latest in latest })
+        // A pre-multi-queue job recorded neither order nor outcomes; once it is
+        // finished there is no per-work truth to show.
+        let recordedPerWork = job.snapshot.snapshotVersion >= 2 || !outcomes.isEmpty
+        guard recordedPerWork || !job.state.isTerminal else { return [] }
+
+        let ordered = requests.enumerated().sorted { lhs, rhs in
+            (lhs.element.batchIndex ?? lhs.offset) < (rhs.element.batchIndex ?? rhs.offset)
+        }
+        return ordered.enumerated().map { position, entry in
+            let request = entry.element
+            let index = request.batchIndex ?? position
+            guard let outcome = outcomes[request.id] else {
+                let live: ProductionWorkDisplayItem.State =
+                    request.id == activeRequestID ? .running : .waiting
+                return ProductionWorkDisplayItem(
+                    index: index, state: unfinished(live, parent: job.state),
+                    failureReason: nil, hasOutput: false)
+            }
+            switch outcome.outcome {
+            case .completed:
+                return ProductionWorkDisplayItem(
+                    index: index, state: .completed, failureReason: nil,
+                    hasOutput: !(outcome.outputPath ?? "").isEmpty)
+            case .failed:
+                return ProductionWorkDisplayItem(
+                    index: index, state: .failed,
+                    failureReason: outcome.failureReason.map(ProductionFailurePresenter.displayReason),
+                    hasOutput: false)
+            case .cancelled:
+                return ProductionWorkDisplayItem(index: index, state: .cancelled, failureReason: nil, hasOutput: false)
+            case .interrupted:
+                return ProductionWorkDisplayItem(index: index, state: .interrupted, failureReason: nil, hasOutput: false)
+            case .queued, .running:
+                let live: ProductionWorkDisplayItem.State =
+                    request.id == activeRequestID ? .running : .waiting
+                return ProductionWorkDisplayItem(
+                    index: index, state: unfinished(live, parent: job.state),
+                    failureReason: nil, hasOutput: false)
+            }
+        }
+    }
+
+    // MARK: Storyboard / Auto Movie
+
+    private static func storyboardItem(_ run: StoryboardRun, parent: ProductionJobState) -> ProductionWorkDisplayItem {
+        let reason = shotFailureReason(run.shotStates)
+        let state: ProductionWorkDisplayItem.State
+        switch run.derivedState {
+        case .cancelled: state = .cancelled
+        case .completed: state = .completed
+        case .failed, .dependencyBlocked: state = .failed
+        case .interrupted: state = .interrupted
+        case .running: state = unfinished(.running, parent: parent)
+        case .queued, .waitingForDependency: state = unfinished(.waiting, parent: parent)
+        }
+        return ProductionWorkDisplayItem(
+            index: run.batchIndex, state: state,
+            failureReason: state == .failed ? reason : nil,
+            hasOutput: state == .completed
+                && run.shotStates.allSatisfy { !($0.outputPath ?? "").isEmpty })
+    }
+
+    private static func movieItem(_ run: MovieRun, parent: ProductionJobState) -> ProductionWorkDisplayItem {
+        // A movie is done when its film exists, not when its shots do.
+        let assembly = run.assembly
+        let state: ProductionWorkDisplayItem.State
+        var reason: String?
+        if run.isCancelled || assembly.state == .cancelled {
+            state = .cancelled
+        } else if assembly.state == .completed {
+            state = .completed
+        } else {
+            switch run.derivedShotState {
+            case .failed, .dependencyBlocked:
+                state = .failed
+                reason = shotFailureReason(run.shotStates)
+            case .interrupted:
+                state = .interrupted
+            case .cancelled:
+                state = .cancelled
+            case .running:
+                state = unfinished(.running, parent: parent)
+            case .completed:
+                switch assembly.state {
+                case .failed:
+                    state = .failed
+                    reason = assembly.failureReason.map(ProductionFailurePresenter.displayReason)
+                case .interrupted:
+                    state = .interrupted
+                case .running, .ready:
+                    state = unfinished(.running, parent: parent)
+                case .waiting, .completed, .cancelled:
+                    state = unfinished(.waiting, parent: parent)
+                }
+            case .queued, .waitingForDependency:
+                state = unfinished(.waiting, parent: parent)
+            }
+        }
+        return ProductionWorkDisplayItem(
+            index: run.batchIndex, state: state, failureReason: reason,
+            hasOutput: state == .completed && !(assembly.outputPath ?? "").isEmpty)
+    }
+
+    // MARK: Shared
+
+    /// A work that had not finished is only waiting or running while its parent
+    /// is still live. Once the parent has stopped, the work stopped with it.
+    private static func unfinished(
+        _ live: ProductionWorkDisplayItem.State, parent: ProductionJobState
+    ) -> ProductionWorkDisplayItem.State {
+        switch parent {
+        case .waiting: return .waiting
+        case .running: return live
+        case .interrupted: return .interrupted
+        case .cancelled: return .cancelled
+        case .failed, .completed: return .notRun
+        }
+    }
+
+    private static func shotFailureReason(_ shots: [ShotRunState]) -> String? {
+        let failing = shots.first { $0.state == .failed }
+            ?? shots.first { $0.state == .dependencyBlocked }
+        return failing?.failureReason.map(ProductionFailurePresenter.displayReason)
+    }
+}
+
 /// Global production queue: several movies or renders queued up, executed one
 /// after another so the Mac can be left unattended.
 ///

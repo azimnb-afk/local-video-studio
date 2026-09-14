@@ -113,6 +113,10 @@ final class ProductionQueueService: ObservableObject {
     @Published private(set) var jobs: [ProductionJob] = []
     @Published private(set) var activeJobID: UUID?
     @Published private(set) var isPaused = false
+    /// The render request in flight, so the queue can say which work of a
+    /// multi-work Generate/One Shot job is the one rendering. Presentation
+    /// only; nothing schedules from it.
+    @Published private(set) var activeRenderRequestID: UUID?
 
     private let coordinator: ProductionQueueCoordinator
     private let store = FilmProjectStore.shared
@@ -150,6 +154,10 @@ final class ProductionQueueService: ObservableObject {
     func attach(generationService: GenerationService) {
         guard self.generationService !== generationService else { return }
         self.generationService = generationService
+        generationService.$currentRequest
+            .receive(on: RunLoop.main)
+            .sink { [weak self] request in self?.activeRenderRequestID = request?.id }
+            .store(in: &cancellables)
         generationService.$queue
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.checkActiveJobProgress() }

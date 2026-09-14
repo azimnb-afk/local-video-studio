@@ -113,13 +113,26 @@ private struct ProductionQueueRow: View {
                     .foregroundStyle(.yellow)
                     .lineLimit(1)
             }
-            if let reason = job.failureReason {
+            let works = ProductionWorkPresenter.items(
+                for: job, activeRequestID: queue.activeRenderRequestID)
+            if let reason = job.failureReason,
+               !ProductionWorkPresenter.parentReasonIsCoveredByWorks(job, items: works) {
                 // Display-only: the stored reason keeps its full diagnostic
                 // paths; the panel never shows a username or disk layout.
                 Text(ProductionFailurePresenter.displayReason(reason))
                     .font(.caption2)
                     .foregroundStyle(.orange)
                     .lineLimit(2)
+            }
+            // Multi-work jobs only: which work did what. A single work keeps
+            // the row exactly as it was.
+            if !works.isEmpty {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(works) { work in
+                        ProductionWorkRow(work: work)
+                    }
+                }
+                .padding(.leading, 13)
             }
         }
         .padding(.horizontal, 12)
@@ -181,6 +194,66 @@ private struct ProductionQueueRow: View {
         }
         .font(.caption2)
         .foregroundStyle(.secondary)
+    }
+}
+
+/// One compact line per work: label, state, and — only for that work — its
+/// own reason.
+private struct ProductionWorkRow: View {
+    let work: ProductionWorkDisplayItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 4) {
+                Text(work.label)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 40, alignment: .leading)
+                Text(symbol).font(.caption2).foregroundStyle(color)
+                Text(stateLabel).font(.caption2).foregroundStyle(color)
+            }
+            if let reason = work.failureReason {
+                Text(reason)
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .lineLimit(2)
+                    .padding(.leading, 44)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var symbol: String {
+        switch work.state {
+        case .completed: return "✓"
+        case .failed: return "✕"
+        case .interrupted: return "!"
+        case .running: return "●"
+        case .cancelled: return "−"
+        case .waiting, .notRun: return "·"
+        }
+    }
+
+    private var stateLabel: String {
+        switch work.state {
+        case .waiting: return "待機中"
+        case .running: return "生成中"
+        case .completed: return "完了"
+        case .failed: return "失敗"
+        case .interrupted: return "中断"
+        case .cancelled: return "キャンセル"
+        case .notRun: return "未実行"
+        }
+    }
+
+    private var color: Color {
+        switch work.state {
+        case .completed: return .green
+        case .failed: return .orange
+        case .interrupted: return .yellow
+        case .running: return .blue
+        case .waiting, .cancelled, .notRun: return .secondary
+        }
     }
 }
 

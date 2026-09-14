@@ -97,6 +97,88 @@ enum DirectGenerationSubmission {
     }
 }
 
+/// Chooses the next shot of a run-scoped job to hand to the renderer.
+///
+/// Pure, so the decision the service acts on is the decision the tests drive.
+///
+/// A shot can refuse before it reaches the renderer — its frozen starting image
+/// changed, or a continuation frame is gone. That refusal is terminal for that
+/// one work; it is not an operation in flight, and no settlement will ever
+/// arrive for it. The driver therefore records it and keeps going, and only
+/// stops at something that will actually move the job: a request to dispatch,
+/// an attempt already in flight, or nothing left to dispatch at all.
+///
+/// It used to stop at the first refusal and return it. At job start the queue
+/// then failed the whole job, so sibling works never ran; mid-run the advance
+/// path discarded the result, so later works stayed queued forever with the
+/// job "running" and the renderer empty — reproduced live with 作品数 3.
+enum RunScopedDispatchDriver {
+
+    enum Decision<Run: RunScopedShotExecution> {
+        /// A real request was built for this shot. `runs` includes any
+        /// refusals recorded on the way to it.
+        case dispatch(runs: [Run], runIndex: Int, shotID: UUID, request: GenerationRequest)
+        /// An attempt is in flight; its settlement will advance the job.
+        case waitingOnActiveRequest(runs: [Run])
+        /// No shot can be dispatched and none is in flight. `runs` includes any
+        /// refusals just recorded; the caller decides whether the job is done.
+        case noShotToDispatch(runs: [Run])
+    }
+
+    /// What a job with no shot to dispatch and nothing in flight amounts to.
+    enum Completion: Equatable {
+        /// Every work has reached a terminal state.
+        case settled(allCompleted: Bool)
+        /// Unfinished work remains, yet nothing can run and nothing will settle.
+        /// Waiting here is waiting forever, so the job must end instead.
+        case stalled
+    }
+
+    static func nextShot<Run: RunScopedShotExecution>(
+        in runs: [Run],
+        takeID: UUID,
+        makeRequest: (Run, UUID, UUID) -> GenerationRequest?,
+        classifyRefusal: (Run, UUID) -> RunDispatchRefusal
+    ) -> Decision<Run> {
+        var runs = runs
+        // Each refusal marks a shot terminal, so `nextDispatch` never returns
+        // it again; the loop is bounded by the number of shots.
+        while let dispatch = StoryboardRunDriver.nextDispatch(in: runs) {
+            guard let request = makeRequest(runs[dispatch.runIndex], dispatch.shotID, takeID) else {
+                let refusal = classifyRefusal(runs[dispatch.runIndex], dispatch.shotID)
+                runs[dispatch.runIndex].update(dispatch.shotID) {
+                    $0.state = refusal.shotState
+                    $0.failureReason = refusal.message
+                }
+                continue
+            }
+            return .dispatch(runs: runs, runIndex: dispatch.runIndex, shotID: dispatch.shotID, request: request)
+        }
+        let inFlight = runs.contains { run in
+            run.shotStates.contains { $0.state == .running && $0.dispatchedRequestID != nil }
+        }
+        return inFlight ? .waitingOnActiveRequest(runs: runs) : .noShotToDispatch(runs: runs)
+    }
+
+    /// Storyboard: settled when every run is, otherwise stalled.
+    static func storyboardCompletion(_ runs: [StoryboardRun]) -> Completion {
+        guard StoryboardRunDriver.allSettled(runs) else { return .stalled }
+        return .settled(allCompleted: runs.allSatisfy { $0.derivedState == .completed })
+    }
+
+    /// Auto Movie, once no shot and no assembly could be started: an assembly
+    /// still running will settle on its own; otherwise the job is settled or
+    /// stalled.
+    static func movieCompletion(_ runs: [MovieRun]) -> Completion? {
+        if runs.contains(where: { $0.assembly.state == .running }) { return nil }
+        guard runs.allSatisfy({ $0.isSettled }) else { return .stalled }
+        return .settled(allCompleted: runs.allSatisfy { $0.assembly.state == .completed })
+    }
+
+    static let stalledReason =
+        "This job has unfinished work that can no longer start. Retry to try the unfinished works again."
+}
+
 /// Binds the global production queue to the app: owns the coordinator, starts
 /// each job through the mode it belongs to, and watches for the job finishing.
 ///
@@ -513,21 +595,27 @@ final class ProductionQueueService: ObservableObject {
         guard !runs.isEmpty else { return .failed("This job has no movie runs") }
 
         // Shots first, using the same run-local scheduler Storyboard proved.
-        if let dispatch = StoryboardRunDriver.nextDispatch(in: runs) {
-            let takeID = UUID()
-            guard let request = MovieRunRequestBuilder.makeRequest(
-                run: runs[dispatch.runIndex], shotID: dispatch.shotID, takeID: takeID,
-                parameters: storyboardParameters(for: job)) else {
-                let refusal = RunDispatchRefusal.classify(
-                    run: runs[dispatch.runIndex], shotID: dispatch.shotID)
-                var blocked = runs
-                blocked[dispatch.runIndex].update(dispatch.shotID) {
-                    $0.state = refusal.shotState
-                    $0.failureReason = refusal.message
-                }
-                coordinator.updateMovieRuns(jobID: job.id, runs: blocked)
-                return .failed(refusal.message)
-            }
+        let takeID = UUID()
+        let parameters = storyboardParameters(for: job)
+        let decision = RunScopedDispatchDriver.nextShot(
+            in: runs, takeID: takeID,
+            makeRequest: { run, shotID, takeID in
+                MovieRunRequestBuilder.makeRequest(
+                    run: run, shotID: shotID, takeID: takeID, parameters: parameters)
+            },
+            classifyRefusal: { run, shotID in RunDispatchRefusal.classify(run: run, shotID: shotID) })
+        // Refusals the driver recorded on the way are persisted with whatever
+        // happens next, so a refused work is failed exactly once.
+        let shotInFlight: Bool
+        switch decision {
+        case .dispatch(let updated, _, _, _): runs = updated; shotInFlight = false
+        case .waitingOnActiveRequest(let updated): runs = updated; shotInFlight = true
+        case .noShotToDispatch(let updated): runs = updated; shotInFlight = false
+        }
+        if case .dispatch(_, let runIndex, let shotID, let request) = decision {
+            let dispatch = StoryboardRunDriver.Dispatch(
+                runIndex: runIndex, runID: runs[runIndex].id, shotID: shotID,
+                attemptNumber: runs[runIndex].state(of: shotID)?.attemptNumber ?? 1)
             runs[dispatch.runIndex].update(dispatch.shotID) {
                 $0.state = .running
                 $0.dispatchedRequestID = request.id
@@ -571,6 +659,21 @@ final class ProductionQueueService: ObservableObject {
                 stage: "作品 \(runs[index].batchIndex + 1) — Assembling")
             runAssembly(jobID: job.id, runIndex: index)
             return .started
+        }
+        coordinator.updateMovieRuns(jobID: job.id, runs: runs)
+        // A shot in flight will settle and call back in.
+        if shotInFlight { return .started }
+        // Nothing dispatched and nothing started. Returning `.started` here
+        // would claim progress that no settlement will ever report.
+        switch RunScopedDispatchDriver.movieCompletion(runs) {
+        case nil:
+            // An assembly is still running; it settles the job itself.
+            return .started
+        case .settled:
+            settleRunScopedMovieIfDone(jobID: job.id)
+        case .stalled:
+            isAwaitingCompletion = false
+            coordinator.markFailed(jobID: job.id, reason: RunScopedDispatchDriver.stalledReason)
         }
         return .started
     }
@@ -690,29 +793,47 @@ final class ProductionQueueService: ObservableObject {
         var runs = job.snapshot.storyboardRuns
         guard !runs.isEmpty else { return .failed("This job has no Storyboard runs") }
 
-        guard let dispatch = StoryboardRunDriver.nextDispatch(in: runs) else {
-            // Either an attempt is already in flight, or nothing is dispatchable
-            // yet. Both are normal; neither may enqueue anything.
-            return .started
-        }
-
         let takeID = UUID()
-        guard let request = StoryboardRunRequestBuilder.makeRequest(
-            run: runs[dispatch.runIndex], shotID: dispatch.shotID, takeID: takeID,
-            parameters: storyboardParameters(for: job)) else {
-            // Fail closed: either a continuation whose frozen starting frame is
-            // missing or changed, or an explicit start image the user chose that
-            // is no longer what was queued. Never fall back to the video, and
-            // never quietly render this shot without its conditioning.
-            let refusal = RunDispatchRefusal.classify(
-                run: runs[dispatch.runIndex], shotID: dispatch.shotID)
-            var blocked = runs
-            blocked[dispatch.runIndex].update(dispatch.shotID) {
-                $0.state = refusal.shotState
-                $0.failureReason = refusal.message
+        let parameters = storyboardParameters(for: job)
+        let dispatch: StoryboardRunDriver.Dispatch
+        let request: GenerationRequest
+        switch RunScopedDispatchDriver.nextShot(
+            in: runs, takeID: takeID,
+            makeRequest: { run, shotID, takeID in
+                StoryboardRunRequestBuilder.makeRequest(
+                    run: run, shotID: shotID, takeID: takeID, parameters: parameters)
+            },
+            classifyRefusal: { run, shotID in RunDispatchRefusal.classify(run: run, shotID: shotID) }) {
+        case .waitingOnActiveRequest:
+            // An attempt is in flight; its settlement calls back in.
+            return .started
+        case .noShotToDispatch(let updated):
+            // Refused shots have failed closed (a changed or missing frozen
+            // input): never fall back to the video, never render without the
+            // conditioning. With nothing else to run the job ends here —
+            // returning `.started` would claim progress no settlement reports.
+            coordinator.updateStoryboardRuns(jobID: job.id, runs: updated)
+            isAwaitingCompletion = false
+            switch RunScopedDispatchDriver.storyboardCompletion(updated) {
+            case .settled(allCompleted: true):
+                coordinator.markCompleted(jobID: job.id)
+            case .settled(allCompleted: false):
+                coordinator.markFailed(
+                    jobID: job.id,
+                    reason: RunFailureSummary.reason(
+                        shotStates: updated.flatMap(\.shotStates),
+                        fallback: "One or more works did not finish. "
+                            + "Retry to resume the unfinished ones."))
+            case .stalled:
+                coordinator.markFailed(jobID: job.id, reason: RunScopedDispatchDriver.stalledReason)
             }
-            coordinator.updateStoryboardRuns(jobID: job.id, runs: blocked)
-            return .failed(refusal.message)
+            return .started
+        case .dispatch(let updated, let runIndex, let shotID, let built):
+            runs = updated
+            dispatch = StoryboardRunDriver.Dispatch(
+                runIndex: runIndex, runID: runs[runIndex].id, shotID: shotID,
+                attemptNumber: runs[runIndex].state(of: shotID)?.attemptNumber ?? 1)
+            request = built
         }
         runs[dispatch.runIndex].update(dispatch.shotID) {
             $0.state = .running

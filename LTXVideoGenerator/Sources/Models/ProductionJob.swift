@@ -40,25 +40,6 @@ enum ProductionJobState: String, Codable, Equatable {
         }
     }
 
-    /// Terminal, but the user has not finished with it.
-    ///
-    /// The queue is not a log, so finished work normally leaves it. A failure
-    /// is different: it carries a reason the user has to read and act on, and
-    /// dropping it the instant execution stops means that reason is written
-    /// and then hidden in the same breath — which is exactly what a live run
-    /// caught, with a correct "the image you chose has changed" message that
-    /// nobody could ever see.
-    ///
-    /// Presentation only. `isTerminal` is unchanged, so nothing reschedules a
-    /// failed job; it simply stays on screen until dismissed with the queue
-    /// row's existing × button.
-    ///
-    /// Cancelled is deliberately excluded: the user stopped it themselves and
-    /// does not need telling. Interrupted is excluded only because the current
-    /// display policy does not cover it — it has the same readability problem
-    /// and its own Restart action, and is worth revisiting.
-    var staysVisibleWhenTerminal: Bool { self == .failed }
-
     var displayName: String {
         switch self {
         case .waiting: return "Waiting"
@@ -208,6 +189,54 @@ struct ProductionJob: Codable, Equatable, Identifiable {
     var canCancel: Bool { state == .running || state == .waiting }
     var canRetry: Bool { state == .failed || state == .cancelled }
     var canRestart: Bool { state == .interrupted }
+
+    /// Terminal, but the user has not finished with it.
+    ///
+    /// The queue is not a log, so finished work normally leaves it. Two kinds
+    /// of terminal job are different, because each needs the user to act:
+    ///
+    /// - **Failed** carries a reason to read. Dropping it the instant execution
+    ///   stops wrote that reason and hid it in the same breath.
+    /// - **Interrupted** is written in exactly one place — relaunch found the
+    ///   job recorded as running, so the app quit mid-render. Its only action
+    ///   is Restart, so it is worth showing only when Restart would do work.
+    ///   A job whose every candidate had already succeeded (queue settlement
+    ///   lost before the quit) has nothing to restart; showing it would offer
+    ///   a button that does nothing.
+    ///
+    /// Presentation only. `isTerminal` is unchanged, so nothing reschedules
+    /// either; each stays until dismissed with the row's × button.
+    /// Cancelled stays hidden: the user stopped it and does not need telling.
+    var staysVisibleWhenTerminal: Bool {
+        switch state {
+        case .failed: return true
+        case .interrupted: return restartWouldDoWork
+        case .waiting, .running, .completed, .cancelled: return false
+        }
+    }
+
+    /// Whether Restart would find anything left to run, judged from the frozen
+    /// snapshot alone — the same inputs `retry(jobID:)` uses.
+    var restartWouldDoWork: Bool {
+        if !snapshot.pendingRequests.isEmpty {
+            return !RunRetryPlanner.plan(
+                requests: snapshot.pendingRequests,
+                outcomes: snapshot.runOutcomes).isEmpty
+        }
+        if !snapshot.storyboardRuns.isEmpty {
+            return snapshot.storyboardRuns.contains { run in
+                !run.isCancelled && run.shotStates.contains { $0.state != .completed }
+            }
+        }
+        if !snapshot.movieRuns.isEmpty {
+            return snapshot.movieRuns.contains { run in
+                !run.isCancelled && run.assembly.state != .completed
+            }
+        }
+        // A legacy project-driven job re-runs from its project; if that
+        // project is gone, the restart fails visibly rather than silently.
+        return true
+    }
 }
 
 // MARK: - Film run outcome

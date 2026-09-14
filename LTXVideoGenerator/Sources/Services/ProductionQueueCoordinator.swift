@@ -1,23 +1,5 @@
 import Foundation
 
-/// Global production queue: several movies or renders queued up, executed one
-/// after another so the Mac can be left unattended.
-///
-/// This sits *above* `GenerationService`, which already renders one request at
-/// a time. The gap it closes is job-level: without it, queueing two Auto Movies
-/// interleaves their shots, because each movie appends its next shot to the
-/// shared render queue as the previous one lands (A1, B1, A2, B2…). An outer
-/// queue admits exactly one job's work at a time, so a movie finishes — every
-/// shot, then its assembly — before the next job is allowed to start.
-///
-/// Concurrency is fixed at one and is not configurable. On Apple Silicon the
-/// renderer competes for unified memory with itself, and a second concurrent
-/// render is the fastest way to make both fail.
-///
-/// The coordinator is deliberately transport-agnostic: it decides *what should
-/// run next* and records state, and hands the actual work to a runner closure.
-/// That keeps it unit-testable without a GPU, which is what makes the
-/// single-active-job guarantee provable rather than asserted.
 /// Turns a stored failure reason into text safe to show in the queue.
 ///
 /// Failures now stay on screen until dismissed, which surfaced old backend
@@ -94,6 +76,24 @@ enum ProductionFailurePresenter {
     }
 }
 
+/// Global production queue: several movies or renders queued up, executed one
+/// after another so the Mac can be left unattended.
+///
+/// This sits *above* `GenerationService`, which already renders one request at
+/// a time. The gap it closes is job-level: without it, queueing two Auto Movies
+/// interleaves their shots, because each movie appends its next shot to the
+/// shared render queue as the previous one lands (A1, B1, A2, B2…). An outer
+/// queue admits exactly one job's work at a time, so a movie finishes — every
+/// shot, then its assembly — before the next job is allowed to start.
+///
+/// Concurrency is fixed at one and is not configurable. On Apple Silicon the
+/// renderer competes for unified memory with itself, and a second concurrent
+/// render is the fastest way to make both fail.
+///
+/// The coordinator is deliberately transport-agnostic: it decides *what should
+/// run next* and records state, and hands the actual work to a runner closure.
+/// That keeps it unit-testable without a GPU, which is what makes the
+/// single-active-job guarantee provable rather than asserted.
 final class ProductionQueueCoordinator {
 
     /// How a job's work is actually started. Returning `.started` means the
@@ -376,7 +376,9 @@ final class ProductionQueueCoordinator {
     /// no waiting, running, completed or cancelled record, and never any video.
     func removeFailed() {
         let before = jobs.count
-        jobs.removeAll { $0.state.staysVisibleWhenTerminal }
+        // Failures only: an interrupted job is not a failure, and the button
+        // says "Failed".
+        jobs.removeAll { $0.state == .failed }
         guard jobs.count != before else { return }
         persist()
         onChange?()
@@ -435,8 +437,9 @@ final class ProductionQueueCoordinator {
     /// for provenance/output history but leave the active list, matching the
     /// normal render Queue.
     ///
-    /// The one exception is a failure, which stays until the user dismisses it
-    /// — see `staysVisibleWhenTerminal`. Without that, a job's failure reason
+    /// The exceptions are a failure, and an interrupted job Restart could
+    /// still finish; each stays until dismissed — see
+    /// `ProductionJob.staysVisibleWhenTerminal`. Without that, a job's failure reason
     /// was set and hidden in the same state transition, so the queue row's
     /// reason text could never render for the case it was written for.
     var activeDisplayJobs: [ProductionJob] {
@@ -446,7 +449,7 @@ final class ProductionQueueCoordinator {
     static func activeDisplayJobs(from jobs: [ProductionJob]) -> [ProductionJob] {
         jobs.enumerated()
             .filter { !$0.element.state.isTerminal
-                || $0.element.state.staysVisibleWhenTerminal }
+                || $0.element.staysVisibleWhenTerminal }
             .sorted { lhs, rhs in
                 if lhs.element.createdAt != rhs.element.createdAt {
                     return lhs.element.createdAt > rhs.element.createdAt

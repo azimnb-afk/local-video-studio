@@ -104,6 +104,15 @@ private struct ProductionQueueRow: View {
                     .foregroundStyle(.secondary)
                 }
             }
+            // Interrupted jobs carry no failure reason; the restore that wrote
+            // them records why in the stage text, which is otherwise shown
+            // only while a job is live.
+            if job.state == .interrupted, let stage = job.stageDescription, !stage.isEmpty {
+                Text(stage)
+                    .font(.caption2)
+                    .foregroundStyle(.yellow)
+                    .lineLimit(1)
+            }
             if let reason = job.failureReason {
                 // Display-only: the stored reason keeps its full diagnostic
                 // paths; the panel never shows a username or disk layout.

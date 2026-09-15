@@ -258,6 +258,29 @@ final class ProductionQueueService: ObservableObject {
     }
     private(set) var assemblyAttempts: [AssemblyAttemptKey: AssemblyProcessController] = [:]
 
+    /// Called once at launch, after the queue is restored: ends the assembly
+    /// processes a previous session left running when it crashed or was
+    /// force-quit, and removes those attempts' exact files. Never changes a
+    /// job, a run or History.
+    @discardableResult
+    func reapOrphanedAssemblies(
+        inspector: ProcessInspecting = LiveProcessInspector(),
+        currentAppInstanceID: UUID = AssemblyProcessLedger.currentAppInstanceID
+    ) async -> [(lease: AssemblyProcessLease, outcome: AssemblyOrphanReaper.Outcome)] {
+        // Decided here, on the main actor, from this session's own state.
+        let active = Set(assemblyLedger.leases().filter { lease in
+            assemblyAttempts[AssemblyAttemptKey(jobID: lease.jobID, runID: lease.runID, attempt: lease.attempt)] != nil
+                || coordinator.acceptsAssemblyResult(jobID: lease.jobID, runID: lease.runID, attempt: lease.attempt)
+        }.map { "\($0.jobID)/\($0.runID)/\($0.attempt)" })
+        let ledger = assemblyLedger
+        return await Task.detached(priority: .utility) {
+            AssemblyOrphanReaper.reconcile(
+                ledger: ledger, currentAppInstanceID: currentAppInstanceID,
+                isActive: { active.contains("\($0.jobID)/\($0.runID)/\($0.attempt)") },
+                inspector: inspector)
+        }.value
+    }
+
     /// Called as the app terminates: stops every in-flight assembly attempt's
     /// ffmpeg, then waits — bounded — for those attempts to return, so their
     /// work directories are removed before the process goes.
@@ -276,12 +299,18 @@ final class ProductionQueueService: ObservableObject {
         return controllers.allSatisfy(\.hasReturned)
     }
 
+    /// Where in-flight assembly attempts record the processes they run, so a
+    /// launch after a crash can end the ones left behind.
+    let assemblyLedger: AssemblyProcessLedger
+
     init(
         coordinator: ProductionQueueCoordinator = .shared,
-        storageChecker: StorageHealthService = .shared
+        storageChecker: StorageHealthService = .shared,
+        assemblyLedger: AssemblyProcessLedger = .shared
     ) {
         self.coordinator = coordinator
         self.storageChecker = storageChecker
+        self.assemblyLedger = assemblyLedger
         coordinator.runner = { [weak self] job in
             guard let self else { return .failed("Queue is unavailable") }
             return self.start(job)
@@ -781,9 +810,12 @@ final class ProductionQueueService: ObservableObject {
             // This attempt's own stop switch, found by `cancel(jobID:)`, and its
             // own file: the movie reaches `output` only once accepted below.
             let key = AssemblyAttemptKey(jobID: jobID, runID: run.id, attempt: attempt)
-            let controller = AssemblyProcessController()
-            self.assemblyAttempts[key] = controller
             let candidate = MovieAssemblyDriver.candidatePath(forOutput: output, attempt: attempt)
+            let ownership = AssemblyProcessOwnership(
+                ledger: self.assemblyLedger, jobID: jobID, runID: run.id, attempt: attempt,
+                candidatePath: candidate, outputPath: output)
+            let controller = AssemblyProcessController(ownership: ownership)
+            self.assemblyAttempts[key] = controller
             // An earlier attempt of this run can never be adopted now. If the
             // app quit after one wrote its candidate and before adopting it,
             // that exact file is still here; remove it, and only it.
@@ -796,7 +828,13 @@ final class ProductionQueueService: ObservableObject {
                     clipPaths: paths, spec: spec, outputPath: candidate, processController: controller)
             }
             let result: Result<Void, Error> = await Task.detached(priority: .utility) {
-                defer { controller.markReturned() }
+                ownership.begin()
+                // The lease ends before the attempt reports returning, so a clean
+                // quit that waits for the return never leaves one behind.
+                defer {
+                    ownership.finish()
+                    controller.markReturned()
+                }
                 do {
                     try FileManager.default.createDirectory(
                         at: URL(fileURLWithPath: candidate).deletingLastPathComponent(),

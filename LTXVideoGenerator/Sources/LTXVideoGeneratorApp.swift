@@ -88,6 +88,8 @@ struct RootView: View {
                 // The queue watches the renderer to know when a job is done,
                 // and picks up any waiting work restored from the last session.
                 ProductionQueueService.shared.attach(generationService: generationService)
+                // End any assembly ffmpeg a crashed previous session left running.
+                Task { await ProductionQueueService.shared.reapOrphanedAssemblies() }
             }
             .task {
                 historyManager.loadInitialData()

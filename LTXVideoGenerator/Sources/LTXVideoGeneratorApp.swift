@@ -7,6 +7,9 @@ final class LocalVideoStudioAppDelegate: NSObject, NSApplicationDelegate {
         // A compatible mlx-serve found at the endpoint remains externally
         // owned and is never terminated here.
         MiniMaxH3RuntimeManager.shared.stopOwnedServer()
+        // A render's supervisor would also end its tree once the app is gone;
+        // signalling it now does not wait for that.
+        RenderProcessRegistry.shared.stopAllForAppExit()
         // A final assembly's ffmpeg would otherwise keep running after the app
         // is gone. Only this app's own attempts are stopped.
         MainActor.assumeIsolated {
@@ -90,6 +93,8 @@ struct RootView: View {
                 ProductionQueueService.shared.attach(generationService: generationService)
                 // End any assembly ffmpeg a crashed previous session left running.
                 Task { await ProductionQueueService.shared.reapOrphanedAssemblies() }
+                // And any render tree a previous session's supervisor did not end.
+                Task.detached(priority: .utility) { _ = RenderOrphanReaper.reconcile() }
             }
             .task {
                 historyManager.loadInitialData()

@@ -672,8 +672,27 @@ enum MiniMaxH3Error: Error, LocalizedError, Equatable {
     }
 }
 
-/// Owns only servers launched by this app instance. A compatible server that
-/// was already listening is reused and is never terminated by app cleanup.
+/// What the app records about an `mlx-serve` it started, so a later session can
+/// tell that server from one it did not start.
+struct MiniMaxManagedServerRecord: Codable, Equatable {
+    var pid: Int32
+    var identity: ProcessIdentity
+    var endpoint: String
+    var modelDirectory: String
+    var ownerAppInstanceID: UUID
+    var launchedAt: Date
+}
+
+/// Owns only servers the app launched. A compatible server that was already
+/// listening and that the app did not start is reused and is never terminated
+/// by app cleanup.
+///
+/// "Launched by this app" used to mean "by this app process": the handle lived
+/// only in memory, so after a crash the server the app had started was taken
+/// for an external one — reused, never stopped by a later clean quit, and not
+/// restarted when the wrong model was loaded. The launch is now recorded (PID
+/// and the kernel's identity for it), and a later session that finds that
+/// exact process still running reclaims it as its own.
 final class MiniMaxH3RuntimeManager: @unchecked Sendable {
     static let shared = MiniMaxH3RuntimeManager()
 
@@ -686,15 +705,54 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
     private let fileManager: FileManager
     private let managedRuntimeManager: MiniMaxH3ManagedRuntimeManager
     private let userDefaults: UserDefaults
+    private let managedServerRecordURL: URL
+    private let inspector: ProcessInspecting
 
     init(
         fileManager: FileManager = .default,
         managedRuntimeManager: MiniMaxH3ManagedRuntimeManager = .shared,
-        userDefaults: UserDefaults = .standard
+        userDefaults: UserDefaults = .standard,
+        managedServerRecordURL: URL? = nil,
+        inspector: ProcessInspecting = LiveProcessInspector()
     ) {
         self.fileManager = fileManager
         self.managedRuntimeManager = managedRuntimeManager
         self.userDefaults = userDefaults
+        self.managedServerRecordURL = managedServerRecordURL
+            ?? AppStorageDirectory.root.appendingPathComponent("minimax_managed_server.json")
+        self.inspector = inspector
+    }
+
+    // MARK: Managed server record
+
+    private func readManagedServerRecord() -> MiniMaxManagedServerRecord? {
+        guard let data = try? Data(contentsOf: managedServerRecordURL) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode(MiniMaxManagedServerRecord.self, from: data)
+    }
+
+    private func writeManagedServerRecord(_ record: MiniMaxManagedServerRecord) {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(record) else { return }
+        try? fileManager.createDirectory(
+            at: managedServerRecordURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: managedServerRecordURL, options: .atomic)
+    }
+
+    private func removeManagedServerRecord() {
+        try? fileManager.removeItem(at: managedServerRecordURL)
+    }
+
+    /// The recorded server, if the process running under its PID is provably
+    /// the one the app launched (and, when given, serves `endpoint`).
+    func reclaimableManagedServer(for endpoint: String?) -> MiniMaxManagedServerRecord? {
+        guard let record = readManagedServerRecord(),
+              endpoint == nil || record.endpoint == endpoint,
+              case .identity(let live) = inspector.inspect(pid: record.pid),
+              live == record.identity, live.userID == getuid() else { return nil }
+        return record
     }
 
     @discardableResult
@@ -986,12 +1044,28 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
             process.terminate()
         }
         (process?.standardError as? Pipe)?.fileHandleForReading.readabilityHandler = nil
+        // A server an earlier session launched, reclaimed after a restart:
+        // stopped only once it is proven to be that exact process.
+        if process == nil, let reclaimed = reclaimableManagedServer(for: nil) {
+            if getpgid(reclaimed.pid) == reclaimed.pid {
+                _ = killpg(reclaimed.pid, SIGTERM)
+            } else {
+                _ = kill(reclaimed.pid, SIGTERM)
+            }
+        }
+        removeManagedServerRecord()
+    }
+
+    var ownedServerPID: Int32? {
+        lock.lock(); defer { lock.unlock() }
+        return ownedProcess?.isRunning == true ? ownedProcess?.processIdentifier : nil
     }
 
     private var ownedServerIsRunning: Bool {
         lock.lock()
-        defer { lock.unlock() }
-        return ownedProcess?.isRunning == true
+        let running = ownedProcess?.isRunning == true
+        lock.unlock()
+        return running || reclaimableManagedServer(for: nil) != nil
     }
 
     /// The most recent stderr output from the owned server, bounded so a
@@ -1004,14 +1078,15 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
         return ownedStderrTail.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func ownership(for endpoint: String) -> MiniMaxH3ServerOwnership {
+    func ownership(for endpoint: String) -> MiniMaxH3ServerOwnership {
         lock.lock()
-        defer { lock.unlock() }
-        if ownedEndpoint == endpoint, ownedProcess?.isRunning == true { return .appOwned }
-        return .externallyRunning
+        let owned = ownedEndpoint == endpoint && ownedProcess?.isRunning == true
+        lock.unlock()
+        if owned { return .appOwned }
+        return reclaimableManagedServer(for: endpoint) != nil ? .appOwned : .externallyRunning
     }
 
-    private func startOwnedServer(runtime: String, model: String, endpoint: String) throws {
+    func startOwnedServer(runtime: String, model: String, endpoint: String) throws {
         guard let url = MiniMaxH3Configuration.endpointURL(endpoint), let port = url.port else {
             throw MiniMaxH3Error.invalidEndpoint
         }
@@ -1061,6 +1136,12 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
         ownedEndpoint = endpoint
         ownedModelDirectory = model
         lock.unlock()
+        if case .identity(let identity) = inspector.inspect(pid: process.processIdentifier) {
+            writeManagedServerRecord(MiniMaxManagedServerRecord(
+                pid: process.processIdentifier, identity: identity, endpoint: endpoint,
+                modelDirectory: model, ownerAppInstanceID: AssemblyProcessLedger.currentAppInstanceID,
+                launchedAt: Date()))
+        }
     }
 
     static func serverArguments(modelDirectory: String, port: Int) -> [String] {

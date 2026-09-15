@@ -155,8 +155,12 @@ struct LTX2MLXBackend {
         try? fileManager.createDirectory(at: runTemporaryDirectory, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: runTemporaryDirectory) }
         let diagnostics = Self.diagnosticsDirectory(fileManager: fileManager)
-        let logURL = diagnostics?.appendingPathComponent(
-            URL(fileURLWithPath: outputPath).deletingPathExtension().lastPathComponent + ".log")
+        // Every attempt renders to a staging file with the same file name, so
+        // diagnostics are named for the request and attempt instead.
+        let diagnosticsName = RenderAttemptOutput.attemptDirectory(ofStaging: outputPath) != nil
+            ? "\(request.id.uuidString)-attempt-\(request.attemptNumber ?? 1)"
+            : URL(fileURLWithPath: outputPath).deletingPathExtension().lastPathComponent
+        let logURL = diagnostics?.appendingPathComponent(diagnosticsName + ".log")
         print("[LTX2MLXBackend] \(decodePlan.summary)")
 
         do {
@@ -166,6 +170,7 @@ struct LTX2MLXBackend {
                 environment: Self.runtimeEnvironment(decodePlan: decodePlan, temporaryDirectory: runTemporaryDirectory),
                 logURL: logURL,
                 logHeader: decodePlan.summary,
+                owner: RenderProcessOwner(backend: "ltx2mlx", request: request, stagingPath: outputPath),
                 progressHandler: progressHandler
             )
             // The runtime reports success by exit code; the app's contract is a
@@ -177,7 +182,8 @@ struct LTX2MLXBackend {
             // Whatever the runtime left at the output path (an audio-only MP4
             // after a failed video decode) is not a generation result. Keep it
             // next to the log for diagnosis rather than among the videos.
-            Self.setAsidePartialOutput(atPath: outputPath, into: diagnostics, fileManager: fileManager)
+            Self.setAsidePartialOutput(atPath: outputPath, into: diagnostics, fileManager: fileManager,
+                                       name: diagnosticsName)
             throw error
         }
         // A run-scoped film child carries no filmProjectID by design, so the
@@ -251,12 +257,14 @@ struct LTX2MLXBackend {
     /// Moves a failed run's partial output out of the videos folder, next to
     /// its diagnostic log. Falls back to deleting it so it can never be
     /// mistaken for a result.
-    static func setAsidePartialOutput(atPath path: String, into directory: URL?, fileManager: FileManager = .default) {
+    static func setAsidePartialOutput(
+        atPath path: String, into directory: URL?, fileManager: FileManager = .default, name: String? = nil
+    ) {
         guard fileManager.fileExists(atPath: path) else { return }
         let source = URL(fileURLWithPath: path)
         if let directory {
             let destination = directory.appendingPathComponent(
-                source.deletingPathExtension().lastPathComponent + ".partial." + source.pathExtension)
+                (name ?? source.deletingPathExtension().lastPathComponent) + ".partial." + source.pathExtension)
             try? fileManager.removeItem(at: destination)
             if (try? fileManager.moveItem(at: source, to: destination)) != nil { return }
         }
@@ -306,6 +314,7 @@ struct LTX2MLXBackend {
         environment: [String: String],
         logURL: URL? = nil,
         logHeader: String? = nil,
+        owner: RenderProcessOwner? = nil,
         progressHandler: @escaping (Double, String) -> Void
     ) async throws {
         // Progress is coarse on purpose: the runtime prints named phases,
@@ -323,6 +332,9 @@ struct LTX2MLXBackend {
             let errPipe = Pipe()
             process.standardOutput = outPipe
             process.standardError = errPipe
+            // The runtime and whatever it starts (its ffmpeg) run under the
+            // supervisor, so the tree ends on cancel and when the app is gone.
+            let control = RenderProcessSupervisor.configure(process, executable: executable, arguments: arguments)
             // Both streams are read to EOF on their own threads, so the last
             // lines the runtime writes before exiting (a Python traceback) are
             // kept instead of being dropped when the process ends.
@@ -373,8 +385,13 @@ struct LTX2MLXBackend {
 
             do {
                 try process.run()
-                processTracker.register(process)
+                processTracker.register(process, handle: RenderProcessSupervisor.didLaunch(
+                    process, control: control, owner: owner))
+                // A runtime that exited before it was registered has already
+                // run its termination handler; release it now.
+                if !process.isRunning { processTracker.unregister(process) }
             } catch {
+                try? control.fileHandleForWriting.close()
                 // No child took the write ends; close them so the readers end.
                 try? outPipe.fileHandleForWriting.close()
                 try? errPipe.fileHandleForWriting.close()

@@ -54,6 +54,10 @@ class GenerationService: ObservableObject {
     private let historyManager: HistoryManager
     private let bridge = LTXBridge.shared
     var preflight: GenerationPreflight = .live
+    /// Replaces the backend call in tests: handed the request and the path the
+    /// backend is told to write, it returns what a backend returns. The app
+    /// never sets it.
+    var renderOverride: ((GenerationRequest, String) async throws -> (videoPath: String, seed: Int, enhancedPrompt: String?))?
     /// Request id + attempt already settled, so no run is ever reported twice.
     private var settledRuns: Set<String> = []
     private var processingTask: Task<Void, Never>?
@@ -349,6 +353,13 @@ class GenerationService: ObservableObject {
 
         let filename = "\(request.id.uuidString).mp4"
         let outputPath = outputDir.appendingPathComponent(filename).path
+        // The backend renders into this attempt's own file; `outputPath` is
+        // only ever written by adopting a completed attempt below.
+        let stagingPath = RenderAttemptOutput.stagingPath(
+            outputDirectory: outputDir, requestID: request.id, attempt: request.attemptNumber ?? 1)
+        try? FileManager.default.createDirectory(
+            at: URL(fileURLWithPath: stagingPath).deletingLastPathComponent(), withIntermediateDirectories: true)
+        var adopted = false
         var effectiveParametersForDiagnostics = request.parameters
         
         do {
@@ -360,7 +371,8 @@ class GenerationService: ObservableObject {
             }
 
             var resolvedDescriptor: ModelDescriptor?
-            let runGeneration: (GenerationRequest) async throws -> (videoPath: String, seed: Int, enhancedPrompt: String?) = { [bridge] req in
+            let runGeneration: (GenerationRequest) async throws -> (videoPath: String, seed: Int, enhancedPrompt: String?) = { [bridge, renderOverride] req in
+                if let renderOverride { return try await renderOverride(req, stagingPath) }
                 if FeatureFlags.isEnabled(.modelRegistryV1)
                     || MiniMaxH3Configuration.isMiniMaxH3(modelID: req.modelId) {
                     // Registry path: policy + verification enforced at the service
@@ -379,14 +391,14 @@ class GenerationService: ObservableObject {
                     return try await adapter.generate(
                         request: req,
                         model: descriptor,
-                        outputPath: outputPath,
+                        outputPath: stagingPath,
                         progressHandler: progressCallback
                     )
                 } else {
                     // Legacy official fast path (all experimental flags OFF).
                     return try await bridge.generate(
                         request: req,
-                        outputPath: outputPath,
+                        outputPath: stagingPath,
                         progressHandler: progressCallback
                     )
                 }
@@ -478,6 +490,18 @@ class GenerationService: ObservableObject {
 
             GenerationFailureRecovery.clearAfterSuccessfulGeneration()
             
+            // Adopt this attempt's render only while it is still the one the
+            // queue is running. A render that finished after it was cancelled,
+            // or after its request left the queue, is never adopted.
+            guard !Task.isCancelled, currentRequest?.id == request.id,
+                  queue.indices.contains(index), queue[index].id == request.id,
+                  queue[index].status == .processing else {
+                throw LTXError.cancelled
+            }
+            result.videoPath = try RenderAttemptOutput.promote(
+                returnedPath: result.videoPath, stagingPath: stagingPath, canonicalPath: outputPath)
+            adopted = true
+
             // Create result
             let completedAt = Date()
             var generationResult = GenerationResult(
@@ -694,6 +718,12 @@ class GenerationService: ObservableObject {
             }
         }
         
+        if !adopted {
+            // The backend returned, so its process has exited; nothing of this
+            // attempt's own staging output can be adopted any more.
+            RenderAttemptOutput.discard(stagingPath: stagingPath)
+        }
+
         currentRequest = nil
         isProcessing = false
         currentRequestStartedAt = nil
@@ -857,5 +887,87 @@ class GenerationService: ObservableObject {
             ?? request.requestedDurationSeconds
         let requested = String(format: "%.3f", semanticRequestedDuration)
         print("[ResolvedGenerationSettings] source=\(request.generationSource ?? "unknown") attempt=\(attempt) preset=\(request.preset ?? "none") quality=\(request.qualityMode ?? "none") profile=\(profile?.id ?? "manual") reason=\(reason) width=\(p.width) height=\(p.height) frames=\(p.numFrames) fps=\(p.fps) steps=\(p.numInferenceSteps) audio=\(!request.disableAudio) targetDuration=\(target) requestedDuration=\(requested) model=\(request.modelId) seed=\(p.seed.map(String.init) ?? "random")")
+    }
+}
+
+/// Where a render attempt writes, and how a completed attempt's output becomes
+/// the request's.
+///
+/// The output file was named for the request, and Retry keeps the request's
+/// id: attempt 1 and attempt 2 were told to write the same file. An attempt 1
+/// that outlived its app wrote over the file attempt 2 had just produced. Each
+/// attempt now renders into its own directory beside the output, and only a
+/// completed attempt the queue still owns is moved into place — a rename on
+/// the same volume. A late attempt writes only into its own directory.
+enum RenderAttemptOutput {
+    static let stagingDirectoryName = ".lvs-render-staging"
+    static let renderBaseName = "render"
+
+    static func stagingPath(outputDirectory: URL, requestID: UUID, attempt: Int) -> String {
+        outputDirectory
+            .appendingPathComponent(stagingDirectoryName, isDirectory: true)
+            .appendingPathComponent(requestID.uuidString, isDirectory: true)
+            .appendingPathComponent("attempt-\(attempt)", isDirectory: true)
+            .appendingPathComponent("\(renderBaseName).mp4").path
+    }
+
+    /// The attempt directory a staging path names — only for a path of exactly
+    /// the shape `stagingPath` makes.
+    static func attemptDirectory(ofStaging path: String) -> URL? {
+        let file = URL(fileURLWithPath: path).standardizedFileURL
+        let attempt = file.deletingLastPathComponent()
+        let request = attempt.deletingLastPathComponent()
+        let staging = request.deletingLastPathComponent()
+        guard file.lastPathComponent == "\(renderBaseName).mp4",
+              attempt.lastPathComponent.hasPrefix("attempt-"),
+              Int(attempt.lastPathComponent.dropFirst("attempt-".count)) != nil,
+              UUID(uuidString: request.lastPathComponent) != nil,
+              staging.lastPathComponent == stagingDirectoryName else { return nil }
+        return attempt
+    }
+
+    /// Moves a completed attempt's render — and any side file the backend wrote
+    /// beside it, such as a separate audio track — to the request's output
+    /// name. A backend that returned some other path keeps it.
+    static func promote(
+        returnedPath: String, stagingPath: String, canonicalPath: String,
+        fileManager: FileManager = .default
+    ) throws -> String {
+        guard URL(fileURLWithPath: returnedPath).standardizedFileURL.path
+                == URL(fileURLWithPath: stagingPath).standardizedFileURL.path,
+              let attemptDirectory = attemptDirectory(ofStaging: stagingPath) else { return returnedPath }
+        let size = (try? fileManager.attributesOfItem(atPath: stagingPath)[.size] as? NSNumber)?.intValue ?? 0
+        guard size > 0 else {
+            throw LTXError.generationFailed("The render finished without writing a video.")
+        }
+        let canonical = URL(fileURLWithPath: canonicalPath)
+        let base = canonical.deletingPathExtension().lastPathComponent
+        let directory = canonical.deletingLastPathComponent()
+        // The attempt directory is this attempt's alone.
+        let names = ((try? fileManager.contentsOfDirectory(atPath: attemptDirectory.path)) ?? [])
+            .filter { $0.hasPrefix(renderBaseName) }
+            .sorted { $0 == "\(renderBaseName).mp4" && $1 != "\(renderBaseName).mp4" }
+        for name in names {
+            let source = attemptDirectory.appendingPathComponent(name)
+            let destination = directory.appendingPathComponent(base + name.dropFirst(renderBaseName.count))
+            if fileManager.fileExists(atPath: destination.path) {
+                _ = try fileManager.replaceItemAt(destination, withItemAt: source)
+            } else {
+                try fileManager.moveItem(at: source, to: destination)
+            }
+        }
+        discard(stagingPath: stagingPath, fileManager: fileManager)
+        return canonicalPath
+    }
+
+    /// Removes an attempt's own staging directory, and its request's directory
+    /// once no attempt remains.
+    static func discard(stagingPath: String, fileManager: FileManager = .default) {
+        guard let attemptDirectory = attemptDirectory(ofStaging: stagingPath) else { return }
+        try? fileManager.removeItem(at: attemptDirectory)
+        let requestDirectory = attemptDirectory.deletingLastPathComponent()
+        if (try? fileManager.contentsOfDirectory(atPath: requestDirectory.path))?.isEmpty == true {
+            try? fileManager.removeItem(at: requestDirectory)
+        }
     }
 }

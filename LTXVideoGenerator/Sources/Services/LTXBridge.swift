@@ -85,8 +85,9 @@ class LTXBridge {
         setupPythonPaths()
     }
 
-    /// Cancels only the outer Python process for the active render. The wrapper
-    /// installs a SIGTERM handler that terminates its mlx_video child first.
+    /// Cancels the active render. Its process group receives SIGTERM (the
+    /// wrapper's handler also terminates its mlx_video child), and the render's
+    /// supervisor SIGKILLs whatever remains after the grace period.
     func cancelActiveGeneration() {
         activeGenerationProcess.cancel()
     }
@@ -610,7 +611,8 @@ except Exception as e:
                 script: script,
                 timeout: 3600,
                 generationDiagnostics: (modelRepo: modelRepo, textEncoderRepo: textEncoderRepo),
-                originalVaeTilingMode: request.parameters.vaeTilingMode
+                originalVaeTilingMode: request.parameters.vaeTilingMode,
+                owner: RenderProcessOwner(backend: "ltxbridge", request: request, stagingPath: outputPath)
             ) { stderrChunk in
             // Build complete logical lines from chunked stderr reads so STAGE/STATUS tokens
             // are never dropped when a token is split across read boundaries.
@@ -963,6 +965,7 @@ except Exception as e:
         timeout: TimeInterval = 60,
         generationDiagnostics: (modelRepo: String, textEncoderRepo: String)? = nil,
         originalVaeTilingMode: String? = nil,
+        owner: RenderProcessOwner? = nil,
         stderrHandler: ((String) -> Void)? = nil
     ) async throws -> String {
         guard let python = pythonExecutable else {
@@ -998,6 +1001,11 @@ except Exception as e:
                 let stderrPipe = Pipe()
                 process.standardOutput = stdoutPipe
                 process.standardError = stderrPipe
+                // A render runs under the supervisor, so its whole process tree
+                // ends with it — on cancel, and when the app itself is gone.
+                let control = owner.map { _ in
+                    RenderProcessSupervisor.configure(process, executable: python, arguments: ["-c", script])
+                }
                 
                 var stderrAccumulated = ""
                 let stderrLock = NSLock()
@@ -1031,7 +1039,9 @@ except Exception as e:
                     try? startLog.write(toFile: logFile, atomically: false, encoding: .utf8)
                     
                     try process.run()
-                    processController.register(process)
+                    processController.register(process, handle: control.map {
+                        RenderProcessSupervisor.didLaunch(process, control: $0, owner: owner)
+                    })
                     defer { processController.unregister(process) }
                     process.waitUntilExit()
                     

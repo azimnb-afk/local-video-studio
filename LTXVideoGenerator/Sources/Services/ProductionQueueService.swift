@@ -446,6 +446,11 @@ final class ProductionQueueService: ObservableObject {
     }
 
     func retry(jobID: UUID) { coordinator.retry(jobID: jobID); refresh() }
+
+    /// Whether the queue panel offers Retry / Restart for `job`.
+    func isRetryEligible(_ job: ProductionJob) -> Bool {
+        ProductionQueueCoordinator.isRetryEligible(job, in: jobs)
+    }
     func remove(jobID: UUID) { coordinator.remove(jobID: jobID); refresh() }
     func removeFailed() { coordinator.removeFailed(); refresh() }
     /// Read from the published `jobs`, so the header button tracks redraws.

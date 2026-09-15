@@ -473,10 +473,67 @@ final class ProductionQueueCoordinator {
     /// produced a video are carried forward as recorded outcomes and are not
     /// rendered again. Re-running them would duplicate their History entries and
     /// charge the user a second time for work that succeeded.
+    /// Whether `job` offers Retry / Restart now: it is failed, cancelled or
+    /// interrupted, and it is the latest attempt of its lineage.
+    ///
+    /// Retry copies a job — the same request ids, or the same run ids, at the
+    /// next attempt — and leaves the original in the queue. Judged by its own
+    /// state alone, the original kept offering Retry after its retry had run,
+    /// and a second Retry built from its snapshot produced the same attempt
+    /// again: two jobs held one request at one attempt, a settlement matched
+    /// both, and its result was never recorded. Only the newest job of a
+    /// lineage retries, so attempts stay one straight line. Derived from the
+    /// persisted snapshots, it holds after a relaunch too.
+    static func isRetryEligible(_ job: ProductionJob, in jobs: [ProductionJob]) -> Bool {
+        (job.canRetry || job.canRestart) && supersedingJob(of: job, in: jobs) == nil
+    }
+
+    /// A later attempt of the same work than `job`, if the queue holds one.
+    ///
+    /// Jobs share a lineage when they share a request id (Generate / One Shot)
+    /// or a run id (Storyboard / Auto Movie). The later one is the one further
+    /// along — a higher request attempt, or more shot and assembly attempts on
+    /// the run — and, only when equal, the one queued after.
+    static func supersedingJob(of job: ProductionJob, in jobs: [ProductionJob]) -> ProductionJob? {
+        let mine = lineageProgress(of: job)
+        guard !mine.isEmpty else { return nil }
+        let myIndex = jobs.firstIndex { $0.id == job.id } ?? jobs.count
+        for (index, other) in jobs.enumerated() where other.id != job.id {
+            let theirs = lineageProgress(of: other)
+            for (key, progress) in mine {
+                guard let otherProgress = theirs[key] else { continue }
+                if otherProgress > progress || (otherProgress == progress && index > myIndex) {
+                    return other
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func lineageProgress(of job: ProductionJob) -> [String: Int] {
+        var progress: [String: Int] = [:]
+        for request in job.snapshot.pendingRequests {
+            progress["request:\(request.id)"] = request.attemptNumber ?? 1
+        }
+        for run in job.snapshot.storyboardRuns {
+            progress["run:\(run.id)"] = run.shotStates.reduce(0) { $0 + $1.attemptNumber }
+        }
+        for run in job.snapshot.movieRuns {
+            progress["run:\(run.id)"] = run.shotStates.reduce(0) { $0 + $1.attemptNumber }
+                + run.assembly.attemptNumber
+        }
+        return progress
+    }
+
+    func isRetryEligible(jobID: UUID) -> Bool {
+        guard let job = job(id: jobID) else { return false }
+        return Self.isRetryEligible(job, in: jobs)
+    }
+
     @discardableResult
     func retry(jobID: UUID) -> ProductionJob? {
         guard let index = jobs.firstIndex(where: { $0.id == jobID }),
-              jobs[index].canRetry || jobs[index].canRestart else { return nil }
+              Self.isRetryEligible(jobs[index], in: jobs) else { return nil }
         var retried = jobs[index]
 
         if !retried.snapshot.pendingRequests.isEmpty {
@@ -486,7 +543,14 @@ final class ProductionQueueCoordinator {
             // Nothing left to do: every run already succeeded. Leave the
             // original job alone rather than queueing an empty render.
             if plan.isEmpty { return nil }
-            retried.snapshot.pendingRequests = plan.requestsToRun
+            // Never an attempt some job in the queue already holds.
+            retried.snapshot.pendingRequests = plan.requestsToRun.map { request in
+                var request = request
+                let held = jobs.flatMap(\.snapshot.pendingRequests)
+                    .filter { $0.id == request.id }.map { $0.attemptNumber ?? 1 }.max() ?? 0
+                request.attemptNumber = max(request.attemptNumber ?? 1, held + 1)
+                return request
+            }
             retried.snapshot.runOutcomes = plan.preservedOutcomes
         }
         // Run-scoped jobs carry per-shot execution state in the snapshot, so a

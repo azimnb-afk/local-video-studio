@@ -163,7 +163,8 @@ private struct ProductionQueueRow: View {
                 }
                 .buttonStyle(.borderless).help("Move down")
             }
-            if job.canRetry || job.canRestart {
+            // Only the latest attempt of a lineage retries.
+            if queue.isRetryEligible(job) {
                 Button { queue.retry(jobID: job.id) } label: {
                     Image(systemName: "arrow.clockwise")
                 }

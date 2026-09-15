@@ -490,7 +490,7 @@ final class AutoMovieRunCoordinator {
     /// Pure FFmpeg work on an immutable snapshot, so callers can run it off the
     /// main actor without touching the project store from another thread.
     static func assembleBlocking(project: FilmProject, outputPath: String) throws {
-        _ = try FinalAssemblyService.assemble(project: project, outputPath: outputPath)
+        _ = try FinalAssemblyService.assembleTracked(project: project, outputPath: outputPath)
     }
 
     /// Records a finished assembly. Must run wherever the store is owned.

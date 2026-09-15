@@ -1164,7 +1164,7 @@ private struct ProjectDetailView: View {
             .appendingPathComponent("\(project.id.uuidString)_final.mp4").path
         Task.detached {
             do {
-                let info = try FinalAssemblyService.assemble(project: projectSnapshot, outputPath: outputPath)
+                let info = try FinalAssemblyService.assembleTracked(project: projectSnapshot, outputPath: outputPath)
                 await MainActor.run {
                     isAssembling = false
                     let size = "\(info.width ?? 0)×\(info.height ?? 0)"

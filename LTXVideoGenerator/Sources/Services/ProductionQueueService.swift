@@ -292,7 +292,7 @@ final class ProductionQueueService: ObservableObject {
     /// every attempt returned within `timeout`.
     @discardableResult
     func stopAssembliesForAppExit(timeout: TimeInterval = 3) -> Bool {
-        let controllers = Array(assemblyAttempts.values)
+        let controllers = Array(assemblyAttempts.values) + ProjectAssemblyRegistry.shared.controllers
         controllers.forEach { $0.cancel() }
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline, !controllers.allSatisfy(\.hasReturned) { usleep(10_000) }
@@ -589,8 +589,11 @@ final class ProductionQueueService: ObservableObject {
                 for: job,
                 pendingSettlement: generationService.lastRunSettlement,
                 failureReason: generationService.error?.localizedDescription)
-            if let error = generationService.error {
-                coordinator.markFailed(jobID: job.id, reason: error.localizedDescription)
+            if let reason = RequestJobCompletion.failureReason(
+                requests: job.snapshot.pendingRequests,
+                outcomes: coordinator.job(id: job.id)?.snapshot.runOutcomes ?? [],
+                rendererError: generationService.error?.localizedDescription) {
+                coordinator.markFailed(jobID: job.id, reason: reason)
             } else {
                 coordinator.markCompleted(jobID: job.id)
             }
@@ -1089,6 +1092,28 @@ final class ProductionQueueService: ObservableObject {
 /// run has no outcome yet, and it is for the run's current attempt — so a stale
 /// settlement from an earlier attempt, a duplicate, or one from another run
 /// cannot resurrect or overwrite anything.
+/// How a Generate / One Shot job ends once its renderer has drained.
+///
+/// The renderer's `error` alone is not the record of what happened: it holds
+/// the last failure only until something clears it, and dismissing the error
+/// alert does exactly that. A job whose work 2 failed, and whose user pressed
+/// OK while works 1 and 3 went on to finish, was reported completed — hidden
+/// from the queue, with no Retry for the work that failed. The job's own
+/// recorded outcomes decide instead: any work of this attempt that failed fails
+/// the job, with that work's reason.
+enum RequestJobCompletion {
+    static func failureReason(
+        requests: [GenerationRequest], outcomes: [RunOutcomeRecord], rendererError: String?
+    ) -> String? {
+        if let rendererError { return rendererError }
+        let attempts = Dictionary(requests.map { ($0.id, $0.attemptNumber ?? 1) }, uniquingKeysWith: { first, _ in first })
+        guard let failed = outcomes.first(where: {
+            $0.outcome == .failed && attempts[$0.runID] == $0.attemptNumber
+        }) else { return nil }
+        return failed.failureReason ?? "One or more works failed."
+    }
+}
+
 enum TerminalRunOutcomeResolver {
     static func resolve(
         requests: [GenerationRequest],

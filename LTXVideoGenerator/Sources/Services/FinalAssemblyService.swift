@@ -207,12 +207,40 @@ final class FinalAssemblyService {
     ///   instead of the project's globally selected takes. A run-scoped movie
     ///   passes its own frozen list so two candidate runs of one movie cannot
     ///   splice each other's shots together.
+    /// The project-driven assembly as the app runs it — Storyboard's "Assemble
+    /// Final Video" and a legacy film run's automatic assembly.
+    ///
+    /// It launches ffmpeg exactly as a run's assembly does, so it is owned the
+    /// same way: its own controller, which a clean quit stops, and a lease the
+    /// next launch can reap from if the app crashed. Without them its ffmpeg
+    /// outlived the app. The lease names the project's final movie as both the
+    /// candidate and the output, so reconciling it can only ever remove the
+    /// work directory, never that movie.
+    static func assembleTracked(
+        project: FilmProject, outputPath: String,
+        ledger: AssemblyProcessLedger = .shared
+    ) throws -> MediaInfo {
+        let ownership = AssemblyProcessOwnership(
+            ledger: ledger, jobID: project.id, runID: UUID(), attempt: 1,
+            candidatePath: outputPath, outputPath: outputPath)
+        let controller = AssemblyProcessController(ownership: ownership)
+        ProjectAssemblyRegistry.shared.insert(controller)
+        ownership.begin()
+        defer {
+            ownership.finish()
+            controller.markReturned()
+            ProjectAssemblyRegistry.shared.remove(controller)
+        }
+        return try assemble(project: project, outputPath: outputPath, processController: controller)
+    }
+
     static func assemble(
         project: FilmProject,
         outputPath: String,
         store: FilmProjectStore = .shared,
         storageChecker: StorageHealthService = .shared,
-        clipPaths: [String]? = nil
+        clipPaths: [String]? = nil,
+        processController: AssemblyProcessController? = nil
     ) throws -> MediaInfo {
         let assemblyPlan = try clipPaths.map { try plan(forClipPaths: $0) } ?? plan(for: project)
         guard let ffmpeg = ffmpegPath() else { throw AssemblyError.ffmpegNotFound }
@@ -227,8 +255,10 @@ final class FinalAssemblyService {
             throw AssemblyError.insufficientDiskSpace(storageStatus.message ?? "Not enough disk space for final assembly.")
         }
 
+        try processController?.checkNotCancelled()
         let workDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("ltx-assembly-\(UUID().uuidString)", isDirectory: true)
+        processController?.noteWorkDirectory(workDir.path)
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: workDir) }
 
@@ -248,7 +278,7 @@ final class FinalAssemblyService {
                     "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
                     "-c:a", "aac", "-ar", "48000", "-ac", "2",
                     normalized,
-                ], ffmpeg: ffmpeg)
+                ], ffmpeg: ffmpeg, controller: processController)
                 concatInputs.append(normalized)
             }
         }
@@ -290,7 +320,7 @@ final class FinalAssemblyService {
             "-y", "-f", "concat", "-safe", "0", "-i", listFile.path,
             "-c", "copy",
             concatOutputPath,
-        ], ffmpeg: ffmpeg)
+        ], ffmpeg: ffmpeg, controller: processController)
 
         guard let concatInfo = MediaProbe.probe(path: concatOutputPath) else {
             throw AssemblyError.probeFailed(concatOutputPath)
@@ -305,13 +335,16 @@ final class FinalAssemblyService {
                 ambienceInputPath: ambienceSourcePath,
                 settings: project.finalAudio,
                 outputPath: mixedOutputPath,
-                ffmpeg: ffmpeg
+                ffmpeg: ffmpeg,
+                controller: processController
             )
             guard let mixedInfo = MediaProbe.probe(path: mixedOutputPath), mixedInfo.hasAudio else {
                 throw AssemblyError.bgmProbeFailed(mixedOutputPath)
             }
+            try processController?.checkNotCancelled()
             try replaceFile(at: outputPath, with: mixedOutputPath)
         } else {
+            try processController?.checkNotCancelled()
             try replaceFile(at: outputPath, with: concatOutputPath)
         }
 
@@ -573,6 +606,28 @@ struct AssemblyProcessLease: Codable, Equatable {
     }
 }
 
+/// Project-driven assemblies in flight, so a clean quit can stop them too.
+final class ProjectAssemblyRegistry: @unchecked Sendable {
+    static let shared = ProjectAssemblyRegistry()
+    private let lock = NSLock()
+    private var live: [ObjectIdentifier: AssemblyProcessController] = [:]
+
+    var controllers: [AssemblyProcessController] {
+        lock.lock(); defer { lock.unlock() }
+        return Array(live.values)
+    }
+
+    func insert(_ controller: AssemblyProcessController) {
+        lock.lock(); defer { lock.unlock() }
+        live[ObjectIdentifier(controller)] = controller
+    }
+
+    func remove(_ controller: AssemblyProcessController) {
+        lock.lock(); defer { lock.unlock() }
+        live[ObjectIdentifier(controller)] = nil
+    }
+}
+
 /// The persisted set of leases. Written synchronously and atomically on every
 /// change, because the point is that it is on disk before the process it
 /// describes can outlive the app.
@@ -777,14 +832,16 @@ enum AssemblyOrphanReaper {
         try? fileManager.removeItem(atPath: workDirectory)
     }
 
-    /// Only a directory `assembleFrozen` creates: directly inside the
-    /// temporary directory, named for an assembly work directory.
+    /// Only a directory an assembly creates: directly inside the temporary
+    /// directory, named as `assembleFrozen` or the project-driven `assemble`
+    /// names its work directory.
     static func isAssemblyWorkDirectory(_ path: String) -> Bool {
         let url = URL(fileURLWithPath: path).resolvingSymlinksInPath()
         let temporary = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
         var isDirectory: ObjCBool = false
+        let name = url.lastPathComponent
         return url.deletingLastPathComponent().path == temporary.path
-            && url.lastPathComponent.hasPrefix("ltx-run-assembly-")
+            && (name.hasPrefix("ltx-run-assembly-") || name.hasPrefix("ltx-assembly-"))
             && FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
             && isDirectory.boolValue
     }

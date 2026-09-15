@@ -7,6 +7,11 @@ final class LocalVideoStudioAppDelegate: NSObject, NSApplicationDelegate {
         // A compatible mlx-serve found at the endpoint remains externally
         // owned and is never terminated here.
         MiniMaxH3RuntimeManager.shared.stopOwnedServer()
+        // A final assembly's ffmpeg would otherwise keep running after the app
+        // is gone. Only this app's own attempts are stopped.
+        MainActor.assumeIsolated {
+            _ = ProductionQueueService.shared.stopAssembliesForAppExit()
+        }
     }
 }
 

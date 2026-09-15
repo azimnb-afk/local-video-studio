@@ -258,6 +258,24 @@ final class ProductionQueueService: ObservableObject {
     }
     private(set) var assemblyAttempts: [AssemblyAttemptKey: AssemblyProcessController] = [:]
 
+    /// Called as the app terminates: stops every in-flight assembly attempt's
+    /// ffmpeg, then waits — bounded — for those attempts to return, so their
+    /// work directories are removed before the process goes.
+    ///
+    /// Without this, ffmpeg outlives the app: a child launched through
+    /// `Process` is re-parented to launchd and keeps encoding. Only this app's
+    /// own attempts are stopped, each through its own controller. The job is
+    /// left as it is; the next launch restores it interrupted. Returns whether
+    /// every attempt returned within `timeout`.
+    @discardableResult
+    func stopAssembliesForAppExit(timeout: TimeInterval = 3) -> Bool {
+        let controllers = Array(assemblyAttempts.values)
+        controllers.forEach { $0.cancel() }
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline, !controllers.allSatisfy(\.hasReturned) { usleep(10_000) }
+        return controllers.allSatisfy(\.hasReturned)
+    }
+
     init(
         coordinator: ProductionQueueCoordinator = .shared,
         storageChecker: StorageHealthService = .shared
@@ -766,11 +784,19 @@ final class ProductionQueueService: ObservableObject {
             let controller = AssemblyProcessController()
             self.assemblyAttempts[key] = controller
             let candidate = MovieAssemblyDriver.candidatePath(forOutput: output, attempt: attempt)
+            // An earlier attempt of this run can never be adopted now. If the
+            // app quit after one wrote its candidate and before adopting it,
+            // that exact file is still here; remove it, and only it.
+            for earlier in 1..<max(attempt, 1) {
+                MovieAssemblyDriver.discardCandidate(
+                    MovieAssemblyDriver.candidatePath(forOutput: output, attempt: earlier), output: output)
+            }
             let assemble: MovieAssembler = self.assembleOverride ?? { paths, spec, candidate, controller in
                 _ = try FinalAssemblyService.assembleFrozen(
                     clipPaths: paths, spec: spec, outputPath: candidate, processController: controller)
             }
             let result: Result<Void, Error> = await Task.detached(priority: .utility) {
+                defer { controller.markReturned() }
                 do {
                     try FileManager.default.createDirectory(
                         at: URL(fileURLWithPath: candidate).deletingLastPathComponent(),

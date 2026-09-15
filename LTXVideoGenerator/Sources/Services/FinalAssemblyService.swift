@@ -390,6 +390,7 @@ final class AssemblyProcessController: @unchecked Sendable {
     private let lock = NSLock()
     private var cancelled = false
     private var running: Process?
+    private var returned = false
 
     var isCancelled: Bool {
         lock.lock(); defer { lock.unlock() }
@@ -410,6 +411,17 @@ final class AssemblyProcessController: @unchecked Sendable {
         lock.unlock()
         guard !wasCancelled, let process, process.isRunning else { return }
         process.terminate()
+    }
+
+    /// Whether the attempt's assembly call has returned, however it ended.
+    var hasReturned: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return returned
+    }
+
+    func markReturned() {
+        lock.lock(); defer { lock.unlock() }
+        returned = true
     }
 
     func checkNotCancelled() throws {

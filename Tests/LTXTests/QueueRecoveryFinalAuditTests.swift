@@ -171,14 +171,17 @@ func runQueueRecoveryFinalAuditTests(_ t: TestKit) {
         t.checkEqual(RequestJobCompletion.failureReason(requests: retried, outcomes: Array(stale.dropFirst()), rendererError: nil), nil,
                      "RECOVERYFINAL_26 a retry whose works all completed completes")
         t.checkEqual(RequestJobCompletion.failureReason(
-            requests: [retried[1]], outcomes: [settlement(r[1], .failed, attempt: 1)], rendererError: nil), nil,
-                     "RECOVERYFINAL_26 an earlier attempt's failure does not fail the retry")
+            requests: [retried[1]],
+            outcomes: [settlement(r[1], .failed, attempt: 1), settlement(retried[1], .completed, attempt: 2)],
+            rendererError: nil), nil,
+                     "RECOVERYFINAL_26 an earlier attempt's failure does not fail a retry that completed")
 
-        // Unchanged: a work closed out as interrupted (never settled) does not
-        // by itself fail a job the renderer reports no error for.
+        // A work closed out as interrupted (never settled) does not complete
+        // the job either (policy decided in RELEASEBLOCK).
         t.checkEqual(RequestJobCompletion.failureReason(
-            requests: r, outcomes: outcomes([.completed, .interrupted, .completed]), rendererError: nil), nil,
-                     "RECOVERYFINAL_26 an interrupted close-out keeps its existing meaning")
+            requests: r, outcomes: outcomes([.completed, .interrupted, .completed]), rendererError: nil),
+                     RequestJobCompletion.unfinishedReason,
+                     "RECOVERYFINAL_26 an interrupted close-out does not complete the job")
 
         // Once failed, it is visible and retryable.
         var ended = job

@@ -1094,23 +1094,31 @@ final class ProductionQueueService: ObservableObject {
 /// cannot resurrect or overwrite anything.
 /// How a Generate / One Shot job ends once its renderer has drained.
 ///
-/// The renderer's `error` alone is not the record of what happened: it holds
-/// the last failure only until something clears it, and dismissing the error
-/// alert does exactly that. A job whose work 2 failed, and whose user pressed
-/// OK while works 1 and 3 went on to finish, was reported completed — hidden
-/// from the queue, with no Retry for the work that failed. The job's own
-/// recorded outcomes decide instead: any work of this attempt that failed fails
-/// the job, with that work's reason.
+/// Completed means every work the job asked for completed. The job's own
+/// recorded outcomes decide, never the renderer's `error` alone: that holds the
+/// last failure only until something clears it — dismissing the error alert
+/// does — and a work removed from the renderer queue never reports anything.
+/// Either way a count-3 job was reported completed with works missing, hidden
+/// from the queue like any completed job and with no Retry for them.
+///
+/// Returns nil when the job completed, otherwise why it did not: a work of this
+/// attempt that failed gives its own reason; a work that never finished — not
+/// settled, cancelled on its own — gives a reason Retry can act on.
 enum RequestJobCompletion {
+    static let unfinishedReason = "One or more works did not finish. Retry to run them again."
+
     static func failureReason(
         requests: [GenerationRequest], outcomes: [RunOutcomeRecord], rendererError: String?
     ) -> String? {
         if let rendererError { return rendererError }
-        let attempts = Dictionary(requests.map { ($0.id, $0.attemptNumber ?? 1) }, uniquingKeysWith: { first, _ in first })
-        guard let failed = outcomes.first(where: {
-            $0.outcome == .failed && attempts[$0.runID] == $0.attemptNumber
-        }) else { return nil }
-        return failed.failureReason ?? "One or more works failed."
+        let current = outcomes.filter { outcome in
+            requests.contains { $0.id == outcome.runID && ($0.attemptNumber ?? 1) == outcome.attemptNumber }
+        }
+        if let failed = current.first(where: { $0.outcome == .failed }) {
+            return failed.failureReason ?? "One or more works failed."
+        }
+        let completed = Set(current.filter { $0.outcome == .completed }.map(\.runID))
+        return requests.allSatisfy { completed.contains($0.id) } ? nil : unfinishedReason
     }
 }
 

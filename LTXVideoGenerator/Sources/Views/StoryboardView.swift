@@ -555,7 +555,7 @@ private struct NewStoryboardSheet: View {
                                 in: 8...24,
                                 step: 1
                             )
-                            Toggle("Fast Mode", isOn: $minimaxH3CustomFast)
+                            Toggle("高速化 (Fast Mode)", isOn: $minimaxH3CustomFast)
                         }
 
                         if MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: minimaxH3CustomDuration) {
@@ -1227,16 +1227,14 @@ private struct ProjectSettingsEditor: View {
                     )) {
                         let entries = readinessStore.pickerModels(selectedID: project.settings.modelID)
                         if entries.isEmpty {
-                            Text(readinessStore.isRefreshing ? "Checking models…" : "No ready models — open Settings")
+                            Text(readinessStore.isRefreshing ? "Checking models…" : "No models registered — open Settings")
                                 .tag(project.settings.modelID)
                                 .disabled(true)
                         } else {
                             ForEach(entries, id: \.model.id) { entry in
-                                Text(entry.readiness.canGenerate
-                                     ? entry.model.displayName
-                                     : "\(entry.model.displayName) (Unavailable)")
+                                Text(entry.readiness.pickerRowLabel(entry.model.displayName))
                                     .tag(entry.model.id)
-                                    .disabled(!entry.readiness.canGenerate)
+                                    .disabled(!entry.readiness.status.isConfigured)
                             }
                         }
                     }
@@ -1288,7 +1286,7 @@ private struct ProjectSettingsEditor: View {
                                 in: 8...24,
                                 step: 1
                             )
-                            Toggle("Fast Mode", isOn: binding(
+                            Toggle("高速化 (Fast Mode)", isOn: binding(
                                 get: { project.settings.minimaxH3CustomFast ?? true },
                                 set: { $1.minimaxH3CustomFast = $0 }
                             ))

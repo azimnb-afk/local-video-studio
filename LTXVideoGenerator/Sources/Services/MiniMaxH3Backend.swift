@@ -15,6 +15,12 @@ struct MiniMaxH3GenerationPayload: Codable, Equatable {
     /// token in the same binary and is NOT this field.
     var lastFrameImage: Data?
     var chainWindows: Int
+    /// REF2VA only (`minimax_h3_ref2va_8bit`). Ordered reference images (max
+    /// 9 per the pack's own documented limit); mutually exclusive with
+    /// `firstFrameImage`/`lastFrameImage`, which FL2VA uses instead. Never
+    /// set together with those — the model's conditioning contracts differ
+    /// and this app only ever targets one model per request.
+    var refImages: [Data]?
 
     enum CodingKeys: String, CodingKey {
         case prompt, width, height, steps, seed, fast
@@ -22,6 +28,7 @@ struct MiniMaxH3GenerationPayload: Codable, Equatable {
         case firstFrameImage = "first_frame_image"
         case lastFrameImage = "last_frame_image"
         case chainWindows = "chain_windows"
+        case refImages = "ref_images"
     }
 }
 
@@ -108,14 +115,15 @@ final class MiniMaxH3Backend {
         }
         defer { MiniMaxH3GenerationLease.release() }
 
-        let endpoint = model.runtime.endpoint ?? request.minimaxH3Endpoint
+        let configuredEndpoint = model.runtime.endpoint ?? request.minimaxH3Endpoint
             ?? MiniMaxH3Configuration.defaultEndpoint
         let snapshot = MiniMaxH3Configuration.Snapshot(
             modelDirectory: model.localPath ?? request.minimaxH3ModelDirectory,
             runtimeExecutablePath: model.runtime.executablePath ?? request.minimaxH3RuntimeExecutablePath,
-            endpoint: endpoint,
+            endpoint: configuredEndpoint,
             targetModelID: model.id)
-        _ = try await runtimeManager.ensureReady(snapshot: snapshot, progress: progressHandler)
+        let prepared = try await runtimeManager.ensureReady(snapshot: snapshot, progress: progressHandler)
+        let endpoint = Self.effectiveEndpoint(configured: configuredEndpoint, prepared: prepared)
         guard let baseURL = MiniMaxH3Configuration.endpointURL(endpoint) else {
             throw MiniMaxH3Error.invalidEndpoint
         }
@@ -221,7 +229,7 @@ final class MiniMaxH3Backend {
         }
         defer { runtimeManager.unregisterTelemetryListener(listenerID) }
 
-        let logTailer = MiniMaxH3LogTailer(endpoint: snapshot.endpoint) { line in
+        let logTailer = MiniMaxH3LogTailer(endpoint: endpoint) { line in
             progressSession.handleLine(line)
         }
         logTailer.start()
@@ -345,6 +353,21 @@ final class MiniMaxH3Backend {
             hasAudio: hasAudio)
     }
 
+    /// The endpoint a generation request actually sends its POST to. This is
+    /// the single most important routing decision in the external-server
+    /// coexistence design: it must always be what `ensureReady` actually
+    /// prepared (`prepared.endpoint`) — including when that's a separate,
+    /// app-owned-only alternate endpoint, distinct from the user's
+    /// `configured` one — and never re-derived from static configuration
+    /// after the fact. Re-deriving it would silently POST an alt-endpoint
+    /// generation at the wrong server (e.g. the external one on the
+    /// configured endpoint, which was deliberately never touched to prepare
+    /// this generation in the first place). Extracted as a pure function so
+    /// this exact decision is directly unit-testable.
+    static func effectiveEndpoint(configured: String, prepared: MiniMaxH3RuntimeStatus) -> String {
+        prepared.endpoint.isEmpty ? configured : prepared.endpoint
+    }
+
     static func makePayload(
         request: GenerationRequest,
         prompt: String? = nil,
@@ -352,10 +375,28 @@ final class MiniMaxH3Backend {
         endingImageData: Data? = nil,
         seed: Int
     ) -> MiniMaxH3GenerationPayload {
-        MiniMaxH3GenerationPayload(
-            prompt: prompt ?? MiniMaxH3PromptCompiler.compile(
-                rendererNeutralPrompt: request.prompt,
-                isImageToVideo: sourceImageData != nil),
+        let compiledPrompt = prompt ?? MiniMaxH3PromptCompiler.compile(
+            rendererNeutralPrompt: request.prompt,
+            isImageToVideo: sourceImageData != nil)
+        // REF2VA has a different conditioning contract: ordered reference
+        // images instead of first/last-frame keyframes, and no chain_windows
+        // extension. It never receives first_frame_image/last_frame_image.
+        if MiniMaxH3Configuration.isReferenceConditioned(modelID: request.modelId) {
+            return MiniMaxH3GenerationPayload(
+                prompt: compiledPrompt,
+                width: request.parameters.width,
+                height: request.parameters.height,
+                numFrames: request.parameters.numFrames,
+                steps: request.parameters.numInferenceSteps,
+                seed: seed,
+                fast: request.minimaxH3Fast ?? true,
+                firstFrameImage: nil,
+                lastFrameImage: nil,
+                chainWindows: 1,
+                refImages: sourceImageData.map { [$0] })
+        }
+        return MiniMaxH3GenerationPayload(
+            prompt: compiledPrompt,
             width: request.parameters.width,
             height: request.parameters.height,
             numFrames: request.parameters.numFrames,

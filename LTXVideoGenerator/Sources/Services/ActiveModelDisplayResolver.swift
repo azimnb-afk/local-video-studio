@@ -42,30 +42,38 @@ enum ActiveModelDisplayResolver {
 
         if MiniMaxH3Configuration.isMiniMaxH3(modelID: effectiveID) {
             let isHQ = effectiveID == MiniMaxH3Configuration.highQualityModelID
-            let raw = userDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessStateKey)
+            let isRef = effectiveID == MiniMaxH3Configuration.referenceModelID
+            // Per-model key: this tier's own last-recorded result only.
+            // Never compares against another H3 tier's readiness — see
+            // docs/MODEL_REGISTRY_GUIDE.md.
+            let raw = userDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessStateKey(for: effectiveID))
             let state = raw.flatMap(MiniMaxH3RuntimeState.init(rawValue:)) ?? .notConfigured
-            let recordedModelID = userDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessModelIDKey)
-            let modelMatches = recordedModelID == effectiveID
-            let ready = state == .ready && modelMatches
+            let ready = state == .ready
             let status: String
-            if let recordedModelID, recordedModelID != effectiveID {
-                status = "Wrong Model"
-            } else if state == .ready && recordedModelID == nil {
-                status = "Not Configured"
+            switch state {
+            case .notConfigured: status = "Not Configured"
+            case .notRunning: status = "Stopped"
+            case .starting: status = "Starting"
+            case .ready: status = "Ready"
+            case .wrongModel: status = "Wrong Model"
+            case .failed, .broken: status = "Failed"
+            }
+            let displayName: String
+            let backendBadge: String
+            if isRef {
+                displayName = MiniMaxH3Configuration.referenceDisplayName
+                backendBadge = "H3 · 参照画像版"
+            } else if isHQ {
+                displayName = MiniMaxH3Configuration.highQualityDisplayName
+                backendBadge = "H3 · 高画質版"
             } else {
-                switch state {
-                case .notConfigured: status = "Not Configured"
-                case .notRunning: status = "Stopped"
-                case .starting: status = "Starting"
-                case .ready: status = "Ready"
-                case .wrongModel: status = "Wrong Model"
-                case .failed, .broken: status = "Failed"
-                }
+                displayName = MiniMaxH3Configuration.standardDisplayName
+                backendBadge = "H3 · 軽量版"
             }
             return DisplayInfo(
                 modelID: effectiveID,
-                displayName: isHQ ? MiniMaxH3Configuration.highQualityDisplayName : MiniMaxH3Configuration.standardDisplayName,
-                backendBadge: isHQ ? "H3 · High Quality" : "H3 · Standard",
+                displayName: displayName,
+                backendBadge: backendBadge,
                 isCustom: false,
                 isReady: ready,
                 statusText: status

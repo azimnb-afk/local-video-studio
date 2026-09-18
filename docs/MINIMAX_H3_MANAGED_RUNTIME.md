@@ -74,6 +74,46 @@ app bind loopback only and are app-owned; only those processes are stopped on
 quit. A compatible server already listening at an explicitly configured
 endpoint is external and is never stopped by the app.
 
+## Reference (REF2VA) model — unverified, added for evaluation
+
+2026-09-17: a third model, `minimax_h3_ref2va_8bit` (Settings label "MiniMax H3
+Reference"), was added alongside Standard and High Quality. It targets the
+official `ddalcu/MiniMax-H3-REF2VA-MLX-Serve-8bit` pack (~69GB on disk, own
+directory key `minimaxH3ReferenceModelDirectory`) on the same mainline
+mlx-serve runtime already embedded by this app (REF2VA support present since
+mlx-serve v26.8.3; the managed 26.8.9 runtime needs no update).
+
+REF2VA has a different conditioning contract from FL2VA: up to 9 ordered
+`ref_images` instead of `first_frame_image`/`last_frame_image`, and no
+`chain_windows` extension — `MiniMaxH3Backend.makePayload` branches on
+`MiniMaxH3Configuration.isReferenceConditioned(modelID:)` to build the right
+payload shape. First/Last and Ending Image remain Standard/FL2VA-only; REF2VA
+cannot do keyframe conditioning at all.
+
+**Verified to run, not verified to be good.** `runtime.verified` was promoted
+to `true` on 2026-09-17 after a real end-to-end pass on this exact downloaded
+pack (SHA-256-matched): server load, `/health`, and one HTTP generation with
+a `ref_images` entry all succeeded and produced a playable MP4, with no OOM.
+That clears the same-named gate `MiniMaxH3Adapter.generate` enforces before
+any request reaches the server — it is not a quality judgment. Added for the
+user to evaluate generation quality themselves, not because it is known to
+outperform FL2VA: an independent report (github.com/deepbeepmeep/Wan2GP issue
+#2066) found REF2VA reference-following unreliable on a different
+(non-mlx-serve) stack; that concern is unresolved on this pack/runtime.
+Staged residency puts a single generation's peak memory near 40–44GB, close
+to the ceiling on a 48GB Mac — close other memory-heavy apps first, and treat
+an OOM/crash as a real possibility, not a bug in this integration.
+
+**2026-09-18 correction — readiness cross-contamination:** adding Reference
+this way briefly made Standard and High Quality disappear from the Generate
+picker: all three tiers shared one `minimaxH3LastReadinessState`/
+`...ModelID` UserDefaults slot, so recording one tier's readiness overwrote
+what every other tier's next check read. Fixed by making the readiness keys
+per-model-ID (`MiniMaxH3Configuration.lastReadinessStateKey(for:)`). See
+`docs/MODEL_REGISTRY_GUIDE.md` for the full root cause, the
+VISIBLE_IN_GENERATE / SELECTABLE_IN_GENERATE distinction, and the
+MODEL_ADDITION_GATE every future model addition (H3 or otherwise) must clear.
+
 ## Acceptance boundary
 
 The packaging acceptance harness installs from a built Personal app into a

@@ -65,21 +65,29 @@ enum MiniMaxH3Preset: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// User-facing names, 2026-09-18. These name a *generation cost/quality*
+    /// choice only — never a model/weights word ("Efficient"/"Quality"/
+    /// "Reference"), which would be confusable with
+    /// `MiniMaxH3Configuration.standardDisplayName` and friends (the model
+    /// the preset applies to). `rawValue` (used for persistence) is
+    /// unchanged; only this label changed. "簡易 (Quick)" (not "高速 (Quick)")
+    /// is used deliberately so it does not read as a synonym for the
+    /// separate "高速化 (Fast Mode)" toggle.
     var displayName: String {
         switch self {
-        case .quick: return "Quick"
-        case .standard: return "Standard"
-        case .high: return "High"
-        case .custom: return "Custom"
+        case .quick: return "簡易 (Quick)"
+        case .standard: return "標準 (Balanced)"
+        case .high: return "高品質 (Detailed)"
+        case .custom: return "カスタム (Custom)"
         }
     }
 
     var summary: String {
         switch self {
-        case .quick: return "構図確認向け・高速 · 512×288 · 3s (73f) · 8 steps · Fast ON"
-        case .standard: return "おすすめ・品質と速度のバランス · 640×384 · 3.75s (90f) · 16 steps · Fast ON"
-        case .high: return "品質優先 · 640×384 · 3.75s (90f) · 20 steps · Fast ON"
-        case .custom: return "詳細設定 · 512/640 · 1.0–5.9s (22–141f) · 8–24 steps · Fast ON/OFF"
+        case .quick: return "構図確認向け・高速 · 512×288 · 3s (73f) · 8 steps · 高速化ON"
+        case .standard: return "おすすめ・品質と速度のバランス · 640×384 · 3.75s (90f) · 16 steps · 高速化ON"
+        case .high: return "品質優先 · 640×384 · 3.75s (90f) · 20 steps · 高速化ON"
+        case .custom: return "詳細設定 · 512/640 · 1.0–5.9s (22–141f) · 8–24 steps · 高速化ON/OFF"
         }
     }
 
@@ -104,22 +112,22 @@ enum MiniMaxH3Preset: String, Codable, CaseIterable, Identifiable {
         case .quick:
             let dims = MiniMaxH3ResolutionTier.tier1.dimensions(for: orientation)
             let dur = isAutoMovie ? "up to 3.0 sec/shot" : "3.0 sec"
-            return "\(displayName) · \(dims.width)×\(dims.height) · \(dur) (73f) · 8 steps · Fast ON"
+            return "\(displayName) · \(dims.width)×\(dims.height) · \(dur) (73f) · 8 steps · 高速化ON"
         case .standard:
             let dims = MiniMaxH3ResolutionTier.tier2.dimensions(for: orientation)
             let dur = isAutoMovie ? "up to 3.75 sec/shot" : "3.75 sec"
-            return "\(displayName) · \(dims.width)×\(dims.height) · \(dur) (90f) · 16 steps · Fast ON"
+            return "\(displayName) · \(dims.width)×\(dims.height) · \(dur) (90f) · 16 steps · 高速化ON"
         case .high:
             let dims = MiniMaxH3ResolutionTier.tier2.dimensions(for: orientation)
             let dur = isAutoMovie ? "up to 3.75 sec/shot" : "3.75 sec"
-            return "\(displayName) · \(dims.width)×\(dims.height) · \(dur) (90f) · 20 steps · Fast ON"
+            return "\(displayName) · \(dims.width)×\(dims.height) · \(dur) (90f) · 20 steps · 高速化ON"
         case .custom:
             let dims = customTier.dimensions(for: orientation)
             let frames = MiniMaxH3FrameGrid.legalFrames(forRequestedDurationSeconds: customDurationSeconds)
             let durText = isAutoMovie
                 ? "up to \(MiniMaxH3FrameGrid.displayDurationText(forFrames: frames))/shot"
                 : MiniMaxH3FrameGrid.displayDurationText(forFrames: frames)
-            let fastText = customFast ? "Fast ON" : "Fast OFF"
+            let fastText = customFast ? "高速化ON" : "高速化OFF"
             return "\(displayName) · \(dims.width)×\(dims.height) · \(durText) (\(frames)f) · \(customSteps) steps · \(fastText)"
         }
     }

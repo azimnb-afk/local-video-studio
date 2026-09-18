@@ -270,10 +270,13 @@ func runMiniMaxH3GenerationLeaseTests(_ t: TestKit) {
 
 private final class H3ServerLostFakeTransport: MiniMaxH3HTTPTransport {
     var shouldThrowConnectionFailure = false
-    struct ConnectionFailure: Error {}
 
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        if shouldThrowConnectionFailure { throw ConnectionFailure() }
+        // Must be a real ECONNREFUSED-shaped error (URLError.cannotConnectToHost),
+        // not an arbitrary Error type, so it exercises the same "nothing is
+        // listening" classification the real URLSession transport produces —
+        // see `MiniMaxH3RuntimeManager.isConnectionRefused`.
+        if shouldThrowConnectionFailure { throw URLError(.cannotConnectToHost) }
         let response = HTTPURLResponse(
             url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
         return (Data(), response)

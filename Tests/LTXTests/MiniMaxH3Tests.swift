@@ -1,8 +1,6 @@
 import Foundation
 @testable import LTXVideoGeneratorCore
 
-private struct H3FakeConnectionFailure: Error {}
-
 private final class H3FakeTransport: MiniMaxH3HTTPTransport {
     var healthStatus = 200
     var healthObject: [String: Any] = ["status": "ok"]
@@ -12,14 +10,22 @@ private final class H3FakeTransport: MiniMaxH3HTTPTransport {
         "loaded": true,
         "state": "ready",
     ]]
-    /// Simulates "nothing is listening at this endpoint" — the real
-    /// URLSessionTransport throws when the connection is refused; the
-    /// managed-runtime failure tests need that same catch-branch behavior
-    /// without a real socket.
+    /// Simulates "nothing is listening at this endpoint" — a real
+    /// ECONNREFUSED, which URLSession surfaces as `URLError.cannotConnectToHost`.
+    /// Must be this specific error (not an arbitrary `Error`) so it exercises
+    /// the same classification `status(snapshot:transport:)` applies to a
+    /// genuine connection failure — see `isConnectionRefused` in
+    /// MiniMaxH3Runtime.swift, which treats only this as proof of absence and
+    /// everything else as a probe failure (`.failed`), not "not running."
     var shouldThrowConnectionFailure = false
+    /// Simulates a probe that errors for a reason OTHER than "nothing is
+    /// listening" (timeout, cancellation, etc.) — must NOT be classified as
+    /// "not running."
+    var shouldThrowOtherTransportError = false
 
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        if shouldThrowConnectionFailure { throw H3FakeConnectionFailure() }
+        if shouldThrowConnectionFailure { throw URLError(.cannotConnectToHost) }
+        if shouldThrowOtherTransportError { throw URLError(.timedOut) }
         let path = request.url?.path ?? ""
         let object: Any
         let status: Int
@@ -67,7 +73,8 @@ func runMiniMaxH3Tests(_ t: TestKit) {
         let registry = ModelRegistry(userDefaults: defaults)
         let descriptor = registry.descriptor(id: MiniMaxH3Configuration.modelID)
         t.check(descriptor != nil, "H3 descriptor is registered")
-        t.checkEqual(descriptor?.displayName, "MiniMax H3 Standard (Experimental)", "Experimental marker is explicit")
+        t.checkEqual(descriptor?.displayName, MiniMaxH3Configuration.standardDisplayName,
+                     "descriptor display name matches the single source of truth")
         t.checkEqual(descriptor?.runtime.backend, GenerationBackendKind.minimaxH3.rawValue, "H3 has a dedicated backend kind")
         t.checkEqual(descriptor?.architecture.modelFamily, "MiniMax H3", "H3 architecture is not presented as LTX")
         t.checkEqual(descriptor?.localPath, "/models/h3", "model path is renderer-scoped configuration")
@@ -252,6 +259,71 @@ func runMiniMaxH3Tests(_ t: TestKit) {
         ]]
         status = h3Await { await manager.status(snapshot: snapshot, transport: transport) }
         t.checkEqual(status.ownership, .externallyRunning, "stopping app-owned state never claims or stops external server")
+    }
+
+    // Regression coverage for the 2026-09-18 false-negative bug: a stale,
+    // globally-shared `minimaxH3Endpoint` override pointed at a port nothing
+    // served, while a real mlx-serve process answered HTTP 200 on the
+    // correct default port. The catch-all in `status(snapshot:transport:)`
+    // collapsed every transport error (including plain timeouts/cancellation)
+    // into "No MiniMax H3 server is listening", so a probe failure for any
+    // reason at all was reported identically to genuine absence. Fixed by
+    // classifying only `URLError.cannotConnectToHost`/`.cannotFindHost`
+    // (real ECONNREFUSED) as "not running"; every other transport error
+    // becomes `.failed` with the real underlying error in its detail, and the
+    // "not running" message now names the endpoint it actually checked.
+    t.suite("MiniMax H3 readiness — server-absent vs probe-failure classification") {
+        let readySnapshot = MiniMaxH3Configuration.Snapshot(
+            modelDirectory: "/model",
+            runtimeExecutablePath: "/runtime/mlx-serve",
+            endpoint: "http://127.0.0.1:11236")
+        let manager = MiniMaxH3RuntimeManager()
+
+        // A. Nothing listening (real ECONNREFUSED) -> serverNotRunning, and
+        // the message names the endpoint that was actually checked.
+        let refusedTransport = H3FakeTransport()
+        refusedTransport.shouldThrowConnectionFailure = true
+        let refusedStatus = h3Await { await manager.status(snapshot: readySnapshot, transport: refusedTransport) }
+        t.checkEqual(refusedStatus.state, .notRunning, "PROBE_A connection-refused classifies as not running")
+        t.check(refusedStatus.detail.contains("11236"),
+                "PROBE_A the not-running detail names the actual endpoint checked, not a generic string")
+
+        // B. Server healthy + expected model ready -> Ready (already the
+        // default H3FakeTransport shape; re-asserted here for contrast with A/E).
+        let readyTransport = H3FakeTransport()
+        let readyStatus = h3Await { await manager.status(snapshot: readySnapshot, transport: readyTransport) }
+        t.checkEqual(readyStatus.state, .ready, "PROBE_B healthy server with expected model is Ready")
+
+        // C. Server healthy but a different model is loaded -> wrongModel,
+        // never misreported as "not running".
+        let wrongModelTransport = H3FakeTransport()
+        wrongModelTransport.modelEntries = [["id": "some-other-model", "loaded": true, "state": "ready"]]
+        let wrongModelStatus = h3Await { await manager.status(snapshot: readySnapshot, transport: wrongModelTransport) }
+        t.checkEqual(wrongModelStatus.state, .wrongModel, "PROBE_C wrong loaded model is classified distinctly, not as absent")
+
+        // D. Server healthy, expected model still loading -> starting.
+        let loadingTransport = H3FakeTransport()
+        loadingTransport.modelEntries = [[
+            "id": MiniMaxH3Configuration.expectedServerModelID,
+            "loaded": true,
+            "state": "loading",
+        ]]
+        let loadingStatus = h3Await { await manager.status(snapshot: readySnapshot, transport: loadingTransport) }
+        t.checkEqual(loadingStatus.state, .starting, "PROBE_D model still loading is classified distinctly, not as absent")
+
+        // E. A probe error that is NOT connection-refused (timeout, in this
+        // case — the exact shape of "server is alive but slow/busy/mid-restart")
+        // must never be reported as "not running": that specific message is a
+        // claim of absence, and a timeout proves nothing about whether a
+        // process is listening.
+        let timeoutTransport = H3FakeTransport()
+        timeoutTransport.shouldThrowOtherTransportError = true
+        let timeoutStatus = h3Await { await manager.status(snapshot: readySnapshot, transport: timeoutTransport) }
+        t.check(timeoutStatus.state != .notRunning,
+                "PROBE_E a timeout is never misclassified as not running")
+        t.checkEqual(timeoutStatus.state, .failed, "PROBE_E a non-connection-refused probe error is a distinct failure state")
+        t.check(!timeoutStatus.detail.contains("No MiniMax H3 server is listening"),
+                "PROBE_E the failure message does not falsely claim no server is listening")
     }
 
     t.suite("MiniMax H3 Managed Runtime Installation") {
@@ -598,7 +670,8 @@ func runMiniMaxH3Tests(_ t: TestKit) {
         let crashSnapshot = MiniMaxH3Configuration.Snapshot(
             modelDirectory: modelDir.path,
             runtimeExecutablePath: crashingRuntime.path,
-            endpoint: "http://127.0.0.1:19981")
+            endpoint: "http://127.0.0.1:19981",
+            targetModelID: MiniMaxH3Configuration.standardModelID)
 
         var capturedStartingState: String?
         var thrownDetail: String?
@@ -610,7 +683,8 @@ func runMiniMaxH3Tests(_ t: TestKit) {
                     progress: { _, _ in
                         if capturedStartingState == nil {
                             capturedStartingState = tempDefaults.string(
-                                forKey: MiniMaxH3Configuration.lastReadinessStateKey)
+                                forKey: MiniMaxH3Configuration.lastReadinessStateKey(
+                                    for: MiniMaxH3Configuration.standardModelID))
                         }
                     })
             } catch {
@@ -623,11 +697,13 @@ func runMiniMaxH3Tests(_ t: TestKit) {
         t.check(thrownDetail?.contains("error: FileNotFound") == true,
                 "process-exit failure preserves the real stderr instead of a bare generic message")
         t.checkEqual(
-            tempDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessStateKey),
+            tempDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessStateKey(
+                for: MiniMaxH3Configuration.standardModelID)),
             MiniMaxH3RuntimeState.failed.rawValue,
             "a start failure is surfaced as Failed, never left silently as Stopped")
         t.check(
-            tempDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessDetailKey)?
+            tempDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessDetailKey(
+                for: MiniMaxH3Configuration.standardModelID))?
                 .contains("error: FileNotFound") == true,
             "the persisted detail the sidebar reads also carries the real stderr")
 
@@ -638,13 +714,15 @@ func runMiniMaxH3Tests(_ t: TestKit) {
         let readySnapshot = MiniMaxH3Configuration.Snapshot(
             modelDirectory: modelDir.path,
             runtimeExecutablePath: crashingRuntime.path,
-            endpoint: "http://127.0.0.1:19982")
+            endpoint: "http://127.0.0.1:19982",
+            targetModelID: MiniMaxH3Configuration.standardModelID)
         let readyResult = h3Await {
             try? await readyManager.ensureReady(snapshot: readySnapshot, transport: readyTransport)
         }
         t.check(readyResult?.isReady == true, "an already-healthy compatible server resolves Ready")
         t.checkEqual(
-            tempDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessStateKey),
+            tempDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessStateKey(
+                for: MiniMaxH3Configuration.standardModelID)),
             MiniMaxH3RuntimeState.ready.rawValue,
             "the sidebar's persisted state reaches Ready, matching real generation readiness")
     }
@@ -896,7 +974,7 @@ func runMiniMaxH3Tests(_ t: TestKit) {
         let ltxPresetRaw = GenerationPreset.highQuality.rawValue
         let h3PresetRaw = MiniMaxH3Preset.quick.rawValue
         t.checkEqual(GenerationPreset(rawValue: ltxPresetRaw)?.displayName, "High Quality", "LTX preset intact")
-        t.checkEqual(MiniMaxH3Preset(rawValue: h3PresetRaw)?.displayName, "Quick", "H3 preset intact")
+        t.checkEqual(MiniMaxH3Preset(rawValue: h3PresetRaw)?.displayName, MiniMaxH3Preset.quick.displayName, "H3 preset intact")
 
         // 20. One Shot with H3 Preset Standard resolves cleanly to 90f, 16 steps
         let oneShotReq = GenerationRequest(

@@ -1,6 +1,17 @@
 import Foundation
 @testable import LTXVideoGeneratorCore
 
+private func registryTestsRunAsync(_ block: @escaping () async -> Void) {
+    let sem = DispatchSemaphore(value: 0)
+    Task {
+        await block()
+        sem.signal()
+    }
+    while sem.wait(timeout: .now() + 0.05) == .timedOut {
+        RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+    }
+}
+
 func runRegistryTests(_ t: TestKit) {
     // Isolated defaults so tests never touch the real app settings.
     let suiteName = "LTXTests.registry.\(UUID().uuidString)"
@@ -123,15 +134,17 @@ func runRegistryTests(_ t: TestKit) {
         let registry = ModelRegistry(userDefaults: defaults)
         FeatureFlags.disableAll(userDefaults: defaults)
         let defaultAvailable = registry.selectableModels(customModelsEnabled: false)
-        t.checkEqual(defaultAvailable.count, LTXModelCatalog.all.count + 3,
-                     "flags OFF → official models + built-in experimental renderers (LTX 2.5 + H3 Standard + H3 HQ)")
+        t.checkEqual(defaultAvailable.count, LTXModelCatalog.all.count + 4,
+                     "flags OFF → official models + built-in experimental renderers (LTX 2.5 + H3 Standard + H3 HQ + H3 Reference)")
         t.check(defaultAvailable.contains { $0.id == MiniMaxH3Configuration.modelID },
                 "flags OFF → built-in MiniMax H3 remains visible")
         t.check(defaultAvailable.contains { $0.id == MiniMaxH3Configuration.highQualityModelID },
                 "flags OFF → built-in MiniMax H3 High Quality remains visible")
-        
+        t.check(defaultAvailable.contains { $0.id == MiniMaxH3Configuration.referenceModelID },
+                "flags OFF → built-in MiniMax H3 Reference remains visible")
+
         FeatureFlags.set(.customModelsV1, enabled: true, userDefaults: defaults)
-        t.checkEqual(registry.selectableModels(customModelsEnabled: true).count, LTXModelCatalog.all.count + 4,
+        t.checkEqual(registry.selectableModels(customModelsEnabled: true).count, LTXModelCatalog.all.count + 5,
                      "customModels ON → custom model visible")
         FeatureFlags.disableAll(userDefaults: defaults)
     }
@@ -156,9 +169,15 @@ func runRegistryTests(_ t: TestKit) {
         t.checkEqual(result.status, .unsupported,
                      "a model without T2V capability is never offered as Ready")
 
-        // A legacy H3 state without the model-specific key is ambiguous
-        // between Standard and High Quality and must not make either picker
-        // entry appear Ready.
+        // MODEL_ADDITION_GATE guard — see docs/MODEL_REGISTRY_GUIDE.md.
+        // Recording readiness for one H3 tier must never change what another
+        // tier reports: `lastReadinessStateKey(for:)` is per-model, so there
+        // is no shared slot left for one model's probe to evict another
+        // from `ModelReadinessStore.readyModels()` (and therefore from the
+        // Generate picker). This reproduces the exact defect: adding
+        // MiniMax H3 Reference made Standard/High Quality disappear from
+        // Generate because all three H3 tiers wrote one shared
+        // "last readiness" pair.
         let h3Defaults = UserDefaults(suiteName: "test.h3.readiness.\(UUID().uuidString)")!
         let h3Root = FileManager.default.temporaryDirectory
             .appendingPathComponent("LTXTests-h3-readiness-\(UUID().uuidString)")
@@ -168,29 +187,186 @@ func runRegistryTests(_ t: TestKit) {
             h3Defaults.removePersistentDomain(forName: h3Defaults.description)
             try? FileManager.default.removeItem(at: h3Root)
         }
-        h3Defaults.set(h3Root.path, forKey: MiniMaxH3Configuration.modelDirectoryKey)
+        // All three tiers configured, matching a real machine that has set
+        // up more than one H3 model folder.
+        h3Defaults.set(h3Root.path, forKey: MiniMaxH3Configuration.standardModelDirectoryKey)
+        h3Defaults.set(h3Root.path, forKey: MiniMaxH3Configuration.highQualityModelDirectoryKey)
+        h3Defaults.set(h3Root.path, forKey: MiniMaxH3Configuration.referenceModelDirectoryKey)
         h3Defaults.set("/bin/sh", forKey: MiniMaxH3Configuration.runtimeExecutablePathKey)
+        let h3Registry = ModelRegistry(userDefaults: h3Defaults)
+        let h3Standard = h3Registry.descriptor(id: MiniMaxH3Configuration.standardModelID)!
+        let h3HighQuality = h3Registry.descriptor(id: MiniMaxH3Configuration.highQualityModelID)!
+        let h3Reference = h3Registry.descriptor(id: MiniMaxH3Configuration.referenceModelID)!
+
+        // Standard alone recorded Ready: only Standard is Ready; the other
+        // two, never probed, are stuck at their filesystem-only readiness
+        // (serverNotRunning — still selectable, matching a fresh H3 server
+        // that has not been started yet).
         h3Defaults.set(MiniMaxH3RuntimeState.ready.rawValue,
-                       forKey: MiniMaxH3Configuration.lastReadinessStateKey)
-        let h3Standard = ModelRegistry(userDefaults: h3Defaults)
-            .descriptor(id: MiniMaxH3Configuration.standardModelID)!
-        let ambiguous = ModelReadinessResolver.evaluate(
-            model: h3Standard, userDefaults: h3Defaults)
-        t.checkEqual(ambiguous.status, .serverModelMismatch,
-                     "legacy H3 Ready state without a model ID is not trusted")
-        h3Defaults.set(MiniMaxH3Configuration.standardModelID,
-                       forKey: MiniMaxH3Configuration.lastReadinessModelIDKey)
-        let matched = ModelReadinessResolver.evaluate(
-            model: h3Standard, userDefaults: h3Defaults)
-        t.checkEqual(matched.status, .ready,
-                     "model-specific H3 readiness can make the matching model Ready")
+                       forKey: MiniMaxH3Configuration.lastReadinessStateKey(for: h3Standard.id))
+        t.checkEqual(ModelReadinessResolver.evaluate(model: h3Standard, userDefaults: h3Defaults).status,
+                     .ready, "GATE_1 Standard reads its own recorded Ready state")
+        t.check(ModelReadinessResolver.evaluate(model: h3HighQuality, userDefaults: h3Defaults).canGenerate,
+                "GATE_1 High Quality is unaffected by Standard's readiness (serverNotRunning, still selectable)")
+        t.check(ModelReadinessResolver.evaluate(model: h3Reference, userDefaults: h3Defaults).canGenerate,
+                "GATE_1 Reference is unaffected by Standard's readiness (serverNotRunning, still selectable)")
+
+        // Now record Reference Ready too (e.g. the user just generated with
+        // it). Standard's own key — and therefore its Ready status — must
+        // be untouched: this is the exact regression this suite guards.
+        h3Defaults.set(MiniMaxH3RuntimeState.ready.rawValue,
+                       forKey: MiniMaxH3Configuration.lastReadinessStateKey(for: h3Reference.id))
+        t.checkEqual(ModelReadinessResolver.evaluate(model: h3Standard, userDefaults: h3Defaults).status,
+                     .ready, "GATE_2 recording Reference Ready does not evict Standard from Ready")
+        t.checkEqual(ModelReadinessResolver.evaluate(model: h3Reference, userDefaults: h3Defaults).status,
+                     .ready, "GATE_2 Reference itself reads Ready")
+        t.check(ModelReadinessResolver.evaluate(model: h3HighQuality, userDefaults: h3Defaults).canGenerate,
+                "GATE_2 High Quality is still unaffected by either sibling's readiness")
+
+        // And a High Quality failure does not pull Standard or Reference
+        // down with it.
+        h3Defaults.set(MiniMaxH3RuntimeState.failed.rawValue,
+                       forKey: MiniMaxH3Configuration.lastReadinessStateKey(for: h3HighQuality.id))
+        t.checkEqual(ModelReadinessResolver.evaluate(model: h3HighQuality, userDefaults: h3Defaults).status,
+                     .serverUnhealthy, "GATE_3 High Quality itself reads Failed")
+        t.checkEqual(ModelReadinessResolver.evaluate(model: h3Standard, userDefaults: h3Defaults).status,
+                     .ready, "GATE_3 Standard remains Ready despite a sibling's Failed state")
+        t.checkEqual(ModelReadinessResolver.evaluate(model: h3Reference, userDefaults: h3Defaults).status,
+                     .ready, "GATE_3 Reference remains Ready despite a sibling's Failed state")
+
+        // All three simultaneously selectable — the Generate picker source
+        // of truth (ModelReadinessStore.readyModels() filters
+        // selectableModels() by canGenerate; mirrored here since the store
+        // itself is @MainActor / UserDefaults.standard-bound). Undo GATE_3's
+        // deliberate High Quality failure first: this checks the normal
+        // "all three visible at once" case, not a broken-sibling case.
         h3Defaults.set(MiniMaxH3RuntimeState.notRunning.rawValue,
-                       forKey: MiniMaxH3Configuration.lastReadinessStateKey)
+                       forKey: MiniMaxH3Configuration.lastReadinessStateKey(for: h3HighQuality.id))
+        let allThree = h3Registry.selectableModels()
+        let canGenerateIDs = Set([h3Standard, h3HighQuality, h3Reference].filter {
+            ModelReadinessResolver.evaluate(model: $0, userDefaults: h3Defaults).canGenerate
+        }.map(\.id))
+        for expected in [h3Standard.id, h3HighQuality.id, h3Reference.id] {
+            t.check(allThree.contains { $0.id == expected },
+                    "GATE_4 \(expected) is present in selectableModels()")
+            t.check(canGenerateIDs.contains(expected),
+                    "GATE_4 \(expected) is simultaneously canGenerate (Generate-picker-selectable)")
+        }
+
+        h3Defaults.set(MiniMaxH3RuntimeState.notRunning.rawValue,
+                       forKey: MiniMaxH3Configuration.lastReadinessStateKey(for: h3Standard.id))
         let idle = ModelReadinessResolver.evaluate(model: h3Standard, userDefaults: h3Defaults)
         t.check(idle.canGenerate, "configured stopped H3 remains selectable")
         try? FileManager.default.removeItem(at: h3Root.appendingPathComponent("config.json"))
         let incomplete = ModelReadinessResolver.evaluate(model: h3Standard, userDefaults: h3Defaults)
         t.check(!incomplete.canGenerate, "idle H3 without model config stays unavailable")
+    }
+
+    // MODEL_ADDITION_GATE guard, registry-wide (not H3-specific): adding a
+    // new model descriptor must never shrink the set of already-visible
+    // model IDs in `selectableModels()` — the Generate/One Shot picker's own
+    // data source (see docs/MODEL_REGISTRY_GUIDE.md, "Existing models
+    // preservation guard"). This is a mechanical invariant test: it does not
+    // know anything about any specific model family, only that the set of
+    // IDs visible before adding a new one must be a subset of the set
+    // visible after.
+    t.suite("Model addition guard — adding a model never removes an existing one") {
+        let suite = "RegistryTests-addition-guard-\(UUID().uuidString)"
+        let d = UserDefaults(suiteName: suite)!
+        defer { d.removePersistentDomain(forName: suite) }
+        let registry = ModelRegistry(userDefaults: d)
+
+        let before = Set(registry.selectableModels().map(\.id))
+        t.check(before.count > 0, "ADDGUARD_1 baseline registry has at least one visible model")
+
+        let newModelID = "test_addition_guard_model_\(UUID().uuidString)"
+        registry.register(descriptor: ModelDescriptor(
+            id: newModelID,
+            displayName: "Addition Guard Test Model",
+            repository: "test/addition-guard",
+            revision: nil,
+            localPath: nil,
+            quantization: "q4",
+            precision: nil,
+            estimatedModelSizeGB: 1,
+            recommendedUnifiedMemoryGB: 8,
+            minimumUnifiedMemoryGB: 8,
+            architecture: ArchitectureDescriptor(modelFamily: "Test", modelVersion: "1", modelType: "test"),
+            capabilities: CapabilitySet(textToVideo: true, imageToVideo: false, synchronizedAudio: false),
+            runtime: RuntimeCompatibility(backend: "test-backend", minimumBackendVersion: nil, verified: true),
+            policy: .general,
+            license: ModelLicenseMetadata(name: "test", url: nil, requiresAcknowledgement: false),
+            isOfficial: false))
+
+        let after = Set(registry.selectableModels().map(\.id))
+        t.check(after.contains(newModelID), "ADDGUARD_2 the newly registered model is itself visible")
+        let missing = before.subtracting(after)
+        t.check(missing.isEmpty,
+                "ADDGUARD_3 no previously visible model ID disappeared after adding a new one"
+                    + (missing.isEmpty ? "" : " (missing: \(missing.sorted()))"))
+        t.checkEqual(after.count, before.count + 1,
+                     "ADDGUARD_4 exactly one new ID appeared; no existing entry was replaced in place")
+    }
+
+    // DUPLICATE_MODEL_ID_GUARD: `descriptors` is a `[String: ModelDescriptor]`
+    // dictionary, so two registrations sharing one `id` cannot coexist —
+    // the second silently replaces the first at that key. That failure mode
+    // (a copy-pasted model ID typo shadowing an existing model rather than
+    // adding a new one) shows up as a duplicate-free `selectableModels()`
+    // list that is one entry SHORTER than expected, not as a crash — so it
+    // has to be caught by counting, not by a compiler or runtime error.
+    t.suite("Duplicate model ID guard") {
+        let suite = "RegistryTests-dup-guard-\(UUID().uuidString)"
+        let d = UserDefaults(suiteName: suite)!
+        defer { d.removePersistentDomain(forName: suite) }
+        let registry = ModelRegistry(userDefaults: d)
+
+        let ids = registry.selectableModels().map(\.id)
+        t.checkEqual(ids.count, Set(ids).count,
+                     "DUPGUARD_1 selectableModels() has no duplicate model IDs")
+
+        // The three MiniMax H3 tiers in particular must be pairwise distinct
+        // — this is exactly the shape of ID collision a copy-pasted new H3
+        // tier descriptor could introduce.
+        let h3IDs = [
+            MiniMaxH3Configuration.standardModelID,
+            MiniMaxH3Configuration.highQualityModelID,
+            MiniMaxH3Configuration.referenceModelID,
+        ]
+        t.checkEqual(h3IDs.count, Set(h3IDs).count,
+                     "DUPGUARD_2 the three MiniMax H3 model IDs are pairwise distinct")
+
+        // A registration that reuses an existing ID replaces that entry
+        // (dictionary semantics) rather than appending a second row under
+        // the same ID — selectableModels() must reflect exactly one entry
+        // for that ID, not zero (silently dropped) and not two (impossible
+        // for a Swift Dictionary, but worth pinning as documentation).
+        let collisionID = MiniMaxH3Configuration.standardModelID
+        let beforeCollision = registry.selectableModels().filter { $0.id == collisionID }.count
+        t.checkEqual(beforeCollision, 1, "DUPGUARD_3 Standard appears exactly once before the collision")
+        registry.register(descriptor: ModelDescriptor(
+            id: collisionID,
+            displayName: "Accidental Overwrite",
+            repository: "test/collision",
+            revision: nil,
+            localPath: nil,
+            quantization: "q4",
+            precision: nil,
+            estimatedModelSizeGB: 1,
+            recommendedUnifiedMemoryGB: 8,
+            minimumUnifiedMemoryGB: 8,
+            architecture: ArchitectureDescriptor(modelFamily: "Test", modelVersion: "1", modelType: "test"),
+            capabilities: CapabilitySet(textToVideo: true, imageToVideo: false, synchronizedAudio: false),
+            runtime: RuntimeCompatibility(backend: "test-backend", minimumBackendVersion: nil, verified: true),
+            policy: .general,
+            license: ModelLicenseMetadata(name: "test", url: nil, requiresAcknowledgement: false),
+            isOfficial: false))
+        let afterCollision = registry.selectableModels().filter { $0.id == collisionID }
+        t.checkEqual(afterCollision.count, 1,
+                     "DUPGUARD_4 a colliding ID still yields exactly one row (replaced in place, not duplicated)")
+        t.checkEqual(afterCollision.first?.displayName, "Accidental Overwrite",
+                     "DUPGUARD_5 the collision is a real overwrite: this is precisely the failure mode "
+                         + "a new model's ID must never share with an existing model's ID")
     }
 
     t.suite("Adapter registry") {
@@ -497,5 +673,71 @@ func runRegistryTests(_ t: TestKit) {
         t.check(desc != nil, "custom descriptor present")
         t.checkEqual(desc?.repository, "org/remote-custom-model", "custom descriptor seeds configured repository")
         t.checkEqual(desc?.localPath, "/local/path/to/custom-model", "custom descriptor seeds configured local path")
+    }
+
+    // Regression coverage for the 2026-09-18 startup SIGSEGV: ModelRegistry's
+    // `descriptors` Dictionary was mutated (via seedMiniMaxH3/seedOfficialModels)
+    // from concurrent, non-MainActor Tasks (DependencyHealthManager.refresh()'s
+    // `async let` health checks each call DefaultModelChecker.checkVideoModel(),
+    // which calls ModelRegistry.shared.descriptor(id:) off the main actor) with
+    // no synchronization — a plain Swift Dictionary data race, observed as a
+    // crash inside `_NativeDictionary.setValue`. Fixed with a lock around every
+    // read/write (see `ModelRegistry.withDescriptors`). This suite hammers the
+    // exact call pattern (descriptor(id:)/selectableModels()/register(descriptor:)
+    // from many concurrent tasks) and asserts the registry survives with no
+    // lost, duplicated, or overwritten entries — not just "no crash."
+    t.suite("ModelRegistry concurrency — no data race on concurrent seed/lookup") {
+        let raceSuite = "LTXTests.registry.race.\(UUID().uuidString)"
+        let raceDefaults = UserDefaults(suiteName: raceSuite)!
+        defer { raceDefaults.removePersistentDomain(forName: raceSuite) }
+        let registry = ModelRegistry(userDefaults: raceDefaults)
+
+        let h3IDs = [
+            MiniMaxH3Configuration.standardModelID,
+            MiniMaxH3Configuration.highQualityModelID,
+            MiniMaxH3Configuration.referenceModelID,
+        ]
+
+        registryTestsRunAsync {
+            await withTaskGroup(of: Void.self) { group in
+                // Concurrent readers/reseeders — mirrors DependencyHealthManager's
+                // concurrent async-let health checks each resolving a descriptor.
+                for i in 0..<300 {
+                    group.addTask {
+                        let id = h3IDs[i % h3IDs.count]
+                        _ = registry.descriptor(id: id)
+                        _ = registry.selectableModels()
+                    }
+                }
+                // Concurrent writers — a second class of caller (e.g. a settings
+                // change re-registering a descriptor) racing the same storage.
+                for i in 0..<50 {
+                    group.addTask {
+                        if let existing = registry.descriptor(id: h3IDs[i % h3IDs.count]) {
+                            registry.register(descriptor: existing)
+                        }
+                    }
+                }
+                await group.waitForAll()
+            }
+        }
+
+        // Reaching here at all (no crash, no hang) is itself part of the
+        // regression proof for the SIGSEGV. The rest verifies correctness,
+        // not just survival.
+        t.check(true, "RACE_1 concurrent seed/lookup/register storm completed without crashing")
+
+        for id in h3IDs {
+            t.check(registry.descriptor(id: id) != nil, "RACE_2 \(id) descriptor survives the concurrent storm")
+        }
+
+        let selectable = registry.selectableModels()
+        for id in h3IDs {
+            let count = selectable.filter { $0.id == id }.count
+            t.checkEqual(count, 1, "RACE_3 \(id) appears exactly once in selectableModels() — no duplicate/lost entry")
+        }
+
+        let allIDs = registry.allDescriptors().map(\.id)
+        t.checkEqual(allIDs.count, Set(allIDs).count, "RACE_4 no duplicate IDs anywhere in the registry after the storm")
     }
 }

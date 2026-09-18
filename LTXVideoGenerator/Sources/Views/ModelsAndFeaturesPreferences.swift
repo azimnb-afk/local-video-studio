@@ -138,7 +138,7 @@ struct ModelsAndFeaturesPreferences: View {
 
             Section("Compatibility Lab") {
                 let lab = CompatibilityLab.shared
-                let labModels = ModelRegistry.shared.descriptors.values
+                let labModels = ModelRegistry.shared.allDescriptors()
                     .filter { !$0.isOfficial && !MiniMaxH3Configuration.isMiniMaxH3(modelID: $0.id) }
                     .sorted { $0.id < $1.id }
                 if labModels.isEmpty {
@@ -371,6 +371,7 @@ struct ModelsAndFeaturesPreferences: View {
 private struct MiniMaxH3RuntimePreferenceView: View {
     @AppStorage(MiniMaxH3Configuration.standardModelDirectoryKey) private var modelDirectory = ""
     @AppStorage(MiniMaxH3Configuration.highQualityModelDirectoryKey) private var hqModelDirectory = ""
+    @AppStorage(MiniMaxH3Configuration.referenceModelDirectoryKey) private var refModelDirectory = ""
     @AppStorage(MiniMaxH3Configuration.runtimeExecutablePathKey) private var runtimeExecutable = ""
     @AppStorage(MiniMaxH3Configuration.endpointKey) private var endpoint = MiniMaxH3Configuration.defaultEndpoint
     @State private var status = MiniMaxH3RuntimeStatus(
@@ -385,7 +386,7 @@ private struct MiniMaxH3RuntimePreferenceView: View {
     @State private var installError: String?
 
     var body: some View {
-        Section("MiniMax H3 (Experimental)") {
+        Section(MiniMaxH3Configuration.displayName) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Runtime")
                     .font(.caption.bold())
@@ -431,7 +432,7 @@ private struct MiniMaxH3RuntimePreferenceView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("MiniMax H3 (標準・省メモリ)")
+                Text(MiniMaxH3Configuration.standardDisplayName)
                     .font(.caption.bold())
                 HStack {
                     Circle()
@@ -448,13 +449,13 @@ private struct MiniMaxH3RuntimePreferenceView: View {
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
-                Text("Standard model (4-bit DiT, ~33GB local pack). Faster generation, suitable for 32GB+ Macs.")
+                Text("省メモリ・高速 · FL2VA / 4bit（~33GB local pack）。32GB以上のMacで快適に動作します。")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("MiniMax H3 High Quality (より高精細・48GB以上推奨)")
+                Text(MiniMaxH3Configuration.highQualityDisplayName)
                     .font(.caption.bold())
                 HStack {
                     Circle()
@@ -471,7 +472,30 @@ private struct MiniMaxH3RuntimePreferenceView: View {
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
-                Text("High Quality model (8-bit DiT, ~49GB local pack). この高品質モデルはメモリ使用量が多いため、48GB以上のMacを推奨します。")
+                Text("顔・細部の品質を重視 · FL2VA / 8bit（~49GB local pack）。メモリ使用量が多いため、48GB以上のMacを推奨します。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(MiniMaxH3Configuration.referenceDisplayName)
+                    .font(.caption.bold())
+                HStack {
+                    Circle()
+                        .fill(refModelDirectory.isEmpty ? Color.secondary : Color.green)
+                        .frame(width: 8, height: 8)
+                    Text(refModelDirectory.isEmpty ? "Not Configured" : "Configured")
+                        .font(.caption.bold())
+                    Spacer()
+                    Button("Choose Folder…", action: chooseReferenceModelDirectory)
+                }
+                if !refModelDirectory.isEmpty {
+                    Text(refModelDirectory)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                Text("参照画像から人物・衣装を維持 · REF2VA / 8bit（~69GB local pack）。開始/終了フレームではなく最大9枚の参照画像で条件付けします。未検証・実験的な追加のため、48GB Macでは他のメモリ使用量の多いアプリを閉じてから使用してください。")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -542,6 +566,7 @@ private struct MiniMaxH3RuntimePreferenceView: View {
         }
         .onChange(of: modelDirectory) { _, _ in configurationChanged() }
         .onChange(of: hqModelDirectory) { _, _ in configurationChanged() }
+        .onChange(of: refModelDirectory) { _, _ in configurationChanged() }
         .onChange(of: runtimeExecutable) { _, _ in configurationChanged() }
         .onChange(of: endpoint) { _, _ in configurationChanged() }
     }
@@ -619,12 +644,22 @@ private struct MiniMaxH3RuntimePreferenceView: View {
     }
 
     private func configurationChanged() {
-        UserDefaults.standard.set(
-            MiniMaxH3RuntimeState.notConfigured.rawValue,
-            forKey: MiniMaxH3Configuration.lastReadinessStateKey)
-        UserDefaults.standard.set(
+        // This handler is shared by every field on this screen (all three
+        // model folders, the runtime override, the endpoint), so it cannot
+        // tell which one just changed. Reset all three H3 tiers' own
+        // readiness slots rather than guessing one — each is a distinct key
+        // (see MiniMaxH3Configuration.lastReadinessStateKey(for:)), so this
+        // never marks a tier the user didn't touch as falsely Ready, and
+        // never leaves a tier the user did touch on a stale Ready reading.
+        for modelID in [
             MiniMaxH3Configuration.standardModelID,
-            forKey: MiniMaxH3Configuration.lastReadinessModelIDKey)
+            MiniMaxH3Configuration.highQualityModelID,
+            MiniMaxH3Configuration.referenceModelID,
+        ] {
+            UserDefaults.standard.set(
+                MiniMaxH3RuntimeState.notConfigured.rawValue,
+                forKey: MiniMaxH3Configuration.lastReadinessStateKey(for: modelID))
+        }
         Task { await DependencyHealthManager.shared.refresh() }
     }
 
@@ -638,15 +673,16 @@ private struct MiniMaxH3RuntimePreferenceView: View {
             endpoint: endpoint,
             targetModelID: MiniMaxH3Configuration.standardModelID)
         status = await MiniMaxH3RuntimeManager.shared.status(snapshot: snapshot)
+        // This diagnostic panel only ever probes the Standard endpoint
+        // (targetModelID above is hardcoded to standardModelID); record the
+        // result under that model's own key, never a shared one.
+        let probedModelID = snapshot.targetModelID ?? MiniMaxH3Configuration.standardModelID
         UserDefaults.standard.set(
             status.state.rawValue,
-            forKey: MiniMaxH3Configuration.lastReadinessStateKey)
+            forKey: MiniMaxH3Configuration.lastReadinessStateKey(for: probedModelID))
         UserDefaults.standard.set(
             status.detail,
-            forKey: MiniMaxH3Configuration.lastReadinessDetailKey)
-        UserDefaults.standard.set(
-            snapshot.targetModelID,
-            forKey: MiniMaxH3Configuration.lastReadinessModelIDKey)
+            forKey: MiniMaxH3Configuration.lastReadinessDetailKey(for: probedModelID))
         isChecking = false
         await DependencyHealthManager.shared.refresh()
     }
@@ -670,6 +706,17 @@ private struct MiniMaxH3RuntimePreferenceView: View {
         panel.prompt = "Select High Quality H3 Model"
         if panel.runModal() == .OK, let url = panel.url {
             hqModelDirectory = url.path
+        }
+    }
+
+    private func chooseReferenceModelDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Select Reference (REF2VA) H3 Model"
+        if panel.runModal() == .OK, let url = panel.url {
+            refModelDirectory = url.path
         }
     }
 

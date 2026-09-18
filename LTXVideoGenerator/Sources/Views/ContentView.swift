@@ -432,7 +432,7 @@ private struct OneShotView: View {
                                 in: 8...24,
                                 step: 1
                             )
-                            Toggle("Fast Mode", isOn: $minimaxH3OneShotCustomFast)
+                            Toggle("高速化 (Fast Mode)", isOn: $minimaxH3OneShotCustomFast)
                         }
 
                         if MiniMaxH3FrameGrid.shouldShowLongDurationWarning(durationSeconds: minimaxH3OneShotCustomDuration) {
@@ -1172,7 +1172,7 @@ struct GenerateView: View {
     private var miniMaxH3ParametersPanel: some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 14) {
-                Label("MiniMax H3 (Experimental)", systemImage: "film.stack")
+                Label(MiniMaxH3Configuration.displayName, systemImage: "film.stack")
                     .font(.headline)
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -1287,7 +1287,7 @@ struct GenerateView: View {
                     }
 
                     // Fast Mode Toggle
-                    Toggle("Fast Mode", isOn: $h3CustomFast)
+                    Toggle("高速化 (Fast Mode)", isOn: $h3CustomFast)
                         .font(.subheadline)
                 } else {
                     Text("Fixed execution settings are optimized for this preset. For manual resolution tiers, duration, and steps, choose Custom.")

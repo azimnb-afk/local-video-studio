@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 
 /// Stable product identity and renderer-scoped configuration for the MiniMax
@@ -7,51 +8,98 @@ import Foundation
 enum MiniMaxH3Configuration {
     static let standardModelID = "minimax_h3_fl2va_2bit_te"
     static let highQualityModelID = "minimax_h3_fl2va_8bit_dit"
+    /// Reference-conditioned (REF2VA) partition, added 2026-09-17 for
+    /// evaluation. Distinct conditioning contract from FL2VA: no
+    /// first/last-frame keyframes, no chain_windows; instead up to 9 ordered
+    /// reference images. Official `ddalcu/MiniMax-H3-REF2VA-MLX-Serve-8bit`,
+    /// runs on the same mainline mlx-serve runtime already embedded by this
+    /// app (REF2VA support present in mlx-serve since v26.8.3). Experimental
+    /// and unverified: added so it can be evaluated, not because it is known
+    /// to outperform FL2VA. See docs/MINIMAX_H3_MANAGED_RUNTIME.md.
+    static let referenceModelID = "minimax_h3_ref2va_8bit"
     static var modelID: String { standardModelID }
 
-    static let displayName = "MiniMax H3 (Experimental)"
-    /// The Standard pack's own label. It must name the tier explicitly: this
-    /// string sits directly beside `highQualityDisplayName` in the generation
-    /// picker and in Settings, and a bare "MiniMax H3 (Experimental)" reads as
-    /// the family name rather than as the Standard tier, leaving a user who
-    /// was told to pick "H3 Standard" with no row that matches.
-    static let standardDisplayName = "MiniMax H3 Standard (Experimental)"
-    static let highQualityDisplayName = "MiniMax H3 High Quality (Experimental)"
+    static let displayName = "MiniMax H3（実験的機能 / Experimental）"
+    /// User-facing names, 2026-09-18. These name the *model/weights tier*
+    /// only — never a generation-cost word ("Standard"/"High"/"Fast") that
+    /// could be confused with `MiniMaxH3Preset.displayName` (the *quality/
+    /// cost* choice within a model) or the Fast Mode toggle. The English
+    /// parenthetical is a short tag for logs/screenshots, not a synonym to
+    /// translate independently — keep both strings in lockstep by editing
+    /// only here; every surface (Generate/One Shot picker, Settings, the
+    /// active-model sidebar) reads through these three constants or the
+    /// badges built from them in ActiveModelDisplayResolver, not a local
+    /// copy. `standardModelID`/`highQualityModelID`/`referenceModelID` (the
+    /// internal identifiers) are unrelated to this renaming and unchanged;
+    /// when technical text needs to refer to a tier unambiguously, name the
+    /// internal identifier explicitly rather than reusing a retired UI name
+    /// like "Standard" or "High Quality".
+    static let standardDisplayName = "MiniMax H3 軽量版 (Efficient)"
+    static let highQualityDisplayName = "MiniMax H3 高画質版 (Quality)"
+    static let referenceDisplayName = "MiniMax H3 参照画像版 (Reference)"
 
     static let standardExpectedServerModelID = "MiniMax-H3-FL2VA-MLX-Serve-2bit-text-encoder"
     static let highQualityExpectedServerModelID = "MiniMax-H3-FL2VA-MLX-Serve-8bit-DiT-2bit-TE"
     static let highQualityAlternativeServerModelID = "MiniMax-H3-FL2VA-MLX-Serve-8bit"
+    static let referenceExpectedServerModelID = "MiniMax-H3-REF2VA-MLX-Serve-8bit"
     static var expectedServerModelID: String { standardExpectedServerModelID }
 
     static let standardModelDirectoryKey = "minimaxH3ModelDirectory"
     static let highQualityModelDirectoryKey = "minimaxH3HighQualityModelDirectory"
+    static let referenceModelDirectoryKey = "minimaxH3ReferenceModelDirectory"
     static var modelDirectoryKey: String { standardModelDirectoryKey }
 
     static let runtimeExecutablePathKey = "minimaxH3RuntimeExecutablePath"
     static let endpointKey = "minimaxH3Endpoint"
-    static let lastReadinessStateKey = "minimaxH3LastReadinessState"
-    static let lastReadinessDetailKey = "minimaxH3LastReadinessDetail"
-    /// The last readiness probe is model-specific (Standard and High Quality
-    /// share the same server endpoint but not the same weights).
-    static let lastReadinessModelIDKey = "minimaxH3LastReadinessModelID"
+    /// Readiness is recorded per model ID, never in one shared slot. All
+    /// three H3 tiers can share one endpoint/runtime but load different
+    /// weights, so a single global "last readiness" pair would let recording
+    /// one model's result silently corrupt another tier's status label with
+    /// a stale/mismatched read — see `ModelReadinessResolver.evaluateH3` and
+    /// docs/MODEL_REGISTRY_GUIDE.md. Note this no longer risks a tier
+    /// disappearing from the Generate picker at all (the picker shows every
+    /// registered model regardless of readiness — see
+    /// `ModelReadinessStore.pickerModels`), but a wrong status label would
+    /// still be a real, user-visible bug, so the per-model keys remain load
+    /// bearing. Every reader/writer of H3 readiness must go through these two
+    /// functions; there is deliberately no bare, unparameterized key left to
+    /// reach for by accident.
+    static func lastReadinessStateKey(for modelID: String) -> String {
+        "minimaxH3LastReadinessState.\(modelID)"
+    }
+    static func lastReadinessDetailKey(for modelID: String) -> String {
+        "minimaxH3LastReadinessDetail.\(modelID)"
+    }
     static let externalLegacyEndpoint = "http://127.0.0.1:11235"
     static let developmentManagedEndpoint = "http://127.0.0.1:11236"
     static let personalManagedEndpoint = "http://127.0.0.1:11237"
 
     static func isMiniMaxH3(modelID: String?) -> Bool {
         guard let modelID else { return false }
-        return modelID == standardModelID || modelID == highQualityModelID
+        return modelID == standardModelID || modelID == highQualityModelID || modelID == referenceModelID
+    }
+
+    /// REF2VA is a distinct conditioning contract (reference images, not
+    /// first/last-frame keyframes) — callers that build a keyframe/chain
+    /// payload must branch on this before doing so.
+    static func isReferenceConditioned(modelID: String?) -> Bool {
+        modelID == referenceModelID
     }
 
     static func expectedServerModelIDs(for modelID: String?) -> [String] {
         if modelID == highQualityModelID {
             return [highQualityExpectedServerModelID, highQualityAlternativeServerModelID]
         }
+        if modelID == referenceModelID {
+            return [referenceExpectedServerModelID]
+        }
         return [standardExpectedServerModelID]
     }
 
     static func modelDirectoryKey(for modelID: String?) -> String {
-        modelID == highQualityModelID ? highQualityModelDirectoryKey : standardModelDirectoryKey
+        if modelID == highQualityModelID { return highQualityModelDirectoryKey }
+        if modelID == referenceModelID { return referenceModelDirectoryKey }
+        return standardModelDirectoryKey
     }
 
     /// A fresh installed app gets a profile-scoped managed port. Existing
@@ -594,8 +642,91 @@ struct MiniMaxH3RuntimeStatus: Equatable {
     var ownership: MiniMaxH3ServerOwnership?
     var detail: String
     var loadedModelID: String?
+    /// The endpoint this status actually describes. Populated by
+    /// `MiniMaxH3RuntimeManager.ensureReady`'s return value so a caller never
+    /// has to re-derive "which endpoint did this prepare" from static
+    /// configuration after the fact — load-bearing when `ensureReady`
+    /// silently redirected to an alternate, app-owned-only endpoint because
+    /// the configured one has an external server holding a different model
+    /// (see `MiniMaxH3AlternatePortAllocator`). Defaults to "" because most
+    /// construction sites (inside `status(snapshot:)`, and every existing
+    /// test) already know their endpoint from the snapshot they built and
+    /// don't need it echoed back on this type.
+    var endpoint: String = ""
 
     var isReady: Bool { state == .ready }
+}
+
+/// Finds a free loopback port for an app-owned H3 runtime that must never
+/// collide with — or be confused with — the user's configured endpoint,
+/// which may have an external server on it (see `MiniMaxH3ServerOwnership`).
+///
+/// No existing port-lease, scratch-port, or per-tier-port mechanism was
+/// found anywhere in the runtime/backend/lease code when this was added
+/// (audited 2026-09-18): H3's only prior port story is the three fixed,
+/// profile-scoped defaults in `MiniMaxH3Configuration`
+/// (`externalLegacyEndpoint`/`developmentManagedEndpoint`/
+/// `personalManagedEndpoint` — 11235/11236/11237), none of which are meant
+/// for "run a second, simultaneous H3 server alongside another one." This
+/// is a new, minimal allocator, not a rediscovery of an existing one.
+enum MiniMaxH3AlternatePortAllocator {
+    /// Deliberately narrow, fixed range immediately after the app's own
+    /// managed ports — easy to recognize in `lsof`/Activity Monitor as
+    /// "Local Video Studio's own," and small enough that exhausting it (100
+    /// candidates) is itself a strong signal something else is wrong, not a
+    /// real capacity limit for this app's single-generation-at-a-time
+    /// design (see `MiniMaxH3GenerationLease`).
+    static let candidateRange = 11291...11390
+
+    /// Pure: the first port in range that isn't excluded and that `isFree`
+    /// accepts. Fully unit-testable with a fake `isFree` — no socket, no
+    /// process, no real port ever touched.
+    static func firstAvailablePort(
+        excluding excludedPorts: Set<Int>,
+        isFree: (Int) -> Bool
+    ) -> Int? {
+        for port in candidateRange where !excludedPorts.contains(port) {
+            if isFree(port) { return port }
+        }
+        return nil
+    }
+
+    /// Real, side-effecting freedom check: binds a loopback-only TCP socket
+    /// on the port and immediately releases it. A real listener there
+    /// (including the configured endpoint's own external server, if it ever
+    /// fell in this range) makes this false, so does any other process
+    /// already using it. Never binds `0.0.0.0` — loopback only, matching
+    /// every other H3 endpoint this app ever binds.
+    static func isPortFreeOnLoopback(_ port: Int) -> Bool {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { Darwin.close(fd) }
+        var reuse: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = UInt16(port).bigEndian
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let bindResult = withUnsafePointer(to: &addr) { pointer -> Int32 in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                bind(fd, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        return bindResult == 0
+    }
+
+    /// Finds a free port using the real bind-based check, excluding the
+    /// given endpoint's own port (parsed from its URL) so the search can
+    /// never recommend the exact port an external — or this app's own
+    /// configured-endpoint — server holds.
+    static func allocate(excludingEndpoint endpoint: String) -> Int? {
+        var excluded = Set<Int>()
+        if let url = URL(string: endpoint), let port = url.port {
+            excluded.insert(port)
+        }
+        return firstAvailablePort(excluding: excluded, isFree: isPortFreeOnLoopback)
+    }
 }
 
 protocol MiniMaxH3HTTPTransport {
@@ -786,13 +917,10 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
     /// user sees the real Stopped -> Starting -> Ready/Failed transition
     /// instead of a stale snapshot from the last time Settings was opened.
     func recordReadiness(state: MiniMaxH3RuntimeState, detail: String, modelID: String? = nil) {
-        userDefaults.set(state.rawValue, forKey: MiniMaxH3Configuration.lastReadinessStateKey)
-        userDefaults.set(detail, forKey: MiniMaxH3Configuration.lastReadinessDetailKey)
-        let effectiveModelID = modelID
-            ?? userDefaults.string(forKey: LTXModelCatalog.selectedModelIDKey)
-        if let effectiveModelID {
-            userDefaults.set(effectiveModelID, forKey: MiniMaxH3Configuration.lastReadinessModelIDKey)
-        }
+        guard let effectiveModelID = modelID
+            ?? userDefaults.string(forKey: LTXModelCatalog.selectedModelIDKey) else { return }
+        userDefaults.set(state.rawValue, forKey: MiniMaxH3Configuration.lastReadinessStateKey(for: effectiveModelID))
+        userDefaults.set(detail, forKey: MiniMaxH3Configuration.lastReadinessDetailKey(for: effectiveModelID))
     }
 
     private func recordReadiness(_ status: MiniMaxH3RuntimeStatus, modelID: String? = nil) {
@@ -883,16 +1011,57 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
                 loadedModelID: models.first?.id)
         } catch {
             let configured = snapshot.modelDirectory != nil && snapshot.runtimeExecutablePath != nil
+            // "No server is listening" is a specific, verifiable claim (connection
+            // refused / no listener at that socket) — never a stand-in for "the
+            // probe failed for some other reason." A timeout, cancellation, or
+            // other transport error means a process may well be running and just
+            // not answering yet; collapsing all of those into "not running" (as
+            // this used to) produces a false "no server listening" reading for a
+            // server that is, in fact, up (observed 2026-09-18: a stale
+            // `minimaxH3Endpoint` override pointed at a port nothing served,
+            // while a real server answered on the correct default port — the
+            // generic message gave no way to tell the two apart).
+            guard configured else {
+                return MiniMaxH3RuntimeStatus(
+                    state: .notConfigured, ownership: nil,
+                    detail: "Set the H3 model directory and mlx-serve executable, or start a compatible external server.",
+                    loadedModelID: nil)
+            }
+            if Self.isConnectionRefused(error) {
+                return MiniMaxH3RuntimeStatus(
+                    state: .notRunning, ownership: nil,
+                    detail: "No MiniMax H3 server is listening at \(snapshot.endpoint).",
+                    loadedModelID: nil)
+            }
             return MiniMaxH3RuntimeStatus(
-                state: configured ? .notRunning : .notConfigured,
-                ownership: nil,
-                detail: configured
-                    ? "No MiniMax H3 server is listening at the configured endpoint."
-                    : "Set the H3 model directory and mlx-serve executable, or start a compatible external server.",
+                state: .failed, ownership: ownership(for: snapshot.endpoint),
+                detail: "Health probe to \(snapshot.endpoint) failed: \(error.localizedDescription)",
                 loadedModelID: nil)
         }
     }
 
+    /// True only for the specific transport error that means "nothing is
+    /// listening at that socket" (ECONNREFUSED, surfaced by URLSession as
+    /// `.cannotConnectToHost`, plus `.cannotFindHost` as a defensive
+    /// equivalent). Every other transport error (timeout, cancellation,
+    /// connection loss mid-request, etc.) is a probe failure, not proof of
+    /// absence, and must not be reported as "not running."
+    private static func isConnectionRefused(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+        return urlError.code == .cannotConnectToHost || urlError.code == .cannotFindHost
+    }
+
+    /// Entry point every H3 generation call goes through. The configured
+    /// endpoint (`snapshot.endpoint` — a single user setting, `Configured
+    /// endpoint` in product terms) is always tried first, unchanged from
+    /// before. Only when it turns out to be a `.wrongModel` server this app
+    /// does NOT own does this redirect to a separate, app-owned-only
+    /// endpoint (`ensureReadyOnAlternateEndpoint`) — the external server is
+    /// never touched, never restarted, never has its model reloaded. The
+    /// returned status's `.endpoint` is always the one actually prepared
+    /// (`Active generation endpoint`); callers (`MiniMaxH3Backend.generate`)
+    /// must POST there, not to the configured endpoint, since the two can
+    /// now legitimately differ for one generation call.
     func ensureReady(
         snapshot: MiniMaxH3Configuration.Snapshot,
         transport: MiniMaxH3HTTPTransport = MiniMaxH3URLSessionTransport(timeout: 8),
@@ -900,23 +1069,136 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
     ) async throws -> MiniMaxH3RuntimeStatus {
         let initial = await status(snapshot: snapshot, transport: transport)
         recordReadiness(initial, modelID: snapshot.targetModelID)
-        if initial.isReady { return initial }
+        if initial.isReady { return Self.withEndpoint(initial, snapshot.endpoint) }
         if initial.state == .wrongModel {
-            if ownedServerIsRunning {
-                // Model switched between Standard (4-bit) and High Quality (8-bit):
-                // Stop the previously owned server and restart with the requested model.
+            // Endpoint-specific, never assumed: only a server THIS manager
+            // provably started (or can reclaim by kernel process identity —
+            // see `reclaimableManagedServer`) at this exact endpoint counts
+            // as ours to restart. "Some app-owned process is running
+            // somewhere" is not enough — that process could be this app's
+            // OWN alternate-endpoint server from an earlier generation,
+            // which must never be assumed to be sitting at the configured
+            // endpoint too.
+            if ownership(for: snapshot.endpoint) == .appOwned {
+                // Model switched between two tiers (e.g. Standard -> High
+                // Quality): stop the previously owned server at this
+                // endpoint and restart with the requested model.
                 stopOwnedServer()
-            } else {
-                let expected = MiniMaxH3Configuration.expectedServerModelIDs(for: snapshot.targetModelID).first
-                    ?? MiniMaxH3Configuration.expectedServerModelID
-                throw MiniMaxH3Error.wrongModel(
-                    expected: expected,
-                    actual: initial.loadedModelID)
+                return try await startAndPoll(snapshot: snapshot, transport: transport, progress: progress)
             }
+            // The configured endpoint has a server this app doesn't own
+            // (e.g. PID 94710, started outside the app) with a different
+            // model loaded. Never touch it — prepare a separate, app-owned
+            // endpoint for this generation instead.
+            return try await ensureReadyOnAlternateEndpoint(
+                configuredSnapshot: snapshot, transport: transport, progress: progress)
         }
         if initial.state == .failed || initial.state == .broken || initial.state == .starting {
             throw MiniMaxH3Error.serverUnhealthy(initial.detail)
         }
+        return try await startAndPoll(snapshot: snapshot, transport: transport, progress: progress)
+    }
+
+    /// The configured endpoint is occupied by a server this app doesn't own
+    /// and can't safely repurpose. Finds (or reuses) a separate, app-owned
+    /// endpoint dedicated to this app instance, and prepares the requested
+    /// model there — the configured endpoint's server is never touched by
+    /// any step of this function.
+    private func ensureReadyOnAlternateEndpoint(
+        configuredSnapshot: MiniMaxH3Configuration.Snapshot,
+        transport: MiniMaxH3HTTPTransport,
+        progress: @escaping (Double, String) -> Void
+    ) async throws -> MiniMaxH3RuntimeStatus {
+        // Reuse the alternate-endpoint server this manager already owns
+        // (e.g. a previous Quality generation's app-owned server) rather
+        // than allocating a fresh port every time — the same "keep the
+        // owned server, swap only the model" policy as the configured-
+        // endpoint case, just anchored to a different port.
+        lock.lock()
+        let existingOwnedEndpoint = ownedEndpoint
+        lock.unlock()
+
+        if let existingOwnedEndpoint, existingOwnedEndpoint != configuredSnapshot.endpoint {
+            var alternateSnapshot = configuredSnapshot
+            alternateSnapshot.endpoint = existingOwnedEndpoint
+            let alternateStatus = await status(snapshot: alternateSnapshot, transport: transport)
+            if alternateStatus.isReady {
+                recordReadiness(alternateStatus, modelID: configuredSnapshot.targetModelID)
+                return Self.withEndpoint(alternateStatus, existingOwnedEndpoint)
+            }
+            if alternateStatus.state == .wrongModel {
+                stopOwnedServer()
+            }
+            return try await startAndPoll(snapshot: alternateSnapshot, transport: transport, progress: progress)
+        }
+
+        // Allocating a fresh port has an inherent, small TOCTOU window: the
+        // allocator's real bind-based check confirms a port is free, but
+        // something else could claim it in the moment between that check and
+        // `startOwnedServer`'s own bind. Bounded retry (never unbounded, and
+        // never the same port twice) covers exactly that race without a
+        // larger design change: if the process we just launched exits
+        // immediately (`startAndPoll` reporting `.runtimeStartFailed`, its
+        // "exited before becoming ready" signal — the closest proxy this
+        // layer has to "the bind lost a race"), try one more freshly
+        // allocated port before giving up.
+        var excludedPorts = Set<Int>()
+        if let configuredPort = MiniMaxH3Configuration.endpointURL(configuredSnapshot.endpoint)?.port {
+            excludedPorts.insert(configuredPort)
+        }
+        var lastError: Error = MiniMaxH3Error.runtimeStartFailed(
+            "No free local port was available to run MiniMax H3 alongside the existing server.")
+
+        for _ in 0..<3 {
+            guard let port = MiniMaxH3AlternatePortAllocator.firstAvailablePort(
+                excluding: excludedPorts, isFree: MiniMaxH3AlternatePortAllocator.isPortFreeOnLoopback) else {
+                throw lastError
+            }
+            excludedPorts.insert(port)
+            let alternateEndpoint = "http://127.0.0.1:\(port)"
+            var alternateSnapshot = configuredSnapshot
+            alternateSnapshot.endpoint = alternateEndpoint
+
+            let alternateStatus = await status(snapshot: alternateSnapshot, transport: transport)
+            if alternateStatus.isReady {
+                recordReadiness(alternateStatus, modelID: configuredSnapshot.targetModelID)
+                return Self.withEndpoint(alternateStatus, alternateEndpoint)
+            }
+            if alternateStatus.state == .wrongModel {
+                // Nothing but this manager can be listening on a port it
+                // just allocated (freed-at-check-time) — safe to swap.
+                stopOwnedServer()
+            }
+            do {
+                return try await startAndPoll(snapshot: alternateSnapshot, transport: transport, progress: progress)
+            } catch let error as MiniMaxH3Error {
+                // Only the fast-fail "process exited before becoming ready"
+                // shape is a plausible bind race — never retry a genuine
+                // 900s timeout (a real, if slow, load in progress) or any
+                // other failure; that would silently multiply a user's wait
+                // instead of surfacing the real problem.
+                guard case .runtimeStartFailed(let detail) = error,
+                      detail.hasPrefix("The mlx-serve process exited before becoming ready") else {
+                    throw error
+                }
+                lastError = error
+                continue // plausible bind race on this port — try the next candidate
+            }
+        }
+        throw lastError
+    }
+
+    /// Starts (or confirms) an app-owned mlx-serve at exactly `snapshot.
+    /// endpoint` and polls until it reports the requested model ready. Used
+    /// both for the configured endpoint (the original, unchanged behavior)
+    /// and for an alternate endpoint (new) — the two are identical once a
+    /// snapshot has been decided; only how that snapshot's endpoint was
+    /// chosen differs.
+    private func startAndPoll(
+        snapshot: MiniMaxH3Configuration.Snapshot,
+        transport: MiniMaxH3HTTPTransport,
+        progress: @escaping (Double, String) -> Void
+    ) async throws -> MiniMaxH3RuntimeStatus {
         guard MiniMaxH3Configuration.endpointURL(snapshot.endpoint) != nil else {
             throw MiniMaxH3Error.invalidEndpoint
         }
@@ -933,13 +1215,21 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
         progress(0.01, "Starting the MiniMax H3 local server…")
 
         do {
-            for _ in 0..<300 {
+            // 900s (15 min), not 300s: measured real loads of the 8-bit
+            // REF2VA pack (TE 26.55GB + DiT 20.07GB, one after the other,
+            // per this pack's own staged-residency design) took ~350-480s
+            // from this external drive alone, before sampling even starts.
+            // A larger bound only changes how long a genuinely stuck load
+            // waits before failing — it does not change the success path
+            // for the smaller Standard/High Quality packs, which finish
+            // well inside either bound.
+            for _ in 0..<900 {
                 try Task.checkCancellation()
                 try await Task.sleep(nanoseconds: 1_000_000_000)
                 let current = await status(snapshot: snapshot, transport: transport)
                 if current.isReady {
                     recordReadiness(current, modelID: snapshot.targetModelID)
-                    return current
+                    return Self.withEndpoint(current, snapshot.endpoint)
                 }
                 if current.state == .wrongModel {
                     stopOwnedServer()
@@ -966,6 +1256,12 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
         stopOwnedServer()
         recordReadiness(state: .failed, detail: "Timed out while loading the configured model.", modelID: snapshot.targetModelID)
         throw MiniMaxH3Error.runtimeStartFailed("Timed out while loading the configured model.")
+    }
+
+    private static func withEndpoint(_ status: MiniMaxH3RuntimeStatus, _ endpoint: String) -> MiniMaxH3RuntimeStatus {
+        var copy = status
+        copy.endpoint = endpoint
+        return copy
     }
 
     /// Users pick a folder in a file picker, and the natural choice is often
@@ -1042,6 +1338,17 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
         lock.unlock()
         if let process, process.isRunning {
             process.terminate()
+            // Bounded wait for the port to actually free up. SIGTERM alone
+            // doesn't guarantee the listening socket is closed by the time
+            // terminate() returns, and a caller restarting with a different
+            // model (ensureReady's wrong-model switch) binds the same port
+            // immediately after this call — without this, that bind can
+            // race the still-exiting process.
+            var waitedMicroseconds: UInt32 = 0
+            while process.isRunning && waitedMicroseconds < 2_000_000 {
+                usleep(100_000)
+                waitedMicroseconds += 100_000
+            }
         }
         (process?.standardError as? Pipe)?.fileHandleForReading.readabilityHandler = nil
         // A server an earlier session launched, reclaimed after a restart:
@@ -1084,6 +1391,44 @@ final class MiniMaxH3RuntimeManager: @unchecked Sendable {
         lock.unlock()
         if owned { return .appOwned }
         return reclaimableManagedServer(for: endpoint) != nil ? .appOwned : .externallyRunning
+    }
+
+    /// True when a currently-reported `.wrongModel` runtime state is one
+    /// `ensureReady` can resolve itself, so the Generate-button preflight
+    /// gate (`DefaultModelChecker.checkVideoModel()`) should let the request
+    /// through rather than blocking on it. This is true for BOTH ownership
+    /// cases, because `ensureReady` has a working strategy for each:
+    ///  - `.appOwned` — stop and restart the server this app already owns at
+    ///    the configured endpoint (`ownership(for:)`-gated branch).
+    ///  - `.externallyRunning` — never touch that server; prepare a
+    ///    separate, app-owned-only alternate endpoint instead
+    ///    (`ensureReadyOnAlternateEndpoint` /
+    ///    `MiniMaxH3AlternatePortAllocator`).
+    /// The only thing that still blocks either strategy is a MiniMax H3
+    /// generation already in flight — this profile's own job, or another
+    /// Local Video Studio process's (`MiniMaxH3GenerationLease.
+    /// activeOwner()`) — since neither strategy may disrupt a running job's
+    /// runtime. If `ensureReady` later hits a genuine failure it couldn't
+    /// have known about here (no free alternate port, a broken runtime
+    /// executable, a real startup crash), that surfaces as its own explicit
+    /// error at generation time — this predicate only decides whether
+    /// attempting preparation is worth it, never whether it will succeed.
+    ///
+    /// `ownership` is kept as an explicit parameter (rather than dropped
+    /// now that it no longer changes the answer) so call sites stay
+    /// self-documenting about which case they're asking about, and so a
+    /// future case that legitimately needs to distinguish them again does
+    /// not have to rediscover this from scratch.
+    ///
+    /// Extracted as a pure, dependency-free predicate (see
+    /// `DefaultModelChecker.checkVideoModel()`, the only production caller)
+    /// so the decision itself is directly unit-testable without a live
+    /// process, network probe, or `UserDefaults.standard`.
+    static func canSafelyPrepareWrongModel(
+        ownership: MiniMaxH3ServerOwnership,
+        activeGenerationOwner: MiniMaxH3GenerationLease.Owner?
+    ) -> Bool {
+        activeGenerationOwner == nil
     }
 
     func startOwnedServer(runtime: String, model: String, endpoint: String) throws {

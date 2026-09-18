@@ -98,27 +98,21 @@ public class DefaultModelChecker: ModelChecking {
         }
 
         if MiniMaxH3Configuration.isMiniMaxH3(modelID: modelID) {
-            let status = await MiniMaxH3RuntimeManager.shared.status(
-                snapshot: .current(forModelID: modelID, userDefaults: .standard))
+            let snapshot = MiniMaxH3Configuration.Snapshot.current(forModelID: modelID, userDefaults: .standard)
+            let status = await MiniMaxH3RuntimeManager.shared.status(snapshot: snapshot)
             UserDefaults.standard.set(
                 status.state.rawValue,
-                forKey: MiniMaxH3Configuration.lastReadinessStateKey)
+                forKey: MiniMaxH3Configuration.lastReadinessStateKey(for: modelID))
             UserDefaults.standard.set(
                 status.detail,
-                forKey: MiniMaxH3Configuration.lastReadinessDetailKey)
-            UserDefaults.standard.set(
-                modelID,
-                forKey: MiniMaxH3Configuration.lastReadinessModelIDKey)
-            // Setup checks must allow a configured idle H3 through to
-            // MiniMaxH3Backend.ensureReady, which owns server startup.
+                forKey: MiniMaxH3Configuration.lastReadinessDetailKey(for: modelID))
             let readiness = ModelReadinessResolver.evaluate(model: model)
-            if readiness.canGenerate { return .ready }
-            switch status.state {
-            case .ready: return .ready
-            case .notConfigured, .notRunning, .starting:
-                return .missing(readiness.reason ?? status.detail)
-            case .wrongModel, .failed, .broken: return .invalid(status.detail)
-            }
+            return Self.classifyH3SetupStatus(
+                state: status.state,
+                readiness: readiness,
+                ownership: MiniMaxH3RuntimeManager.shared.ownership(for: snapshot.endpoint),
+                activeGenerationOwner: MiniMaxH3GenerationLease.activeOwner(),
+                detail: status.detail)
         }
         
         if model.runtime.backend == "ltx-2-mlx" {
@@ -139,7 +133,45 @@ public class DefaultModelChecker: ModelChecking {
             return .missing("Model '\(model.displayName)' is not downloaded. Open Preferences > Models to download.")
         }
     }
-    
+
+    /// The H3 branch of `checkVideoModel()`, extracted as a pure function so
+    /// the exact Generate-gating policy is directly unit-testable without
+    /// `UserDefaults.standard`, `ModelRegistry.shared`, or a live network
+    /// probe — `checkVideoModel()` calls this, it is not a parallel copy.
+    ///
+    /// Setup checks must allow a configured idle H3 through to
+    /// `MiniMaxH3Backend.ensureReady`, which owns server startup — that is
+    /// what `readiness.canGenerate` (true for `.serverNotRunning`) already
+    /// does below. A shared H3 runtime currently loaded with a *different*
+    /// tier's weights (`.wrongModel`) deserves the same treatment, not an
+    /// immediate hard stop: `ensureReady` can resolve it itself by stopping
+    /// and restarting the server, exactly like the idle case, whenever
+    /// `MiniMaxH3RuntimeManager.canSafelyPrepareWrongModel` says it's safe to
+    /// (the running server is provably app-owned, and no H3 generation is
+    /// currently in flight). Every other case — no server, still loading, a
+    /// wrong model on a server this app doesn't own, or a genuine failure —
+    /// keeps its original classification unchanged.
+    static func classifyH3SetupStatus(
+        state: MiniMaxH3RuntimeState,
+        readiness: ModelReadiness,
+        ownership: MiniMaxH3ServerOwnership,
+        activeGenerationOwner: MiniMaxH3GenerationLease.Owner?,
+        detail: String
+    ) -> SetupStatus {
+        if readiness.canGenerate { return .ready }
+        if state == .wrongModel,
+           MiniMaxH3RuntimeManager.canSafelyPrepareWrongModel(
+               ownership: ownership, activeGenerationOwner: activeGenerationOwner) {
+            return .ready
+        }
+        switch state {
+        case .ready: return .ready
+        case .notConfigured, .notRunning, .starting:
+            return .missing(readiness.reason ?? detail)
+        case .wrongModel, .failed, .broken: return .invalid(detail)
+        }
+    }
+
     public func checkTextEncoder() async -> SetupStatus {
         let modelID = UserDefaults.standard.string(forKey: LTXModelCatalog.selectedModelIDKey)
             ?? LTXModelCatalog.defaultModelID

@@ -168,8 +168,38 @@ final class ModelRegistry {
     public static let customLocalPathUserDefaultsKey = "customLTX2MLXLocalPath"
     public static let customSourceModeUserDefaultsKey = "customLTX2MLXSourceMode"
 
-    private(set) var descriptors: [String: ModelDescriptor] = [:]
+    private var descriptors: [String: ModelDescriptor] = [:]
     private let userDefaults: UserDefaults
+
+    /// Guards every read/write of `descriptors`. `ModelRegistry.shared` is a
+    /// process-wide singleton reached from both MainActor SwiftUI code and
+    /// background Tasks (e.g. `DependencyHealthManager.refresh()`'s
+    /// concurrent `async let` health checks call `DefaultModelChecker.
+    /// checkVideoModel()` on a non-MainActor executor). Without this lock,
+    /// two callers mutating the plain `Dictionary` at once is a data race
+    /// that can corrupt storage or crash (observed: SIGSEGV inside
+    /// `_NativeDictionary.setValue` from `seedMiniMaxH3()`, 2026-09-18).
+    ///
+    /// Only the dictionary access itself is protected — descriptor structs
+    /// are always built as pure, lock-free local values first and merged in
+    /// with one short `withDescriptors` call, and no locked closure ever
+    /// calls back into another locked method (which would deadlock on this
+    /// non-reentrant lock). The slow work (HTTP health probes in
+    /// `MiniMaxH3RuntimeManager.status`) lives entirely outside this class
+    /// and is untouched by this lock.
+    private let stateLock = NSLock()
+
+    private func withDescriptors<T>(_ body: (inout [String: ModelDescriptor]) -> T) -> T {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return body(&descriptors)
+    }
+
+    /// Lock-protected snapshot for callers that need to enumerate every
+    /// registered descriptor (e.g. the Compatibility Lab settings list).
+    func allDescriptors() -> [ModelDescriptor] {
+        withDescriptors { Array($0.values) }
+    }
 
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
@@ -223,6 +253,7 @@ final class ModelRegistry {
     }
 
     private func seedOfficialModels() {
+        var built: [String: ModelDescriptor] = [:]
         for legacy in LTXModelCatalog.all {
             let quant: String? = legacy.id.hasSuffix("_q4") ? "q4" : nil
             let sizeGB = Double(
@@ -230,7 +261,7 @@ final class ModelRegistry {
                     .replacingOccurrences(of: "~", with: "")
                     .replacingOccurrences(of: "GB", with: "")
             )
-            descriptors[legacy.id] = ModelDescriptor(
+            built[legacy.id] = ModelDescriptor(
                 id: legacy.id,
                 displayName: legacy.displayName,
                 repository: legacy.repo,
@@ -266,6 +297,9 @@ final class ModelRegistry {
                 isOfficial: true
             )
         }
+        withDescriptors { dict in
+            for (id, descriptor) in built { dict[id] = descriptor }
+        }
     }
 
     /// User-configurable custom model running on the ltx-2-mlx backend.
@@ -274,7 +308,7 @@ final class ModelRegistry {
         let localPath = userDefaults.string(forKey: Self.customLocalPathUserDefaultsKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let effectiveRepo = repo.isEmpty ? "user-supplied/custom-model" : repo
 
-        descriptors[Self.customModelID] = ModelDescriptor(
+        let built = ModelDescriptor(
             id: Self.customModelID,
             displayName: "Custom LTX-2 MLX Model",
             repository: effectiveRepo,
@@ -301,11 +335,12 @@ final class ModelRegistry {
             ),
             isOfficial: false
         )
+        withDescriptors { $0[Self.customModelID] = built }
     }
 
     private func seedMiniMaxH3() {
         let standardConfig = MiniMaxH3Configuration.Snapshot.current(forModelID: MiniMaxH3Configuration.standardModelID, userDefaults: userDefaults)
-        descriptors[MiniMaxH3Configuration.standardModelID] = ModelDescriptor(
+        let standardDescriptor = ModelDescriptor(
             id: MiniMaxH3Configuration.standardModelID,
             displayName: MiniMaxH3Configuration.standardDisplayName,
             repository: MiniMaxH3Configuration.standardExpectedServerModelID,
@@ -348,7 +383,7 @@ final class ModelRegistry {
         )
 
         let hqConfig = MiniMaxH3Configuration.Snapshot.current(forModelID: MiniMaxH3Configuration.highQualityModelID, userDefaults: userDefaults)
-        descriptors[MiniMaxH3Configuration.highQualityModelID] = ModelDescriptor(
+        let highQualityDescriptor = ModelDescriptor(
             id: MiniMaxH3Configuration.highQualityModelID,
             displayName: MiniMaxH3Configuration.highQualityDisplayName,
             repository: MiniMaxH3Configuration.highQualityExpectedServerModelID,
@@ -389,6 +424,55 @@ final class ModelRegistry {
             ),
             isOfficial: false
         )
+
+        let refConfig = MiniMaxH3Configuration.Snapshot.current(forModelID: MiniMaxH3Configuration.referenceModelID, userDefaults: userDefaults)
+        let referenceDescriptor = ModelDescriptor(
+            id: MiniMaxH3Configuration.referenceModelID,
+            displayName: MiniMaxH3Configuration.referenceDisplayName,
+            repository: MiniMaxH3Configuration.referenceExpectedServerModelID,
+            revision: nil,
+            localPath: refConfig.modelDirectory,
+            quantization: "8-bit",
+            precision: nil,
+            // Official ddalcu REF2VA-8bit pack: DiT+TE 8-bit, dense VAEs, ~69GB on disk.
+            estimatedModelSizeGB: 69.3,
+            recommendedUnifiedMemoryGB: 64,
+            minimumUnifiedMemoryGB: 48,
+            architecture: ArchitectureDescriptor(
+                modelFamily: "MiniMax H3",
+                modelVersion: "H3",
+                modelType: "AudioVideo"
+            ),
+            capabilities: CapabilitySet(
+                textToVideo: true,
+                imageToVideo: true,
+                synchronizedAudio: true,
+                keyframes: false,
+                firstLastFrame: false,
+                continuation: false
+            ),
+            runtime: RuntimeCompatibility(
+                backend: GenerationBackendKind.minimaxH3.rawValue,
+                minimumBackendVersion: "26.8.3",
+                verified: true,
+                verificationNotes: "Added 2026-09-17. Verified on this exact downloaded pack (revision 407a9355, all 4 weight files SHA-256-matched against Hugging Face metadata): mlx-serve loaded it (text encoder 26.55GB then DiT 20.07GB resident, each released after its stage per the pack's staged-residency design), /health responded ok, and one real HTTP /v1/video/generations call with a single ref_images entry returned a valid 512x288/39-frame/8-step response (decoded RGB+PCM matched their declared sizes and muxed to a playable MP4 with audio) — no OOM, no crash, clean shutdown. NOT verified: output quality, identity/character fidelity, or the reference-following reliability concern from an independent report on a different stack (github.com/deepbeepmeep/Wan2GP issue #2066) — those remain for the user to judge. Reference-image conditioned (up to 9 images), not first/last-frame. ~69GB on disk; staged residency puts single-generation peak near 40-44GB, leaving little headroom on a 48GB Mac — close any other memory-heavy app first.",
+                executablePath: refConfig.runtimeExecutablePath,
+                endpoint: refConfig.endpoint
+            ),
+            policy: .general,
+            license: ModelLicenseMetadata(
+                name: "MiniMax model license — see the local model card",
+                url: nil,
+                requiresAcknowledgement: false
+            ),
+            isOfficial: false
+        )
+
+        withDescriptors { dict in
+            dict[MiniMaxH3Configuration.standardModelID] = standardDescriptor
+            dict[MiniMaxH3Configuration.highQualityModelID] = highQualityDescriptor
+            dict[MiniMaxH3Configuration.referenceModelID] = referenceDescriptor
+        }
     }
 
     private func profileDescriptor(for profile: CustomModelProfile) -> ModelDescriptor {
@@ -436,11 +520,11 @@ final class ModelRegistry {
         if let profile = CustomModelProfileStore.profile(forModelID: id, userDefaults: userDefaults) {
             return profileDescriptor(for: profile)
         }
-        return descriptors[id]
+        return withDescriptors { $0[id] }
     }
 
     func register(descriptor: ModelDescriptor) {
-        descriptors[descriptor.id] = descriptor
+        withDescriptors { $0[descriptor.id] = descriptor }
     }
 
     /// Resolves a ModelDescriptor tailored for an immutable GenerationRequest,
@@ -472,9 +556,11 @@ final class ModelRegistry {
     }
 
     func refreshVerification(from lab: CompatibilityLab) {
-        for (id, model) in descriptors
-        where !model.isOfficial && !MiniMaxH3Configuration.isMiniMaxH3(modelID: id) {
-            descriptors[id]?.runtime.verified = lab.isVerified(modelID: id)
+        withDescriptors { dict in
+            for (id, model) in dict
+            where !model.isOfficial && !MiniMaxH3Configuration.isMiniMaxH3(modelID: id) {
+                dict[id]?.runtime.verified = lab.isVerified(modelID: id)
+            }
         }
     }
 
@@ -485,7 +571,7 @@ final class ModelRegistry {
     /// - Custom models and profiles are listed when customModelsV1 is enabled.
     func selectableModels(customModelsEnabled: Bool? = nil) -> [ModelDescriptor] {
         let allowCustom = customModelsEnabled ?? FeatureFlags.isEnabled(.customModelsV1, userDefaults: userDefaults)
-        var models = Array(descriptors.values)
+        var models = withDescriptors { Array($0.values) }
         if let ltx25 = descriptor(id: LTX25ModelCatalog.ltx25ExperimentalID) {
             if !models.contains(where: { $0.id == ltx25.id }) {
                 models.append(ltx25)
@@ -498,6 +584,10 @@ final class ModelRegistry {
         if let hq = descriptor(id: MiniMaxH3Configuration.highQualityModelID),
            !models.contains(where: { $0.id == hq.id }) {
             models.append(hq)
+        }
+        if let ref = descriptor(id: MiniMaxH3Configuration.referenceModelID),
+           !models.contains(where: { $0.id == ref.id }) {
+            models.append(ref)
         }
         if allowCustom {
             let profiles = CustomModelProfileStore.loadProfiles(userDefaults: userDefaults).filter(\.isEnabled)

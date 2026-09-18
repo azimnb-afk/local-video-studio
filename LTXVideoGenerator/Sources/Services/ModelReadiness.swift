@@ -26,6 +26,52 @@ enum ModelReadinessStatus: Equatable, Sendable {
 
     var canGenerate: Bool { self == .ready || self == .serverNotRunning }
 
+    /// Whether this model has enough local configuration (weights, model
+    /// directory, required runtime/environment) to be offered as a
+    /// selectable picker row — independent of `canGenerate`, the exact
+    /// right-now runtime state.
+    ///
+    /// VISIBLE / SELECTABLE / GENERATABLE_NOW are three separate questions
+    /// (docs/MODEL_REGISTRY_GUIDE.md): every registered user-facing model is
+    /// always VISIBLE; this property answers SELECTABLE; `canGenerate`
+    /// answers GENERATABLE_NOW. An H3 tier whose shared server currently has
+    /// a *different* tier loaded (`.serverModelMismatch`), or is simply idle
+    /// (`.serverNotRunning`), is fully configured and must stay selectable —
+    /// picking it is what triggers the existing runtime start/switch at
+    /// Generate time. Only a genuine setup gap (no model directory, no
+    /// runtime, no cached weights, etc.) makes a model unselectable.
+    var isConfigured: Bool {
+        switch self {
+        case .notConfigured, .runtimeMissing, .textEncoderMissing, .vaeMissing,
+             .backendUnavailable, .invalidModelPath, .unsupported, .notDownloaded:
+            return false
+        case .checking, .ready, .serverNotRunning, .serverUnhealthy, .serverModelMismatch:
+            return true
+        }
+    }
+
+    /// Short bilingual status shown next to a picker row's name. `nil` for
+    /// `.ready` so the common case stays a clean, unadorned name. This never
+    /// controls whether the row exists — only its label and (via
+    /// `isConfigured`) whether it's selectable.
+    var pickerStatusLabel: String? {
+        switch self {
+        case .ready: return nil
+        case .checking: return "確認中 (Checking)"
+        case .notDownloaded: return "未ダウンロード (Not Downloaded)"
+        case .notConfigured: return "未設定 (Not Configured)"
+        case .runtimeMissing: return "ランタイム未設定 (Runtime Missing)"
+        case .textEncoderMissing: return "Text Encoder未設定 (Text Encoder Missing)"
+        case .vaeMissing: return "VAE未設定 (VAE Missing)"
+        case .backendUnavailable: return "バックエンド利用不可 (Backend Unavailable)"
+        case .serverNotRunning: return "停止中 (Stopped)"
+        case .serverUnhealthy: return "読み込み中 (Loading)"
+        case .serverModelMismatch: return "別モデル稼働中 (Wrong Model)"
+        case .invalidModelPath: return "モデルパス不正 (Invalid Path)"
+        case .unsupported: return "非対応 (Unsupported)"
+        }
+    }
+
     var displayName: String {
         switch self {
         case .checking: return "Checking…"
@@ -64,6 +110,15 @@ struct ModelReadiness: Identifiable, Equatable, Sendable {
 
     var id: String { modelID }
     var canGenerate: Bool { status.canGenerate }
+
+    /// The label a picker row shows: the model's own name, plus — unless
+    /// it's Ready — a short bilingual status suffix. Readiness only ever
+    /// affects this text and whether the row is selectable; it never
+    /// controls whether the row exists (see `ModelReadinessStore.pickerModels`).
+    func pickerRowLabel(_ baseName: String) -> String {
+        guard let suffix = status.pickerStatusLabel else { return baseName }
+        return "\(baseName) · \(suffix)"
+    }
 }
 
 /// Read-only checks for one registered model. This layer never downloads a
@@ -257,24 +312,17 @@ enum ModelReadinessResolver {
         }
 
         // Settings and the H3 generation path persist this exact server
-        // result. Reading it is intentionally side-effect free: a picker must
-        // never start a 33–49 GB model server just to populate a menu.
-        let state = userDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessStateKey)
+        // result, keyed by this model's own ID. Reading it is intentionally
+        // side-effect free: a picker must never start a 33–69 GB model
+        // server just to populate a menu. Because the key is per-model,
+        // recording a result for one H3 tier can never be misread as this
+        // tier's result — see docs/MODEL_REGISTRY_GUIDE.md.
+        let state = userDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessStateKey(for: model.id))
             .flatMap(MiniMaxH3RuntimeState.init(rawValue:)) ?? .notRunning
-        let recordedModelID = userDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessModelIDKey)
         // An idle server has no loaded identity to compare. Generation uses
         // ensureReady with this model's frozen configuration to start it.
         if state == .notRunning || state == .notConfigured {
             return result(model, .serverNotRunning, "The configured local H3 server starts when generation begins.")
-        }
-        if let recordedModelID, recordedModelID != model.id {
-            return result(model, .serverModelMismatch, "Readiness was recorded for a different H3 model.")
-        }
-        // A legacy readiness flag without a model ID cannot distinguish
-        // Standard from High Quality. Never treat that ambiguous snapshot as
-        // Ready; Settings can record a model-specific result on re-check.
-        if state == .ready && recordedModelID == nil {
-            return result(model, .serverModelMismatch, "Re-check H3 readiness to verify the selected model.")
         }
         switch state {
         case .ready:
@@ -288,7 +336,7 @@ enum ModelReadinessResolver {
         case .wrongModel:
             return result(model, .serverModelMismatch, "The running H3 server has a different model loaded.")
         case .failed, .broken:
-            let detail = userDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessDetailKey)
+            let detail = userDefaults.string(forKey: MiniMaxH3Configuration.lastReadinessDetailKey(for: model.id))
             return result(model, .serverUnhealthy, detail ?? "The H3 server is not healthy.")
         }
     }
@@ -341,24 +389,62 @@ final class ModelReadinessStore: ObservableObject {
         states[modelID]
     }
 
+    /// Models whose exact right-now runtime state allows starting a
+    /// generation immediately, with no extra step. NOT the picker's
+    /// population source — see `pickerModels`. Kept for callers that
+    /// genuinely need "generatable this instant" (e.g. a future "Quick
+    /// Generate with whatever's ready" action), distinct from what the
+    /// picker shows.
     func readyModels() -> [ModelDescriptor] {
         ModelRegistry.shared.selectableModels().filter { states[$0.id]?.canGenerate == true }
     }
 
-    /// Keeps an unavailable persisted selection visible but disabled, so the
-    /// app never silently switches a project to another model. Ready entries
-    /// remain the only selectable choices.
+    /// Every registered, user-facing model — always, regardless of runtime
+    /// readiness. This is `ModelRegistry.selectableModels()`, not
+    /// `readyModels()`: the absolute product rule this exists to satisfy is
+    /// "Generate画面から選択できないユーザー向けモデルは、ユーザーにとって
+    /// 存在しない" (docs/MODEL_REGISTRY_GUIDE.md), so a registered model must
+    /// never vanish from the picker just because its runtime happens to be
+    /// busy, stopped, or mid-load of a sibling tier — a model's *visibility*
+    /// and its *current generatability* are different questions. Readiness
+    /// controls only two things a row-consumer should read: the status label
+    /// (`ModelReadiness.pickerRowLabel`) and whether the row is selectable
+    /// right now (`ModelReadinessStatus.isConfigured`) — never whether the
+    /// row exists.
+    ///
+    /// The persisted selection is still guaranteed a row even if it somehow
+    /// fell out of the registered set (e.g. a deleted custom profile).
     func pickerModels(selectedID: String) -> [(model: ModelDescriptor, readiness: ModelReadiness)] {
-        var models = readyModels().compactMap { model -> (model: ModelDescriptor, readiness: ModelReadiness)? in
-            guard let state = states[model.id] else { return nil }
-            return (model, state)
+        Self.composePickerRows(
+            registered: ModelRegistry.shared.selectableModels(),
+            states: states,
+            selectedID: selectedID,
+            descriptor: { ModelRegistry.shared.descriptor(id: $0) }
+        )
+    }
+
+    /// Pure composition of `pickerModels`, extracted so tests can drive the
+    /// *exact* production algorithm against fixture data instead of a
+    /// hand-reimplemented mirror. A mirror is exactly how the 2026-09-18
+    /// ready-only-filter regression (H3 tiers silently vanishing from the
+    /// picker) went uncaught by the existing test suite — see the
+    /// PICKER_VISIBILITY tests in OneShotModelPickerTests.swift.
+    nonisolated static func composePickerRows(
+        registered: [ModelDescriptor],
+        states: [String: ModelReadiness],
+        selectedID: String,
+        descriptor: (String) -> ModelDescriptor?
+    ) -> [(model: ModelDescriptor, readiness: ModelReadiness)] {
+        var rows = registered.map { model -> (model: ModelDescriptor, readiness: ModelReadiness) in
+            let readiness = states[model.id] ?? ModelReadiness(modelID: model.id, status: .checking, reason: nil)
+            return (model, readiness)
         }
-        if !models.contains(where: { $0.model.id == selectedID }),
-           let selected = ModelRegistry.shared.descriptor(id: selectedID),
-           let state = states[selectedID] {
-            models.insert((selected, state), at: 0)
+        if !rows.contains(where: { $0.model.id == selectedID }),
+           let selected = descriptor(selectedID) {
+            let readiness = states[selectedID] ?? ModelReadiness(modelID: selectedID, status: .checking, reason: nil)
+            rows.insert((selected, readiness), at: 0)
         }
-        return models
+        return rows
     }
 }
 
@@ -424,9 +510,10 @@ final class ModelDownloadCoordinator: ObservableObject {
     }
 }
 
-/// Shared picker used by every generation workflow. Settings deliberately
-/// uses the full registry instead; this view is the boundary that keeps an
-/// unprepared model out of a generation request without silently changing a
+/// Shared picker used by every generation workflow. Every registered,
+/// user-facing model is always shown (see `ModelReadinessStore.pickerModels`)
+/// — readiness only changes a row's status label and whether it's currently
+/// selectable, never whether it appears. This never silently changes a
 /// persisted selection.
 struct ReadyModelPicker: View {
     let label: String
@@ -442,16 +529,14 @@ struct ReadyModelPicker: View {
         Picker(label, selection: $selection) {
             let entries = readinessStore.pickerModels(selectedID: selection)
             if entries.isEmpty {
-                Text(readinessStore.isRefreshing ? "Checking models…" : "No ready models — open Settings")
+                Text(readinessStore.isRefreshing ? "Checking models…" : "No models registered — open Settings")
                     .tag(selection)
                     .disabled(true)
             } else {
                 ForEach(entries, id: \.model.id) { entry in
-                    Text(entry.readiness.canGenerate
-                         ? entry.model.selectionDisplayName
-                         : "\(entry.model.selectionDisplayName) (Unavailable)")
+                    Text(entry.readiness.pickerRowLabel(entry.model.selectionDisplayName))
                         .tag(entry.model.id)
-                        .disabled(!entry.readiness.canGenerate)
+                        .disabled(!entry.readiness.status.isConfigured)
                 }
             }
         }
